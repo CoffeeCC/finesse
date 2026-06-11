@@ -154,6 +154,69 @@ export function useItemPages(
   return map
 }
 
+// ---------- Home browse rows ----------
+
+export function useGenres(parentId: string | undefined) {
+  return useQuery({
+    queryKey: ['genres', parentId],
+    queryFn: () => api.getGenres(parentId!),
+    enabled: !!parentId,
+    staleTime: 30 * 60_000,
+  })
+}
+
+/** A generic items row keyed by label; random-sorted rows reshuffle every 5 min. */
+export function useItemsRow(label: string, query: api.ItemsQuery | null) {
+  return useQuery({
+    queryKey: ['row', label, query],
+    enabled: !!query,
+    staleTime: 5 * 60_000,
+    queryFn: () =>
+      api.getItems({
+        recursive: true,
+        limit: 20,
+        fields: 'PrimaryImageAspectRatio,ProductionYear',
+        ...query!,
+      }),
+  })
+}
+
+/** "Because you watched X" — most recent resume item (or last played), then Similar. */
+export function useBecauseYouWatched() {
+  const lastPlayed = useQuery({
+    queryKey: ['lastPlayed'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const resume = await api.getResume()
+      if (resume.Items.length) return resume.Items[0]
+      const played = await api.getItems({
+        recursive: true,
+        includeItemTypes: 'Movie,Series',
+        filters: 'IsPlayed',
+        sortBy: 'DatePlayed',
+        sortOrder: 'Descending',
+        limit: 1,
+        fields: '',
+      })
+      return played.Items[0] ?? null
+    },
+  })
+
+  // Episodes should seed from their series for better similarity
+  const seed = lastPlayed.data
+  const seedId = seed ? (seed.Type === 'Episode' ? seed.SeriesId ?? seed.Id : seed.Id) : undefined
+  const seedName = seed ? (seed.Type === 'Episode' ? seed.SeriesName ?? seed.Name : seed.Name) : ''
+
+  const similar = useQuery({
+    queryKey: ['similar', seedId],
+    enabled: !!seedId,
+    staleTime: 5 * 60_000,
+    queryFn: () => api.getSimilar(seedId!),
+  })
+
+  return { seedName, items: similar.data?.Items, loading: lastPlayed.isLoading || similar.isLoading }
+}
+
 export function useSearch(term: string) {
   return useQuery({
     queryKey: ['search', term],

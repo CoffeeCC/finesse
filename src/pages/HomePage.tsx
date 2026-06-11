@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useLatest, useNextUp, useResume, useViews } from '../api/queries'
+import {
+  useBecauseYouWatched,
+  useGenres,
+  useItemsRow,
+  useLatest,
+  useNextUp,
+  useResume,
+  useViews,
+} from '../api/queries'
 import { backdropUrl, logoUrl } from '../api/client'
 import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
@@ -10,6 +18,21 @@ import { HeroSkeleton } from '../components/Skeletons'
 const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
 const HERO_ROTATE_MS = 9000
 const HERO_COUNT = 5
+
+/** Genres worth a dedicated row, in display order, when present in the library. */
+const PREFERRED_GENRES = [
+  'Action',
+  'Animation',
+  'Comedy',
+  'Science Fiction',
+  'Horror',
+  'Fantasy',
+  'Adventure',
+  'Drama',
+  'Thriller',
+  'Family',
+]
+const MAX_GENRE_ROWS = 5
 
 function HeroCarousel({ items }: { items: JfItem[] }) {
   const [index, setIndex] = useState(0)
@@ -141,6 +164,69 @@ export default function HomePage() {
 
   const heroLoading = viewsLoading || (moviesLoading && showsLoading)
 
+  // ---- Smart browse rows ----
+  const because = useBecauseYouWatched()
+  const movieTypes = 'Movie'
+  const allTypes = 'Movie,Series'
+
+  const favorites = useItemsRow('favorites', {
+    includeItemTypes: allTypes,
+    filters: 'IsFavorite',
+    sortBy: 'SortName',
+  })
+  const topRated = useItemsRow(
+    'topRated',
+    movieLib ? { parentId: movieLib.Id, includeItemTypes: movieTypes, sortBy: 'CommunityRating', sortOrder: 'Descending' } : null,
+  )
+  const newToYou = useItemsRow(
+    'newToYou',
+    movieLib ? { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'Random' } : null,
+  )
+  const watchAgain = useItemsRow(
+    'watchAgain',
+    movieLib ? { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'Random' } : null,
+  )
+  const nineties = useItemsRow(
+    'nineties',
+    movieLib
+      ? {
+          parentId: movieLib.Id,
+          includeItemTypes: movieTypes,
+          years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999',
+          sortBy: 'Random',
+        }
+      : null,
+  )
+
+  // Genre rows: preferred genres that actually exist in the movie library
+  const { data: genreList } = useGenres(movieLib?.Id)
+  const genreRowNames = useMemo(() => {
+    if (!genreList) return []
+    const present = new Set(genreList.Items.map((g) => g.Name))
+    return PREFERRED_GENRES.filter((g) => present.has(g)).slice(0, MAX_GENRE_ROWS)
+  }, [genreList])
+  const genreRow0 = useItemsRow(
+    `genre-${genreRowNames[0]}`,
+    movieLib && genreRowNames[0] ? { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: genreRowNames[0], sortBy: 'Random' } : null,
+  )
+  const genreRow1 = useItemsRow(
+    `genre-${genreRowNames[1]}`,
+    movieLib && genreRowNames[1] ? { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: genreRowNames[1], sortBy: 'Random' } : null,
+  )
+  const genreRow2 = useItemsRow(
+    `genre-${genreRowNames[2]}`,
+    movieLib && genreRowNames[2] ? { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: genreRowNames[2], sortBy: 'Random' } : null,
+  )
+  const genreRow3 = useItemsRow(
+    `genre-${genreRowNames[3]}`,
+    movieLib && genreRowNames[3] ? { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: genreRowNames[3], sortBy: 'Random' } : null,
+  )
+  const genreRow4 = useItemsRow(
+    `genre-${genreRowNames[4]}`,
+    movieLib && genreRowNames[4] ? { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: genreRowNames[4], sortBy: 'Random' } : null,
+  )
+  const genreRows = [genreRow0, genreRow1, genreRow2, genreRow3, genreRow4]
+
   return (
     <div className="pb-16">
       {/* Ambient drifting aurora behind everything */}
@@ -159,12 +245,27 @@ export default function HomePage() {
       <div className="space-y-10 mt-10">
         <MediaRow title="Continue Watching" items={resume?.Items} loading={resumeLoading} />
         <MediaRow title="Next Up" items={nextUp?.Items} loading={nextUpLoading} />
+        {because.seedName && (
+          <MediaRow
+            title={`Because you watched ${because.seedName}`}
+            items={because.items}
+            loading={because.loading}
+          />
+        )}
         {movieLib && (
           <MediaRow title={`Recently Added · ${movieLib.Name}`} items={latestMovies} loading={moviesLoading} />
         )}
         {showLib && (
           <MediaRow title={`Recently Added · ${showLib.Name}`} items={latestShows} loading={showsLoading} />
         )}
+        <MediaRow title="Favorites" items={favorites.data?.Items} loading={favorites.isLoading} />
+        <MediaRow title="Top Rated" items={topRated.data?.Items} loading={topRated.isLoading} />
+        <MediaRow title="New to You" items={newToYou.data?.Items} loading={newToYou.isLoading} />
+        {genreRowNames.map((name, i) => (
+          <MediaRow key={name} title={name} items={genreRows[i].data?.Items} loading={genreRows[i].isLoading} />
+        ))}
+        <MediaRow title="Throwback: the ’90s" items={nineties.data?.Items} loading={nineties.isLoading} />
+        <MediaRow title="Watch It Again" items={watchAgain.data?.Items} loading={watchAgain.isLoading} />
       </div>
     </div>
   )

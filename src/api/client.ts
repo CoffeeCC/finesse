@@ -131,6 +131,7 @@ export interface ItemsQuery {
   ids?: string
   personIds?: string
   genres?: string
+  years?: string
 }
 
 export function getItems(q: ItemsQuery) {
@@ -152,6 +153,7 @@ export function getItems(q: ItemsQuery) {
         Ids: q.ids,
         PersonIds: q.personIds,
         Genres: q.genres,
+        Years: q.years,
         EnableTotalRecordCount: true,
         ImageTypeLimit: 1,
       }),
@@ -185,6 +187,53 @@ export function getLatest(parentId: string, limit = 20) {
   return request<JfItem[]>(
     `/Users/${session!.userId}/Items/Latest` +
       qs({ ParentId: parentId, Limit: limit, Fields: 'PrimaryImageAspectRatio,ProductionYear' }),
+  )
+}
+
+export function getGenres(parentId: string) {
+  return request<JfItemsResult>(
+    '/Genres' +
+      qs({
+        ParentId: parentId,
+        UserId: session!.userId,
+        Recursive: true,
+        SortBy: 'SortName',
+        EnableTotalRecordCount: false,
+        EnableImages: false,
+      }),
+  )
+}
+
+export function getSimilar(itemId: string, limit = 20) {
+  return request<JfItemsResult>(
+    `/Items/${itemId}/Similar` +
+      qs({
+        UserId: session!.userId,
+        Limit: limit,
+        Fields: 'PrimaryImageAspectRatio,ProductionYear',
+      }),
+  )
+}
+
+export function setFavorite(itemId: string, favorite: boolean) {
+  return request<unknown>(`/Users/${session!.userId}/FavoriteItems/${itemId}`, {
+    method: favorite ? 'POST' : 'DELETE',
+  })
+}
+
+export interface JfMediaSegment {
+  Id: string
+  ItemId: string
+  Type: string // 'Intro' | 'Outro' | ...
+  StartTicks: number
+  EndTicks: number
+}
+
+export function getMediaSegments(itemId: string) {
+  return request<{ Items: JfMediaSegment[] }>(
+    `/MediaSegments/${itemId}` +
+      qs({ includeSegmentTypes: 'Intro' }) +
+      '&includeSegmentTypes=Outro',
   )
 }
 
