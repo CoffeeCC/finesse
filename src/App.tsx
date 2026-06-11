@@ -17,6 +17,7 @@ function ScrollToTop() {
 
 export default function App() {
   const { session } = useAuth()
+  const location = useLocation()
 
   if (!session) {
     return (
@@ -30,6 +31,7 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
+      <div className="grain" aria-hidden />
       <Routes>
         {/* Player is full-bleed, no navbar */}
         <Route path="/play/:itemId" element={<PlayerPage />} />
@@ -39,14 +41,17 @@ export default function App() {
             <>
               <NavBar />
               <main className="pt-16">
-                <Routes>
-                  <Route path="/" element={<HomePage />} />
-                  <Route path="/library/:viewId" element={<LibraryPage />} />
-                  <Route path="/item/:itemId" element={<ItemPage />} />
-                  <Route path="/search" element={<SearchPage />} />
-                  <Route path="/login" element={<Navigate to="/" replace />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
+                {/* Re-keying per path gives every page a rise-in entrance */}
+                <div key={location.pathname} className="page-enter">
+                  <Routes>
+                    <Route path="/" element={<HomePage />} />
+                    <Route path="/library/:viewId" element={<LibraryPage />} />
+                    <Route path="/item/:itemId" element={<ItemPage />} />
+                    <Route path="/search" element={<SearchPage />} />
+                    <Route path="/login" element={<Navigate to="/" replace />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </div>
               </main>
             </>
           }

@@ -36,14 +36,14 @@ export default function LoginPage() {
       <img
         src={splashscreenUrl(server || DEFAULT_SERVER)}
         alt=""
-        className="absolute inset-0 h-full w-full object-cover opacity-40 blur-sm scale-105"
+        className="slowzoom absolute inset-0 h-full w-full object-cover opacity-40 blur-sm"
         onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-ink-950/70 via-ink-950/40 to-ink-950" />
 
       <form
         onSubmit={submit}
-        className="relative w-full max-w-sm mx-4 rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl"
+        className="card-in relative w-full max-w-sm mx-4 rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl"
       >
         <h1 className="text-3xl font-semibold tracking-tight text-white">
           Finesse<span className="text-accent-400">.</span>

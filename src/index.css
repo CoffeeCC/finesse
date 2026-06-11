@@ -24,7 +24,23 @@ body {
   @apply bg-ink-950 text-ink-200 font-sans antialiased;
 }
 
-/* Hide scrollbars on horizontal rows but keep them scrollable */
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #262b3a;
+  border-radius: 8px;
+  border: 2px solid #0b0d12;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6279cd;
+}
+
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -33,22 +49,210 @@ body {
   display: none;
 }
 
-/* Skeleton shimmer */
+/* ---------- Film grain (kills banding in dark gradients) ---------- */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- Ambient aurora (drifting gradient blobs) ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora > div {
+  position: absolute;
+  width: 55vw;
+  height: 55vw;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+.aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(98, 121, 205, 0.16), transparent 65%);
+  top: -18vw;
+  left: -10vw;
+  animation: drift-a 46s ease-in-out infinite alternate;
+}
+.aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(146, 90, 191, 0.11), transparent 65%);
+  bottom: -22vw;
+  right: -12vw;
+  animation: drift-b 58s ease-in-out infinite alternate;
+}
+.aurora > div:nth-child(3) {
+  background: radial-gradient(circle, rgba(56, 130, 196, 0.09), transparent 65%);
+  top: 30vh;
+  left: 35vw;
+  animation: drift-c 70s ease-in-out infinite alternate;
+}
+@keyframes drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(12vw, 9vh, 0) scale(1.15); }
+}
+@keyframes drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.1); }
+  to { transform: translate3d(-10vw, -7vh, 0) scale(0.95); }
+}
+@keyframes drift-c {
+  from { transform: translate3d(0, 0, 0) scale(0.9); }
+  to { transform: translate3d(-14vw, 10vh, 0) scale(1.1); }
+}
+
+/* ---------- Ken Burns (hero + login backdrops) ---------- */
+@keyframes kenburns {
+  from { transform: scale(1.06) translate3d(0, 0, 0); }
+  to { transform: scale(1.14) translate3d(-1.6%, -1.2%, 0); }
+}
+.kenburns {
+  animation: kenburns 18s ease-out forwards;
+  will-change: transform;
+}
+@keyframes slowzoom {
+  from { transform: scale(1.02); }
+  to { transform: scale(1.12); }
+}
+.slowzoom {
+  animation: slowzoom 40s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+/* ---------- Ambilight breathe (detail page backdrop wash) ---------- */
+@keyframes breathe {
+  0%, 100% { transform: scale(1.25); }
+  50% { transform: scale(1.33); }
+}
+.ambient-breathe {
+  animation: breathe 36s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* ---------- Page transitions ---------- */
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.page-enter {
+  animation: pageIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---------- Scroll reveal ---------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- 3D tilt cards ---------- */
+.tilt {
+  transform-style: preserve-3d;
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s ease;
+  will-change: transform;
+}
+.tilt.tilting {
+  transition: box-shadow 0.3s ease; /* transform follows pointer raw for zero lag */
+}
+.tilt-glare {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  background: radial-gradient(
+    460px circle at var(--gx, 50%) var(--gy, 40%),
+    rgba(255, 255, 255, 0.16),
+    transparent 55%
+  );
+}
+.group:hover .tilt-glare {
+  opacity: 1;
+}
+
+/* ---------- Skeleton shimmer ---------- */
 @keyframes shimmer {
   0% { background-position: -400px 0; }
   100% { background-position: 400px 0; }
 }
 .shimmer {
-  background: linear-gradient(90deg, #1a1e29 25%, #232838 50%, #1a1e29 75%);
+  background: linear-gradient(90deg, #161a24 25%, #1f2433 50%, #161a24 75%);
   background-size: 800px 100%;
   animation: shimmer 1.4s infinite linear;
 }
 
-/* Subtle fade-in for images as they load */
+/* ---------- Image fade-in ---------- */
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: scale(1.02); }
+  to { opacity: 1; transform: scale(1); }
 }
 .fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.45s ease-out both;
+}
+
+/* ---------- Login card entrance ---------- */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.card-in {
+  animation: cardIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+
+/* ---------- Hero content swap ---------- */
+@keyframes heroContentIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.hero-content-in {
+  animation: heroContentIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
+}
+
+/* ---------- Buffering spinner ---------- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--color-accent-400);
+  animation: spin 0.9s linear infinite;
+}
+
+/* ---------- Accessibility: calm everything down on request ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .aurora > div,
+  .kenburns,
+  .slowzoom,
+  .ambient-breathe,
+  .page-enter,
+  .hero-content-in,
+  .card-in,
+  .fade-in {
+    animation: none !important;
+  }
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .tilt {
+    transition: none !important;
+  }
 }

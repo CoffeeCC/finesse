@@ -140,12 +140,24 @@ export default function ItemPage() {
 
   return (
     <div className="pb-16">
+      {/* Ambilight: the backdrop, blown out and breathing, washes the whole page */}
+      {backdrop && (
+        <div className="fixed inset-0 -z-10 overflow-hidden" aria-hidden>
+          <img
+            src={backdrop}
+            alt=""
+            className="ambient-breathe h-full w-full object-cover blur-3xl brightness-[0.22] saturate-150"
+          />
+        </div>
+      )}
+
       <div className="relative -mt-16">
         <div className="h-[48vh] min-h-[360px] w-full overflow-hidden">
           {backdrop && (
             <img src={backdrop} alt="" className="h-full w-full object-cover fade-in" />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/40 to-ink-950/30" />
+          {/* Fade the sharp backdrop into its own blurred ambilight — progressive-blur look, no seam */}
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30" />
         </div>
 
         <div className="relative px-6 lg:px-12 -mt-40 flex gap-8 items-end">
@@ -158,9 +170,15 @@ export default function ItemPage() {
           )}
           <div className="min-w-0 pb-2">
             {logo ? (
-              <img src={logo} alt={item.Name} className="max-h-20 max-w-md object-contain mb-3" />
+              <img
+                src={logo}
+                alt={item.Name}
+                className="max-h-20 max-w-md object-contain mb-3 drop-shadow-[0_4px_24px_rgba(0,0,0,0.7)]"
+              />
             ) : (
-              <h1 className="text-4xl font-bold text-white tracking-tight mb-2">{item.Name}</h1>
+              <h1 className="text-4xl font-bold text-white tracking-tight mb-2 drop-shadow-lg">
+                {item.Name}
+              </h1>
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-ink-200 mb-4">
               {item.ProductionYear && (

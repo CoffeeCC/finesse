@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import MediaCard from './MediaCard'
 import { CardSkeleton } from './Skeletons'
 import type { JfItem } from '../api/types'
@@ -11,6 +11,25 @@ interface Props {
 
 export default function MediaRow({ title, items, loading }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+  const [visible, setVisible] = useState(false)
+
+  // Rise in as the row enters the viewport, once
+  useEffect(() => {
+    const el = sectionRef.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisible(true)
+          io.disconnect()
+        }
+      },
+      { threshold: 0.05, rootMargin: '0px 0px -8% 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
 
   if (!loading && (!items || items.length === 0)) return null
 
@@ -19,7 +38,7 @@ export default function MediaRow({ title, items, loading }: Props) {
   }
 
   return (
-    <section className="group/row relative">
+    <section ref={sectionRef} className={`group/row relative reveal ${visible ? 'is-visible' : ''}`}>
       <div className="flex items-baseline justify-between px-6 lg:px-12 mb-3">
         <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
         <div className="hidden md:flex gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">

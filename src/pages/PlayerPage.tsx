@@ -16,6 +16,7 @@ export default function PlayerPage() {
   const { data: item } = useItem(itemId)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [error, setError] = useState('')
+  const [buffering, setBuffering] = useState(true)
   const [controlsVisible, setControlsVisible] = useState(true)
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -104,8 +105,13 @@ export default function PlayerPage() {
 
     const onPause = () => report(api.reportPlaybackProgress, true)
     const onSeeked = () => report(api.reportPlaybackProgress, video.paused)
+    const onWaiting = () => setBuffering(true)
+    const onPlaying = () => setBuffering(false)
     video.addEventListener('pause', onPause)
     video.addEventListener('seeked', onSeeked)
+    video.addEventListener('waiting', onWaiting)
+    video.addEventListener('playing', onPlaying)
+    video.addEventListener('canplay', onPlaying)
 
     start()
 
@@ -113,6 +119,9 @@ export default function PlayerPage() {
       cancelled = true
       video.removeEventListener('pause', onPause)
       video.removeEventListener('seeked', onSeeked)
+      video.removeEventListener('waiting', onWaiting)
+      video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('canplay', onPlaying)
       if (progressTimer) clearInterval(progressTimer)
       report(api.reportPlaybackStopped)
       if (transcoding && playSessionId) api.stopActiveEncoding(playSessionId)
@@ -145,6 +154,12 @@ export default function PlayerPage() {
   return (
     <div className="fixed inset-0 bg-black">
       <video ref={videoRef} controls autoPlay playsInline className="h-full w-full" />
+
+      {buffering && !error && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="spinner" />
+        </div>
+      )}
 
       <div
         className={`absolute top-0 inset-x-0 bg-gradient-to-b from-black/80 to-transparent px-4 py-3 flex items-center gap-3 transition-opacity duration-300 ${

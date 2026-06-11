@@ -1,6 +1,13 @@
+import { useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { posterUrl } from '../api/client'
 import type { JfItem } from '../api/types'
+
+const REDUCED_MOTION =
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+const MAX_TILT_DEG = 9
 
 function progressPct(item: JfItem): number | null {
   const ud = item.UserData
@@ -25,13 +32,47 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
   const unplayedCount = item.UserData?.UnplayedItemCount
   const linkId = item.Type === 'Episode' && item.SeriesId ? item.SeriesId : item.Id
 
+  const tiltRef = useRef<HTMLDivElement>(null)
+  const frame = useRef(0)
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (REDUCED_MOTION || e.pointerType === 'touch') return
+    const el = tiltRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
+    cancelAnimationFrame(frame.current)
+    frame.current = requestAnimationFrame(() => {
+      el.classList.add('tilting')
+      el.style.transform =
+        `perspective(900px) rotateX(${((0.5 - y) * MAX_TILT_DEG).toFixed(2)}deg)` +
+        ` rotateY(${((x - 0.5) * MAX_TILT_DEG).toFixed(2)}deg) scale3d(1.05, 1.05, 1)`
+      el.style.setProperty('--gx', `${(x * 100).toFixed(1)}%`)
+      el.style.setProperty('--gy', `${(y * 100).toFixed(1)}%`)
+    })
+  }, [])
+
+  const onPointerLeave = useCallback(() => {
+    const el = tiltRef.current
+    if (!el) return
+    cancelAnimationFrame(frame.current)
+    el.classList.remove('tilting')
+    el.style.transform = ''
+  }, [])
+
   return (
     <Link
       to={`/item/${linkId}`}
       className="group block shrink-0 outline-none"
       style={width ? { width } : undefined}
     >
-      <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 transition-all duration-200 group-hover:ring-2 group-hover:ring-accent-400 group-hover:scale-[1.03] group-hover:shadow-xl group-hover:shadow-black/50 group-focus-visible:ring-2 group-focus-visible:ring-accent-400">
+      <div
+        ref={tiltRef}
+        onPointerMove={onPointerMove}
+        onPointerLeave={onPointerLeave}
+        className="tilt relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
+      >
         {poster ? (
           <img
             src={poster}
@@ -45,22 +86,27 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
           </div>
         )}
 
+        <div className="tilt-glare" />
+
         {played && (
-          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-500 flex items-center justify-center shadow-md">
+          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-500 flex items-center justify-center shadow-md shadow-black/40">
             <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
             </svg>
           </div>
         )}
         {!played && unplayedCount != null && unplayedCount > 0 && (
-          <div className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-accent-500 flex items-center justify-center text-xs font-semibold text-white shadow-md">
+          <div className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-accent-500 flex items-center justify-center text-xs font-semibold text-white shadow-md shadow-black/40">
             {unplayedCount}
           </div>
         )}
 
         {pct != null && (
           <div className="absolute bottom-0 inset-x-0 h-1 bg-black/60">
-            <div className="h-full bg-accent-400" style={{ width: `${pct}%` }} />
+            <div
+              className="h-full bg-accent-400 shadow-[0_0_8px_rgba(117,137,216,0.8)]"
+              style={{ width: `${pct}%` }}
+            />
           </div>
         )}
       </div>

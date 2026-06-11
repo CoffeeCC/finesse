@@ -11,6 +11,7 @@ export default function NavBar() {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(window.scrollY > 24)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -21,6 +22,21 @@ export default function NavBar() {
     return () => document.removeEventListener('mousedown', close)
   }, [])
 
+  // Transparent over the hero, glass once you scroll
+  useEffect(() => {
+    let ticking = false
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => {
+        setScrolled(window.scrollY > 24)
+        ticking = false
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   const libraries = views?.Items.filter((v) => NAV_COLLECTIONS.has(v.CollectionType ?? '')) ?? []
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -29,7 +45,13 @@ export default function NavBar() {
     }`
 
   return (
-    <header className="fixed top-0 inset-x-0 z-50 h-16 bg-ink-950/70 backdrop-blur-xl border-b border-white/5">
+    <header
+      className={`fixed top-0 inset-x-0 z-50 h-16 transition-all duration-500 ${
+        scrolled
+          ? 'bg-ink-950/70 backdrop-blur-xl border-b border-white/5 shadow-lg shadow-black/20'
+          : 'bg-gradient-to-b from-ink-950/70 to-transparent border-b border-transparent'
+      }`}
+    >
       <div className="h-full max-w-[1800px] mx-auto px-6 flex items-center gap-2">
         <Link to="/" className="text-xl font-semibold tracking-tight text-white mr-4 shrink-0">
           Finesse<span className="text-accent-400">.</span>
