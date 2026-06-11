@@ -1,6 +1,7 @@
 import { useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { posterUrl } from '../api/client'
+import { blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import type { JfItem } from '../api/types'
 
 const REDUCED_MOTION =
@@ -61,9 +62,16 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
     el.style.transform = ''
   }, [])
 
+  const blurUrl = blurhashToDataURL(primaryBlurhash(item))
+
   return (
     <Link
       to={`/item/${linkId}`}
+      viewTransition
+      onClick={() => {
+        // The clicked poster morphs into the detail-page poster (Chrome VT API)
+        if (tiltRef.current) tiltRef.current.style.viewTransitionName = 'vt-poster'
+      }}
       className="group block shrink-0 outline-none"
       style={width ? { width } : undefined}
     >
@@ -73,12 +81,15 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
         onPointerLeave={onPointerLeave}
         className="tilt relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
       >
+        {blurUrl && (
+          <img src={blurUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
+        )}
         {poster ? (
           <img
             src={poster}
             alt={item.Name}
             loading="lazy"
-            className="h-full w-full object-cover fade-in"
+            className="relative h-full w-full object-cover fade-in"
           />
         ) : (
           <div className="h-full w-full flex items-center justify-center p-3 text-center text-sm text-ink-400">

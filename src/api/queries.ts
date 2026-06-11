@@ -76,15 +76,22 @@ export interface LibraryIndex {
   letters: string[]
 }
 
-export function useLibraryIndex(parentId: string | undefined, includeItemTypes: string) {
+export function useLibraryIndex(
+  parentId: string | undefined,
+  includeItemTypes: string,
+  genres?: string,
+  filters?: string,
+) {
   return useQuery({
-    queryKey: ['libIndex', parentId, includeItemTypes],
+    queryKey: ['libIndex', parentId, includeItemTypes, genres, filters],
     enabled: !!parentId,
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<LibraryIndex> => {
       const res = await api.getItems({
         parentId,
         includeItemTypes,
+        genres,
+        filters,
         recursive: true,
         sortBy: 'SortName',
         sortOrder: 'Ascending',
@@ -121,6 +128,8 @@ export function useItemPages(
   sortOrder: string,
   visibleStart: number,
   visibleEnd: number,
+  genres?: string,
+  filters?: string,
 ): Map<number, JfItem> {
   const firstPage = Math.max(0, Math.floor(visibleStart / PAGE_SIZE))
   const lastPage = Math.max(firstPage, Math.floor(visibleEnd / PAGE_SIZE))
@@ -129,13 +138,15 @@ export function useItemPages(
 
   const results = useQueries({
     queries: pageIndexes.map((page) => ({
-      queryKey: ['itemPage', parentId, includeItemTypes, sortBy, sortOrder, page],
+      queryKey: ['itemPage', parentId, includeItemTypes, sortBy, sortOrder, genres, filters, page],
       enabled: !!parentId,
       staleTime: 5 * 60_000,
       queryFn: () =>
         api.getItems({
           parentId,
           includeItemTypes,
+          genres,
+          filters,
           recursive: true,
           sortBy,
           sortOrder,

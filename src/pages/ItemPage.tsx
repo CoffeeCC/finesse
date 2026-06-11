@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEpisodes, useItem, useSeasons } from '../api/queries'
-import { backdropUrl, episodeThumbUrl, imageUrl, logoUrl, posterUrl } from '../api/client'
+import { backdropUrl, episodeThumbUrl, imageUrl, logoUrl, posterUrl, setFavorite } from '../api/client'
+import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
+import { useToast } from '../components/Toast'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
 
@@ -127,6 +130,9 @@ function Seasons({ series }: { series: JfItem }) {
 export default function ItemPage() {
   const { itemId } = useParams()
   const { data: item, isLoading } = useItem(itemId)
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const [favBusy, setFavBusy] = useState(false)
 
   if (isLoading || !item) {
     return <div className="h-[50vh] shimmer -mt-16" />
@@ -137,6 +143,24 @@ export default function ItemPage() {
   const poster = posterUrl(item, 600)
   const cast = item.People?.filter((p) => p.Type === 'Actor').slice(0, 12) ?? []
   const isSeries = item.Type === 'Series'
+  const isFavorite = item.UserData?.IsFavorite ?? false
+
+  // Per-title accent pulled from the poster art
+  const avg = blurhashAverageColor(primaryBlurhash(item))
+  const accentRgb = avg ? `${avg[0]}, ${avg[1]}, ${avg[2]}` : '98, 121, 205'
+
+  const toggleFavorite = async () => {
+    setFavBusy(true)
+    try {
+      await setFavorite(item.Id, !isFavorite)
+      await queryClient.invalidateQueries({ queryKey: ['item', itemId] })
+      toast(isFavorite ? 'Removed from favorites' : 'Added to favorites')
+    } catch {
+      toast('Could not update favorite', 'error')
+    } finally {
+      setFavBusy(false)
+    }
+  }
 
   return (
     <div className="pb-16">
@@ -165,7 +189,8 @@ export default function ItemPage() {
             <img
               src={poster}
               alt={item.Name}
-              className="hidden md:block w-52 rounded-xl shadow-2xl ring-1 ring-white/10 shrink-0"
+              style={{ viewTransitionName: 'vt-poster', boxShadow: `0 25px 60px -12px rgba(${accentRgb}, 0.35)` }}
+              className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0"
             />
           )}
           <div className="min-w-0 pb-2">
@@ -211,11 +236,23 @@ export default function ItemPage() {
                 </span>
               ))}
             </div>
-            {!isSeries && (
-              <div className="flex gap-3">
-                <PlayLink item={item} />
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              {!isSeries && <PlayLink item={item} />}
+              <button
+                onClick={toggleFavorite}
+                disabled={favBusy}
+                aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                className={`h-10 w-10 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
+                  isFavorite
+                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                    : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <svg className="h-5 w-5" fill={isFavorite ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>

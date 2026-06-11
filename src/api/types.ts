@@ -85,6 +85,8 @@ export interface JfItem {
   People?: JfPerson[]
   MediaSources?: JfMediaSource[]
   Trickplay?: Record<string, Record<string, JfTrickplayInfo>>
+  ImageBlurHashes?: Record<string, Record<string, string>>
+  Path?: string
 }
 
 export interface JfItemsResult {

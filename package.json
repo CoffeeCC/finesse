@@ -12,6 +12,7 @@
     "@fontsource-variable/inter": "^5.2.5",
     "@tanstack/react-query": "^5.66.0",
     "@tanstack/react-virtual": "^3.13.0",
+    "blurhash": "^2.0.5",
     "hls.js": "^1.6.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

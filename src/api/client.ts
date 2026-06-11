@@ -98,6 +98,21 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
 
 // ---------- Auth ----------
 
+export interface JfPublicUser {
+  Id: string
+  Name: string
+  PrimaryImageTag?: string
+  HasPassword?: boolean
+}
+
+export function getPublicUsers(server: string) {
+  return request<JfPublicUser[]>('/Users/Public', { server: server.replace(/\/+$/, '') })
+}
+
+export function publicUserImageUrl(server: string, userId: string, tag?: string): string {
+  return `${server.replace(/\/+$/, '')}/Users/${userId}/Images/Primary` + qs({ tag, maxWidth: 200 })
+}
+
 export async function login(server: string, username: string, password: string): Promise<Session> {
   const result = await request<JfAuthResult>('/Users/AuthenticateByName', {
     method: 'POST',

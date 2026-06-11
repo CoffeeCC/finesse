@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import * as api from '../api/client'
 import {
   itemTypesForCollection,
+  useGenres,
   useItemPages,
   useLibraryIndex,
   useViews,
@@ -42,18 +43,51 @@ export default function LibraryPage() {
 
   const [sortIdx, setSortIdx] = useState(0)
   const [filter, setFilter] = useState('')
+  const [selectedGenres, setSelectedGenres] = useState<Set<string>>(new Set())
+  const [unwatchedOnly, setUnwatchedOnly] = useState(false)
   const debouncedFilter = useDebounced(filter, 300)
   const sort = SORT_OPTIONS[sortIdx]
   const isNameSort = sortIdx === 0
 
-  // Reset filter when switching libraries
+  // Reset filters when switching libraries
   useEffect(() => {
     setFilter('')
     setSortIdx(0)
+    setSelectedGenres(new Set())
+    setUnwatchedOnly(false)
   }, [viewId])
 
-  const { data: index } = useLibraryIndex(viewId, includeItemTypes)
+  const genresParam = selectedGenres.size ? [...selectedGenres].join('|') : undefined
+  const filtersParam = unwatchedOnly ? 'IsUnplayed' : undefined
+
+  const { data: genreList } = useGenres(viewId)
+  const { data: index } = useLibraryIndex(viewId, includeItemTypes, genresParam, filtersParam)
   const total = index?.total ?? 0
+
+  const toggleGenre = (name: string) => {
+    setSelectedGenres((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  // Floating letter chip while scrolling the name-sorted grid
+  const [scrolling, setScrolling] = useState(false)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    const onScroll = () => {
+      setScrolling(true)
+      clearTimeout(timer)
+      timer = setTimeout(() => setScrolling(false), 700)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      clearTimeout(timer)
+    }
+  }, [])
 
   // --- Responsive columns ---
   const gridRef = useRef<HTMLDivElement>(null)
@@ -102,6 +136,8 @@ export default function LibraryPage() {
     sort.sortOrder,
     visibleStart,
     visibleEnd,
+    genresParam,
+    filtersParam,
   )
 
   // --- Alphabet rail ---
@@ -170,6 +206,33 @@ export default function LibraryPage() {
         </select>
       </div>
 
+      {/* Filter chips */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-4 -mt-1">
+        <button
+          onClick={() => setUnwatchedOnly((v) => !v)}
+          className={`shrink-0 px-3.5 py-1 rounded-full text-xs font-medium transition-all active:scale-95 ${
+            unwatchedOnly
+              ? 'bg-accent-500 text-white shadow-[0_0_14px_rgba(98,121,205,0.45)]'
+              : 'bg-ink-800/80 text-ink-400 hover:text-white border border-white/10'
+          }`}
+        >
+          Unwatched
+        </button>
+        {genreList?.Items.map((g) => (
+          <button
+            key={g.Id}
+            onClick={() => toggleGenre(g.Name)}
+            className={`shrink-0 px-3.5 py-1 rounded-full text-xs font-medium transition-all active:scale-95 ${
+              selectedGenres.has(g.Name)
+                ? 'bg-accent-500 text-white shadow-[0_0_14px_rgba(98,121,205,0.45)]'
+                : 'bg-ink-800/80 text-ink-400 hover:text-white border border-white/10'
+            }`}
+          >
+            {g.Name}
+          </button>
+        ))}
+      </div>
+
       {searching ? (
         <div
           className="grid gap-4"
@@ -214,6 +277,13 @@ export default function LibraryPage() {
               active={activeLetter}
               onJump={jumpToLetter}
             />
+          )}
+
+          {/* Floating letter chip while fast-scrolling */}
+          {scrolling && isNameSort && activeLetter && (
+            <div className="letter-pop fixed right-16 top-1/2 -translate-y-1/2 z-40 hidden lg:flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-900/85 backdrop-blur-xl border border-white/10 shadow-2xl text-3xl font-bold text-white pointer-events-none">
+              {activeLetter}
+            </div>
           )}
         </>
       )}
