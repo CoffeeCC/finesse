@@ -1,11 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import * as api from '../api/client'
-import { useItem } from '../api/queries'
+import { useEpisodes, useItem } from '../api/queries'
 import { secondsToTicks, ticksToSeconds } from '../api/types'
+import type { JfMediaStream, JfTrickplayInfo } from '../api/types'
 
 const PROGRESS_INTERVAL_MS = 10_000
+const NEXT_CARD_FALLBACK_SECONDS = 25
+const NEXT_COUNTDOWN = 10
+
+function fmt(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60)
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`
+}
+
+interface StreamInfo {
+  playSessionId: string
+  mediaSourceId: string
+  transcoding: boolean
+  offsetSec: number
+  mediaStreams: JfMediaStream[]
+}
 
 export default function PlayerPage() {
   const { itemId } = useParams()
@@ -15,28 +36,52 @@ export default function PlayerPage() {
 
   const { data: item } = useItem(itemId)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const hlsRef = useRef<Hls | null>(null)
+  const streamRef = useRef<StreamInfo | null>(null)
+
   const [error, setError] = useState('')
   const [buffering, setBuffering] = useState(true)
+  const [playing, setPlaying] = useState(false)
+  const [absTime, setAbsTime] = useState(ticksToSeconds(startTicks))
+  const [bufferedAbs, setBufferedAbs] = useState(0)
+  const [volume, setVolume] = useState(() => Number(localStorage.getItem('finesse.volume') ?? 1))
+  const [muted, setMuted] = useState(() => localStorage.getItem('finesse.muted') === '1')
+  const [fullscreen, setFullscreen] = useState(false)
+  const [menu, setMenu] = useState<'audio' | 'subs' | null>(null)
+  const [audioIndex, setAudioIndex] = useState<number | undefined>(undefined)
+  const [subIndex, setSubIndex] = useState<number>(-1)
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [hover, setHover] = useState<{ frac: number; x: number } | null>(null)
+  const [segments, setSegments] = useState<api.JfMediaSegment[]>([])
+  const [nextCancelled, setNextCancelled] = useState(false)
+  const [countdown, setCountdown] = useState<number | null>(null)
+
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const seekbarRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || !itemId) return
+  const durationSec = ticksToSeconds(item?.RunTimeTicks)
 
-    let hls: Hls | null = null
-    let progressTimer: ReturnType<typeof setInterval> | null = null
-    let cancelled = false
+  // ---------- Next episode ----------
+  const { data: seasonEps } = useEpisodes(
+    item?.Type === 'Episode' ? item.SeriesId : undefined,
+    item?.Type === 'Episode' ? item.SeasonId : undefined,
+  )
+  const nextEp = useMemo(() => {
+    if (!item || item.Type !== 'Episode' || !seasonEps) return undefined
+    const i = seasonEps.Items.findIndex((e) => e.Id === item.Id)
+    return i >= 0 ? seasonEps.Items[i + 1] : undefined
+  }, [item, seasonEps])
 
-    // Ticks the current stream starts at (HLS transcodes begin at the seek point)
-    let offsetTicks = 0
-    let playSessionId = ''
-    let mediaSourceId = ''
-    let transcoding = false
+  // ---------- Stream lifecycle ----------
+  const positionTicks = useCallback(() => {
+    const v = videoRef.current
+    const s = streamRef.current
+    if (!v || !s) return 0
+    return secondsToTicks(s.offsetSec + v.currentTime)
+  }, [])
 
-    const positionTicks = () => offsetTicks + secondsToTicks(video.currentTime)
-
-    const report = (
+  const report = useCallback(
+    (
       fn: (r: {
         itemId: string
         mediaSourceId: string
@@ -46,47 +91,74 @@ export default function PlayerPage() {
       }) => unknown,
       isPaused?: boolean,
     ) => {
-      if (playSessionId) {
-        fn({ itemId, mediaSourceId, playSessionId, positionTicks: positionTicks(), isPaused })
+      const s = streamRef.current
+      if (s && itemId) {
+        fn({
+          itemId,
+          mediaSourceId: s.mediaSourceId,
+          playSessionId: s.playSessionId,
+          positionTicks: positionTicks(),
+          isPaused,
+        })
       }
-    }
+    },
+    [itemId, positionTicks],
+  )
 
-    const start = async () => {
+  const teardownStream = useCallback((stopEncoding: boolean) => {
+    const s = streamRef.current
+    hlsRef.current?.destroy()
+    hlsRef.current = null
+    if (stopEncoding && s?.transcoding && s.playSessionId) {
+      api.stopActiveEncoding(s.playSessionId)
+    }
+  }, [])
+
+  const loadStream = useCallback(
+    async (atTicks: number, audio?: number, sub?: number) => {
+      const video = videoRef.current
+      if (!video || !itemId) return
+      setBuffering(true)
+      teardownStream(true)
       try {
-        const info = await api.getPlaybackInfo(itemId, startTicks)
-        if (cancelled) return
+        const info = await api.getPlaybackInfo(itemId, atTicks, audio, sub === -1 ? undefined : sub)
         const source = info.MediaSources[0]
         if (!source) throw new Error('No playable media source')
 
-        playSessionId = info.PlaySessionId
-        mediaSourceId = source.Id
-
         let url: string
+        let transcoding = false
         if (source.SupportsDirectPlay) {
           url = api.directStreamUrl(itemId, source.Id, source.Container)
         } else if (source.TranscodingUrl) {
           url = api.transcodeUrl(source.TranscodingUrl)
           transcoding = true
-          offsetTicks = startTicks
         } else {
           throw new Error('Server offered no playback method')
         }
 
+        streamRef.current = {
+          playSessionId: info.PlaySessionId,
+          mediaSourceId: source.Id,
+          transcoding,
+          offsetSec: transcoding ? ticksToSeconds(atTicks) : 0,
+          mediaStreams: source.MediaStreams ?? [],
+        }
+
         if (url.includes('.m3u8') && Hls.isSupported()) {
-          hls = new Hls({ maxBufferLength: 60, backBufferLength: 30 })
+          const hls = new Hls({ maxBufferLength: 60, backBufferLength: 30 })
+          hlsRef.current = hls
           hls.loadSource(url)
           hls.attachMedia(video)
-          hls.on(Hls.Events.ERROR, (_evt, data) => {
+          hls.on(Hls.Events.ERROR, (_e, data) => {
             if (data.fatal) setError(`Playback failed (${data.type})`)
           })
         } else {
           video.src = url
         }
 
-        // Direct play resumes by seeking; transcodes already start at the offset
-        if (!transcoding && startTicks > 0) {
+        if (!transcoding && atTicks > 0) {
           const onMeta = () => {
-            video.currentTime = ticksToSeconds(startTicks)
+            video.currentTime = ticksToSeconds(atTicks)
             video.removeEventListener('loadedmetadata', onMeta)
           }
           video.addEventListener('loadedmetadata', onMeta)
@@ -94,66 +166,327 @@ export default function PlayerPage() {
 
         await video.play().catch(() => {})
         report(api.reportPlaybackStart)
-        progressTimer = setInterval(
-          () => report(api.reportPlaybackProgress, video.paused),
-          PROGRESS_INTERVAL_MS,
-        )
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not start playback')
+        setError(e instanceof Error ? e.message : 'Could not start playback')
       }
-    }
+    },
+    [itemId, report, teardownStream],
+  )
 
-    const onPause = () => report(api.reportPlaybackProgress, true)
-    const onSeeked = () => report(api.reportPlaybackProgress, video.paused)
-    const onWaiting = () => setBuffering(true)
-    const onPlaying = () => setBuffering(false)
-    video.addEventListener('pause', onPause)
-    video.addEventListener('seeked', onSeeked)
-    video.addEventListener('waiting', onWaiting)
-    video.addEventListener('playing', onPlaying)
-    video.addEventListener('canplay', onPlaying)
+  // Initial load + cleanup
+  useEffect(() => {
+    setError('')
+    setNextCancelled(false)
+    setCountdown(null)
+    setSubIndex(-1)
+    setAudioIndex(undefined)
+    loadStream(startTicks)
 
-    start()
+    const progressTimer = setInterval(
+      () => report(api.reportPlaybackProgress, videoRef.current?.paused),
+      PROGRESS_INTERVAL_MS,
+    )
+    api.getMediaSegments(itemId!).then(
+      (r) => setSegments(r.Items ?? []),
+      () => setSegments([]),
+    )
 
     return () => {
-      cancelled = true
-      video.removeEventListener('pause', onPause)
-      video.removeEventListener('seeked', onSeeked)
-      video.removeEventListener('waiting', onWaiting)
-      video.removeEventListener('playing', onPlaying)
-      video.removeEventListener('canplay', onPlaying)
-      if (progressTimer) clearInterval(progressTimer)
+      clearInterval(progressTimer)
       report(api.reportPlaybackStopped)
-      if (transcoding && playSessionId) api.stopActiveEncoding(playSessionId)
-      hls?.destroy()
-      video.removeAttribute('src')
-      video.load()
+      teardownStream(true)
+      const v = videoRef.current
+      if (v) {
+        v.removeAttribute('src')
+        v.load()
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, startTicks])
 
-  // Auto-hide the top bar while playing
+  // ---------- Video element events ----------
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onTime = () => {
+      const s = streamRef.current
+      if (!s) return
+      setAbsTime(s.offsetSec + v.currentTime)
+      try {
+        const b = v.buffered
+        if (b.length) setBufferedAbs(s.offsetSec + b.end(b.length - 1))
+      } catch {
+        /* buffered can throw during teardown */
+      }
+    }
+    const onPlay = () => setPlaying(true)
+    const onPause = () => {
+      setPlaying(false)
+      report(api.reportPlaybackProgress, true)
+    }
+    const onSeeked = () => report(api.reportPlaybackProgress, v.paused)
+    const onWaiting = () => setBuffering(true)
+    const onPlaying = () => setBuffering(false)
+    v.addEventListener('timeupdate', onTime)
+    v.addEventListener('play', onPlay)
+    v.addEventListener('pause', onPause)
+    v.addEventListener('seeked', onSeeked)
+    v.addEventListener('waiting', onWaiting)
+    v.addEventListener('playing', onPlaying)
+    v.addEventListener('canplay', onPlaying)
+    return () => {
+      v.removeEventListener('timeupdate', onTime)
+      v.removeEventListener('play', onPlay)
+      v.removeEventListener('pause', onPause)
+      v.removeEventListener('seeked', onSeeked)
+      v.removeEventListener('waiting', onWaiting)
+      v.removeEventListener('playing', onPlaying)
+      v.removeEventListener('canplay', onPlaying)
+    }
+  }, [report])
+
+  // Volume
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    v.volume = volume
+    v.muted = muted
+    localStorage.setItem('finesse.volume', String(volume))
+    localStorage.setItem('finesse.muted', muted ? '1' : '0')
+  }, [volume, muted])
+
+  // ---------- Actions ----------
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) v.play().catch(() => {})
+    else v.pause()
+  }, [])
+
+  const seekTo = useCallback(
+    (absSec: number) => {
+      const v = videoRef.current
+      const s = streamRef.current
+      if (!v || !s) return
+      absSec = Math.max(0, Math.min(absSec, durationSec || absSec))
+      setAbsTime(absSec) // optimistic: bar + clock jump immediately, video catches up
+      if (!s.transcoding) {
+        v.currentTime = absSec
+        return
+      }
+      const rel = absSec - s.offsetSec
+      let seekableEnd = 0
+      try {
+        seekableEnd = v.seekable.length ? v.seekable.end(v.seekable.length - 1) : 0
+      } catch {
+        /* ignore */
+      }
+      if (rel >= 0 && rel <= seekableEnd) {
+        v.currentTime = rel
+      } else {
+        // Outside what this transcode session covers: restart the stream there
+        loadStream(secondsToTicks(absSec), audioIndex, subIndex)
+      }
+    },
+    [durationSec, loadStream, audioIndex, subIndex],
+  )
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen()
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {})
+    }
+  }, [])
+  useEffect(() => {
+    const onFs = () => setFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+
+  const changeAudio = (idx: number) => {
+    setAudioIndex(idx)
+    setMenu(null)
+    loadStream(secondsToTicks(absTime), idx, subIndex)
+  }
+  const changeSub = (idx: number) => {
+    setSubIndex(idx)
+    setMenu(null)
+    loadStream(secondsToTicks(absTime), audioIndex, idx)
+  }
+
+  // ---------- Keyboard shortcuts ----------
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return
+      switch (e.key) {
+        case ' ':
+        case 'k':
+          e.preventDefault()
+          togglePlay()
+          break
+        case 'ArrowLeft':
+          seekTo(absTime - 10)
+          break
+        case 'ArrowRight':
+          seekTo(absTime + 10)
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          setVolume((v) => Math.min(1, v + 0.05))
+          break
+        case 'ArrowDown':
+          e.preventDefault()
+          setVolume((v) => Math.max(0, v - 0.05))
+          break
+        case 'm':
+          setMuted((m) => !m)
+          break
+        case 'f':
+          toggleFullscreen()
+          break
+        case 'Escape':
+          if (!document.fullscreenElement) navigate(-1)
+          break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [absTime, navigate, seekTo, togglePlay, toggleFullscreen])
+
+  // ---------- Controls auto-hide ----------
   useEffect(() => {
     const show = () => {
       setControlsVisible(true)
       clearTimeout(hideTimer.current)
-      hideTimer.current = setTimeout(() => setControlsVisible(false), 3000)
+      hideTimer.current = setTimeout(() => {
+        setControlsVisible(false)
+        setMenu(null)
+      }, 3200)
     }
     show()
     window.addEventListener('mousemove', show)
+    window.addEventListener('touchstart', show)
     return () => {
       window.removeEventListener('mousemove', show)
+      window.removeEventListener('touchstart', show)
       clearTimeout(hideTimer.current)
     }
   }, [])
+
+  // ---------- Segments: Skip Intro + Next episode ----------
+  const activeIntro = useMemo(
+    () =>
+      segments.find(
+        (s) =>
+          s.Type === 'Intro' &&
+          absTime >= ticksToSeconds(s.StartTicks) &&
+          absTime < ticksToSeconds(s.EndTicks) - 1,
+      ),
+    [segments, absTime],
+  )
+
+  const outroStartSec = useMemo(() => {
+    const outro = segments.find((s) => s.Type === 'Outro')
+    if (outro) return ticksToSeconds(outro.StartTicks)
+    if (durationSec && item?.Type === 'Episode') return durationSec - NEXT_CARD_FALLBACK_SECONDS
+    return Infinity
+  }, [segments, durationSec, item])
+
+  const showNextCard = !!nextEp && !nextCancelled && absTime >= outroStartSec && absTime < (durationSec || Infinity)
+
+  // Start/maintain countdown while the card is visible
+  useEffect(() => {
+    if (!showNextCard) {
+      setCountdown(null)
+      return
+    }
+    setCountdown(NEXT_COUNTDOWN)
+    const t = setInterval(() => setCountdown((c) => (c == null ? null : c - 1)), 1000)
+    return () => clearInterval(t)
+  }, [showNextCard])
+
+  useEffect(() => {
+    if (countdown === 0 && nextEp) {
+      navigate(`/play/${nextEp.Id}`, { replace: true })
+    }
+  }, [countdown, nextEp, navigate])
+
+  // ---------- Trickplay scrub preview ----------
+  const trickplay: JfTrickplayInfo | undefined = useMemo(() => {
+    const s = streamRef.current
+    if (!item?.Trickplay) return undefined
+    const byKey = (s && item.Trickplay[s.mediaSourceId]) || item.Trickplay[item.Id] ||
+      Object.values(item.Trickplay)[0]
+    if (!byKey) return undefined
+    const widths = Object.keys(byKey).map(Number).sort((a, b) => a - b)
+    return widths.length ? byKey[String(widths[0])] : undefined
+  }, [item])
+
+  const preview = useMemo(() => {
+    if (!hover || !trickplay || !durationSec || !itemId || !streamRef.current) return null
+    const t = hover.frac * durationSec
+    const thumbIdx = Math.floor((t * 1000) / trickplay.Interval)
+    const perTile = trickplay.TileWidth * trickplay.TileHeight
+    const tileIdx = Math.floor(thumbIdx / perTile)
+    const pos = thumbIdx % perTile
+    const col = pos % trickplay.TileWidth
+    const row = Math.floor(pos / trickplay.TileWidth)
+    return {
+      url: api.trickplayTileUrl(itemId, trickplay.Width, tileIdx, streamRef.current.mediaSourceId),
+      x: -(col * trickplay.Width),
+      y: -(row * trickplay.Height),
+      w: trickplay.Width,
+      h: trickplay.Height,
+      time: t,
+      left: hover.x,
+    }
+  }, [hover, trickplay, durationSec, itemId])
+
+  // ---------- Seekbar interactions ----------
+  const fracFromEvent = (e: React.PointerEvent) => {
+    const bar = seekbarRef.current
+    if (!bar) return 0
+    const r = bar.getBoundingClientRect()
+    return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+  }
+
+  // ---------- Track lists ----------
+  const audioTracks = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Audio') ?? []
+  const subTracks = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Subtitle') ?? []
+  const externalSub = streamRef.current?.mediaStreams.find(
+    (m) => m.Type === 'Subtitle' && m.Index === subIndex && m.DeliveryUrl,
+  )
 
   const title =
     item?.Type === 'Episode'
       ? `${item.SeriesName ?? ''} · S${item.ParentIndexNumber ?? '?'}:E${item.IndexNumber ?? '?'} · ${item.Name}`
       : item?.Name ?? ''
 
+  const progressFrac = durationSec ? absTime / durationSec : 0
+  const bufferedFrac = durationSec ? Math.min(1, bufferedAbs / durationSec) : 0
+
   return (
-    <div className="fixed inset-0 bg-black">
-      <video ref={videoRef} controls autoPlay playsInline className="h-full w-full" />
+    <div className={`fixed inset-0 bg-black ${controlsVisible ? '' : 'cursor-none'}`}>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        crossOrigin="anonymous"
+        className="h-full w-full"
+        onClick={togglePlay}
+        onDoubleClick={toggleFullscreen}
+      >
+        {externalSub && (
+          <track
+            kind="subtitles"
+            src={`${api.getSession()!.server}${externalSub.DeliveryUrl}`}
+            srcLang={externalSub.Language ?? 'und'}
+            label={externalSub.DisplayTitle ?? 'Subtitles'}
+            default
+          />
+        )}
+      </video>
 
       {buffering && !error && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -161,6 +494,42 @@ export default function PlayerPage() {
         </div>
       )}
 
+      {/* Skip Intro */}
+      {activeIntro && (
+        <button
+          onClick={() => seekTo(ticksToSeconds(activeIntro.EndTicks))}
+          className="absolute bottom-28 right-8 rounded-lg bg-white/90 hover:bg-white text-ink-950 px-5 py-2.5 text-sm font-semibold shadow-2xl active:scale-95 transition-all backdrop-blur"
+        >
+          Skip Intro
+        </button>
+      )}
+
+      {/* Next episode countdown */}
+      {showNextCard && nextEp && (
+        <div className="absolute bottom-28 right-8 w-80 rounded-xl bg-ink-900/90 backdrop-blur-xl border border-white/10 p-4 shadow-2xl">
+          <p className="text-xs text-ink-400 mb-1">Up next{countdown != null ? ` in ${Math.max(0, countdown)}` : ''}</p>
+          <p className="text-sm font-semibold text-white truncate mb-3">
+            {nextEp.IndexNumber != null ? `${nextEp.IndexNumber}. ` : ''}
+            {nextEp.Name}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => navigate(`/play/${nextEp.Id}`, { replace: true })}
+              className="flex-1 rounded-lg bg-white text-ink-950 py-2 text-sm font-semibold hover:bg-ink-200 active:scale-95 transition-all"
+            >
+              Play now
+            </button>
+            <button
+              onClick={() => setNextCancelled(true)}
+              className="flex-1 rounded-lg bg-white/10 text-white py-2 text-sm font-semibold hover:bg-white/20 active:scale-95 transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Top bar */}
       <div
         className={`absolute top-0 inset-x-0 bg-gradient-to-b from-black/80 to-transparent px-4 py-3 flex items-center gap-3 transition-opacity duration-300 ${
           controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -178,8 +547,149 @@ export default function PlayerPage() {
         <p className="text-sm font-medium text-white truncate">{title}</p>
       </div>
 
+      {/* Bottom control bar */}
+      <div
+        className={`absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-6 pb-4 pt-16 transition-opacity duration-300 ${
+          controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        {/* Trickplay preview */}
+        {preview && (
+          <div
+            className="absolute bottom-20 -translate-x-1/2 rounded-lg overflow-hidden ring-1 ring-white/20 shadow-2xl pointer-events-none"
+            style={{ left: preview.left, width: preview.w, height: preview.h }}
+          >
+            <div
+              style={{
+                width: preview.w,
+                height: preview.h,
+                backgroundImage: `url(${preview.url})`,
+                backgroundPosition: `${preview.x}px ${preview.y}px`,
+              }}
+            />
+            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[11px] font-semibold text-white bg-black/70 rounded px-1.5 py-0.5">
+              {fmt(preview.time)}
+            </span>
+          </div>
+        )}
+
+        {/* Seekbar */}
+        <div
+          ref={seekbarRef}
+          className="group/seek relative h-6 flex items-center cursor-pointer mb-1"
+          onPointerMove={(e) => setHover({ frac: fracFromEvent(e), x: e.clientX })}
+          onPointerLeave={() => setHover(null)}
+          onPointerDown={(e) => seekTo(fracFromEvent(e) * durationSec)}
+        >
+          <div className="relative w-full h-1 group-hover/seek:h-1.5 rounded-full bg-white/20 transition-all">
+            <div className="absolute h-full rounded-full bg-white/30" style={{ width: `${bufferedFrac * 100}%` }} />
+            <div className="absolute h-full rounded-full bg-accent-400" style={{ width: `${progressFrac * 100}%` }} />
+            <div
+              className="absolute h-3.5 w-3.5 rounded-full bg-accent-300 shadow-md -translate-y-1/2 top-1/2 -translate-x-1/2 opacity-0 group-hover/seek:opacity-100 transition-opacity"
+              style={{ left: `${progressFrac * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Buttons row */}
+        <div className="flex items-center gap-4 text-white">
+          <button onClick={togglePlay} className="h-10 w-10 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Play/Pause">
+            {playing ? (
+              <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+            ) : (
+              <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+            )}
+          </button>
+
+          <div className="flex items-center gap-2 group/vol">
+            <button onClick={() => setMuted((m) => !m)} className="h-9 w-9 flex items-center justify-center hover:scale-110 transition-transform" aria-label="Mute">
+              {muted || volume === 0 ? (
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z" /></svg>
+              ) : (
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" /></svg>
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.02}
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                setVolume(Number(e.target.value))
+                setMuted(false)
+              }}
+              className="w-0 group-hover/vol:w-24 transition-all accent-[#7589d8]"
+              aria-label="Volume"
+            />
+          </div>
+
+          <span className="text-xs tabular-nums text-ink-200">
+            {fmt(absTime)} <span className="text-ink-400">/ {fmt(durationSec)}</span>
+          </span>
+
+          <div className="flex-1" />
+
+          {audioTracks.length > 1 && (
+            <div className="relative">
+              <button onClick={() => setMenu(menu === 'audio' ? null : 'audio')} className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors">
+                Audio
+              </button>
+              {menu === 'audio' && (
+                <div className="absolute bottom-10 right-0 w-64 max-h-64 overflow-y-auto rounded-xl bg-ink-900/95 backdrop-blur-xl border border-white/10 py-1.5 shadow-2xl">
+                  {audioTracks.map((t) => (
+                    <button
+                      key={t.Index}
+                      onClick={() => changeAudio(t.Index)}
+                      className={`w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors ${t.Index === audioIndex || (audioIndex === undefined && t.IsDefault) ? 'text-accent-300' : 'text-ink-200'}`}
+                    >
+                      {t.DisplayTitle ?? `Track ${t.Index}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {subTracks.length > 0 && (
+            <div className="relative">
+              <button onClick={() => setMenu(menu === 'subs' ? null : 'subs')} className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors">
+                Subtitles
+              </button>
+              {menu === 'subs' && (
+                <div className="absolute bottom-10 right-0 w-64 max-h-64 overflow-y-auto rounded-xl bg-ink-900/95 backdrop-blur-xl border border-white/10 py-1.5 shadow-2xl">
+                  <button
+                    onClick={() => changeSub(-1)}
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors ${subIndex === -1 ? 'text-accent-300' : 'text-ink-200'}`}
+                  >
+                    Off
+                  </button>
+                  {subTracks.map((t) => (
+                    <button
+                      key={t.Index}
+                      onClick={() => changeSub(t.Index)}
+                      className={`w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors ${t.Index === subIndex ? 'text-accent-300' : 'text-ink-200'}`}
+                    >
+                      {t.DisplayTitle ?? `Track ${t.Index}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button onClick={toggleFullscreen} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Fullscreen">
+            {fullscreen ? (
+              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" /></svg>
+            ) : (
+              <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>
+            )}
+          </button>
+        </div>
+      </div>
+
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85">
           <p className="text-white">{error}</p>
           <button
             onClick={() => navigate(-1)}

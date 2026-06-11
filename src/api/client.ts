@@ -9,7 +9,17 @@ export interface Session {
   userName: string
 }
 
-export const DEVICE_ID = 'finesse-web'
+// Jellyfin revokes the previous access token when the same DeviceId
+// re-authenticates, so the id must be unique per browser install.
+export const DEVICE_ID = (() => {
+  const KEY = 'finesse.deviceId'
+  let id = localStorage.getItem(KEY)
+  if (!id) {
+    id = `finesse-${crypto.randomUUID()}`
+    localStorage.setItem(KEY, id)
+  }
+  return id
+})()
 const CLIENT_VERSION = '0.1.0'
 
 let session: Session | null = loadSession()
@@ -161,7 +171,14 @@ export function getItems(q: ItemsQuery) {
 }
 
 export function getItem(itemId: string) {
-  return request<JfItem>(`/Users/${session!.userId}/Items/${itemId}`)
+  return request<JfItem>(`/Users/${session!.userId}/Items/${itemId}` + qs({ Fields: 'Trickplay' }))
+}
+
+export function trickplayTileUrl(itemId: string, width: number, tileIndex: number, mediaSourceId: string): string {
+  return (
+    `${session!.server}/Videos/${itemId}/Trickplay/${width}/${tileIndex}.jpg` +
+    qs({ MediaSourceId: mediaSourceId, api_key: session!.token })
+  )
 }
 
 export function getResume() {
@@ -280,7 +297,12 @@ const DEVICE_PROFILE = {
   ResponseProfiles: [],
 }
 
-export function getPlaybackInfo(itemId: string, startTimeTicks = 0) {
+export function getPlaybackInfo(
+  itemId: string,
+  startTimeTicks = 0,
+  audioStreamIndex?: number,
+  subtitleStreamIndex?: number,
+) {
   return request<JfPlaybackInfo>(
     `/Items/${itemId}/PlaybackInfo` + qs({ UserId: session!.userId }),
     {
@@ -293,6 +315,8 @@ export function getPlaybackInfo(itemId: string, startTimeTicks = 0) {
         EnableDirectPlay: true,
         EnableDirectStream: true,
         EnableTranscoding: true,
+        ...(audioStreamIndex !== undefined ? { AudioStreamIndex: audioStreamIndex } : {}),
+        ...(subtitleStreamIndex !== undefined ? { SubtitleStreamIndex: subtitleStreamIndex } : {}),
       },
     },
   )

@@ -21,8 +21,21 @@ export interface JfMediaStream {
   DisplayTitle?: string
   Index: number
   IsDefault?: boolean
+  IsExternal?: boolean
+  DeliveryMethod?: string
+  DeliveryUrl?: string
+  IsTextSubtitleStream?: boolean
   Width?: number
   Height?: number
+}
+
+export interface JfTrickplayInfo {
+  Width: number
+  Height: number
+  TileWidth: number
+  TileHeight: number
+  ThumbnailCount: number
+  Interval: number
 }
 
 export interface JfMediaSource {
@@ -71,6 +84,7 @@ export interface JfItem {
   UserData?: JfUserData
   People?: JfPerson[]
   MediaSources?: JfMediaSource[]
+  Trickplay?: Record<string, Record<string, JfTrickplayInfo>>
 }
 
 export interface JfItemsResult {
