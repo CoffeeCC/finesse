@@ -2,9 +2,18 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEpisodes, useItem, useSeasons } from '../api/queries'
-import { backdropUrl, episodeThumbUrl, imageUrl, logoUrl, posterUrl, setFavorite } from '../api/client'
+import {
+  backdropUrl,
+  episodeThumbUrl,
+  imageUrl,
+  logoUrl,
+  posterUrl,
+  refreshItemMetadata,
+  setFavorite,
+} from '../api/client'
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { useToast } from '../components/Toast'
+import FixMatchDialog from '../components/FixMatchDialog'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
 
@@ -133,6 +142,8 @@ export default function ItemPage() {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [favBusy, setFavBusy] = useState(false)
+  const [fixOpen, setFixOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   if (isLoading || !item) {
     return <div className="h-[50vh] shimmer -mt-16" />
@@ -148,6 +159,21 @@ export default function ItemPage() {
   // Per-title accent pulled from the poster art
   const avg = blurhashAverageColor(primaryBlurhash(item))
   const accentRgb = avg ? `${avg[0]}, ${avg[1]}, ${avg[2]}` : '98, 121, 205'
+
+  const refreshMetadata = async () => {
+    setRefreshing(true)
+    try {
+      await refreshItemMetadata(item.Id)
+      toast('Refreshing metadata — posters update in a moment')
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['item', itemId] })
+      }, 5000)
+    } catch {
+      toast('Refresh failed', 'error')
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const toggleFavorite = async () => {
     setFavBusy(true)
@@ -262,7 +288,33 @@ export default function ItemPage() {
           <p className="text-ink-400 italic mb-2">{item.Taglines[0]}</p>
         )}
         {item.Overview && <p className="text-sm leading-relaxed text-ink-200">{item.Overview}</p>}
+
+        {/* File + metadata management */}
+        <div className="mt-6 rounded-xl bg-ink-900/50 border border-white/5 px-4 py-3">
+          {item.Path && (
+            <p className="text-xs text-ink-400 font-mono break-all mb-2.5" title="File path">
+              {item.Path}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setFixOpen(true)}
+              className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-1.5 text-xs font-semibold text-ink-200 hover:text-white active:scale-95 transition-all"
+            >
+              Fix match
+            </button>
+            <button
+              onClick={refreshMetadata}
+              disabled={refreshing}
+              className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-1.5 text-xs font-semibold text-ink-200 hover:text-white active:scale-95 disabled:opacity-50 transition-all"
+            >
+              {refreshing ? 'Refreshing…' : 'Refresh metadata'}
+            </button>
+          </div>
+        </div>
       </div>
+
+      {fixOpen && <FixMatchDialog item={item} onClose={() => setFixOpen(false)} />}
 
       {cast.length > 0 && (
         <section className="mt-10 px-6 lg:px-12">

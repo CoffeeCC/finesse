@@ -186,7 +186,55 @@ export function getItems(q: ItemsQuery) {
 }
 
 export function getItem(itemId: string) {
-  return request<JfItem>(`/Users/${session!.userId}/Items/${itemId}` + qs({ Fields: 'Trickplay' }))
+  return request<JfItem>(
+    `/Users/${session!.userId}/Items/${itemId}` + qs({ Fields: 'Trickplay,Path' }),
+  )
+}
+
+// ---------- Metadata management ----------
+
+export interface JfRemoteSearchResult {
+  Name: string
+  ProductionYear?: number
+  ImageUrl?: string
+  Overview?: string
+  SearchProviderName?: string
+  ProviderIds?: Record<string, string>
+  PremiereDate?: string
+}
+
+/** Search metadata providers for candidate matches (movies and series). */
+export function remoteSearch(item: { Id: string; Type: string }, name: string, year?: number) {
+  const kind = item.Type === 'Series' ? 'Series' : 'Movie'
+  return request<JfRemoteSearchResult[]>(`/Items/RemoteSearch/${kind}`, {
+    method: 'POST',
+    body: {
+      ItemId: item.Id,
+      SearchInfo: { Name: name, Year: year },
+    },
+  })
+}
+
+/** Re-identify the item as the chosen search result, replacing images. */
+export function applyRemoteResult(itemId: string, result: JfRemoteSearchResult) {
+  return request(`/Items/RemoteSearch/Apply/${itemId}` + qs({ ReplaceAllImages: true }), {
+    method: 'POST',
+    body: result,
+  })
+}
+
+/** Full metadata + image refresh from providers. */
+export function refreshItemMetadata(itemId: string) {
+  return request(
+    `/Items/${itemId}/Refresh` +
+      qs({
+        metadataRefreshMode: 'FullRefresh',
+        imageRefreshMode: 'FullRefresh',
+        replaceAllMetadata: true,
+        replaceAllImages: true,
+      }),
+    { method: 'POST' },
+  )
 }
 
 export function trickplayTileUrl(itemId: string, width: number, tileIndex: number, mediaSourceId: string): string {
