@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import LoginPage from './auth/LoginPage'
 import NavBar from './components/NavBar'
+import BottomTabs from './components/BottomTabs'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import ItemPage from './pages/ItemPage'
@@ -40,7 +41,7 @@ export default function App() {
           element={
             <>
               <NavBar />
-              <main className="pt-16">
+              <main className="pt-16 pb-20 md:pb-0">
                 {/* Re-keying per path gives every page a rise-in entrance */}
                 <div key={location.pathname} className="page-enter">
                   <Routes>
@@ -53,6 +54,7 @@ export default function App() {
                   </Routes>
                 </div>
               </main>
+              <BottomTabs />
             </>
           }
         />

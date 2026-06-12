@@ -74,7 +74,7 @@ export default function NavBar() {
           Finesse<span className="text-accent-400">.</span>
         </Link>
 
-        <nav className="flex items-center gap-1">
+        <nav className="hidden md:flex items-center gap-1">
           <NavLink to="/" end className={linkClass}>
             Home
           </NavLink>
@@ -95,7 +95,7 @@ export default function NavBar() {
               navigate(`/search?q=${encodeURIComponent(query.trim())}`)
             }
           }}
-          className="relative"
+          className="relative hidden md:block"
         >
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-400 pointer-events-none"

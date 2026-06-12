@@ -39,7 +39,7 @@ export default function MediaRow({ title, items, loading }: Props) {
 
   return (
     <section ref={sectionRef} className={`group/row relative reveal ${visible ? 'is-visible' : ''}`}>
-      <div className="flex items-baseline justify-between px-6 lg:px-12 mb-3">
+      <div className="flex items-baseline justify-between px-4 sm:px-6 lg:px-12 mb-3">
         <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
         <div className="hidden md:flex gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
           <button
@@ -65,7 +65,7 @@ export default function MediaRow({ title, items, loading }: Props) {
 
       <div
         ref={scrollRef}
-        className="flex gap-4 overflow-x-auto no-scrollbar px-6 lg:px-12 pb-2 scroll-smooth"
+        className="flex gap-3 sm:gap-4 overflow-x-auto no-scrollbar px-4 sm:px-6 lg:px-12 pb-2 scroll-smooth"
       >
         {loading
           ? Array.from({ length: 8 }).map((_, i) => <CardSkeleton key={i} width={176} />)

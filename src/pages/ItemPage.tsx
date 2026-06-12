@@ -210,7 +210,7 @@ export default function ItemPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30" />
         </div>
 
-        <div className="relative px-6 lg:px-12 -mt-40 flex gap-8 items-end">
+        <div className="relative px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
           {poster && (
             <img
               src={poster}

@@ -47,7 +47,7 @@ function HeroCarousel({ items }: { items: JfItem[] }) {
   const logo = logoUrl(active)
 
   return (
-    <div className="relative h-[68vh] min-h-[460px] w-full -mt-16 overflow-hidden">
+    <div className="relative h-[52vh] min-h-[360px] md:h-[68vh] md:min-h-[460px] w-full -mt-16 overflow-hidden">
       {/* Stacked backdrops crossfade; the active one slow-zooms (Ken Burns) */}
       {items.map((item, i) => {
         const backdrop = backdropUrl(item)
@@ -100,7 +100,7 @@ function HeroCarousel({ items }: { items: JfItem[] }) {
           )}
         </div>
         {active.Overview && (
-          <p className="text-sm text-ink-200/90 line-clamp-3 mb-6 max-w-xl drop-shadow">
+          <p className="hidden sm:block text-sm text-ink-200/90 line-clamp-3 mb-6 max-w-xl drop-shadow">
             {active.Overview}
           </p>
         )}

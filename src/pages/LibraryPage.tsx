@@ -182,7 +182,7 @@ export default function LibraryPage() {
   })
 
   return (
-    <div className="px-6 lg:px-12 pb-16">
+    <div className="px-4 sm:px-6 lg:px-12 pb-16">
       <div className="flex flex-wrap items-center gap-4 py-6">
         <h1 className="text-2xl font-bold text-white tracking-tight">{view?.Name ?? 'Library'}</h1>
         {total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} items</span>}
