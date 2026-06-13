@@ -18,6 +18,24 @@ export function useResume() {
   return useQuery({ queryKey: ['resume'], queryFn: api.getResume })
 }
 
+export function usePersonItems(personId: string | undefined) {
+  return useQuery({
+    queryKey: ['personItems', personId],
+    enabled: !!personId,
+    staleTime: 10 * 60_000,
+    queryFn: () =>
+      api.getItems({
+        personIds: personId,
+        recursive: true,
+        includeItemTypes: 'Movie,Series',
+        sortBy: 'ProductionYear,SortName',
+        sortOrder: 'Descending',
+        limit: 200,
+        fields: CARD_FIELDS,
+      }),
+  })
+}
+
 export function useNextUp() {
   return useQuery({ queryKey: ['nextUp'], queryFn: api.getNextUp })
 }

@@ -321,20 +321,30 @@ export default function ItemPage() {
           <h2 className="text-lg font-semibold text-white tracking-tight mb-4">Cast</h2>
           <div className="flex gap-5 overflow-x-auto no-scrollbar pb-2">
             {cast.map((p) => (
-              <div key={p.Id} className="w-24 shrink-0 text-center">
-                <div className="h-24 w-24 rounded-full overflow-hidden bg-ink-800 ring-1 ring-white/5 mx-auto">
-                  {p.PrimaryImageTag && (
+              <Link
+                key={p.Id}
+                to={`/person/${p.Id}`}
+                className="group/cast w-24 shrink-0 text-center outline-none"
+              >
+                <div className="h-24 w-24 rounded-full overflow-hidden bg-ink-800 ring-1 ring-white/5 mx-auto transition-all group-hover/cast:ring-2 group-hover/cast:ring-accent-400 group-hover/cast:scale-105">
+                  {p.PrimaryImageTag ? (
                     <img
                       src={imageUrl(p.Id, 'Primary', { maxWidth: 200, tag: p.PrimaryImageTag })}
                       alt={p.Name}
                       loading="lazy"
                       className="h-full w-full object-cover fade-in"
                     />
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center text-2xl font-bold text-ink-400">
+                      {p.Name.charAt(0)}
+                    </div>
                   )}
                 </div>
-                <p className="mt-2 text-xs font-medium text-ink-200 truncate">{p.Name}</p>
+                <p className="mt-2 text-xs font-medium text-ink-200 truncate group-hover/cast:text-white transition-colors">
+                  {p.Name}
+                </p>
                 {p.Role && <p className="text-[11px] text-ink-400 truncate">{p.Role}</p>}
-              </div>
+              </Link>
             ))}
           </div>
         </section>
