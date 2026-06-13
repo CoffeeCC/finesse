@@ -256,6 +256,30 @@ export function applyRemoteResult(itemId: string, result: JfRemoteSearchResult) 
   })
 }
 
+/**
+ * Re-identify and metadata refresh are async on the server. Poll the item
+ * until its primary image tag changes from the baseline (meaning new art
+ * landed), so callers know when it's safe to repaint. Bounded; resolves with
+ * the fresh item or null on timeout.
+ */
+export async function waitForImageChange(
+  itemId: string,
+  previousPrimaryTag: string | undefined,
+  { tries = 15, intervalMs = 2000 }: { tries?: number; intervalMs?: number } = {},
+): Promise<JfItem | null> {
+  for (let i = 0; i < tries; i++) {
+    await new Promise((r) => setTimeout(r, intervalMs))
+    try {
+      const item = await getItem(itemId)
+      const tag = item.ImageTags?.Primary
+      if (tag && tag !== previousPrimaryTag) return item
+    } catch {
+      /* keep polling */
+    }
+  }
+  return null
+}
+
 /** Full metadata + image refresh from providers. */
 export function refreshItemMetadata(itemId: string) {
   return request(

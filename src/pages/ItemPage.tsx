@@ -10,6 +10,7 @@ import {
   posterUrl,
   refreshItemMetadata,
   setFavorite,
+  waitForImageChange,
 } from '../api/client'
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { useToast } from '../components/Toast'
@@ -162,12 +163,15 @@ export default function ItemPage() {
 
   const refreshMetadata = async () => {
     setRefreshing(true)
+    const oldTag = item.ImageTags?.Primary
     try {
       await refreshItemMetadata(item.Id)
-      toast('Refreshing metadata — posters update in a moment')
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['item', itemId] })
-      }, 5000)
+      toast('Refreshing metadata…')
+      // Wait for the async refresh to actually swap the art, then repaint
+      // everything (detail page + grids/rows that cached the old image tag).
+      await waitForImageChange(item.Id, oldTag)
+      await queryClient.invalidateQueries()
+      toast('Metadata updated')
     } catch {
       toast('Refresh failed', 'error')
     } finally {

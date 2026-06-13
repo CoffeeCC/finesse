@@ -49,15 +49,16 @@ export default function FixMatchDialog({ item, onClose }: Props) {
 
   const apply = async (result: JfRemoteSearchResult) => {
     setApplying(result)
+    const oldTag = item.ImageTags?.Primary
     try {
       await api.applyRemoteResult(item.Id, result)
-      toast('Re-matched — refreshing metadata in the background')
-      // The server refreshes asynchronously; nudge our caches shortly after
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['item', item.Id] })
-        queryClient.invalidateQueries({ queryKey: ['itemPage'] })
-      }, 4000)
       onClose()
+      toast('Re-matching — fetching new art…')
+      // Server applies + refreshes async; wait for the new poster tag, then
+      // repaint the detail page and every grid/row holding the old tag.
+      await api.waitForImageChange(item.Id, oldTag)
+      await queryClient.invalidateQueries()
+      toast('Match updated')
     } catch {
       toast('Could not apply the match', 'error')
       setApplying(null)
