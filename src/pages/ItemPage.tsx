@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEpisodes, useItem, useSeasons } from '../api/queries'
+import { useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
 import {
   backdropUrl,
   episodeThumbUrl,
@@ -15,6 +15,8 @@ import {
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
+import MediaCard from '../components/MediaCard'
+import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
 
@@ -145,6 +147,7 @@ export default function ItemPage() {
   const [favBusy, setFavBusy] = useState(false)
   const [fixOpen, setFixOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const collection = useCollectionItems(itemId, item?.Type === 'BoxSet')
 
   if (isLoading || !item) {
     return <div className="h-[50vh] shimmer -mt-16" />
@@ -155,6 +158,8 @@ export default function ItemPage() {
   const poster = posterUrl(item, 600)
   const cast = item.People?.filter((p) => p.Type === 'Actor').slice(0, 12) ?? []
   const isSeries = item.Type === 'Series'
+  const isBoxSet = item.Type === 'BoxSet'
+  const isPlayable = item.Type === 'Movie' || item.Type === 'Episode'
   const isFavorite = item.UserData?.IsFavorite ?? false
 
   // Per-title accent pulled from the poster art
@@ -267,7 +272,7 @@ export default function ItemPage() {
               ))}
             </div>
             <div className="flex items-center gap-3">
-              {!isSeries && <PlayLink item={item} />}
+              {isPlayable && <PlayLink item={item} />}
               <button
                 onClick={toggleFavorite}
                 disabled={favBusy}
@@ -355,9 +360,25 @@ export default function ItemPage() {
       )}
 
       {isSeries && (
-        <div className="px-6 lg:px-12">
+        <div className="px-4 sm:px-6 lg:px-12">
           <Seasons series={item} />
         </div>
+      )}
+
+      {isBoxSet && (
+        <section className="mt-10 px-4 sm:px-6 lg:px-12">
+          <h2 className="text-lg font-semibold text-white tracking-tight mb-4">
+            {collection.data ? `${collection.data.TotalRecordCount} in this collection` : 'In this collection'}
+          </h2>
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}
+          >
+            {collection.isLoading
+              ? Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
+              : collection.data?.Items.map((member) => <MediaCard key={member.Id} item={member} />)}
+          </div>
+        </section>
       )}
     </div>
   )

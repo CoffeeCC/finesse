@@ -18,6 +18,22 @@ export function useResume() {
   return useQuery({ queryKey: ['resume'], queryFn: api.getResume })
 }
 
+export function useCollectionItems(boxSetId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['collectionItems', boxSetId],
+    enabled: !!boxSetId && enabled,
+    staleTime: 10 * 60_000,
+    queryFn: () =>
+      api.getItems({
+        parentId: boxSetId,
+        sortBy: 'ProductionYear,SortName',
+        sortOrder: 'Ascending',
+        fields: CARD_FIELDS,
+        limit: 200,
+      }),
+  })
+}
+
 export function usePersonItems(personId: string | undefined) {
   return useQuery({
     queryKey: ['personItems', personId],

@@ -55,6 +55,7 @@ export default function NavBar() {
   }, [])
 
   const libraries = views?.Items.filter((v) => NAV_COLLECTIONS.has(v.CollectionType ?? '')) ?? []
+  const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -83,6 +84,14 @@ export default function NavBar() {
               {lib.Name}
             </NavLink>
           ))}
+          {hasCollections && (
+            <NavLink
+              to="/browse?title=Collections&includeItemTypes=BoxSet&sortBy=SortName"
+              className={linkClass}
+            >
+              Collections
+            </NavLink>
+          )}
         </nav>
 
         <div className="flex-1" />
