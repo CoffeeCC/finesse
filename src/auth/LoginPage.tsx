@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { getPublicUsers, publicUserImageUrl, splashscreenUrl, type JfPublicUser } from '../api/client'
 
-const DEFAULT_SERVER = 'http://192.168.1.121:8096'
+// On the tailnet funnel the LAN IP is unreachable (and mixed-content blocked),
+// so default to Jellyfin's own funnel on :10000 of the same host instead.
+const DEFAULT_SERVER = window.location.hostname.endsWith('.ts.net')
+  ? `https://${window.location.hostname}:10000`
+  : 'http://192.168.1.121:8096'
 
 type Mode = 'profiles' | 'password' | 'manual'
 

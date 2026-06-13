@@ -11,12 +11,44 @@ export interface Session {
 
 // Jellyfin revokes the previous access token when the same DeviceId
 // re-authenticates, so the id must be unique per browser install.
+// NOTE: crypto.randomUUID() only exists in secure contexts (HTTPS/localhost).
+// Finesse is also served over plain HTTP on the LAN (http://192.168.1.121:30500),
+// where it's undefined — calling it would throw at module load and blank the app.
+// getRandomValues IS available in insecure contexts, so build the id from that.
+function randomDeviceUUID(): string {
+  const c: Crypto | undefined = typeof crypto !== 'undefined' ? crypto : undefined
+  try {
+    if (typeof c?.randomUUID === 'function') {
+      return c.randomUUID()
+    }
+    if (c?.getRandomValues) {
+      const b = c.getRandomValues(new Uint8Array(16))
+      b[6] = (b[6] & 0x0f) | 0x40
+      b[8] = (b[8] & 0x3f) | 0x80
+      const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('')
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+    }
+  } catch {
+    /* fall through */
+  }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`
+}
+
 export const DEVICE_ID = (() => {
   const KEY = 'finesse.deviceId'
-  let id = localStorage.getItem(KEY)
+  let id: string | null = null
+  try {
+    id = localStorage.getItem(KEY)
+  } catch {
+    /* localStorage may be unavailable; fall back to an ephemeral id */
+  }
   if (!id) {
-    id = `finesse-${crypto.randomUUID()}`
-    localStorage.setItem(KEY, id)
+    id = `finesse-${randomDeviceUUID()}`
+    try {
+      localStorage.setItem(KEY, id)
+    } catch {
+      /* ignore */
+    }
   }
   return id
 })()
