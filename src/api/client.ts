@@ -1,4 +1,5 @@
 import type { JfAuthResult, JfItem, JfItemsResult, JfPlaybackInfo } from './types'
+import { getPrefs } from '../lib/settings'
 
 const STORAGE_KEY = 'finesse.session'
 
@@ -364,32 +365,39 @@ export function getEpisodes(seriesId: string, seasonId: string) {
 
 // ---------- Playback ----------
 
-const DEVICE_PROFILE = {
-  MaxStreamingBitrate: 120_000_000,
-  DirectPlayProfiles: [
-    { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,flac,opus' },
-    { Container: 'webm', Type: 'Video', VideoCodec: 'vp8,vp9,av1', AudioCodec: 'vorbis,opus' },
-  ],
-  TranscodingProfiles: [
-    {
-      Container: 'ts',
-      Type: 'Video',
-      VideoCodec: 'h264',
-      AudioCodec: 'aac,mp3',
-      Protocol: 'hls',
-      Context: 'Streaming',
-      MaxAudioChannels: '2',
-      MinSegments: 1,
-      BreakOnNonKeyFrames: true,
-    },
-    { Container: 'mp3', Type: 'Audio', AudioCodec: 'mp3', Protocol: 'http', Context: 'Streaming' },
-  ],
-  SubtitleProfiles: [
-    { Format: 'vtt', Method: 'External' },
-    { Format: 'subrip', Method: 'External' },
-  ],
-  CodecProfiles: [],
-  ResponseProfiles: [],
+// Built per-request so the user's bitrate cap (from settings) is applied.
+// A cap forces the server to transcode down to fit; 0 = unlimited/direct.
+function buildDeviceProfile() {
+  const cap = getPrefs().maxBitrate
+  const videoTranscode: Record<string, unknown> = {
+    Container: 'ts',
+    Type: 'Video',
+    VideoCodec: 'h264',
+    AudioCodec: 'aac,mp3',
+    Protocol: 'hls',
+    Context: 'Streaming',
+    MaxAudioChannels: '2',
+    MinSegments: 1,
+    BreakOnNonKeyFrames: true,
+  }
+  return {
+    MaxStreamingBitrate: cap > 0 ? cap : 120_000_000,
+    MusicStreamingTranscodingBitrate: 320_000,
+    DirectPlayProfiles: [
+      { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,flac,opus' },
+      { Container: 'webm', Type: 'Video', VideoCodec: 'vp8,vp9,av1', AudioCodec: 'vorbis,opus' },
+    ],
+    TranscodingProfiles: [
+      videoTranscode,
+      { Container: 'mp3', Type: 'Audio', AudioCodec: 'mp3', Protocol: 'http', Context: 'Streaming' },
+    ],
+    SubtitleProfiles: [
+      { Format: 'vtt', Method: 'External' },
+      { Format: 'subrip', Method: 'External' },
+    ],
+    CodecProfiles: [],
+    ResponseProfiles: [],
+  }
 }
 
 export function getPlaybackInfo(
@@ -398,6 +406,7 @@ export function getPlaybackInfo(
   audioStreamIndex?: number,
   subtitleStreamIndex?: number,
 ) {
+  const cap = getPrefs().maxBitrate
   return request<JfPlaybackInfo>(
     `/Items/${itemId}/PlaybackInfo` + qs({ UserId: session!.userId }),
     {
@@ -405,9 +414,10 @@ export function getPlaybackInfo(
       body: {
         UserId: session!.userId,
         StartTimeTicks: startTimeTicks,
-        DeviceProfile: DEVICE_PROFILE,
+        DeviceProfile: buildDeviceProfile(),
+        ...(cap > 0 ? { MaxStreamingBitrate: cap } : {}),
         AutoOpenLiveStream: true,
-        EnableDirectPlay: true,
+        EnableDirectPlay: cap === 0,
         EnableDirectStream: true,
         EnableTranscoding: true,
         ...(audioStreamIndex !== undefined ? { AudioStreamIndex: audioStreamIndex } : {}),

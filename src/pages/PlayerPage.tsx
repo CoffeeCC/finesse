@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import * as api from '../api/client'
 import { useEpisodes, useItem } from '../api/queries'
+import { getPrefs } from '../lib/settings'
 import { secondsToTicks, ticksToSeconds } from '../api/types'
 import type { JfMediaStream, JfTrickplayInfo } from '../api/types'
 
@@ -58,6 +59,7 @@ export default function PlayerPage() {
 
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const seekbarRef = useRef<HTMLDivElement>(null)
+  const subDefaultApplied = useRef(false)
 
   const durationSec = ticksToSeconds(item?.RunTimeTicks)
 
@@ -180,6 +182,7 @@ export default function PlayerPage() {
     setCountdown(null)
     setSubIndex(-1)
     setAudioIndex(undefined)
+    subDefaultApplied.current = false
     loadStream(startTicks)
 
     const progressTimer = setInterval(
@@ -395,9 +398,10 @@ export default function PlayerPage() {
 
   const showNextCard = !!nextEp && !nextCancelled && absTime >= outroStartSec && absTime < (durationSec || Infinity)
 
-  // Start/maintain countdown while the card is visible
+  // Start/maintain countdown while the card is visible (only auto-advances if
+  // the user hasn't disabled it in settings; otherwise the card is manual-only).
   useEffect(() => {
-    if (!showNextCard) {
+    if (!showNextCard || !getPrefs().autoPlayNext) {
       setCountdown(null)
       return
     }
@@ -411,6 +415,18 @@ export default function PlayerPage() {
       navigate(`/play/${nextEp.Id}`, { replace: true })
     }
   }, [countdown, nextEp, navigate])
+
+  // Honor "subtitles on by default": once the first stream is playable, select
+  // the first subtitle track (one reload, guarded so it can't loop).
+  useEffect(() => {
+    if (subDefaultApplied.current || buffering) return
+    if (!getPrefs().subtitlesDefault || subIndex !== -1) return
+    const subs = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Subtitle') ?? []
+    if (subs.length) {
+      subDefaultApplied.current = true
+      changeSub(subs[0].Index)
+    }
+  }, [buffering, subIndex])
 
   // ---------- Trickplay scrub preview ----------
   const trickplay: JfTrickplayInfo | undefined = useMemo(() => {

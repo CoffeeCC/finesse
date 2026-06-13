@@ -166,6 +166,15 @@ export default function NavBar() {
                 {session?.userName}
               </div>
               <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  navigate('/settings')
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-white/5 text-ink-200 transition-colors"
+              >
+                Settings
+              </button>
+              <button
                 onClick={logout}
                 className="w-full text-left px-4 py-2 hover:bg-white/5 text-ink-200 transition-colors"
               >

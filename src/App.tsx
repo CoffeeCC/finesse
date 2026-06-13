@@ -9,6 +9,7 @@ import LibraryPage from './pages/LibraryPage'
 import ItemPage from './pages/ItemPage'
 import PlayerPage from './pages/PlayerPage'
 import SearchPage from './pages/SearchPage'
+import SettingsPage from './pages/SettingsPage'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -49,6 +50,7 @@ export default function App() {
                     <Route path="/library/:viewId" element={<LibraryPage />} />
                     <Route path="/item/:itemId" element={<ItemPage />} />
                     <Route path="/search" element={<SearchPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
