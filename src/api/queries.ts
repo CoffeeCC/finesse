@@ -34,6 +34,41 @@ export function useCollectionItems(boxSetId: string | undefined, enabled: boolea
   })
 }
 
+export function useAlbums(musicViewId: string | undefined) {
+  return useQuery({
+    queryKey: ['albums', musicViewId],
+    enabled: !!musicViewId,
+    staleTime: 10 * 60_000,
+    queryFn: () =>
+      api.getItems({
+        parentId: musicViewId,
+        includeItemTypes: 'MusicAlbum',
+        recursive: true,
+        sortBy: 'SortName',
+        sortOrder: 'Ascending',
+        limit: 100_000,
+        fields: 'PrimaryImageAspectRatio,ProductionYear',
+      }),
+  })
+}
+
+export function useTracks(albumId: string | undefined) {
+  return useQuery({
+    queryKey: ['tracks', albumId],
+    enabled: !!albumId,
+    staleTime: 10 * 60_000,
+    queryFn: () =>
+      api.getItems({
+        parentId: albumId,
+        includeItemTypes: 'Audio',
+        sortBy: 'ParentIndexNumber,IndexNumber,SortName',
+        sortOrder: 'Ascending',
+        limit: 500,
+        fields: 'PrimaryImageAspectRatio',
+      }),
+  })
+}
+
 export function usePersonItems(personId: string | undefined) {
   return useQuery({
     queryKey: ['personItems', personId],

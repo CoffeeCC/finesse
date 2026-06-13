@@ -459,6 +459,24 @@ export function directStreamUrl(itemId: string, mediaSourceId: string, container
   )
 }
 
+/** Playable audio URL for an <audio> element: direct file when the browser
+ *  supports the container, else an http mp3 transcode. */
+export function audioStreamUrl(itemId: string): string {
+  return (
+    `${session!.server}/Audio/${itemId}/universal` +
+    qs({
+      UserId: session!.userId,
+      DeviceId: DEVICE_ID,
+      api_key: session!.token,
+      Container: 'opus,mp3,aac,m4a,flac,webma,webm,wav,ogg',
+      AudioCodec: 'aac',
+      TranscodingContainer: 'mp3',
+      TranscodingProtocol: 'http',
+      MaxStreamingBitrate: getPrefs().maxBitrate > 0 ? getPrefs().maxBitrate : 320_000,
+    })
+  )
+}
+
 export function transcodeUrl(transcodingUrl: string): string {
   const url = `${session!.server}${transcodingUrl}`
   return url.includes('api_key') ? url : `${url}&api_key=${session!.token}`

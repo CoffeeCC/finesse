@@ -12,6 +12,9 @@ import SearchPage from './pages/SearchPage'
 import SettingsPage from './pages/SettingsPage'
 import PersonPage from './pages/PersonPage'
 import BrowsePage from './pages/BrowsePage'
+import MusicPage from './pages/MusicPage'
+import AlbumPage from './pages/AlbumPage'
+import MiniPlayer from './components/MiniPlayer'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -53,6 +56,8 @@ export default function App() {
                     <Route path="/item/:itemId" element={<ItemPage />} />
                     <Route path="/person/:personId" element={<PersonPage />} />
                     <Route path="/browse" element={<BrowsePage />} />
+                    <Route path="/music" element={<MusicPage />} />
+                    <Route path="/album/:albumId" element={<AlbumPage />} />
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
@@ -60,6 +65,7 @@ export default function App() {
                   </Routes>
                 </div>
               </main>
+              <MiniPlayer />
               <BottomTabs />
             </>
           }

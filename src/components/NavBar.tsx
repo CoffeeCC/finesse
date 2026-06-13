@@ -56,6 +56,7 @@ export default function NavBar() {
 
   const libraries = views?.Items.filter((v) => NAV_COLLECTIONS.has(v.CollectionType ?? '')) ?? []
   const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
+  const hasMusic = views?.Items.some((v) => v.CollectionType === 'music') ?? false
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -84,6 +85,11 @@ export default function NavBar() {
               {lib.Name}
             </NavLink>
           ))}
+          {hasMusic && (
+            <NavLink to="/music" className={linkClass}>
+              Music
+            </NavLink>
+          )}
           {hasCollections && (
             <NavLink
               to="/browse?title=Collections&includeItemTypes=BoxSet&sortBy=SortName"

@@ -6,6 +6,7 @@ import './index.css'
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { ToastProvider } from './components/Toast'
+import { AudioPlayerProvider } from './audio/AudioPlayerContext'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,7 +24,9 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <AuthProvider>
           <ToastProvider>
-            <App />
+            <AudioPlayerProvider>
+              <App />
+            </AudioPlayerProvider>
           </ToastProvider>
         </AuthProvider>
       </BrowserRouter>

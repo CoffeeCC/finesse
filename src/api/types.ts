@@ -75,6 +75,11 @@ export interface JfItem {
   SeasonId?: string
   SeasonName?: string
   SeriesPrimaryImageTag?: string
+  AlbumArtist?: string
+  Artists?: string[]
+  Album?: string
+  AlbumId?: string
+  AlbumPrimaryImageTag?: string
   ParentBackdropItemId?: string
   ParentBackdropImageTags?: string[]
   ParentThumbItemId?: string
