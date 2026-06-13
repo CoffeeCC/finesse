@@ -14,6 +14,7 @@ import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
 import MediaRow from '../components/MediaRow'
 import { HeroSkeleton } from '../components/Skeletons'
+import { browseHref } from './BrowsePage'
 
 const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
 const HERO_ROTATE_MS = 9000
@@ -258,14 +259,45 @@ export default function HomePage() {
         {showLib && (
           <MediaRow title={`Recently Added · ${showLib.Name}`} items={latestShows} loading={showsLoading} />
         )}
-        <MediaRow title="Favorites" items={favorites.data?.Items} loading={favorites.isLoading} />
-        <MediaRow title="Top Rated" items={topRated.data?.Items} loading={topRated.isLoading} />
-        <MediaRow title="New to You" items={newToYou.data?.Items} loading={newToYou.isLoading} />
+        <MediaRow
+          title="Favorites"
+          items={favorites.data?.Items}
+          loading={favorites.isLoading}
+          seeAllHref={browseHref('Favorites', { includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' })}
+        />
+        <MediaRow
+          title="Top Rated"
+          items={topRated.data?.Items}
+          loading={topRated.isLoading}
+          seeAllHref={movieLib ? browseHref('Top Rated', { parentId: movieLib.Id, includeItemTypes: movieTypes, sortBy: 'CommunityRating', sortOrder: 'Descending' }) : undefined}
+        />
+        <MediaRow
+          title="New to You"
+          items={newToYou.data?.Items}
+          loading={newToYou.isLoading}
+          seeAllHref={movieLib ? browseHref('New to You', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'SortName' }) : undefined}
+        />
         {genreRowNames.map((name, i) => (
-          <MediaRow key={name} title={name} items={genreRows[i].data?.Items} loading={genreRows[i].isLoading} />
+          <MediaRow
+            key={name}
+            title={name}
+            items={genreRows[i].data?.Items}
+            loading={genreRows[i].isLoading}
+            seeAllHref={movieLib ? browseHref(name, { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: name, sortBy: 'SortName' }) : undefined}
+          />
         ))}
-        <MediaRow title="Throwback: the ’90s" items={nineties.data?.Items} loading={nineties.isLoading} />
-        <MediaRow title="Watch It Again" items={watchAgain.data?.Items} loading={watchAgain.isLoading} />
+        <MediaRow
+          title="Throwback: the ’90s"
+          items={nineties.data?.Items}
+          loading={nineties.isLoading}
+          seeAllHref={movieLib ? browseHref('Throwback: the ’90s', { parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'ProductionYear,SortName' }) : undefined}
+        />
+        <MediaRow
+          title="Watch It Again"
+          items={watchAgain.data?.Items}
+          loading={watchAgain.isLoading}
+          seeAllHref={movieLib ? browseHref('Watch It Again', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'SortName' }) : undefined}
+        />
       </div>
     </div>
   )

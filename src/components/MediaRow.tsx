@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import MediaCard from './MediaCard'
 import { CardSkeleton } from './Skeletons'
 import type { JfItem } from '../api/types'
@@ -7,9 +8,10 @@ interface Props {
   title: string
   items: JfItem[] | undefined
   loading?: boolean
+  seeAllHref?: string
 }
 
-export default function MediaRow({ title, items, loading }: Props) {
+export default function MediaRow({ title, items, loading, seeAllHref }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
   const [visible, setVisible] = useState(false)
@@ -40,7 +42,19 @@ export default function MediaRow({ title, items, loading }: Props) {
   return (
     <section ref={sectionRef} className={`group/row relative reveal ${visible ? 'is-visible' : ''}`}>
       <div className="flex items-baseline justify-between px-4 sm:px-6 lg:px-12 mb-3">
-        <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
+        {seeAllHref ? (
+          <Link
+            to={seeAllHref}
+            className="group/title flex items-baseline gap-2 text-lg font-semibold text-white tracking-tight hover:text-accent-300 transition-colors"
+          >
+            {title}
+            <span className="text-xs font-medium text-accent-300 opacity-0 group-hover/row:opacity-100 transition-opacity">
+              See all →
+            </span>
+          </Link>
+        ) : (
+          <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
+        )}
         <div className="hidden md:flex gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
           <button
             onClick={() => scrollBy(-1)}
