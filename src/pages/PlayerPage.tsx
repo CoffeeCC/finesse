@@ -518,11 +518,11 @@ export default function PlayerPage() {
         </div>
       )}
 
-      {/* Skip Intro */}
+      {/* Skip Intro — z-30 so it sits above the control-bar overlay and stays clickable */}
       {activeIntro && (
         <button
           onClick={() => seekTo(ticksToSeconds(activeIntro.EndTicks))}
-          className="absolute bottom-28 right-8 rounded-lg bg-white/90 hover:bg-white text-ink-950 px-5 py-2.5 text-sm font-semibold shadow-2xl active:scale-95 transition-all backdrop-blur"
+          className="absolute bottom-32 right-8 z-30 rounded-lg bg-white/90 hover:bg-white text-ink-950 px-5 py-2.5 text-sm font-semibold shadow-2xl active:scale-95 transition-all backdrop-blur"
         >
           Skip Intro
         </button>
@@ -530,7 +530,7 @@ export default function PlayerPage() {
 
       {/* Next episode countdown */}
       {showNextCard && nextEp && (
-        <div className="absolute bottom-28 right-8 w-80 rounded-xl bg-ink-900/90 backdrop-blur-xl border border-white/10 p-4 shadow-2xl">
+        <div className="absolute bottom-32 right-8 z-30 w-80 rounded-xl bg-ink-900/90 backdrop-blur-xl border border-white/10 p-4 shadow-2xl">
           <p className="text-xs text-ink-400 mb-1">Up next{countdown != null ? ` in ${Math.max(0, countdown)}` : ''}</p>
           <p className="text-sm font-semibold text-white truncate mb-3">
             {nextEp.IndexNumber != null ? `${nextEp.IndexNumber}. ` : ''}
@@ -617,6 +617,9 @@ export default function PlayerPage() {
 
         {/* Buttons row */}
         <div className="flex items-center gap-4 text-white">
+          <button onClick={() => seekTo(absTime - 10)} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Back 10 seconds" title="Back 10s">
+            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.5 3a9 9 0 1 0 8.49 12h-2.13a7 7 0 1 1-1.27-7.86L14 11h7V4l-2.6 2.6A8.97 8.97 0 0 0 12.5 3z"/><text x="12" y="16" font-size="7" font-weight="bold" text-anchor="middle" fill="currentColor">10</text></svg>
+          </button>
           <button onClick={togglePlay} className="h-10 w-10 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Play/Pause">
             {playing ? (
               <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
@@ -624,6 +627,14 @@ export default function PlayerPage() {
               <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
             )}
           </button>
+          <button onClick={() => seekTo(absTime + 10)} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Forward 10 seconds" title="Forward 10s">
+            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.5 3a9 9 0 1 1-8.49 12h2.13a7 7 0 1 0 1.27-7.86L10 11H3V4l2.6 2.6A8.97 8.97 0 0 1 11.5 3z"/><text x="12" y="16" font-size="7" font-weight="bold" text-anchor="middle" fill="currentColor">10</text></svg>
+          </button>
+          {nextEp && (
+            <button onClick={() => navigate(`/play/${nextEp.Id}`, { replace: true })} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Next episode" title="Next episode">
+              <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6v12h2V6z" /></svg>
+            </button>
+          )}
 
           <div className="flex items-center gap-2 group/vol">
             <button onClick={() => setMuted((m) => !m)} className="h-9 w-9 flex items-center justify-center hover:scale-110 transition-transform" aria-label="Mute">

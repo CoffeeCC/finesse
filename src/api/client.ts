@@ -222,7 +222,7 @@ export function getItems(q: ItemsQuery) {
 
 export function getItem(itemId: string) {
   return request<JfItem>(
-    `/Users/${session!.userId}/Items/${itemId}` + qs({ Fields: 'Trickplay,Path' }),
+    `/Users/${session!.userId}/Items/${itemId}` + qs({ Fields: 'Trickplay,Path,RemoteTrailers' }),
   )
 }
 

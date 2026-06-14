@@ -92,6 +92,7 @@ export interface JfItem {
   Trickplay?: Record<string, Record<string, JfTrickplayInfo>>
   ImageBlurHashes?: Record<string, Record<string, string>>
   Path?: string
+  RemoteTrailers?: { Url: string; Name?: string }[]
 }
 
 export interface JfItemsResult {
