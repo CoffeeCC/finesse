@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAudio } from '../audio/AudioPlayerContext'
 import { useLyrics } from '../api/queries'
 import { imageUrl } from '../api/client'
 import { ticksToSeconds } from '../api/types'
+import { getPrefs, setPrefs, VISUALIZER_STYLES, type VisualizerStyle } from '../lib/settings'
 import AudioVisualizer from './AudioVisualizer'
 import type { JfItem } from '../api/types'
+
+const VIZ_LABEL: Record<VisualizerStyle, string> = {
+  bars: 'Bars',
+  waveform: 'Wave',
+  radial: 'Radial',
+  particles: 'Bloom',
+}
 
 function fmt(s: number): string {
   if (!Number.isFinite(s) || s < 0) s = 0
@@ -67,6 +75,11 @@ function Lyrics({ itemId, position }: { itemId: string; position: number }) {
 export default function NowPlaying() {
   const { current, expanded, setExpanded, playing, position, duration, toggle, next, prev, seek, index, queue } =
     useAudio()
+  const [viz, setViz] = useState<VisualizerStyle>(() => getPrefs().visualizer)
+  const pickViz = (v: VisualizerStyle) => {
+    setViz(v)
+    setPrefs({ visualizer: v })
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -88,10 +101,24 @@ export default function NowPlaying() {
       {bg && (
         <img src={bg} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover blur-3xl brightness-[0.25] saturate-150 scale-125" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-b from-ink-950/40 via-ink-950/60 to-ink-950" />
+      {/* Visualizer fills the backdrop behind the content */}
+      <AudioVisualizer variant={viz} className="absolute inset-0 h-full w-full opacity-60 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-ink-950/40 via-ink-950/55 to-ink-950/85" />
 
-      {/* Visualizer along the bottom */}
-      <AudioVisualizer className="absolute bottom-0 inset-x-0 h-40 w-full opacity-70 pointer-events-none" />
+      {/* Visualizer style picker */}
+      <div className="absolute top-5 right-5 z-10 flex gap-1 rounded-full bg-ink-900/70 backdrop-blur border border-white/10 p-1">
+        {VISUALIZER_STYLES.map((v) => (
+          <button
+            key={v}
+            onClick={() => pickViz(v)}
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              v === viz ? 'bg-accent-500 text-white' : 'text-ink-400 hover:text-white'
+            }`}
+          >
+            {VIZ_LABEL[v]}
+          </button>
+        ))}
+      </div>
 
       {/* Collapse */}
       <button

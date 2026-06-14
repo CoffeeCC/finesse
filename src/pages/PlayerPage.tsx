@@ -618,7 +618,7 @@ export default function PlayerPage() {
         {/* Buttons row */}
         <div className="flex items-center gap-4 text-white">
           <button onClick={() => seekTo(absTime - 10)} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Back 10 seconds" title="Back 10s">
-            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.5 3a9 9 0 1 0 8.49 12h-2.13a7 7 0 1 1-1.27-7.86L14 11h7V4l-2.6 2.6A8.97 8.97 0 0 0 12.5 3z"/><text x="12" y="16" font-size="7" font-weight="bold" text-anchor="middle" fill="currentColor">10</text></svg>
+            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.5 3a9 9 0 1 0 8.49 12h-2.13a7 7 0 1 1-1.27-7.86L14 11h7V4l-2.6 2.6A8.97 8.97 0 0 0 12.5 3z"/><text x="12" y="16" fontSize="7" fontWeight="bold" textAnchor="middle" fill="currentColor">10</text></svg>
           </button>
           <button onClick={togglePlay} className="h-10 w-10 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Play/Pause">
             {playing ? (

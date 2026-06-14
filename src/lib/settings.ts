@@ -1,6 +1,9 @@
 // User preferences, persisted in localStorage. Read synchronously so the
 // device profile and player can use them without a round-trip.
 
+export type VisualizerStyle = 'bars' | 'waveform' | 'radial' | 'particles'
+export const VISUALIZER_STYLES: VisualizerStyle[] = ['bars', 'waveform', 'radial', 'particles']
+
 export interface Prefs {
   /** Max streaming bitrate in bits/sec. 0 = unlimited (direct, no cap). */
   maxBitrate: number
@@ -8,6 +11,8 @@ export interface Prefs {
   subtitlesDefault: boolean
   /** Auto-play the next episode when one finishes. */
   autoPlayNext: boolean
+  /** Selected music visualizer style. */
+  visualizer: VisualizerStyle
 }
 
 const KEY = 'finesse.prefs'
@@ -16,6 +21,7 @@ const DEFAULTS: Prefs = {
   maxBitrate: 0,
   subtitlesDefault: false,
   autoPlayNext: true,
+  visualizer: 'bars',
 }
 
 // Common cap presets surfaced in the settings UI (label → bits/sec).

@@ -15,6 +15,7 @@ import {
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
+import TrailerHero from '../components/TrailerHero'
 import MediaCard from '../components/MediaCard'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
@@ -161,7 +162,6 @@ export default function ItemPage() {
   const [fixOpen, setFixOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [trailerOn, setTrailerOn] = useState(false)
-  const [trailerMuted, setTrailerMuted] = useState(true)
   const collection = useCollectionItems(itemId, item?.Type === 'BoxSet')
 
   const trailerId = item ? firstTrailerId(item) : null
@@ -169,7 +169,6 @@ export default function ItemPage() {
   // Auto-play the trailer in the hero after a short dwell (muted), Netflix-style
   useEffect(() => {
     setTrailerOn(false)
-    setTrailerMuted(true)
     if (!trailerId) return
     const t = setTimeout(() => setTrailerOn(true), 3500)
     return () => clearTimeout(t)
@@ -245,43 +244,10 @@ export default function ItemPage() {
               className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${trailerOn ? 'opacity-0' : 'opacity-100'}`}
             />
           )}
-          {/* Trailer autoplay (muted) over the backdrop after a dwell */}
-          {trailerOn && trailerId && (
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              <iframe
-                title="Trailer"
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.78vh] h-[56.25vw] min-w-full min-h-full"
-                src={`https://www.youtube-nocookie.com/embed/${trailerId}?autoplay=1&mute=${trailerMuted ? 1 : 0}&controls=0&modestbranding=1&rel=0&playsinline=1&loop=1&playlist=${trailerId}`}
-                allow="autoplay; encrypted-media"
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-            </div>
-          )}
+          {/* Trailer autoplay (muted) over the backdrop after a dwell; hover fades audio in */}
+          {trailerOn && trailerId && <TrailerHero youtubeId={trailerId} onClose={() => setTrailerOn(false)} />}
           {/* Fade the sharp backdrop into its own blurred ambilight — progressive-blur look, no seam */}
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30" />
-          {/* Trailer controls */}
-          {trailerOn && trailerId && (
-            <div className="absolute top-20 right-4 sm:right-6 lg:right-12 flex gap-2 z-10">
-              <button
-                onClick={() => setTrailerMuted((m) => !m)}
-                className="h-9 w-9 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur flex items-center justify-center text-white transition-colors"
-                aria-label={trailerMuted ? 'Unmute trailer' : 'Mute trailer'}
-              >
-                {trailerMuted ? (
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18z" /></svg>
-                ) : (
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" /></svg>
-                )}
-              </button>
-              <button
-                onClick={() => setTrailerOn(false)}
-                className="h-9 w-9 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur flex items-center justify-center text-white transition-colors"
-                aria-label="Stop trailer"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30 pointer-events-none" />
         </div>
 
         <div className="relative px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
@@ -340,10 +306,7 @@ export default function ItemPage() {
               {isPlayable && <PlayLink item={item} />}
               {trailerId && (
                 <button
-                  onClick={() => {
-                    setTrailerOn(true)
-                    setTrailerMuted(false)
-                  }}
+                  onClick={() => setTrailerOn(true)}
                   className="inline-flex items-center gap-2 rounded-lg bg-white/10 backdrop-blur-md px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/20 active:scale-95 transition-all"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
