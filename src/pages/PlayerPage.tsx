@@ -497,6 +497,7 @@ export default function PlayerPage() {
         autoPlay
         playsInline
         crossOrigin="anonymous"
+        style={{ viewTransitionName: 'vt-hero' }}
         className="h-full w-full"
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}

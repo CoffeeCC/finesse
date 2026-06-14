@@ -40,6 +40,7 @@ function PlayLink({ item, className }: { item: JfItem; className?: string }) {
   return (
     <Link
       to={`/play/${item.Id}${canResume ? `?t=${resumeTicks}` : ''}`}
+      viewTransition
       className={
         className ??
         'inline-flex items-center gap-2 rounded-lg bg-white text-ink-950 px-6 py-2.5 text-sm font-semibold hover:bg-ink-200 transition-colors'
@@ -241,6 +242,7 @@ export default function ItemPage() {
             <img
               src={backdrop}
               alt=""
+              style={{ viewTransitionName: 'vt-hero' }}
               className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${trailerOn ? 'opacity-0' : 'opacity-100'}`}
             />
           )}

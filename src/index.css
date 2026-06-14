@@ -251,6 +251,17 @@ body {
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Hero backdrop → player morph (and back) */
+::view-transition-group(vt-hero) {
+  animation-duration: 0.45s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-old(vt-hero),
+::view-transition-new(vt-hero) {
+  /* crossfade the two so the backdrop dissolves into the video */
+  mix-blend-mode: normal;
+}
+
 /* ---------- Buffering spinner ---------- */
 @keyframes spin {
   to { transform: rotate(360deg); }
