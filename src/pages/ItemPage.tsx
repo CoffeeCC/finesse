@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
+import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
 import {
   backdropUrl,
   episodeThumbUrl,
@@ -16,6 +16,7 @@ import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
 import TrailerHero from '../components/TrailerHero'
+import VideoClipHero from '../components/VideoClipHero'
 import MediaCard from '../components/MediaCard'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
@@ -162,18 +163,22 @@ export default function ItemPage() {
   const [favBusy, setFavBusy] = useState(false)
   const [fixOpen, setFixOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const [trailerOn, setTrailerOn] = useState(false)
+  const [previewOn, setPreviewOn] = useState(false)
   const collection = useCollectionItems(itemId, item?.Type === 'BoxSet')
+  const { data: clipSet } = useClipManifest()
 
   const trailerId = item ? firstTrailerId(item) : null
+  const hasClip = !!(item && clipSet?.has(item.Id))
+  // Prefer the local clip (offline, always matches) over the YouTube trailer
+  const previewKind: 'clip' | 'trailer' | null = hasClip ? 'clip' : trailerId ? 'trailer' : null
 
-  // Auto-play the trailer in the hero after a short dwell (muted), Netflix-style
+  // Auto-play the hero preview after a short dwell (muted), Netflix-style
   useEffect(() => {
-    setTrailerOn(false)
-    if (!trailerId) return
-    const t = setTimeout(() => setTrailerOn(true), 3500)
+    setPreviewOn(false)
+    if (!previewKind) return
+    const t = setTimeout(() => setPreviewOn(true), 3500)
     return () => clearTimeout(t)
-  }, [trailerId])
+  }, [previewKind, itemId])
 
   if (isLoading || !item) {
     return <div className="h-[50vh] shimmer -mt-16" />
@@ -243,11 +248,16 @@ export default function ItemPage() {
               src={backdrop}
               alt=""
               style={{ viewTransitionName: 'vt-hero' }}
-              className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${trailerOn ? 'opacity-0' : 'opacity-100'}`}
+              className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${previewOn ? 'opacity-0' : 'opacity-100'}`}
             />
           )}
-          {/* Trailer autoplay (muted) over the backdrop after a dwell; hover fades audio in */}
-          {trailerOn && trailerId && <TrailerHero youtubeId={trailerId} onClose={() => setTrailerOn(false)} />}
+          {/* Hero preview after a dwell: local clip (offline) first, else YouTube trailer. Hover fades audio in. */}
+          {previewOn && previewKind === 'clip' && item && (
+            <VideoClipHero clipUrl={`/previews/${item.Id}.mp4`} onClose={() => setPreviewOn(false)} />
+          )}
+          {previewOn && previewKind === 'trailer' && trailerId && (
+            <TrailerHero youtubeId={trailerId} onClose={() => setPreviewOn(false)} />
+          )}
           {/* Fade the sharp backdrop into its own blurred ambilight — progressive-blur look, no seam */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30 pointer-events-none" />
         </div>
@@ -306,15 +316,15 @@ export default function ItemPage() {
             </div>
             <div className="flex items-center gap-3">
               {isPlayable && <PlayLink item={item} />}
-              {trailerId && (
+              {previewKind && (
                 <button
-                  onClick={() => setTrailerOn(true)}
+                  onClick={() => setPreviewOn(true)}
                   className="inline-flex items-center gap-2 rounded-lg bg-white/10 backdrop-blur-md px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/20 active:scale-95 transition-all"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
                   </svg>
-                  Trailer
+                  {previewKind === 'clip' ? 'Preview' : 'Trailer'}
                 </button>
               )}
               <button

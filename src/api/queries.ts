@@ -52,6 +52,25 @@ export function useAlbums(musicViewId: string | undefined) {
   })
 }
 
+/** Set of item IDs that have a locally-generated preview clip (offline-capable).
+ *  Served by the app's own nginx at /previews/manifest.json. */
+export function useClipManifest() {
+  return useQuery({
+    queryKey: ['clipManifest'],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<Set<string>> => {
+      try {
+        const res = await fetch('/previews/manifest.json', { cache: 'no-cache' })
+        if (!res.ok) return new Set()
+        const ids = await res.json()
+        return new Set<string>(Array.isArray(ids) ? ids : [])
+      } catch {
+        return new Set()
+      }
+    },
+  })
+}
+
 export function useLyrics(itemId: string | undefined) {
   return useQuery({
     queryKey: ['lyrics', itemId],
