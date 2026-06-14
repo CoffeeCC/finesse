@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import * as api from '../api/client'
 import { useEpisodes, useItem } from '../api/queries'
-import { getPrefs } from '../lib/settings'
+import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
 import { secondsToTicks, ticksToSeconds } from '../api/types'
 import type { JfMediaStream, JfTrickplayInfo } from '../api/types'
 
@@ -48,7 +48,8 @@ export default function PlayerPage() {
   const [volume, setVolume] = useState(() => Number(localStorage.getItem('finesse.volume') ?? 1))
   const [muted, setMuted] = useState(() => localStorage.getItem('finesse.muted') === '1')
   const [fullscreen, setFullscreen] = useState(false)
-  const [menu, setMenu] = useState<'audio' | 'subs' | null>(null)
+  const [menu, setMenu] = useState<'audio' | 'subs' | 'quality' | null>(null)
+  const [maxBitrate, setMaxBitrate] = useState<number>(() => getPrefs().maxBitrate)
   const [audioIndex, setAudioIndex] = useState<number | undefined>(undefined)
   const [subIndex, setSubIndex] = useState<number>(-1)
   const [controlsVisible, setControlsVisible] = useState(true)
@@ -316,6 +317,13 @@ export default function PlayerPage() {
     setSubIndex(idx)
     setMenu(null)
     loadStream(secondsToTicks(absTime), audioIndex, idx)
+  }
+  const changeQuality = (bitrate: number) => {
+    setPrefs({ maxBitrate: bitrate })
+    setMaxBitrate(bitrate)
+    setMenu(null)
+    // Re-negotiate the stream at the new cap from the current position
+    loadStream(secondsToTicks(absTime), audioIndex, subIndex)
   }
 
   // ---------- Keyboard shortcuts ----------
@@ -693,6 +701,32 @@ export default function PlayerPage() {
               )}
             </div>
           )}
+
+          <div className="relative">
+            <button
+              onClick={() => setMenu(menu === 'quality' ? null : 'quality')}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Quality"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+              </svg>
+              {maxBitrate === 0 ? 'Auto' : `${Math.round(maxBitrate / 1_000_000)}M`}
+            </button>
+            {menu === 'quality' && (
+              <div className="absolute bottom-10 right-0 w-72 max-h-64 overflow-y-auto rounded-xl bg-ink-900/95 backdrop-blur-xl border border-white/10 py-1.5 shadow-2xl">
+                {BITRATE_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    onClick={() => changeQuality(o.value)}
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors ${o.value === maxBitrate ? 'text-accent-300' : 'text-ink-200'}`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           <button onClick={toggleFullscreen} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Fullscreen">
             {fullscreen ? (
