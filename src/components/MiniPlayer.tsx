@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { useAudio } from '../audio/AudioPlayerContext'
 import { imageUrl } from '../api/client'
 import type { JfItem } from '../api/types'
@@ -18,8 +17,9 @@ function trackArt(t: JfItem): string | null {
 }
 
 export default function MiniPlayer() {
-  const { current, playing, position, duration, toggle, next, prev, seek, stop, index, queue } = useAudio()
-  if (!current) return null
+  const { current, playing, position, duration, toggle, next, prev, seek, stop, index, queue, expanded, setExpanded } =
+    useAudio()
+  if (!current || expanded) return null
 
   const art = trackArt(current)
   const pct = duration ? (position / duration) * 100 : 0
@@ -40,18 +40,23 @@ export default function MiniPlayer() {
       </div>
 
       <div className="h-16 px-3 sm:px-6 flex items-center gap-3">
-        <div className="h-11 w-11 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/10">
-          {art && <img src={art} alt="" className="h-full w-full object-cover" />}
-        </div>
-
-        <Link to={current.AlbumId ? `/album/${current.AlbumId}` : '#'} className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-ink-200 truncate hover:text-white transition-colors">
-            {current.Name}
-          </p>
-          <p className="text-xs text-ink-400 truncate">
-            {current.Artists?.join(', ') || current.AlbumArtist || current.Album || ''}
-          </p>
-        </Link>
+        <button
+          onClick={() => setExpanded(true)}
+          className="flex items-center gap-3 min-w-0 flex-1 text-left group/np"
+          title="Open now playing"
+        >
+          <div className="h-11 w-11 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/10 group-hover/np:ring-accent-400 transition-all">
+            {art && <img src={art} alt="" className="h-full w-full object-cover" />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink-200 truncate group-hover/np:text-white transition-colors">
+              {current.Name}
+            </p>
+            <p className="text-xs text-ink-400 truncate">
+              {current.Artists?.join(', ') || current.AlbumArtist || current.Album || ''}
+            </p>
+          </div>
+        </button>
 
         <span className="hidden sm:block text-xs tabular-nums text-ink-400 mr-1">
           {fmt(position)} / {fmt(duration)}

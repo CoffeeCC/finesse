@@ -15,6 +15,7 @@ import BrowsePage from './pages/BrowsePage'
 import MusicPage from './pages/MusicPage'
 import AlbumPage from './pages/AlbumPage'
 import MiniPlayer from './components/MiniPlayer'
+import NowPlaying from './components/NowPlaying'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -66,6 +67,7 @@ export default function App() {
                 </div>
               </main>
               <MiniPlayer />
+              <NowPlaying />
               <BottomTabs />
             </>
           }

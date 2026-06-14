@@ -52,6 +52,15 @@ export function useAlbums(musicViewId: string | undefined) {
   })
 }
 
+export function useLyrics(itemId: string | undefined) {
+  return useQuery({
+    queryKey: ['lyrics', itemId],
+    enabled: !!itemId,
+    staleTime: 30 * 60_000,
+    queryFn: () => api.getLyrics(itemId!),
+  })
+}
+
 export function useTracks(albumId: string | undefined) {
   return useQuery({
     queryKey: ['tracks', albumId],

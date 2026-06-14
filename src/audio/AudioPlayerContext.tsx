@@ -10,6 +10,9 @@ interface AudioState {
   playing: boolean
   position: number
   duration: number
+  expanded: boolean
+  setExpanded: (v: boolean) => void
+  getAnalyser: () => AnalyserNode | null
   playQueue: (items: JfItem[], startIndex?: number) => void
   toggle: () => void
   next: () => void
@@ -38,7 +41,34 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const [playing, setPlaying] = useState(false)
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [expanded, setExpanded] = useState(false)
   const sessionRef = useRef<string>('')
+
+  // Web Audio graph for visualizers (built once; needs crossOrigin audio + CORS)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null)
+  const ensureGraph = useCallback(() => {
+    const a = audioRef.current
+    if (!a || sourceRef.current) return
+    try {
+      const Ctor: typeof AudioContext =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new Ctor()
+      const src = ctx.createMediaElementSource(a)
+      const an = ctx.createAnalyser()
+      an.fftSize = 512
+      an.smoothingTimeConstant = 0.82
+      src.connect(an)
+      an.connect(ctx.destination)
+      audioCtxRef.current = ctx
+      analyserRef.current = an
+      sourceRef.current = src
+    } catch {
+      /* analyser unavailable (e.g. CORS) — playback still works */
+    }
+  }, [])
+  const getAnalyser = useCallback(() => analyserRef.current, [])
 
   const current = queue[index] ?? null
 
@@ -71,6 +101,8 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     const a = audioRef.current
     if (!a || !current) return
     sessionRef.current = randomId()
+    ensureGraph()
+    audioCtxRef.current?.resume().catch(() => {})
     a.src = api.audioStreamUrl(current.Id)
     a.play().then(
       () => report(api.reportPlaybackStart),
@@ -129,11 +161,12 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ queue, index, current, playing, position, duration, playQueue, toggle, next, prev, seek, stop }}
+      value={{ queue, index, current, playing, position, duration, expanded, setExpanded, getAnalyser, playQueue, toggle, next, prev, seek, stop }}
     >
       {children}
       <audio
         ref={audioRef}
+        crossOrigin="anonymous"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}

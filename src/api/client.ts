@@ -461,6 +461,23 @@ export function directStreamUrl(itemId: string, mediaSourceId: string, container
   )
 }
 
+export interface JfLyricLine {
+  Text: string
+  Start?: number // ticks (present for synced lyrics)
+}
+export interface JfLyrics {
+  Lyrics: JfLyricLine[]
+}
+
+/** Lyrics for a track, or null if none. Synced when lines carry Start ticks. */
+export async function getLyrics(itemId: string): Promise<JfLyrics | null> {
+  try {
+    return await request<JfLyrics>(`/Audio/${itemId}/Lyrics`)
+  } catch {
+    return null
+  }
+}
+
 /** Playable audio URL for an <audio> element: direct file when the browser
  *  supports the container, else an http mp3 transcode. */
 export function audioStreamUrl(itemId: string): string {
