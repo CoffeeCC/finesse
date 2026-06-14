@@ -85,6 +85,12 @@ export default function NavBar() {
               {lib.Name}
             </NavLink>
           ))}
+          <NavLink
+            to="/browse?title=Anime&tags=anime&includeItemTypes=Movie,Series&sortBy=SortName"
+            className={linkClass}
+          >
+            Anime
+          </NavLink>
           {hasMusic && (
             <NavLink to="/music" className={linkClass}>
               Music

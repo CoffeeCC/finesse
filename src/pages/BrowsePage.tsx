@@ -16,6 +16,7 @@ export default function BrowsePage() {
     genres: params.get('genres') ?? undefined,
     filters: params.get('filters') ?? undefined,
     years: params.get('years') ?? undefined,
+    tags: params.get('tags') ?? undefined,
     sortBy: params.get('sortBy') ?? 'SortName',
     sortOrder: params.get('sortOrder') ?? 'Ascending',
     recursive: true,
@@ -60,6 +61,7 @@ export function browseHref(title: string, q: api.ItemsQuery): string {
   if (q.genres) p.set('genres', q.genres)
   if (q.filters) p.set('filters', q.filters)
   if (q.years) p.set('years', q.years)
+  if (q.tags) p.set('tags', q.tags)
   if (q.sortBy) p.set('sortBy', q.sortBy)
   if (q.sortOrder) p.set('sortOrder', q.sortOrder)
   return `/browse?${p.toString()}`

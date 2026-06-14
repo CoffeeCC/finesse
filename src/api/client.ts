@@ -190,6 +190,7 @@ export interface ItemsQuery {
   personIds?: string
   genres?: string
   years?: string
+  tags?: string
 }
 
 export function getItems(q: ItemsQuery) {
@@ -212,6 +213,7 @@ export function getItems(q: ItemsQuery) {
         PersonIds: q.personIds,
         Genres: q.genres,
         Years: q.years,
+        Tags: q.tags,
         EnableTotalRecordCount: true,
         ImageTypeLimit: 1,
       }),

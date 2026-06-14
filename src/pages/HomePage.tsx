@@ -187,6 +187,7 @@ export default function HomePage() {
     'watchAgain',
     movieLib ? { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'Random' } : null,
   )
+  const anime = useItemsRow('anime', { tags: 'anime', includeItemTypes: allTypes, sortBy: 'Random' })
   const nineties = useItemsRow(
     'nineties',
     movieLib
@@ -276,6 +277,12 @@ export default function HomePage() {
           items={newToYou.data?.Items}
           loading={newToYou.isLoading}
           seeAllHref={movieLib ? browseHref('New to You', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'SortName' }) : undefined}
+        />
+        <MediaRow
+          title="Anime"
+          items={anime.data?.Items}
+          loading={anime.isLoading}
+          seeAllHref={browseHref('Anime', { tags: 'anime', includeItemTypes: allTypes, sortBy: 'SortName' })}
         />
         {genreRowNames.map((name, i) => (
           <MediaRow
