@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useSearch, useViews } from '../api/queries'
-import { posterUrl } from '../api/client'
+import { getItems, posterUrl } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
 function useDebouncedValue<T>(value: T, ms: number): T {
@@ -30,6 +30,32 @@ export default function NavBar() {
   const { data: quickResults } = useSearch(searchFocused ? debouncedQuery : '')
   const quickItems = quickResults?.Items.slice(0, 7) ?? []
   const overlayOpen = searchFocused && debouncedQuery.trim().length > 1
+  const [surprising, setSurprising] = useState(false)
+
+  // Surprise me: jump to a random unwatched movie (fall back to any movie)
+  const surprise = async () => {
+    if (surprising) return
+    setSurprising(true)
+    try {
+      const pick = async (filters?: string) =>
+        (
+          await getItems({
+            includeItemTypes: 'Movie',
+            recursive: true,
+            sortBy: 'Random',
+            limit: 1,
+            filters,
+            fields: '',
+          })
+        ).Items[0]
+      const item = (await pick('IsUnplayed')) ?? (await pick())
+      if (item) navigate(`/item/${item.Id}`)
+    } catch {
+      /* ignore */
+    } finally {
+      setSurprising(false)
+    }
+  }
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -107,6 +133,23 @@ export default function NavBar() {
         </nav>
 
         <div className="flex-1" />
+
+        <button
+          onClick={surprise}
+          disabled={surprising}
+          title="Surprise me"
+          aria-label="Surprise me"
+          className="hidden md:flex h-9 w-9 mr-1 items-center justify-center rounded-full text-ink-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+        >
+          <svg className={`h-5 w-5 ${surprising ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <rect x="3" y="3" width="18" height="18" rx="4" />
+            <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+            <circle cx="16" cy="8" r="1.2" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+            <circle cx="8" cy="16" r="1.2" fill="currentColor" />
+            <circle cx="16" cy="16" r="1.2" fill="currentColor" />
+          </svg>
+        </button>
 
         <form
           onSubmit={(e) => {
