@@ -303,6 +303,27 @@ export function trickplayTileUrl(itemId: string, width: number, tileIndex: numbe
   )
 }
 
+export interface JfSession {
+  Id: string
+  DeviceId?: string
+  DeviceName?: string
+  Client?: string
+  UserId?: string
+  NowPlayingItem?: JfItem
+  PlayState?: { PositionTicks?: number; IsPaused?: boolean }
+  LastActivityDate?: string
+}
+
+/** All sessions; used to detect playback on the user's other devices (handoff). */
+export function getSessions() {
+  return request<JfSession[]>('/Sessions')
+}
+
+/** Tell another device to stop (used when handing playback off to this one). */
+export function sendStopToSession(sessionId: string) {
+  return request(`/Sessions/${sessionId}/Playing/Stop`, { method: 'POST' }).catch(() => {})
+}
+
 export function getResume() {
   return request<JfItemsResult>(
     `/Users/${session!.userId}/Items/Resume` +

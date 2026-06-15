@@ -14,6 +14,7 @@ import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
 import MediaRow from '../components/MediaRow'
 import { HeroSkeleton } from '../components/Skeletons'
+import HandoffBanner from '../components/HandoffBanner'
 import { browseHref } from './BrowsePage'
 
 const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
@@ -243,6 +244,8 @@ export default function HomePage() {
       ) : heroItems.length > 0 ? (
         <HeroCarousel items={heroItems} />
       ) : null}
+
+      <HandoffBanner />
 
       <div className="space-y-10 mt-10">
         <MediaRow title="Continue Watching" items={resume?.Items} loading={resumeLoading} />

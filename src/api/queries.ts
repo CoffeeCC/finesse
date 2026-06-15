@@ -18,6 +18,29 @@ export function useResume() {
   return useQuery({ queryKey: ['resume'], queryFn: api.getResume })
 }
 
+/** Detect another of the user's devices currently playing something → handoff. */
+export function useHandoff() {
+  const me = api.getSession()
+  return useQuery({
+    queryKey: ['handoff'],
+    refetchInterval: 20_000,
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const sessions = await api.getSessions()
+      const cand = sessions
+        .filter(
+          (s) =>
+            s.UserId === me?.userId &&
+            s.DeviceId !== api.DEVICE_ID &&
+            s.NowPlayingItem &&
+            s.NowPlayingItem.Type !== 'Audio',
+        )
+        .sort((a, b) => (b.LastActivityDate ?? '').localeCompare(a.LastActivityDate ?? ''))[0]
+      return cand ?? null
+    },
+  })
+}
+
 export function useCollectionItems(boxSetId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: ['collectionItems', boxSetId],
