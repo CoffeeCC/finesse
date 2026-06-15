@@ -5,7 +5,7 @@ import * as api from '../api/client'
 import { useEpisodes, useItem } from '../api/queries'
 import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
 import { secondsToTicks, ticksToSeconds } from '../api/types'
-import type { JfMediaStream, JfTrickplayInfo } from '../api/types'
+import type { JfItem, JfMediaStream, JfTrickplayInfo } from '../api/types'
 
 const PROGRESS_INTERVAL_MS = 10_000
 const NEXT_CARD_FALLBACK_SECONDS = 25
@@ -27,6 +27,86 @@ interface StreamInfo {
   transcoding: boolean
   offsetSec: number
   mediaStreams: JfMediaStream[]
+  container?: string
+  sourceBitrate?: number
+  transcodeReasons?: string
+}
+
+function mbps(bps?: number): string {
+  return bps ? `${(bps / 1_000_000).toFixed(1)} Mbps` : '—'
+}
+
+function StatsOverlay({
+  tick,
+  stream,
+  video,
+  hls,
+  absTime,
+  bufferedAbs,
+  item,
+  onClose,
+}: {
+  tick: number
+  stream: StreamInfo | null
+  video: HTMLVideoElement | null
+  hls: Hls | null
+  absTime: number
+  bufferedAbs: number
+  item: JfItem | undefined
+  onClose: () => void
+}) {
+  const vStream = stream?.mediaStreams.find((m) => m.Type === 'Video')
+  const aStream = stream?.mediaStreams.find((m) => m.Type === 'Audio')
+  const q = video?.getVideoPlaybackQuality?.()
+  const level = hls && hls.currentLevel >= 0 ? hls.levels?.[hls.currentLevel] : undefined
+  const rows: [string, string][] = [
+    ['Title', item?.Name ?? '—'],
+    ['Play method', stream ? (stream.transcoding ? 'Transcode' : 'Direct Play') : '—'],
+    ...(stream?.transcoding && stream.transcodeReasons
+      ? ([['Transcode reason', stream.transcodeReasons]] as [string, string][])
+      : []),
+    [
+      'Source',
+      vStream
+        ? `${(stream?.container ?? '').toUpperCase()} · ${vStream.Codec?.toUpperCase()} ${vStream.Width}×${vStream.Height}`
+        : '—',
+    ],
+    ['Source bitrate', mbps(stream?.sourceBitrate)],
+    ['Audio', aStream ? `${aStream.Codec?.toUpperCase()} ${aStream.DisplayTitle ?? ''}` : '—'],
+    ['Playing res', video?.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : '—'],
+    ['Buffered ahead', `${Math.max(0, bufferedAbs - absTime).toFixed(1)} s`],
+    [
+      'Dropped frames',
+      q ? `${q.droppedVideoFrames} / ${q.totalVideoFrames}` : 'n/a',
+    ],
+    ...(hls
+      ? ([
+          ['Connection est.', mbps(hls.bandwidthEstimate)],
+          ['Stream level', level ? mbps(level.bitrate) : 'auto'],
+        ] as [string, string][])
+      : []),
+    ['Position', `${absTime.toFixed(0)} s`],
+    ['Session', stream?.playSessionId?.slice(0, 12) ?? '—'],
+  ]
+  return (
+    <div
+      data-tick={tick}
+      className="absolute top-16 left-4 z-30 w-[22rem] max-w-[90vw] rounded-xl bg-black/80 backdrop-blur-md border border-white/10 p-3 font-mono text-[11px] leading-relaxed text-ink-200 shadow-2xl"
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-semibold text-white">Stats for nerds</span>
+        <button onClick={onClose} className="text-ink-400 hover:text-white" aria-label="Close stats">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+      {rows.map(([k, v]) => (
+        <div key={k} className="flex gap-3">
+          <span className="text-ink-400 w-32 shrink-0">{k}</span>
+          <span className="text-white break-all">{v}</span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export default function PlayerPage() {
@@ -53,6 +133,8 @@ export default function PlayerPage() {
   const [audioIndex, setAudioIndex] = useState<number | undefined>(undefined)
   const [subIndex, setSubIndex] = useState<number>(-1)
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [showStats, setShowStats] = useState(false)
+  const [statsTick, setStatsTick] = useState(0)
   const [hover, setHover] = useState<{ frac: number; x: number } | null>(null)
   const [segments, setSegments] = useState<api.JfMediaSegment[]>([])
   const [nextCancelled, setNextCancelled] = useState(false)
@@ -145,6 +227,11 @@ export default function PlayerPage() {
           transcoding,
           offsetSec: transcoding ? ticksToSeconds(atTicks) : 0,
           mediaStreams: source.MediaStreams ?? [],
+          container: source.Container,
+          sourceBitrate: source.Bitrate,
+          transcodeReasons: decodeURIComponent(
+            source.TranscodingUrl?.match(/TranscodeReasons=([^&]+)/)?.[1] ?? '',
+          ).replace(/,/g, ', '),
         }
 
         if (url.includes('.m3u8') && Hls.isSupported()) {
@@ -326,6 +413,13 @@ export default function PlayerPage() {
     loadStream(secondsToTicks(absTime), audioIndex, subIndex)
   }
 
+  // Live-refresh the stats panel while it's open
+  useEffect(() => {
+    if (!showStats) return
+    const t = setInterval(() => setStatsTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [showStats])
+
   // ---------- Keyboard shortcuts ----------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -355,6 +449,9 @@ export default function PlayerPage() {
           break
         case 'f':
           toggleFullscreen()
+          break
+        case 's':
+          setShowStats((v) => !v)
           break
         case 'Escape':
           if (!document.fullscreenElement) navigate(-1)
@@ -512,6 +609,19 @@ export default function PlayerPage() {
           />
         )}
       </video>
+
+      {showStats && (
+        <StatsOverlay
+          tick={statsTick}
+          stream={streamRef.current}
+          video={videoRef.current}
+          hls={hlsRef.current}
+          absTime={absTime}
+          bufferedAbs={bufferedAbs}
+          item={item}
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       {buffering && !error && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -713,6 +823,17 @@ export default function PlayerPage() {
               )}
             </div>
           )}
+
+          <button
+            onClick={() => setShowStats((v) => !v)}
+            className={`h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform ${showStats ? 'text-accent-300' : ''}`}
+            aria-label="Stats for nerds"
+            title="Stats for nerds (s)"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+            </svg>
+          </button>
 
           <div className="relative">
             <button
