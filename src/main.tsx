@@ -4,6 +4,9 @@ import { BrowserRouter, HashRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import './lib/accent' // applies the saved accent color before first paint
+import { applyUiScale } from './lib/settings'
+
+applyUiScale() // apply saved UI zoom before first paint (no flash)
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { ToastProvider } from './components/Toast'

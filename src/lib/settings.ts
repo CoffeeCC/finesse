@@ -13,6 +13,8 @@ export interface Prefs {
   autoPlayNext: boolean
   /** Selected music visualizer style. */
   visualizer: VisualizerStyle
+  /** Whole-UI zoom factor (1 = 100%). Mainly for 10-foot TV viewing. */
+  uiScale: number
 }
 
 const KEY = 'finesse.prefs'
@@ -22,6 +24,25 @@ const DEFAULTS: Prefs = {
   subtitlesDefault: false,
   autoPlayNext: true,
   visualizer: 'bars',
+  uiScale: 1,
+}
+
+// UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike
+// transform: scale), so larger values just make everything bigger cleanly.
+export const UI_SCALE_OPTIONS: { label: string; value: number }[] = [
+  { label: '100% (default)', value: 1 },
+  { label: '110%', value: 1.1 },
+  { label: '125%', value: 1.25 },
+  { label: '150%', value: 1.5 },
+  { label: '175%', value: 1.75 },
+  { label: '200% (couch / big TV)', value: 2 },
+]
+
+/** Apply the saved UI zoom to the document. Safe to call before React mounts. */
+export function applyUiScale(scale = getPrefs().uiScale) {
+  const html = document.documentElement as HTMLElement & { style: CSSStyleDeclaration }
+  // `zoom` isn't in the typed CSSStyleDeclaration but Chromium/webOS support it.
+  ;(html.style as unknown as Record<string, string>).zoom = !scale || scale === 1 ? '' : String(scale)
 }
 
 // Common cap presets surfaced in the settings UI (label → bits/sec).

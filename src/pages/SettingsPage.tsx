@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { BITRATE_OPTIONS, getPrefs, setPrefs, type Prefs } from '../lib/settings'
+import { BITRATE_OPTIONS, UI_SCALE_OPTIONS, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
 import { createUser, ApiError, setAccentPref } from '../api/client'
@@ -287,28 +287,53 @@ export default function SettingsPage() {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-3">
           Appearance
         </h2>
-        <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4">
-          <label className="block text-sm font-medium text-ink-200 mb-1">Accent color</label>
-          <p className="text-xs text-ink-400 mb-3">Personalizes this account, synced across your devices.</p>
-          <div className="flex flex-wrap gap-3">
-            {ACCENT_PRESETS.map((p) => (
-              <button
-                key={p.name}
-                onClick={() => chooseAccent(p.name)}
-                title={p.label}
-                aria-label={p.label}
-                className={`h-9 w-9 rounded-full transition-transform hover:scale-110 active:scale-95 ring-2 ring-offset-2 ring-offset-ink-900 ${
-                  accent === p.name ? 'ring-white' : 'ring-transparent'
-                }`}
-                style={{ backgroundColor: p.shades[500] }}
-              >
-                {accent === p.name && (
-                  <svg className="h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                  </svg>
-                )}
-              </button>
-            ))}
+        <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 divide-y divide-white/5">
+          <div className="py-4">
+            <label className="block text-sm font-medium text-ink-200 mb-1">Accent color</label>
+            <p className="text-xs text-ink-400 mb-3">Personalizes this account, synced across your devices.</p>
+            <div className="flex flex-wrap gap-3">
+              {ACCENT_PRESETS.map((p) => (
+                <button
+                  key={p.name}
+                  onClick={() => chooseAccent(p.name)}
+                  title={p.label}
+                  aria-label={p.label}
+                  className={`h-9 w-9 rounded-full transition-transform hover:scale-110 active:scale-95 ring-2 ring-offset-2 ring-offset-ink-900 ${
+                    accent === p.name ? 'ring-white' : 'ring-transparent'
+                  }`}
+                  style={{ backgroundColor: p.shades[500] }}
+                >
+                  {accent === p.name && (
+                    <svg className="h-5 w-5 mx-auto text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="py-4">
+            <label className="block text-sm font-medium text-ink-200 mb-1">Display size</label>
+            <p className="text-xs text-ink-400 mb-3">
+              Scales the whole interface. Bump it up for comfortable viewing from the couch on a TV.
+            </p>
+            <select
+              value={prefs.uiScale}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                update({ uiScale: v })
+                applyUiScale(v)
+                toast('Display size updated')
+              }}
+              className="w-full rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 text-ink-200"
+            >
+              {UI_SCALE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </section>
