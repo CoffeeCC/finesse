@@ -1,0 +1,13 @@
+{
+  "id": "com.finesse.tv",
+  "version": "0.1.0",
+  "vendor": "Paul W",
+  "type": "web",
+  "main": "index.html",
+  "title": "Finesse",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#6279cd",
+  "bgColor": "#0b0d12",
+  "disableBackHistoryAPI": false
+}

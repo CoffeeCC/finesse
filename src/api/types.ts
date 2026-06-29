@@ -103,7 +103,7 @@ export interface JfItemsResult {
 }
 
 export interface JfAuthResult {
-  User: { Id: string; Name: string }
+  User: { Id: string; Name: string; Policy?: { IsAdministrator?: boolean } }
   AccessToken: string
   ServerId: string
 }

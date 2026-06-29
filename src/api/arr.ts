@@ -1,0 +1,290 @@
+import { mediaBrowserAuthHeader } from './client'
+import { CONTENT_BASE } from '../lib/contentOrigin'
+
+// Finesse's request feature talks to Radarr (movies) and Sonarr (shows) through
+// the app's OWN nginx, which reverse-proxies /arr/{radarr,sonarr}/* to the *arr
+// APIs with the API key injected server-side (see nginx.conf). That keeps the
+// keys out of the browser, avoids CORS, works remotely through the funnel, and
+// is gated by an nginx auth_request that validates the caller's Jellyfin token.
+
+export type ArrKind = 'movie' | 'series'
+
+export class ArrError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
+/** Where the proxy lives: the Finesse origin's base path (/finesse/arr). On the
+ *  webOS build there's no local nginx, so this resolves to the deployed server. */
+function arrBase(): string {
+  return `${CONTENT_BASE}arr`
+}
+
+interface ArrImage {
+  coverType?: string
+  remoteUrl?: string
+  url?: string
+}
+
+/** Normalized search result, shared between movie + series. */
+export interface ArrResult {
+  kind: ArrKind
+  /** *arr library id; 0 means not added yet. */
+  id: number
+  title: string
+  year?: number
+  overview?: string
+  poster?: string
+  tmdbId?: number
+  tvdbId?: number
+  /** Media is actually present on disk (movie file / at least one episode). */
+  hasFile: boolean
+  monitored: boolean
+  /** Original lookup object — posted back verbatim (plus our fields) to add it. */
+  raw: Record<string, unknown>
+}
+
+async function arrFetch<T>(
+  kind: ArrKind,
+  path: string,
+  opts: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const app = kind === 'movie' ? 'radarr' : 'sonarr'
+  const res = await fetch(`${arrBase()}/${app}${path}`, {
+    method: opts.method ?? 'GET',
+    headers: {
+      Authorization: mediaBrowserAuthHeader(),
+      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  })
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`
+    try {
+      const text = await res.text()
+      if (text) detail = text
+    } catch {
+      /* ignore */
+    }
+    throw new ArrError(res.status, detail)
+  }
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+function pickPoster(images?: ArrImage[], remotePoster?: string): string | undefined {
+  const poster = images?.find((i) => i.coverType === 'poster')
+  return poster?.remoteUrl ?? poster?.url ?? remotePoster
+}
+
+function mapMovie(m: Record<string, unknown>): ArrResult {
+  return {
+    kind: 'movie',
+    id: (m.id as number) ?? 0,
+    title: (m.title as string) ?? 'Unknown',
+    year: m.year as number | undefined,
+    overview: m.overview as string | undefined,
+    poster: pickPoster(m.images as ArrImage[], m.remotePoster as string),
+    tmdbId: m.tmdbId as number | undefined,
+    // Radarr's lookup leaves hasFile null even for downloaded titles, but sets
+    // movieFileId when a file exists — that's the reliable "in library" signal.
+    hasFile: Boolean(m.movieFileId) || Boolean(m.hasFile),
+    monitored: Boolean(m.monitored),
+    raw: m,
+  }
+}
+
+function mapSeries(s: Record<string, unknown>): ArrResult {
+  const stats = (s.statistics as { episodeFileCount?: number } | undefined) ?? {}
+  return {
+    kind: 'series',
+    id: (s.id as number) ?? 0,
+    title: (s.title as string) ?? 'Unknown',
+    year: s.year as number | undefined,
+    overview: s.overview as string | undefined,
+    poster: pickPoster(s.images as ArrImage[], s.remotePoster as string),
+    tvdbId: s.tvdbId as number | undefined,
+    hasFile: (stats.episodeFileCount ?? 0) > 0,
+    monitored: Boolean(s.monitored),
+    raw: s,
+  }
+}
+
+/** Search TMDb/TVDb via the *arr lookup endpoint. Results flag what's already
+ *  in the library (id > 0), so the UI can show In Library / Requested / Add. */
+export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[]> {
+  const q = encodeURIComponent(term.trim())
+  if (kind === 'movie') {
+    const data = await arrFetch<Record<string, unknown>[]>('movie', `/movie/lookup?term=${q}`)
+    return data.map(mapMovie)
+  }
+  const data = await arrFetch<Record<string, unknown>[]>('series', `/series/lookup?term=${q}`)
+  return data.map(mapSeries)
+}
+
+interface ArrConfig {
+  qualityProfileId: number
+  rootFolderPath: string
+}
+
+// Resolve the quality profile + root folder from the live *arr config rather than
+// hardcoding, so renamed profiles / moved roots don't break adds. Prefer a 1080p
+// profile; fall back to whatever exists. Cached for the session.
+const configCache: Partial<Record<ArrKind, Promise<ArrConfig>>> = {}
+
+function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
+  if (!configCache[kind]) {
+    configCache[kind] = (async () => {
+      const [profiles, roots] = await Promise.all([
+        arrFetch<{ id: number; name: string }[]>(kind, '/qualityprofile'),
+        arrFetch<{ path: string }[]>(kind, '/rootfolder'),
+      ])
+      const prof =
+        profiles.find((p) => /1080/.test(p.name)) ??
+        profiles.find((p) => p.id === 4) ??
+        profiles[0]
+      const root = roots[0]
+      if (!prof || !root) throw new ArrError(0, 'No quality profile or root folder configured')
+      return { qualityProfileId: prof.id, rootFolderPath: root.path }
+    })()
+  }
+  return configCache[kind]!
+}
+
+/** Add the chosen result to Radarr/Sonarr and kick off a search for it. */
+export async function arrAdd(result: ArrResult): Promise<void> {
+  const cfg = await resolveConfig(result.kind)
+  if (result.kind === 'movie') {
+    await arrFetch('movie', '/movie', {
+      method: 'POST',
+      body: {
+        ...result.raw,
+        qualityProfileId: cfg.qualityProfileId,
+        rootFolderPath: cfg.rootFolderPath,
+        monitored: true,
+        minimumAvailability: 'released',
+        addOptions: { searchForMovie: true },
+      },
+    })
+  } else {
+    await arrFetch('series', '/series', {
+      method: 'POST',
+      body: {
+        ...result.raw,
+        qualityProfileId: cfg.qualityProfileId,
+        rootFolderPath: cfg.rootFolderPath,
+        monitored: true,
+        seasonFolder: true,
+        addOptions: { monitor: 'all', searchForMissingEpisodes: true },
+      },
+    })
+  }
+}
+
+// ---------- Download queue (request status) ----------
+
+export interface ArrQueueItem {
+  /** Unique row key. */
+  key: string
+  kind: ArrKind
+  /** Radarr movieId / Sonarr seriesId — matches a search result's `id`. */
+  refId: number
+  title: string
+  detail?: string
+  poster?: string
+  /** 0–100 download progress. */
+  progress: number
+  /** Human status: Downloading / Importing… / Queued / Paused / Needs attention. */
+  status: string
+  /** True once the file(s) have downloaded (importing or done). */
+  done: boolean
+}
+
+interface RawQueueRecord {
+  movieId?: number
+  seriesId?: number
+  movie?: { title?: string; images?: ArrImage[] }
+  series?: { title?: string; images?: ArrImage[] }
+  episode?: { seasonNumber?: number; episodeNumber?: number }
+  title?: string
+  status?: string
+  trackedDownloadState?: string
+  size?: number
+  sizeleft?: number
+}
+
+function statusLabel(status?: string, state?: string): { label: string; done: boolean } {
+  if (state === 'importPending' || status === 'completed') return { label: 'Importing…', done: true }
+  if (status === 'downloading') return { label: 'Downloading', done: false }
+  if (status === 'paused') return { label: 'Paused', done: false }
+  if (status === 'queued' || status === 'delay') return { label: 'Queued', done: false }
+  if (status === 'warning' || status === 'failed') return { label: 'Needs attention', done: false }
+  return { label: status ?? 'Queued', done: false }
+}
+
+function pct(size?: number, left?: number): { size: number; left: number } {
+  return { size: size ?? 0, left: left ?? 0 }
+}
+
+/** Active downloads from Radarr + Sonarr, aggregated per movie / per series. Newest progress wins. */
+export async function arrQueue(): Promise<ArrQueueItem[]> {
+  const [radarr, sonarr] = await Promise.all([
+    arrFetch<{ records?: RawQueueRecord[] }>('movie', '/queue?includeMovie=true&pageSize=200').catch(() => ({ records: [] })),
+    arrFetch<{ records?: RawQueueRecord[] }>('series', '/queue?includeSeries=true&includeEpisode=true&pageSize=200').catch(() => ({ records: [] })),
+  ])
+
+  const items: ArrQueueItem[] = []
+
+  // Radarr: one row per movie.
+  for (const r of radarr.records ?? []) {
+    const { size, left } = pct(r.size, r.sizeleft)
+    const { label, done } = statusLabel(r.status, r.trackedDownloadState)
+    items.push({
+      key: `movie-${r.movieId}`,
+      kind: 'movie',
+      refId: r.movieId ?? 0,
+      title: r.movie?.title ?? r.title ?? 'Unknown',
+      poster: pickPoster(r.movie?.images),
+      progress: size > 0 ? Math.round(((size - left) / size) * 100) : done ? 100 : 0,
+      status: label,
+      done,
+    })
+  }
+
+  // Sonarr: aggregate episodes per series (sum sizes for one combined bar).
+  const bySeries = new Map<number, { rec: RawQueueRecord; size: number; left: number; count: number; anyDownloading: boolean }>()
+  for (const r of sonarr.records ?? []) {
+    const id = r.seriesId ?? 0
+    const cur = bySeries.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false }
+    const { size, left } = pct(r.size, r.sizeleft)
+    cur.size += size
+    cur.left += left
+    cur.count += 1
+    if (r.status === 'downloading') cur.anyDownloading = true
+    bySeries.set(id, cur)
+  }
+  for (const [id, agg] of bySeries) {
+    const { label, done } = agg.anyDownloading
+      ? { label: 'Downloading', done: false }
+      : statusLabel(agg.rec.status, agg.rec.trackedDownloadState)
+    items.push({
+      key: `series-${id}`,
+      kind: 'series',
+      refId: id,
+      title: agg.rec.series?.title ?? 'Unknown',
+      detail: `${agg.count} episode${agg.count === 1 ? '' : 's'}`,
+      poster: pickPoster(agg.rec.series?.images),
+      progress: agg.size > 0 ? Math.round(((agg.size - agg.left) / agg.size) * 100) : done ? 100 : 0,
+      status: label,
+      done,
+    })
+  }
+
+  // Downloading first, then importing, then queued; most-complete first within a group.
+  const rank = (i: ArrQueueItem) => (i.status === 'Downloading' ? 0 : i.done ? 1 : 2)
+  return items.sort((a, b) => rank(a) - rank(b) || b.progress - a.progress)
+}

@@ -130,6 +130,12 @@ export default function NavBar() {
               Collections
             </NavLink>
           )}
+          <NavLink to="/watchlist" className={linkClass}>
+            Watchlist
+          </NavLink>
+          <NavLink to="/request" className={linkClass}>
+            Request
+          </NavLink>
         </nav>
 
         <div className="flex-1" />

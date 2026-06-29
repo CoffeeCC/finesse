@@ -13,8 +13,11 @@ import {
   waitForImageChange,
 } from '../api/client'
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
+import { CONTENT_BASE } from '../lib/contentOrigin'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
+import CastMenu from '../components/CastMenu'
+import WatchlistButton from '../components/WatchlistButton'
 import TrailerHero from '../components/TrailerHero'
 import VideoClipHero from '../components/VideoClipHero'
 import MediaCard from '../components/MediaCard'
@@ -253,7 +256,7 @@ export default function ItemPage() {
           )}
           {/* Hero preview after a dwell: local clip (offline) first, else YouTube trailer. Hover fades audio in. */}
           {previewOn && previewKind === 'clip' && item && (
-            <VideoClipHero clipUrl={`/previews/${item.Id}.mp4`} onClose={() => setPreviewOn(false)} />
+            <VideoClipHero clipUrl={`${CONTENT_BASE}previews/${item.Id}.mp4`} onClose={() => setPreviewOn(false)} />
           )}
           {previewOn && previewKind === 'trailer' && trailerId && (
             <TrailerHero youtubeId={trailerId} onClose={() => setPreviewOn(false)} />
@@ -341,6 +344,8 @@ export default function ItemPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
                 </svg>
               </button>
+              {(item.Type === 'Movie' || item.Type === 'Series') && <WatchlistButton item={item} />}
+              {isPlayable && <CastMenu item={item} />}
             </div>
           </div>
         </div>

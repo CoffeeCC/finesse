@@ -50,7 +50,7 @@ export default function LoginPage() {
     setBusy(true)
     setError('')
     try {
-      await login(server, name, pw)
+      await login(server, name.trim(), pw.trim())
       localStorage.setItem('finesse.lastServer', server)
       navigate('/', { replace: true })
     } catch (err) {

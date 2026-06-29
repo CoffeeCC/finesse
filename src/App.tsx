@@ -9,6 +9,8 @@ import LibraryPage from './pages/LibraryPage'
 import ItemPage from './pages/ItemPage'
 import PlayerPage from './pages/PlayerPage'
 import SearchPage from './pages/SearchPage'
+import RequestPage from './pages/RequestPage'
+import WatchlistPage from './pages/WatchlistPage'
 import SettingsPage from './pages/SettingsPage'
 import PersonPage from './pages/PersonPage'
 import BrowsePage from './pages/BrowsePage'
@@ -16,6 +18,9 @@ import MusicPage from './pages/MusicPage'
 import AlbumPage from './pages/AlbumPage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
+import { useSpatialNavigation } from './lib/spatialNav'
+import { getAccentPref } from './api/client'
+import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -26,6 +31,19 @@ function ScrollToTop() {
 export default function App() {
   const { session } = useAuth()
   const location = useLocation()
+  useSpatialNavigation()
+
+  // Pull this account's saved accent (synced via DisplayPreferences) and apply it,
+  // updating the local mirror so future loads are instant.
+  useEffect(() => {
+    if (!session) return
+    getAccentPref().then((name) => {
+      if (name && name !== getStoredAccent()) {
+        setStoredAccent(name)
+        applyAccent(name)
+      }
+    })
+  }, [session])
 
   if (!session) {
     return (
@@ -60,6 +78,8 @@ export default function App() {
                     <Route path="/music" element={<MusicPage />} />
                     <Route path="/album/:albumId" element={<AlbumPage />} />
                     <Route path="/search" element={<SearchPage />} />
+                    <Route path="/request" element={<RequestPage />} />
+                    <Route path="/watchlist" element={<WatchlistPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />

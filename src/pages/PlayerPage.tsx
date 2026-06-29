@@ -142,7 +142,14 @@ export default function PlayerPage() {
 
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const seekbarRef = useRef<HTMLDivElement>(null)
-  const subDefaultApplied = useRef(false)
+  // Per-series remembered audio/sub languages, and a once-per-item apply guard.
+  const trackPrefsRef = useRef<Record<string, api.TrackPref>>({})
+  const tracksApplied = useRef(false)
+
+  // Load the user's saved per-series track preferences once.
+  useEffect(() => {
+    api.getTrackPrefs().then((p) => (trackPrefsRef.current = p)).catch(() => {})
+  }, [])
 
   const durationSec = ticksToSeconds(item?.RunTimeTicks)
 
@@ -270,7 +277,7 @@ export default function PlayerPage() {
     setCountdown(null)
     setSubIndex(-1)
     setAudioIndex(undefined)
-    subDefaultApplied.current = false
+    tracksApplied.current = false
     loadStream(startTicks)
 
     const progressTimer = setInterval(
@@ -395,15 +402,20 @@ export default function PlayerPage() {
     return () => document.removeEventListener('fullscreenchange', onFs)
   }, [])
 
+  const langOfStream = (idx: number) =>
+    streamRef.current?.mediaStreams.find((m) => m.Index === idx)?.Language ?? undefined
+
   const changeAudio = (idx: number) => {
     setAudioIndex(idx)
     setMenu(null)
     loadStream(secondsToTicks(absTime), idx, subIndex)
+    rememberTrack({ audioLang: langOfStream(idx) })
   }
   const changeSub = (idx: number) => {
     setSubIndex(idx)
     setMenu(null)
     loadStream(secondsToTicks(absTime), audioIndex, idx)
+    rememberTrack({ subLang: idx === -1 ? 'off' : langOfStream(idx) })
   }
   const changeQuality = (bitrate: number) => {
     setPrefs({ maxBitrate: bitrate })
@@ -521,17 +533,54 @@ export default function PlayerPage() {
     }
   }, [countdown, nextEp, navigate])
 
-  // Honor "subtitles on by default": once the first stream is playable, select
-  // the first subtitle track (one reload, guarded so it can't loop).
+  // Once the first stream is playable, apply the remembered tracks for this
+  // series (audio + subtitle language), falling back to the "subtitles on by
+  // default" pref. One reload, guarded so it applies once per item and can't loop.
   useEffect(() => {
-    if (subDefaultApplied.current || buffering) return
-    if (!getPrefs().subtitlesDefault || subIndex !== -1) return
-    const subs = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Subtitle') ?? []
-    if (subs.length) {
-      subDefaultApplied.current = true
-      changeSub(subs[0].Index)
+    if (tracksApplied.current || buffering) return
+    const streams = streamRef.current?.mediaStreams
+    if (!streams || streams.length === 0) return
+    tracksApplied.current = true
+
+    const seriesId = item?.Type === 'Episode' ? item.SeriesId : undefined
+    const pref = seriesId ? trackPrefsRef.current[seriesId] : undefined
+    const audios = streams.filter((m) => m.Type === 'Audio')
+    const subs = streams.filter((m) => m.Type === 'Subtitle')
+    const sameLang = (a?: string, b?: string) => (a ?? '').toLowerCase() === (b ?? '').toLowerCase()
+
+    let desiredAudio = audioIndex
+    if (pref?.audioLang) {
+      const m = audios.find((a) => sameLang(a.Language, pref.audioLang))
+      if (m) desiredAudio = m.Index
     }
-  }, [buffering, subIndex])
+
+    let desiredSub = subIndex
+    if (pref?.subLang) {
+      desiredSub =
+        pref.subLang === 'off' ? -1 : subs.find((s) => sameLang(s.Language, pref.subLang))?.Index ?? subIndex
+    } else if (getPrefs().subtitlesDefault && subs.length) {
+      desiredSub = subs[0].Index
+    }
+
+    if (desiredAudio !== audioIndex || desiredSub !== subIndex) {
+      setAudioIndex(desiredAudio)
+      setSubIndex(desiredSub)
+      loadStream(secondsToTicks(absTime), desiredAudio, desiredSub)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buffering, item])
+
+  // Remember the chosen track's language for this series, so other episodes follow.
+  const rememberTrack = useCallback(
+    (patch: api.TrackPref) => {
+      const seriesId = item?.Type === 'Episode' ? item.SeriesId : undefined
+      if (!seriesId) return
+      const next = { ...(trackPrefsRef.current[seriesId] ?? {}), ...patch }
+      trackPrefsRef.current = { ...trackPrefsRef.current, [seriesId]: next }
+      api.saveTrackPref(seriesId, next).catch(() => {})
+    },
+    [item],
+  )
 
   // ---------- Trickplay scrub preview ----------
   const trickplay: JfTrickplayInfo | undefined = useMemo(() => {
@@ -739,7 +788,7 @@ export default function PlayerPage() {
             )}
           </button>
           <button onClick={() => seekTo(absTime + 10)} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Forward 10 seconds" title="Forward 10s">
-            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.5 3a9 9 0 1 1-8.49 12h2.13a7 7 0 1 0 1.27-7.86L10 11H3V4l2.6 2.6A8.97 8.97 0 0 1 11.5 3z"/><text x="12" y="16" font-size="7" font-weight="bold" text-anchor="middle" fill="currentColor">10</text></svg>
+            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.5 3a9 9 0 1 1-8.49 12h2.13a7 7 0 1 0 1.27-7.86L10 11H3V4l2.6 2.6A8.97 8.97 0 0 1 11.5 3z"/><text x="12" y="16" fontSize="7" fontWeight="bold" textAnchor="middle" fill="currentColor">10</text></svg>
           </button>
           {nextEp && (
             <button onClick={() => navigate(`/play/${nextEp.Id}`, { replace: true })} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Next episode" title="Next episode">

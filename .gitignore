@@ -1,5 +1,8 @@
 node_modules
 dist
+dist-webos
+webos/staging
+webos/release
 *.local
 .DS_Store
 previews/

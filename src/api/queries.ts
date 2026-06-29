@@ -1,5 +1,7 @@
 import { useQuery, useQueries } from '@tanstack/react-query'
 import * as api from './client'
+import { arrQueue } from './arr'
+import { CONTENT_BASE } from '../lib/contentOrigin'
 import type { JfItem } from './types'
 
 export const PAGE_SIZE = 100
@@ -83,7 +85,7 @@ export function useClipManifest() {
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<Set<string>> => {
       try {
-        const res = await fetch('/previews/manifest.json', { cache: 'no-cache' })
+        const res = await fetch(`${CONTENT_BASE}previews/manifest.json`, { cache: 'no-cache' })
         if (!res.ok) return new Set()
         const ids = await res.json()
         return new Set<string>(Array.isArray(ids) ? ids : [])
@@ -140,6 +142,43 @@ export function usePersonItems(personId: string | undefined) {
 
 export function useNextUp() {
   return useQuery({ queryKey: ['nextUp'], queryFn: api.getNextUp })
+}
+
+/** The user's per-account home layout (hidden/collapsed/order/added rows). */
+export function useHomeLayout() {
+  return useQuery({ queryKey: ['homeLayout'], queryFn: api.getHomeLayout, staleTime: 60_000 })
+}
+
+/** Active Radarr/Sonarr downloads, polled so progress bars move on their own. */
+export function useArrQueue() {
+  return useQuery({
+    queryKey: ['arrQueue'],
+    queryFn: arrQueue,
+    refetchInterval: 15_000,
+    staleTime: 5_000,
+    retry: false,
+  })
+}
+
+/** The user's watchlist item IDs (server-synced via DisplayPreferences). */
+export function useWatchlistIds() {
+  return useQuery({ queryKey: ['watchlistIds'], queryFn: api.getWatchlistIds, staleTime: 30_000 })
+}
+
+/** Full watchlist items, re-ordered to match the stored (newest-first) id order. */
+export function useWatchlistItems() {
+  const { data: ids } = useWatchlistIds()
+  return useQuery({
+    queryKey: ['watchlistItems', ids],
+    enabled: !!ids,
+    queryFn: async (): Promise<JfItem[]> => {
+      if (!ids || ids.length === 0) return []
+      const res = await api.getItems({ ids: ids.join(','), fields: CARD_FIELDS, limit: 500 })
+      const byId = new Map(res.Items.map((i) => [i.Id, i]))
+      // Preserve watchlist order; drop ids whose item no longer exists.
+      return ids.map((id) => byId.get(id)).filter((i): i is JfItem => !!i)
+    },
+  })
 }
 
 export function useLatest(parentId: string | undefined) {

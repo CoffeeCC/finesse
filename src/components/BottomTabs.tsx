@@ -8,6 +8,7 @@ const ICONS: Record<string, string> = {
   movies: 'M3.375 19.5h17.25a1.125 1.125 0 0 0 1.125-1.125V5.625A1.125 1.125 0 0 0 20.625 4.5H3.375A1.125 1.125 0 0 0 2.25 5.625v12.75c0 .621.504 1.125 1.125 1.125ZM7.5 4.5v15m9-15v15M2.25 9h5.25m9 0h5.25M2.25 15h5.25m9 0h5.25',
   tvshows: 'M6 20.25h12M9 16.5v3.75m6-3.75v3.75M3.375 16.5h17.25c.621 0 1.125-.504 1.125-1.125V4.875A1.125 1.125 0 0 0 20.625 3.75H3.375A1.125 1.125 0 0 0 2.25 4.875v10.5c0 .621.504 1.125 1.125 1.125Z',
   search: 'm21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z',
+  request: 'M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
 }
 
 export default function BottomTabs() {
@@ -23,6 +24,7 @@ export default function BottomTabs() {
       end: false,
     })),
     { to: '/search', label: 'Search', icon: ICONS.search, end: false },
+    { to: '/request', label: 'Request', icon: ICONS.request, end: false },
   ]
 
   return (

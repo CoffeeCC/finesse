@@ -8,6 +8,7 @@ export interface Session {
   token: string
   userId: string
   userName: string
+  isAdmin: boolean
 }
 
 // Jellyfin revokes the previous access token when the same DeviceId
@@ -87,6 +88,12 @@ function authHeader(token?: string): string {
   return `MediaBrowser ${parts.join(', ')}`
 }
 
+/** The MediaBrowser auth header for the current session — reused by the Radarr/
+ *  Sonarr request proxy so its nginx auth_request can validate the same token. */
+export function mediaBrowserAuthHeader(): string {
+  return authHeader(session?.token)
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -157,9 +164,29 @@ export async function login(server: string, username: string, password: string):
     token: result.AccessToken,
     userId: result.User.Id,
     userName: result.User.Name,
+    isAdmin: result.User.Policy?.IsAdministrator ?? false,
   }
   setSession(s)
   return s
+}
+
+/** Admin-only: create a new Jellyfin user. Password is optional — an account
+ *  with no password shows up as a one-click profile, same as the others on
+ *  the login screen. Throws ApiError(400) if the username is taken. */
+export async function createUser(input: { name: string; password?: string }) {
+  const user = await request<{ Id: string; Name: string; Policy: Record<string, unknown> }>(
+    '/Users/New',
+    { method: 'POST', body: { Name: input.name, Password: input.password || undefined } },
+  )
+  // Jellyfin creates new users hidden from the login picker by default.
+  // Unhide so the account actually appears, matching the form's promise.
+  // The Policy endpoint replaces the whole object, so round-trip it rather
+  // than sending a partial body (a partial would reset unrelated fields).
+  await request(`/Users/${user.Id}/Policy`, {
+    method: 'POST',
+    body: { ...user.Policy, IsHidden: false },
+  })
+  return user
 }
 
 export function logout() {
@@ -312,11 +339,36 @@ export interface JfSession {
   NowPlayingItem?: JfItem
   PlayState?: { PositionTicks?: number; IsPaused?: boolean }
   LastActivityDate?: string
+  SupportsRemoteControl?: boolean
+  PlayableMediaTypes?: string[]
 }
 
 /** All sessions; used to detect playback on the user's other devices (handoff). */
 export function getSessions() {
   return request<JfSession[]>('/Sessions')
+}
+
+/** Other devices this user can drive from here ("Play on TV"). Server-filtered to
+ *  controllable sessions; we still drop this device and ones that can't play video. */
+export async function getCastTargets(): Promise<JfSession[]> {
+  const sessions = await request<JfSession[]>(
+    '/Sessions' + qs({ ControllableByUserId: session!.userId, ActiveWithinSeconds: 600 }),
+  )
+  return sessions.filter(
+    (s) =>
+      s.DeviceId !== DEVICE_ID &&
+      s.SupportsRemoteControl &&
+      (s.PlayableMediaTypes?.some((m) => m.toLowerCase() === 'video') ?? true),
+  )
+}
+
+/** Push playback to another device: tell it to play the item now, at an optional resume point. */
+export function playOnSession(sessionId: string, itemId: string, startPositionTicks = 0) {
+  return request(
+    `/Sessions/${sessionId}/Playing` +
+      qs({ playCommand: 'PlayNow', itemIds: itemId, startPositionTicks }),
+    { method: 'POST' },
+  )
 }
 
 /** Tell another device to stop (used when handing playback off to this one). */
@@ -379,6 +431,143 @@ export function setFavorite(itemId: string, favorite: boolean) {
   return request<unknown>(`/Users/${session!.userId}/FavoriteItems/${itemId}`, {
     method: favorite ? 'POST' : 'DELETE',
   })
+}
+
+// ---------- Watchlist ----------
+// Jellyfin has no native watchlist (Favorites is separate, and Playlists explode a
+// Series into its episodes). We keep a per-user list of item IDs in DisplayPreferences
+// CustomPrefs — server-side, so it syncs across the user's devices. Newest first.
+
+const WATCHLIST_DP = 'finesse-watchlist'
+
+interface JfDisplayPreferences {
+  CustomPrefs?: Record<string, string>
+  [k: string]: unknown
+}
+
+function watchlistDpPath(): string {
+  return `/DisplayPreferences/${WATCHLIST_DP}` + qs({ userId: session!.userId, client: 'finesse' })
+}
+
+export async function getWatchlistIds(): Promise<string[]> {
+  try {
+    const dp = await request<JfDisplayPreferences>(watchlistDpPath())
+    const raw = dp?.CustomPrefs?.watchlist
+    const ids = raw ? JSON.parse(raw) : []
+    return Array.isArray(ids) ? ids : []
+  } catch {
+    return []
+  }
+}
+
+/** Add/remove an item, returning the new id list. Read-modify-write on the stored prefs. */
+export async function setInWatchlist(itemId: string, add: boolean): Promise<string[]> {
+  const dp = (await request<JfDisplayPreferences>(watchlistDpPath()).catch(() => ({}))) as JfDisplayPreferences
+  const raw = dp.CustomPrefs?.watchlist
+  const current: string[] = raw ? (JSON.parse(raw) as string[]) : []
+  const next = add
+    ? [itemId, ...current.filter((id) => id !== itemId)]
+    : current.filter((id) => id !== itemId)
+  dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), watchlist: JSON.stringify(next) }
+  await request(watchlistDpPath(), { method: 'POST', body: dp })
+  return next
+}
+
+// ---------- Per-series track memory (audio/subtitle preference) ----------
+// Remember the audio + subtitle language a user picks for a series, so every
+// episode defaults to it. Stored per-user in DisplayPreferences (syncs devices).
+// subLang === 'off' means the user explicitly turned subtitles off for the series.
+
+const TRACKPREFS_DP = 'finesse-trackprefs'
+
+export interface TrackPref {
+  audioLang?: string
+  subLang?: string // language code, or 'off'
+}
+
+function trackPrefsDpPath(): string {
+  return `/DisplayPreferences/${TRACKPREFS_DP}` + qs({ userId: session!.userId, client: 'finesse' })
+}
+
+export async function getTrackPrefs(): Promise<Record<string, TrackPref>> {
+  try {
+    const dp = await request<JfDisplayPreferences>(trackPrefsDpPath())
+    const raw = dp?.CustomPrefs?.tracks
+    const obj = raw ? JSON.parse(raw) : {}
+    return obj && typeof obj === 'object' ? (obj as Record<string, TrackPref>) : {}
+  } catch {
+    return {}
+  }
+}
+
+export async function saveTrackPref(seriesId: string, pref: TrackPref): Promise<void> {
+  const dp = (await request<JfDisplayPreferences>(trackPrefsDpPath()).catch(() => ({}))) as JfDisplayPreferences
+  const raw = dp.CustomPrefs?.tracks
+  const all: Record<string, TrackPref> = raw ? JSON.parse(raw) : {}
+  all[seriesId] = pref
+  dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), tracks: JSON.stringify(all) }
+  await request(trackPrefsDpPath(), { method: 'POST', body: dp })
+}
+
+// ---------- UI prefs (accent color) ----------
+// Per-user UI settings stored in DisplayPreferences so they sync across devices.
+
+const UI_DP = 'finesse-ui'
+
+function uiDpPath(): string {
+  return `/DisplayPreferences/${UI_DP}` + qs({ userId: session!.userId, client: 'finesse' })
+}
+
+export async function getAccentPref(): Promise<string | null> {
+  try {
+    const dp = await request<JfDisplayPreferences>(uiDpPath())
+    return dp?.CustomPrefs?.accent ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function setAccentPref(name: string): Promise<void> {
+  const dp = (await request<JfDisplayPreferences>(uiDpPath()).catch(() => ({}))) as JfDisplayPreferences
+  dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), accent: name }
+  await request(uiDpPath(), { method: 'POST', body: dp })
+}
+
+// ---------- Home layout (per-account customization) ----------
+// Which home rows are hidden/collapsed and their order. Stored per-user in
+// DisplayPreferences so each profile gets its own home screen, synced across devices.
+
+const HOME_DP = 'finesse-home'
+
+export interface HomeLayout {
+  hidden: string[]
+  collapsed: string[]
+  order: string[]
+  /** Extra genre rows the user added beyond the defaults. */
+  added: string[]
+}
+
+const EMPTY_LAYOUT: HomeLayout = { hidden: [], collapsed: [], order: [], added: [] }
+
+function homeDpPath(): string {
+  return `/DisplayPreferences/${HOME_DP}` + qs({ userId: session!.userId, client: 'finesse' })
+}
+
+export async function getHomeLayout(): Promise<HomeLayout> {
+  try {
+    const dp = await request<JfDisplayPreferences>(homeDpPath())
+    const raw = dp?.CustomPrefs?.layout
+    const obj = raw ? JSON.parse(raw) : {}
+    return { ...EMPTY_LAYOUT, ...obj }
+  } catch {
+    return { ...EMPTY_LAYOUT }
+  }
+}
+
+export async function saveHomeLayout(layout: HomeLayout): Promise<void> {
+  const dp = (await request<JfDisplayPreferences>(homeDpPath()).catch(() => ({}))) as JfDisplayPreferences
+  dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), layout: JSON.stringify(layout) }
+  await request(homeDpPath(), { method: 'POST', body: dp })
 }
 
 export interface JfMediaSegment {

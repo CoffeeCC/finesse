@@ -1,8 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, HashRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
+import './lib/accent' // applies the saved accent color before first paint
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { ToastProvider } from './components/Toast'
@@ -18,10 +19,19 @@ const queryClient = new QueryClient({
   },
 })
 
+// The webOS bundle runs from a file:// origin, where path-based routing breaks
+// (no server to resolve /movie/123). HashRouter keeps all routing after the #.
+// The web build keeps clean URLs under its /finesse/ basename.
+const router = __WEBOS__
+  ? { Router: HashRouter, props: {} }
+  : { Router: BrowserRouter, props: { basename: import.meta.env.BASE_URL.replace(/\/$/, '') } }
+
+const { Router, props: routerProps } = router
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <Router {...routerProps}>
         <AuthProvider>
           <ToastProvider>
             <AudioPlayerProvider>
@@ -29,7 +39,7 @@ createRoot(document.getElementById('root')!).render(
             </AudioPlayerProvider>
           </ToastProvider>
         </AuthProvider>
-      </BrowserRouter>
+      </Router>
     </QueryClientProvider>
   </StrictMode>,
 )

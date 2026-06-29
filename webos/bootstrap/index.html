@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Finesse</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0d12; }
+      #boot {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        color: #6b7280; font: 500 22px/1.4 Georgia, serif; font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Shown only until boot.js swaps in the real app document. -->
+    <div id="boot">Finesse</div>
+    <!-- baked.js = the app bundle baked into this .ipk (safe fallback). -->
+    <script src="./baked.js"></script>
+    <!-- boot.js picks the newest of {baked, OTA-staged} and loads it. -->
+    <script src="./boot.js"></script>
+  </body>
+</html>

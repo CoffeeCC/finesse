@@ -9,9 +9,11 @@ interface Props {
   items: JfItem[] | undefined
   loading?: boolean
   seeAllHref?: string
+  /** Hide the row's own title bar (used when an outer frame already shows it). */
+  hideTitle?: boolean
 }
 
-export default function MediaRow({ title, items, loading, seeAllHref }: Props) {
+export default function MediaRow({ title, items, loading, seeAllHref, hideTitle }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
   const [visible, setVisible] = useState(false)
@@ -41,6 +43,7 @@ export default function MediaRow({ title, items, loading, seeAllHref }: Props) {
 
   return (
     <section ref={sectionRef} className={`group/row relative reveal ${visible ? 'is-visible' : ''}`}>
+      {!hideTitle && (
       <div className="flex items-baseline justify-between px-4 sm:px-6 lg:px-12 mb-3">
         {seeAllHref ? (
           <Link
@@ -58,6 +61,7 @@ export default function MediaRow({ title, items, loading, seeAllHref }: Props) {
         <div className="hidden md:flex gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
           <button
             onClick={() => scrollBy(-1)}
+            tabIndex={-1}
             className="h-8 w-8 rounded-full bg-ink-800 hover:bg-ink-700 flex items-center justify-center text-ink-200 transition-colors"
             aria-label="Scroll left"
           >
@@ -67,6 +71,7 @@ export default function MediaRow({ title, items, loading, seeAllHref }: Props) {
           </button>
           <button
             onClick={() => scrollBy(1)}
+            tabIndex={-1}
             className="h-8 w-8 rounded-full bg-ink-800 hover:bg-ink-700 flex items-center justify-center text-ink-200 transition-colors"
             aria-label="Scroll right"
           >
@@ -76,6 +81,7 @@ export default function MediaRow({ title, items, loading, seeAllHref }: Props) {
           </button>
         </div>
       </div>
+      )}
 
       <div
         ref={scrollRef}
