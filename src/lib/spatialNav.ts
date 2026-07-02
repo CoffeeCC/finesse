@@ -12,6 +12,9 @@ const FOCUSABLE =
 
 type Dir = 'up' | 'down' | 'left' | 'right'
 
+// Smooth scrolling janks hard on TV SoCs — jump instantly there.
+const SCROLL_BEHAVIOR: ScrollBehavior = __WEBOS__ ? 'auto' : 'smooth'
+
 function isVisible(el: HTMLElement): boolean {
   // Exclude display:none / visibility:hidden / content-visibility, but deliberately
   // NOT opacity:0 — rows animate in from opacity 0 (.reveal) and only get revealed
@@ -98,7 +101,7 @@ function onKeyDown(e: KeyboardEvent) {
     // No focusable target this way. For up/down, nudge-scroll so off-screen rows
     // (which lazy-load / reveal on scroll) come in and become reachable next press.
     if (dir === 'up' || dir === 'down') {
-      window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: 'smooth' })
+      window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: SCROLL_BEHAVIOR })
       e.preventDefault()
     }
     return
@@ -106,7 +109,7 @@ function onKeyDown(e: KeyboardEvent) {
 
   e.preventDefault()
   next.focus({ preventScroll: true })
-  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: SCROLL_BEHAVIOR })
 }
 
 /** Enable global D-pad/arrow-key spatial navigation for the app. */

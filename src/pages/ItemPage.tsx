@@ -175,10 +175,11 @@ export default function ItemPage() {
   // Prefer the local clip (offline, always matches) over the YouTube trailer
   const previewKind: 'clip' | 'trailer' | null = hasClip ? 'clip' : trailerId ? 'trailer' : null
 
-  // Auto-play the hero preview after a short dwell (muted), Netflix-style
+  // Auto-play the hero preview after a short dwell (muted), Netflix-style.
+  // Skipped on the TV build: video decode + the page UI fight for the TV SoC.
   useEffect(() => {
     setPreviewOn(false)
-    if (!previewKind) return
+    if (!previewKind || __WEBOS__) return
     const t = setTimeout(() => setPreviewOn(true), 3500)
     return () => clearTimeout(t)
   }, [previewKind, itemId])

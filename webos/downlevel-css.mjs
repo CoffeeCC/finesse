@@ -107,7 +107,70 @@ export function downlevelCss(css) {
   // 6. TV remotes drive :focus, not :focus-visible (unparseable there anyway).
   css = css.replace(/:focus-visible/g, ':focus')
 
-  // 7. lightningcss lowers what it can (inset, logical props, prefixes) and
+  // 7. `inset:` shorthand (Chromium <87) — lightningcss won't split calc()/var()
+  //    values, and Tailwind emits `inset:calc(var(--spacing)*0)`. Broken inset
+  //    de-positions every overlay (hero scrims, blurhash layers → "doubled
+  //    images"). Expand to longhands ourselves.
+  css = css.replace(/([{;])inset:([^;}]+)/g, '$1top:$2;right:$2;bottom:$2;left:$2')
+
+  // 8. Tailwind group-variant selectors use :is(:where(.group)…) — unparseable
+  //    on Chromium <88, which silently killed the D-pad focus ring on cards.
+  //    Rewrite `.group-X\:util:is(:where(.group):state *)` → `.group:state .group-X\:util`.
+  //    (Specificity rises slightly; acceptable on the TV-only sheet.)
+  css = css.replace(/(\.(?:\\.|[\w-])+):is\(:where\(\.group\)(:[\w-]+) \*\)/g, '.group$2 $1')
+
+  // 9. Flex `gap` does nothing on Chromium <84 (property parses — grid-era —
+  //    but flex layout ignores it), which squishes every toolbar/row together.
+  //    For each gap utility in the sheet, emit sibling-margin fallbacks scoped
+  //    to flex containers (grid containers keep native gap, which works).
+  //    Responsive variants are emitted in source order, so later (larger
+  //    breakpoint) rules still win; the TV is a fixed 1920×1080 viewport.
+  const gapRules = []
+  for (const m of css.matchAll(/\.((?:\\.|[\w-])+)\{(gap|column-gap|row-gap):([^};]+)\}/g)) {
+    const [, name, prop, value] = m
+    if (!/gap/.test(name)) continue
+    if (prop === 'gap' || prop === 'column-gap') {
+      gapRules.push(`.flex.${name}>*+*,.inline-flex.${name}>*+*{margin-left:${value}}`)
+    }
+    if (prop === 'gap' || prop === 'row-gap') {
+      gapRules.push(`.flex-col.${name}>*+*{margin-left:0;margin-top:${value}}`)
+    }
+  }
+  css += gapRules.join('')
+
+  // 10. aspect-ratio (Chromium <88) — poster/thumb boxes collapse without it,
+  //     making every thumbnail its image's natural size. Padding-top boxes +
+  //     absolute-fill for the media children restore fixed shapes. Overlay
+  //     badges/progress bars carry their own `absolute` classes and are
+  //     unaffected by the >img rule.
+  const aspects = [
+    ['.aspect-\\[2\\/3\\]', '150%'],
+    ['.aspect-video', '56.25%'],
+    ['.aspect-square', '100%'],
+  ]
+  for (const [sel, pad] of aspects) {
+    if (!css.includes(sel + '{')) continue
+    css +=
+      `${sel}{position:relative;height:0;padding-top:${pad}}` +
+      `${sel}>img,${sel}>.w-full{position:absolute;top:0;left:0;width:100%;height:100%}`
+  }
+
+  // 11. Perf: TV SoCs choke on Finesse's ambient effects — the .aurora layers
+  //     are three full-screen blur(90px) surfaces with infinite transform
+  //     animations, heroes run continuous Ken Burns zooms, and the nav bar
+  //     backdrop-blurs everything under it. Kill them all on TV; keep the
+  //     translucent tints (cheap) so the look stays close.
+  css +=
+    '.aurora{display:none!important}' +
+    '.kenburns,.slowzoom,.ambient-breathe,.page-enter,.shimmer{animation:none!important}' +
+    '.reveal{opacity:1!important;transform:none!important;transition:none!important}' +
+    '.tilt{transition:none!important;will-change:auto!important}' +
+    '.tilt-glare{display:none!important}' +
+    '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
+    '.blur-3xl{display:none!important}' +
+    'html{scroll-behavior:auto!important}'
+
+  // 12. lightningcss lowers what it can (logical props, prefixes) and
   //    re-parses everything — our safety net against bad surgery above.
   const out = transform({
     filename: 'app.css',
