@@ -118,7 +118,13 @@ async function request<T>(
   })
   if (res.status === 401 && session) {
     setSession(null)
-    window.location.href = '/login'
+    if (__WEBOS__) {
+      // file:// + HashRouter on webOS — path navigation would leave the app.
+      window.location.hash = '#/login'
+      window.location.reload()
+    } else {
+      window.location.href = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/login`
+    }
     throw new ApiError(401, 'Session expired')
   }
   if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)

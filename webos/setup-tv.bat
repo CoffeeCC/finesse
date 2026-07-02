@@ -15,7 +15,8 @@ if "%~1"=="" (
 
 echo.
 echo === Registering TV at %~1 as device "tv" ===
-call ares-setup-device --add tv --info "host=%~1 port=9922 username=prisoner"
+REM Note: this CLI needs SEPARATE -i flags (not one combined --info string).
+call ares-setup-device --add tv -i "username=prisoner" -i "host=%~1" -i "port=9922"
 if errorlevel 1 ( echo Could not add device. Is the LG CLI installed? & exit /b 1 )
 
 echo.

@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Finesse</title>
+    <!-- webOS Chromium &lt; 71 has no globalThis; React Query needs it. -->
+    <script>
+      (function (g) { if (!g.globalThis) g.globalThis = g })(typeof window !== 'undefined' ? window : this)
+    </script>
     <style>
       html, body { margin: 0; height: 100%; background: #0b0d12; }
       #boot {
@@ -15,9 +19,9 @@
   <body>
     <!-- Shown only until boot.js swaps in the real app document. -->
     <div id="boot">Finesse</div>
-    <!-- baked.js = the app bundle baked into this .ipk (safe fallback). -->
+    <!-- baked.js = version metadata; app.js/app.css are the on-disk bundle. -->
     <script src="./baked.js"></script>
-    <!-- boot.js picks the newest of {baked, OTA-staged} and loads it. -->
+    <!-- boot.js loads app.js/app.css, or an OTA bundle from IndexedDB if newer. -->
     <script src="./boot.js"></script>
   </body>
 </html>

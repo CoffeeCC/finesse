@@ -43,6 +43,8 @@ export default defineConfig(({ mode }) => {
     define: {
       __WEBOS__: JSON.stringify(isWebos),
       __APP_VERSION__: JSON.stringify(pkg.version),
+      // webOS 3–5 (Chromium 53–68) predate globalThis (Chrome 71).
+      ...(isWebos ? { globalThis: 'window' } : {}),
     },
     plugins: [react(), tailwindcss()],
     server: { port: 5173, proxy },
@@ -50,6 +52,9 @@ export default defineConfig(({ mode }) => {
       ? {
           build: {
             outDir: 'dist-webos',
+            // LG TVs ship Chromium 53–120 depending on webOS generation. Vite's
+            // default (es2020) emits ?? and ?. which choke on webOS 3–6 (≤79).
+            target: 'chrome53',
             cssCodeSplit: false,
             assetsInlineLimit: 100_000_000, // inline fonts/images as data URIs
             rollupOptions: {
