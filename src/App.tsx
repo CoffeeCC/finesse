@@ -24,7 +24,12 @@ import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
-  useEffect(() => window.scrollTo(0, 0), [pathname])
+  // Braces matter: newer Chrome returns a Promise from scrollTo, and a concise
+  // arrow would hand it to React as the effect "cleanup" → TypeError (blank
+  // screen) on every route change.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
   return null
 }
 
