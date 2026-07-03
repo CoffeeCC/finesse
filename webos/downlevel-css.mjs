@@ -168,7 +168,13 @@ export function downlevelCss(css) {
     '.tilt-glare{display:none!important}' +
     '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
     '.blur-3xl{display:none!important}' +
-    'html{scroll-behavior:auto!important}'
+    'html{scroll-behavior:auto!important}' +
+    // 12. Ten-foot clarity: desktop hover/focus cues are far too subtle on a TV.
+    //     Bold accent outline for BOTH input modes — D-pad focus and the Magic
+    //     Remote / air-mouse pointer hover — so you can always see where you are.
+    'a:focus,button:focus,select:focus,input:focus,[tabindex]:focus{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
+    'a:hover,button:hover{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
+    '.group:hover .tilt,.group:focus .tilt{outline:3px solid var(--color-accent-400,#7a8fd8);outline-offset:2px}'
 
   // 12. lightningcss lowers what it can (logical props, prefixes) and
   //    re-parses everything — our safety net against bad surgery above.
