@@ -783,13 +783,23 @@ export interface ImageOpts {
 
 export function imageUrl(itemId: string, type: string, opts: ImageOpts = {}): string {
   if (!session) return ''
+  let maxWidth = opts.maxWidth
+  let quality = opts.quality ?? 90
+  if (__WEBOS__) {
+    // TV SoCs choke on decoding hundreds of large JPEGs — the #1 scroll-lag
+    // cost. Cards render ~180px wide at 1080p, so cap what we ask Jellyfin
+    // for (it resizes server-side and caches the result).
+    const cap = type === 'Primary' ? 240 : type === 'Backdrop' || type === 'Thumb' ? 1280 : 480
+    maxWidth = Math.min(maxWidth ?? cap, cap)
+    quality = Math.min(quality, 80)
+  }
   return (
     `${session.server}/Items/${itemId}/Images/${type}` +
     qs({
-      maxWidth: opts.maxWidth,
+      maxWidth,
       maxHeight: opts.maxHeight,
       tag: opts.tag,
-      quality: opts.quality ?? 90,
+      quality,
       api_key: session.token,
     })
   )

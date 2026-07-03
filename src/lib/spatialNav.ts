@@ -30,8 +30,20 @@ function isVisible(el: HTMLElement): boolean {
   return r.width > 0 && r.height > 0
 }
 
+// On the TV, holding an arrow key repeats ~30×/s and each press used to re-query
+// and visibility-test every focusable on the page — molasses on a TV CPU. Reuse
+// the candidate list across key-repeats (rects are still read fresh per press).
+let cachedEls: HTMLElement[] | null = null
+let cachedAt = 0
+
 function candidates(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisible)
+  if (__WEBOS__ && cachedEls && performance.now() - cachedAt < 400) return cachedEls
+  const els = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisible)
+  if (__WEBOS__) {
+    cachedEls = els
+    cachedAt = performance.now()
+  }
+  return els
 }
 
 function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], currentEl: Element | null): HTMLElement | null {
@@ -74,12 +86,25 @@ function dirFor(key: string): Dir | null {
   }
 }
 
+let lastNavAt = 0
+
 function onKeyDown(e: KeyboardEvent) {
   if (e.altKey || e.ctrlKey || e.metaKey) return
   const dir = dirFor(e.key)
   if (!dir) return
   // The full-bleed player owns the arrow keys (seek / volume).
   if (window.location.pathname.includes('/play/')) return
+
+  // TV: cap held-key repeat to ~11 moves/s so focus keeps pace with the screen
+  // instead of queueing dozens of moves the SoC can't paint in time.
+  if (__WEBOS__) {
+    const now = performance.now()
+    if (now - lastNavAt < 90) {
+      e.preventDefault()
+      return
+    }
+    lastNavAt = now
+  }
 
   const active = document.activeElement as HTMLElement | null
   const tag = active?.tagName

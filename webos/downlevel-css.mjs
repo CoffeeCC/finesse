@@ -169,6 +169,11 @@ export function downlevelCss(css) {
     '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
     '.blur-3xl{display:none!important}' +
     'html{scroll-behavior:auto!important}' +
+    // Shadows (including Tailwind rings — they're box-shadows) cost real paint
+    // time on scroll for hundreds of rounded cards; the accent outline replaces
+    // them as the edge/highlight. contain limits repaint scope per card.
+    '.tilt{box-shadow:none!important;contain:layout paint}' +
+    '[class*="shadow-"]{box-shadow:none!important}' +
     // 12. Ten-foot clarity: desktop hover/focus cues are far too subtle on a TV.
     //     Bold accent outline for BOTH input modes — D-pad focus and the Magic
     //     Remote / air-mouse pointer hover — so you can always see where you are.

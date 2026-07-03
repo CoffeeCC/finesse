@@ -62,7 +62,8 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
     el.style.transform = ''
   }, [])
 
-  const blurUrl = blurhashToDataURL(primaryBlurhash(item))
+  // TV: skip blurhash (CPU decode per card) — the solid bg placeholder is fine.
+  const blurUrl = __WEBOS__ ? null : blurhashToDataURL(primaryBlurhash(item))
 
   return (
     <Link
@@ -77,8 +78,10 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
     >
       <div
         ref={tiltRef}
-        onPointerMove={onPointerMove}
-        onPointerLeave={onPointerLeave}
+        // TV: the pointer remote streams pointermove events — tilt math + style
+        // writes per move would repaint cards constantly. Outline hover is enough.
+        onPointerMove={__WEBOS__ ? undefined : onPointerMove}
+        onPointerLeave={__WEBOS__ ? undefined : onPointerLeave}
         className="tilt relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
       >
         {blurUrl && (
