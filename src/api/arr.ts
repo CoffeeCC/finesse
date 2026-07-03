@@ -261,6 +261,7 @@ export interface ArrQueueItem {
 interface RawQueueRecord {
   id?: number
   downloadId?: string
+  protocol?: string
   movieId?: number
   seriesId?: number
   artistId?: number
@@ -270,22 +271,28 @@ interface RawQueueRecord {
   episode?: { seasonNumber?: number; episodeNumber?: number }
   title?: string
   status?: string
+  trackedDownloadStatus?: string
   trackedDownloadState?: string
   size?: number
   sizeleft?: number
 }
 
-/** SAB nzo ids look like "SABnzbd_nzo_…"; torrent hashes don't. */
+/** Usenet downloads live in SABnzbd, keyed by the record's downloadId.
+ *  (SAB 4 ids look like "SABnzbd_nzo_…"; SAB 5 uses bare UUIDs — so key off the
+ *  protocol, not the id shape.) */
 function nzoOf(r: RawQueueRecord): string[] {
-  return r.downloadId && /^SABnzbd_nzo/i.test(r.downloadId) ? [r.downloadId] : []
+  return r.downloadId && r.protocol === 'usenet' ? [r.downloadId] : []
 }
 
-function statusLabel(status?: string, state?: string): { label: string; done: boolean } {
+function statusLabel(status?: string, state?: string, tracked?: string): { label: string; done: boolean } {
+  // A failed import LOOKS like status=completed — check the tracked status first,
+  // or a dead import renders as a forever-"Importing…" row.
+  if (state === 'importFailed' || tracked === 'warning' || tracked === 'error' || status === 'warning' || status === 'failed')
+    return { label: 'Needs attention', done: false }
   if (state === 'importPending' || status === 'completed') return { label: 'Importing…', done: true }
   if (status === 'downloading') return { label: 'Downloading', done: false }
   if (status === 'paused') return { label: 'Paused', done: false }
   if (status === 'queued' || status === 'delay') return { label: 'Queued', done: false }
-  if (status === 'warning' || status === 'failed') return { label: 'Needs attention', done: false }
   return { label: status ?? 'Queued', done: false }
 }
 
@@ -300,6 +307,7 @@ interface Agg {
   left: number
   count: number
   anyDownloading: boolean
+  anyWarning: boolean
   allPaused: boolean
   queueIds: number[]
   nzoIds: string[]
@@ -309,12 +317,14 @@ function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => numbe
   const map = new Map<number, Agg>()
   for (const r of records) {
     const id = idOf(r)
-    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, allPaused: true, queueIds: [], nzoIds: [] }
+    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [] }
     const { size, left } = pct(r.size, r.sizeleft)
     cur.size += size
     cur.left += left
     cur.count += 1
     if (r.status === 'downloading') cur.anyDownloading = true
+    if (r.trackedDownloadStatus === 'warning' || r.trackedDownloadState === 'importFailed' || r.status === 'failed' || r.status === 'warning')
+      cur.anyWarning = true
     if (r.status !== 'paused') cur.allPaused = false
     if (r.id) cur.queueIds.push(r.id)
     cur.nzoIds.push(...nzoOf(r))
@@ -336,7 +346,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
   // Radarr: one row per movie.
   for (const r of radarr.records ?? []) {
     const { size, left } = pct(r.size, r.sizeleft)
-    const { label, done } = statusLabel(r.status, r.trackedDownloadState)
+    const { label, done } = statusLabel(r.status, r.trackedDownloadState, r.trackedDownloadStatus)
     items.push({
       key: `movie-${r.movieId}`,
       kind: 'movie',
@@ -353,9 +363,12 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
   }
 
   const pushAgg = (kind: ArrKind, id: number, agg: Agg, title: string, detail: string, poster?: string) => {
-    const { label, done } = agg.anyDownloading
-      ? { label: 'Downloading', done: false }
-      : statusLabel(agg.rec.status, agg.rec.trackedDownloadState)
+    // A stuck record must surface even when siblings are still moving.
+    const { label, done } = agg.anyWarning
+      ? { label: 'Needs attention', done: false }
+      : agg.anyDownloading
+        ? { label: 'Downloading', done: false }
+        : statusLabel(agg.rec.status, agg.rec.trackedDownloadState, agg.rec.trackedDownloadStatus)
     items.push({
       key: `${kind}-${id}`,
       kind,
@@ -396,4 +409,22 @@ export async function arrQueueRemove(item: ArrQueueItem): Promise<void> {
     method: 'DELETE',
     body: { ids: item.queueIds },
   })
+}
+
+/** Unstick a "Needs attention" item: drop the bad download, blocklist that
+ *  release so it isn't re-grabbed, and immediately search for another one. */
+export async function arrQueueRetry(item: ArrQueueItem): Promise<void> {
+  if (item.queueIds.length > 0) {
+    await arrFetch(item.kind, '/queue/bulk?removeFromClient=true&blocklist=true', {
+      method: 'DELETE',
+      body: { ids: item.queueIds },
+    })
+  }
+  const command =
+    item.kind === 'movie'
+      ? { name: 'MoviesSearch', movieIds: [item.refId] }
+      : item.kind === 'series'
+        ? { name: 'SeriesSearch', seriesId: item.refId }
+        : { name: 'ArtistSearch', artistId: item.refId }
+  await arrFetch(item.kind, '/command', { method: 'POST', body: command })
 }

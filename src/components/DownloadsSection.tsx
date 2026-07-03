@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArrQueue } from '../api/queries'
-import { arrQueueRemove, type ArrQueueItem } from '../api/arr'
+import { arrQueueRemove, arrQueueRetry, type ArrQueueItem } from '../api/arr'
 import { sabItemPause, sabItemResume } from '../api/sab'
 import { useToast } from './Toast'
 
@@ -49,6 +49,19 @@ function Row({ d }: { d: ArrQueueItem }) {
     }
   }
 
+  const retry = async () => {
+    setBusy(true)
+    try {
+      await arrQueueRetry(d)
+      toast(`Dropped the stuck download for “${d.title}” — searching for another release`)
+      refresh()
+    } catch {
+      toast(`Couldn’t retry “${d.title}”`, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex items-center gap-3 rounded-xl bg-ink-900/60 border border-white/5 p-2.5">
       <div className="w-11 h-16 shrink-0 rounded-md overflow-hidden bg-ink-800">
@@ -73,9 +86,22 @@ function Row({ d }: { d: ArrQueueItem }) {
         </div>
       </div>
 
-      {/* Controls: pause/resume (usenet only) + cancel. Hidden once importing. */}
+      {/* Controls: retry (stuck rows), pause/resume (usenet only), cancel. Hidden once importing. */}
       {!d.done && (
         <div className="flex items-center gap-1 shrink-0">
+          {d.status === 'Needs attention' && d.queueIds.length > 0 && (
+            <button
+              onClick={retry}
+              disabled={busy}
+              title="Drop this download and search for a different release"
+              aria-label="Retry with a different release"
+              className="h-8 w-8 rounded-full flex items-center justify-center text-amber-300 hover:text-amber-200 hover:bg-white/10 disabled:opacity-40 transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            </button>
+          )}
           {d.nzoIds.length > 0 && (
             <button
               onClick={togglePause}
