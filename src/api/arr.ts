@@ -1,13 +1,15 @@
 import { mediaBrowserAuthHeader } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 
-// Finesse's request feature talks to Radarr (movies) and Sonarr (shows) through
-// the app's OWN nginx, which reverse-proxies /arr/{radarr,sonarr}/* to the *arr
-// APIs with the API key injected server-side (see nginx.conf). That keeps the
+// Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
+// (music) through the app's OWN nginx, which reverse-proxies /arr/{app}/* to the
+// *arr APIs with the API key injected server-side (see nginx.conf). That keeps the
 // keys out of the browser, avoids CORS, works remotely through the funnel, and
 // is gated by an nginx auth_request that validates the caller's Jellyfin token.
 
-export type ArrKind = 'movie' | 'series'
+export type ArrKind = 'movie' | 'series' | 'artist'
+
+const APP_OF: Record<ArrKind, string> = { movie: 'radarr', series: 'sonarr', artist: 'lidarr' }
 
 export class ArrError extends Error {
   status: number
@@ -52,7 +54,7 @@ async function arrFetch<T>(
   path: string,
   opts: { method?: string; body?: unknown } = {},
 ): Promise<T> {
-  const app = kind === 'movie' ? 'radarr' : 'sonarr'
+  const app = APP_OF[kind]
   const res = await fetch(`${arrBase()}/${app}${path}`, {
     method: opts.method ?? 'GET',
     headers: {
@@ -114,6 +116,20 @@ function mapSeries(s: Record<string, unknown>): ArrResult {
   }
 }
 
+function mapArtist(a: Record<string, unknown>): ArrResult {
+  const stats = (a.statistics as { trackFileCount?: number } | undefined) ?? {}
+  return {
+    kind: 'artist',
+    id: (a.id as number) ?? 0,
+    title: (a.artistName as string) ?? 'Unknown',
+    overview: a.overview as string | undefined,
+    poster: pickPoster(a.images as ArrImage[], a.remotePoster as string),
+    hasFile: (stats.trackFileCount ?? 0) > 0,
+    monitored: Boolean(a.monitored),
+    raw: a,
+  }
+}
+
 /** Search TMDb/TVDb via the *arr lookup endpoint. Results flag what's already
  *  in the library (id > 0), so the UI can show In Library / Requested / Add. */
 export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[]> {
@@ -122,6 +138,10 @@ export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[
     const data = await arrFetch<Record<string, unknown>[]>('movie', `/movie/lookup?term=${q}`)
     return data.map(mapMovie)
   }
+  if (kind === 'artist') {
+    const data = await arrFetch<Record<string, unknown>[]>('artist', `/artist/lookup?term=${q}`)
+    return data.map(mapArtist)
+  }
   const data = await arrFetch<Record<string, unknown>[]>('series', `/series/lookup?term=${q}`)
   return data.map(mapSeries)
 }
@@ -129,6 +149,8 @@ export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[
 interface ArrConfig {
   qualityProfileId: number
   rootFolderPath: string
+  /** Lidarr only — required on artist adds. */
+  metadataProfileId?: number
 }
 
 // Resolve the quality profile + root folder from the live *arr config rather than
@@ -144,20 +166,46 @@ function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
         arrFetch<{ path: string }[]>(kind, '/rootfolder'),
       ])
       const prof =
-        profiles.find((p) => /1080/.test(p.name)) ??
-        profiles.find((p) => p.id === 4) ??
-        profiles[0]
+        kind === 'artist'
+          ? profiles.find((p) => /lossless/i.test(p.name)) ??
+            profiles.find((p) => /standard/i.test(p.name)) ??
+            profiles[0]
+          : profiles.find((p) => /1080/.test(p.name)) ??
+            profiles.find((p) => p.id === 4) ??
+            profiles[0]
       const root = roots[0]
       if (!prof || !root) throw new ArrError(0, 'No quality profile or root folder configured')
-      return { qualityProfileId: prof.id, rootFolderPath: root.path }
+      const cfg: ArrConfig = { qualityProfileId: prof.id, rootFolderPath: root.path }
+      if (kind === 'artist') {
+        // Lidarr additionally needs a metadata profile ("Standard" over "None").
+        const metas = await arrFetch<{ id: number; name: string }[]>('artist', '/metadataprofile')
+        const meta = metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
+        if (!meta) throw new ArrError(0, 'No Lidarr metadata profile configured')
+        cfg.metadataProfileId = meta.id
+      }
+      return cfg
     })()
   }
   return configCache[kind]!
 }
 
-/** Add the chosen result to Radarr/Sonarr and kick off a search for it. */
+/** Add the chosen result to Radarr/Sonarr/Lidarr and kick off a search for it. */
 export async function arrAdd(result: ArrResult): Promise<void> {
   const cfg = await resolveConfig(result.kind)
+  if (result.kind === 'artist') {
+    await arrFetch('artist', '/artist', {
+      method: 'POST',
+      body: {
+        ...result.raw,
+        qualityProfileId: cfg.qualityProfileId,
+        metadataProfileId: cfg.metadataProfileId,
+        rootFolderPath: cfg.rootFolderPath,
+        monitored: true,
+        addOptions: { monitor: 'all', searchForMissingAlbums: true },
+      },
+    })
+    return
+  }
   if (result.kind === 'movie') {
     await arrFetch('movie', '/movie', {
       method: 'POST',
@@ -191,7 +239,7 @@ export interface ArrQueueItem {
   /** Unique row key. */
   key: string
   kind: ArrKind
-  /** Radarr movieId / Sonarr seriesId — matches a search result's `id`. */
+  /** Radarr movieId / Sonarr seriesId / Lidarr artistId — matches a search result's `id`. */
   refId: number
   title: string
   detail?: string
@@ -202,19 +250,34 @@ export interface ArrQueueItem {
   status: string
   /** True once the file(s) have downloaded (importing or done). */
   done: boolean
+  /** *arr queue record ids backing this row (an aggregated series row has several). */
+  queueIds: number[]
+  /** SABnzbd job ids (only for usenet downloads) — enables per-item pause/resume. */
+  nzoIds: string[]
+  /** Every backing download is currently paused. */
+  paused: boolean
 }
 
 interface RawQueueRecord {
+  id?: number
+  downloadId?: string
   movieId?: number
   seriesId?: number
+  artistId?: number
   movie?: { title?: string; images?: ArrImage[] }
   series?: { title?: string; images?: ArrImage[] }
+  artist?: { artistName?: string; images?: ArrImage[] }
   episode?: { seasonNumber?: number; episodeNumber?: number }
   title?: string
   status?: string
   trackedDownloadState?: string
   size?: number
   sizeleft?: number
+}
+
+/** SAB nzo ids look like "SABnzbd_nzo_…"; torrent hashes don't. */
+function nzoOf(r: RawQueueRecord): string[] {
+  return r.downloadId && /^SABnzbd_nzo/i.test(r.downloadId) ? [r.downloadId] : []
 }
 
 function statusLabel(status?: string, state?: string): { label: string; done: boolean } {
@@ -230,11 +293,42 @@ function pct(size?: number, left?: number): { size: number; left: number } {
   return { size: size ?? 0, left: left ?? 0 }
 }
 
-/** Active downloads from Radarr + Sonarr, aggregated per movie / per series. Newest progress wins. */
+/** Aggregate multi-record rows (a series' episodes, an artist's albums) into one bar. */
+interface Agg {
+  rec: RawQueueRecord
+  size: number
+  left: number
+  count: number
+  anyDownloading: boolean
+  allPaused: boolean
+  queueIds: number[]
+  nzoIds: string[]
+}
+
+function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => number): Map<number, Agg> {
+  const map = new Map<number, Agg>()
+  for (const r of records) {
+    const id = idOf(r)
+    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, allPaused: true, queueIds: [], nzoIds: [] }
+    const { size, left } = pct(r.size, r.sizeleft)
+    cur.size += size
+    cur.left += left
+    cur.count += 1
+    if (r.status === 'downloading') cur.anyDownloading = true
+    if (r.status !== 'paused') cur.allPaused = false
+    if (r.id) cur.queueIds.push(r.id)
+    cur.nzoIds.push(...nzoOf(r))
+    map.set(id, cur)
+  }
+  return map
+}
+
+/** Active downloads from Radarr + Sonarr + Lidarr, aggregated per movie / series / artist. */
 export async function arrQueue(): Promise<ArrQueueItem[]> {
-  const [radarr, sonarr] = await Promise.all([
+  const [radarr, sonarr, lidarr] = await Promise.all([
     arrFetch<{ records?: RawQueueRecord[] }>('movie', '/queue?includeMovie=true&pageSize=200').catch(() => ({ records: [] })),
     arrFetch<{ records?: RawQueueRecord[] }>('series', '/queue?includeSeries=true&includeEpisode=true&pageSize=200').catch(() => ({ records: [] })),
+    arrFetch<{ records?: RawQueueRecord[] }>('artist', '/queue?includeArtist=true&pageSize=200').catch(() => ({ records: [] })),
   ])
 
   const items: ArrQueueItem[] = []
@@ -252,39 +346,54 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       progress: size > 0 ? Math.round(((size - left) / size) * 100) : done ? 100 : 0,
       status: label,
       done,
+      queueIds: r.id ? [r.id] : [],
+      nzoIds: nzoOf(r),
+      paused: r.status === 'paused',
     })
   }
 
-  // Sonarr: aggregate episodes per series (sum sizes for one combined bar).
-  const bySeries = new Map<number, { rec: RawQueueRecord; size: number; left: number; count: number; anyDownloading: boolean }>()
-  for (const r of sonarr.records ?? []) {
-    const id = r.seriesId ?? 0
-    const cur = bySeries.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false }
-    const { size, left } = pct(r.size, r.sizeleft)
-    cur.size += size
-    cur.left += left
-    cur.count += 1
-    if (r.status === 'downloading') cur.anyDownloading = true
-    bySeries.set(id, cur)
-  }
-  for (const [id, agg] of bySeries) {
+  const pushAgg = (kind: ArrKind, id: number, agg: Agg, title: string, detail: string, poster?: string) => {
     const { label, done } = agg.anyDownloading
       ? { label: 'Downloading', done: false }
       : statusLabel(agg.rec.status, agg.rec.trackedDownloadState)
     items.push({
-      key: `series-${id}`,
-      kind: 'series',
+      key: `${kind}-${id}`,
+      kind,
       refId: id,
-      title: agg.rec.series?.title ?? 'Unknown',
-      detail: `${agg.count} episode${agg.count === 1 ? '' : 's'}`,
-      poster: pickPoster(agg.rec.series?.images),
+      title,
+      detail,
+      poster,
       progress: agg.size > 0 ? Math.round(((agg.size - agg.left) / agg.size) * 100) : done ? 100 : 0,
       status: label,
       done,
+      queueIds: agg.queueIds,
+      nzoIds: agg.nzoIds,
+      paused: agg.allPaused,
     })
+  }
+
+  for (const [id, agg] of aggregate(sonarr.records ?? [], (r) => r.seriesId ?? 0)) {
+    pushAgg('series', id, agg, agg.rec.series?.title ?? 'Unknown',
+      `${agg.count} episode${agg.count === 1 ? '' : 's'}`, pickPoster(agg.rec.series?.images))
+  }
+  for (const [id, agg] of aggregate(lidarr.records ?? [], (r) => r.artistId ?? 0)) {
+    pushAgg('artist', id, agg, agg.rec.artist?.artistName ?? 'Unknown',
+      `${agg.count} album${agg.count === 1 ? '' : 's'}`, pickPoster(agg.rec.artist?.images))
   }
 
   // Downloading first, then importing, then queued; most-complete first within a group.
   const rank = (i: ArrQueueItem) => (i.status === 'Downloading' ? 0 : i.done ? 1 : 2)
   return items.sort((a, b) => rank(a) - rank(b) || b.progress - a.progress)
+}
+
+// ---------- Queue controls ----------
+
+/** Cancel a queued/downloading item: removes it from the *arr queue AND the
+ *  download client. Never blocklists, so it can be re-grabbed later. */
+export async function arrQueueRemove(item: ArrQueueItem): Promise<void> {
+  if (item.queueIds.length === 0) return
+  await arrFetch(item.kind, '/queue/bulk?removeFromClient=true&blocklist=false', {
+    method: 'DELETE',
+    body: { ids: item.queueIds },
+  })
 }

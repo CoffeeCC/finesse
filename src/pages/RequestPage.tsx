@@ -4,14 +4,22 @@ import { useQuery } from '@tanstack/react-query'
 import { arrAdd, arrLookup, ArrError, type ArrKind, type ArrResult } from '../api/arr'
 import { useArrQueue } from '../api/queries'
 import DownloadsSection from '../components/DownloadsSection'
+import SabPanel from '../components/SabPanel'
 import { useToast } from '../components/Toast'
 
 type ItemState = 'idle' | 'adding' | 'requested'
 
+const KINDS: { kind: ArrKind; label: string; placeholder: string }[] = [
+  { kind: 'movie', label: 'Movies', placeholder: 'Search for a movie…' },
+  { kind: 'series', label: 'Shows', placeholder: 'Search for a show…' },
+  { kind: 'artist', label: 'Music', placeholder: 'Search for an artist…' },
+]
+
 export default function RequestPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const term = searchParams.get('q') ?? ''
-  const kind = (searchParams.get('kind') as ArrKind) === 'series' ? 'series' : 'movie'
+  const kindParam = searchParams.get('kind') as ArrKind
+  const kind = KINDS.some((k) => k.kind === kindParam) ? kindParam : 'movie'
   const [input, setInput] = useState(term)
   const toast = useToast()
   // Per-result override so a freshly-requested item flips state immediately.
@@ -79,15 +87,15 @@ export default function RequestPage() {
 
         <div className="flex items-center gap-2 mb-4">
           <div className="inline-flex rounded-full bg-ink-800/80 border border-white/10 p-1">
-            {(['movie', 'series'] as const).map((k) => (
+            {KINDS.map((k) => (
               <button
-                key={k}
-                onClick={() => setKind(k)}
+                key={k.kind}
+                onClick={() => setKind(k.kind)}
                 className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  kind === k ? 'bg-accent-600 text-white' : 'text-ink-300 hover:text-white'
+                  kind === k.kind ? 'bg-accent-600 text-white' : 'text-ink-300 hover:text-white'
                 }`}
               >
-                {k === 'movie' ? 'Movies' : 'Shows'}
+                {k.label}
               </button>
             ))}
           </div>
@@ -106,7 +114,7 @@ export default function RequestPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={kind === 'movie' ? 'Search for a movie…' : 'Search for a show…'}
+            placeholder={KINDS.find((k) => k.kind === kind)!.placeholder}
             autoFocus={!term}
             className="w-full rounded-full bg-ink-800/80 border border-white/10 pl-11 pr-4 py-2.5 text-sm outline-none focus:border-accent-500 placeholder:text-ink-400"
           />
@@ -114,7 +122,9 @@ export default function RequestPage() {
       </div>
 
       <div className="px-4 sm:px-6 lg:px-12">
-        {/* What's currently downloading — live from the Radarr/Sonarr queue. */}
+        {/* Downloader (SABnzbd) status: speed / disk / pause-all / speed cap. */}
+        <SabPanel />
+        {/* What's currently downloading — live from the *arr queues, with controls. */}
         <DownloadsSection />
 
         {authError && (

@@ -34,6 +34,22 @@ export default defineConfig(({ mode }) => {
       headers: { 'X-Api-Key': env.SONARR_KEY },
     }
   }
+  if (env.LIDARR_KEY) {
+    proxy['/finesse/arr/lidarr'] = {
+      target: `${arrHost}:30071`,
+      changeOrigin: true,
+      rewrite: (p: string) => p.replace(/^\/finesse\/arr\/lidarr/, '/api/v1'),
+      headers: { 'X-Api-Key': env.LIDARR_KEY },
+    }
+  }
+  if (env.SAB_KEY) {
+    proxy['/finesse/arr/sab'] = {
+      target: `${arrHost}:30055`,
+      changeOrigin: true,
+      // SAB wants the key as a query param — append it during the rewrite.
+      rewrite: (p: string) => p.replace(/^\/finesse\/arr\/sab\??/, '/api?') + `&apikey=${env.SAB_KEY}`,
+    }
+  }
 
   return {
     // Web build is served under /finesse/ behind the Tailscale Funnel (shares

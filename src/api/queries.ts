@@ -1,6 +1,7 @@
 import { useQuery, useQueries } from '@tanstack/react-query'
 import * as api from './client'
 import { arrQueue } from './arr'
+import { sabStatus } from './sab'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import type { JfItem } from './types'
 
@@ -155,6 +156,18 @@ export function useArrQueue() {
     queryKey: ['arrQueue'],
     queryFn: arrQueue,
     refetchInterval: 15_000,
+    staleTime: 5_000,
+    retry: false,
+  })
+}
+
+/** SABnzbd global status (speed / disk / pause state) for the downloads panel.
+ *  Errors quietly — the panel simply doesn't render if SAB is unreachable. */
+export function useSabStatus() {
+  return useQuery({
+    queryKey: ['sabStatus'],
+    queryFn: sabStatus,
+    refetchInterval: 10_000,
     staleTime: 5_000,
     retry: false,
   })
