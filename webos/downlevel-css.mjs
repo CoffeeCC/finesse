@@ -107,10 +107,39 @@ export function downlevelCss(css) {
   // 6. TV remotes drive :focus, not :focus-visible (unparseable there anyway).
   css = css.replace(/:focus-visible/g, ':focus')
 
-  // 7. `inset:` shorthand (Chromium <87) — lightningcss won't split calc()/var()
-  //    values, and Tailwind emits `inset:calc(var(--spacing)*0)`. Broken inset
-  //    de-positions every overlay (hero scrims, blurhash layers → "doubled
-  //    images"). Expand to longhands ourselves.
+  // 7. Logical properties (Chromium <87) — lightningcss won't lower them when
+  //    the value is calc()/var(), and Tailwind v4 emits ALL of px-*/py-*/mx-*
+  //    as padding-inline/padding-block/margin-inline. Dropped wholesale on the
+  //    TV, this stripped the padding from every button/nav/page ("cramped,
+  //    like regular text"), shrink-wrapped the fixed header (inset-x-0 →
+  //    inset-inline), and de-positioned overlays (inset: shorthand). Expand
+  //    them all to physical longhands (LTR — Finesse is English-only).
+  const LOGICAL = [
+    ['inset-inline-start', ['left']],
+    ['inset-inline-end', ['right']],
+    ['inset-block-start', ['top']],
+    ['inset-block-end', ['bottom']],
+    ['inset-inline', ['left', 'right']],
+    ['inset-block', ['top', 'bottom']],
+    ['padding-inline-start', ['padding-left']],
+    ['padding-inline-end', ['padding-right']],
+    ['padding-block-start', ['padding-top']],
+    ['padding-block-end', ['padding-bottom']],
+    ['padding-inline', ['padding-left', 'padding-right']],
+    ['padding-block', ['padding-top', 'padding-bottom']],
+    ['margin-inline-start', ['margin-left']],
+    ['margin-inline-end', ['margin-right']],
+    ['margin-block-start', ['margin-top']],
+    ['margin-block-end', ['margin-bottom']],
+    ['margin-inline', ['margin-left', 'margin-right']],
+    ['margin-block', ['margin-top', 'margin-bottom']],
+    ['border-inline-start-width', ['border-left-width']],
+    ['border-inline-end-width', ['border-right-width']],
+  ]
+  for (const [prop, physical] of LOGICAL) {
+    css = css.replace(new RegExp(`([{;])${prop}:([^;}]+)`, 'g'), (_, pre, val) =>
+      pre + physical.map((p) => `${p}:${val}`).join(';'))
+  }
   css = css.replace(/([{;])inset:([^;}]+)/g, '$1top:$2;right:$2;bottom:$2;left:$2')
 
   // 8. Tailwind group-variant selectors use :is(:where(.group)…) — unparseable

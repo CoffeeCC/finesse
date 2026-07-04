@@ -2,6 +2,7 @@ import { useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { posterUrl } from '../api/client'
 import { blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
+import { useTvLazy } from '../lib/tvLazy'
 import type { JfItem } from '../api/types'
 
 const REDUCED_MOTION =
@@ -65,6 +66,9 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
   // TV: skip blurhash (CPU decode per card) — the solid bg placeholder is fine.
   const blurUrl = __WEBOS__ ? null : blurhashToDataURL(primaryBlurhash(item))
 
+  // TV: real lazy loading — loading="lazy" is a no-op on the CX's Chromium 68.
+  const [lazyRef, nearViewport] = useTvLazy<HTMLDivElement>()
+
   return (
     <Link
       to={`/item/${linkId}`}
@@ -77,7 +81,10 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
       style={width ? { width } : undefined}
     >
       <div
-        ref={tiltRef}
+        ref={(el) => {
+          tiltRef.current = el
+          lazyRef.current = el
+        }}
         // TV: the pointer remote streams pointermove events — tilt math + style
         // writes per move would repaint cards constantly. Outline hover is enough.
         onPointerMove={__WEBOS__ ? undefined : onPointerMove}
@@ -87,14 +94,14 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
         {blurUrl && (
           <img src={blurUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
         )}
-        {poster ? (
+        {poster && nearViewport ? (
           <img
             src={poster}
             alt={item.Name}
             loading="lazy"
             className="relative h-full w-full object-cover fade-in"
           />
-        ) : (
+        ) : poster ? null : (
           <div className="h-full w-full flex items-center justify-center p-3 text-center text-sm text-ink-400">
             {item.Name}
           </div>

@@ -4,9 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Finesse</title>
-    <!-- webOS Chromium &lt; 71 has no globalThis; React Query needs it. -->
+    <!-- Polyfills for webOS Chromium 68 (LG CX = webOS 5): globalThis (71),
+         queueMicrotask (71), Object.fromEntries (73), Array flat/flatMap (69). -->
     <script>
-      (function (g) { if (!g.globalThis) g.globalThis = g })(typeof window !== 'undefined' ? window : this)
+      (function (g) {
+        if (!g.globalThis) g.globalThis = g
+        if (!g.queueMicrotask) g.queueMicrotask = function (cb) { Promise.resolve().then(cb) }
+        if (!Object.fromEntries) Object.fromEntries = function (it) {
+          var o = {}
+          var arr = Array.from(it)
+          for (var i = 0; i < arr.length; i++) o[arr[i][0]] = arr[i][1]
+          return o
+        }
+        if (!Array.prototype.flatMap) Array.prototype.flatMap = function (fn, self) {
+          var out = []
+          for (var i = 0; i < this.length; i++) {
+            var v = fn.call(self, this[i], i, this)
+            if (Array.isArray(v)) out.push.apply(out, v)
+            else out.push(v)
+          }
+          return out
+        }
+        if (!Array.prototype.flat) Array.prototype.flat = function (d) {
+          d = d === undefined ? 1 : d
+          var out = []
+          for (var i = 0; i < this.length; i++) {
+            var v = this[i]
+            if (Array.isArray(v) && d > 0) out.push.apply(out, v.flat(d - 1))
+            else out.push(v)
+          }
+          return out
+        }
+      })(typeof window !== 'undefined' ? window : this)
     </script>
     <style>
       html, body { margin: 0; height: 100%; background: #0b0d12; }
