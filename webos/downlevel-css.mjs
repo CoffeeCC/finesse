@@ -161,10 +161,14 @@ export function downlevelCss(css) {
   //     backdrop-blurs everything under it. Kill them all on TV; keep the
   //     translucent tints (cheap) so the look stays close.
   css +=
-    '.aurora{display:none!important}' +
-    '.kenburns,.slowzoom,.ambient-breathe,.page-enter,.shimmer{animation:none!important}' +
+    // Ambience stays, cost goes: the aurora's radial gradients are already soft —
+    // it was the live blur(90px) + infinite transform animations that hurt.
+    '.aurora>div{filter:none!important;animation:none!important;will-change:auto!important}' +
+    '.kenburns,.slowzoom,.ambient-breathe,.shimmer{animation:none!important}' +
     '.reveal{opacity:1!important;transform:none!important;transition:none!important}' +
-    '.tilt{transition:none!important;will-change:auto!important}' +
+    // Card focus/hover gets a composited pop (transform+opacity only = cheap).
+    '.tilt{transition:transform .15s ease-out!important;will-change:auto!important}' +
+    '.group:focus .tilt,.group:hover .tilt{transform:scale(1.05)}' +
     '.tilt-glare{display:none!important}' +
     '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
     '.blur-3xl{display:none!important}' +
