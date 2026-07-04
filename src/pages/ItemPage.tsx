@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
 import {
   backdropUrl,
   episodeThumbUrl,
+  getSeriesNextUp,
   imageUrl,
   logoUrl,
   posterUrl,
@@ -54,6 +55,35 @@ function PlayLink({ item, className }: { item: JfItem; className?: string }) {
         <path d="M8 5v14l11-7z" />
       </svg>
       {canResume ? `Resume · ${formatRemaining(item)}` : 'Play'}
+    </Link>
+  )
+}
+
+/** Series pages had no Play button at all (only episodes further down) — play
+ *  the next-up episode directly, matching what the big streaming apps do. */
+function SeriesPlayLink({ seriesId }: { seriesId: string }) {
+  const { data } = useQuery({
+    queryKey: ['seriesNextUp', seriesId],
+    queryFn: () => getSeriesNextUp(seriesId),
+    staleTime: 60_000,
+  })
+  const ep = data?.Items?.[0]
+  if (!ep) return null
+  const resumeTicks = ep.UserData?.PlaybackPositionTicks ?? 0
+  const label =
+    resumeTicks > 0
+      ? `Resume · S${ep.ParentIndexNumber ?? '?'}:E${ep.IndexNumber ?? '?'}`
+      : `Play · S${ep.ParentIndexNumber ?? '?'}:E${ep.IndexNumber ?? '?'}`
+  return (
+    <Link
+      to={`/play/${ep.Id}${resumeTicks > 0 ? `?t=${resumeTicks}` : ''}`}
+      viewTransition
+      className="inline-flex items-center gap-2 rounded-lg bg-white text-ink-950 px-6 py-2.5 text-sm font-semibold hover:bg-ink-200 transition-colors"
+    >
+      <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+      {label}
     </Link>
   )
 }
@@ -320,6 +350,7 @@ export default function ItemPage() {
             </div>
             <div className="flex items-center gap-3">
               {isPlayable && <PlayLink item={item} />}
+              {isSeries && <SeriesPlayLink seriesId={item.Id} />}
               {previewKind && (
                 <button
                   onClick={() => setPreviewOn(true)}

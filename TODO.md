@@ -67,6 +67,23 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 - [ ] **Fire TV / Android TV** — wrap with Capacitor → APK, sideload, leanback/D-pad polish.
 - Per-platform: remote Back-key handling, focus-on-launch, 10-foot type scaling, app icon/splash.
 
+## Beauty / polish roadmap (Paul-approved 2026-07-03; do 1+2+6 first)
+- [ ] 1. **Living backdrop (lean-back mode)** — rest focus on a poster ~2s → page background
+      crossfades to that title's dimmed backdrop (preload + opacity-only, TV-cheap).
+- [ ] 2. **Per-title color grading** — grade each detail page (buttons/progress/scrims) from
+      the poster's palette (client-side sampling, cached). Every film's page feels custom.
+- [ ] 6. **Time-of-day ambience** — aurora hues + splash copy shift with the clock (cool
+      mornings, warm evenings; "SETTING THE SCENE" → "TONIGHT'S FEATURE").
+- [ ] 3. **Marquee screensaver** — idle on TV → drift through library backdrops with title
+      logos + taglines, slow crossfades.
+- [ ] 4. **UI sound design** — subtle D-pad tick + select confirm (WebAudio, Settings toggle).
+- [ ] 5. **Trickplay memory strips** — Continue Watching cards cycle real frames from the
+      resume point on focus (trickplay tiles already exist server-side).
+- [ ] 7. **Poster light-spill** — focused card casts a glow in its dominant color (web full,
+      TV cheap gradient version).
+- [ ] 8. **Editorial row headers** — serif-italic brand typography for row titles with
+      editorial touches ("Recently Added · 12 new this week").
+
 ## Backlog
 - [ ] **SyncPlay "watch together" (#5)** — synced playback via Jellyfin SyncPlay API.
 - [ ] Offline PWA downloads (direct-play titles to device).

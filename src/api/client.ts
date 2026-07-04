@@ -401,6 +401,18 @@ export function getNextUp() {
   )
 }
 
+/** The next episode to watch for one series (resume point or first unwatched). */
+export function getSeriesNextUp(seriesId: string) {
+  return request<JfItemsResult>(
+    '/Shows/NextUp' +
+      qs({
+        UserId: session!.userId,
+        SeriesId: seriesId,
+        Limit: 1,
+      }),
+  )
+}
+
 export function getLatest(parentId: string, limit = 20) {
   return request<JfItem[]>(
     `/Users/${session!.userId}/Items/Latest` +

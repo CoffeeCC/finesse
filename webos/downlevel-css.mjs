@@ -125,15 +125,20 @@ export function downlevelCss(css) {
   //    to flex containers (grid containers keep native gap, which works).
   //    Responsive variants are emitted in source order, so later (larger
   //    breakpoint) rules still win; the TV is a fixed 1920×1080 viewport.
+  //    Containers may declare their display via responsive variants (the nav is
+  //    `hidden md:flex gap-1`) — cover those too; the TV viewport is a fixed
+  //    1920px, so sm/md/lg/xl variants are always active there.
+  const ROW_DISPLAYS = ['.flex', '.inline-flex', '.sm\\:flex', '.md\\:flex', '.lg\\:flex', '.xl\\:flex', '.md\\:inline-flex']
+  const COL_DISPLAYS = ['.flex-col', '.sm\\:flex-col', '.md\\:flex-col', '.lg\\:flex-col']
   const gapRules = []
   for (const m of css.matchAll(/\.((?:\\.|[\w-])+)\{(gap|column-gap|row-gap):([^};]+)\}/g)) {
     const [, name, prop, value] = m
     if (!/gap/.test(name)) continue
     if (prop === 'gap' || prop === 'column-gap') {
-      gapRules.push(`.flex.${name}>*+*,.inline-flex.${name}>*+*{margin-left:${value}}`)
+      gapRules.push(ROW_DISPLAYS.map((d) => `${d}.${name}>*+*`).join(',') + `{margin-left:${value}}`)
     }
     if (prop === 'gap' || prop === 'row-gap') {
-      gapRules.push(`.flex-col.${name}>*+*{margin-left:0;margin-top:${value}}`)
+      gapRules.push(COL_DISPLAYS.map((d) => `${d}.${name}>*+*`).join(',') + `{margin-left:0;margin-top:${value}}`)
     }
   }
   css += gapRules.join('')
@@ -167,7 +172,7 @@ export function downlevelCss(css) {
     '.kenburns,.slowzoom,.ambient-breathe,.shimmer{animation:none!important}' +
     '.reveal{opacity:1!important;transform:none!important;transition:none!important}' +
     // Card focus/hover gets a composited pop (transform+opacity only = cheap).
-    '.tilt{transition:transform .15s ease-out!important;will-change:auto!important}' +
+    '.tilt{transition:transform .1s ease-out!important;will-change:auto!important}' +
     '.group:focus .tilt,.group:hover .tilt{transform:scale(1.05)}' +
     '.tilt-glare{display:none!important}' +
     '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
@@ -181,8 +186,11 @@ export function downlevelCss(css) {
     // 12. Ten-foot clarity: desktop hover/focus cues are far too subtle on a TV.
     //     Bold accent outline for BOTH input modes — D-pad focus and the Magic
     //     Remote / air-mouse pointer hover — so you can always see where you are.
-    'a:focus,button:focus,select:focus,input:focus,[tabindex]:focus{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
-    'a:hover,button:hover{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
+    //     Card links (.group) are excluded — outlining BOTH the anchor (which
+    //     includes the title text below the poster) and the .tilt poster inside
+    //     drew a doubled glow bleeding past the card. Cards glow via .tilt only.
+    'a:focus:not(.group),button:focus,select:focus,input:focus,[tabindex]:focus{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
+    'a:hover:not(.group),button:hover{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
     '.group:hover .tilt,.group:focus .tilt{outline:3px solid var(--color-accent-400,#7a8fd8);outline-offset:2px}'
 
   // 12. lightningcss lowers what it can (logical props, prefixes) and

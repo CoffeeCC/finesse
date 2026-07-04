@@ -95,11 +95,11 @@ function onKeyDown(e: KeyboardEvent) {
   // The full-bleed player owns the arrow keys (seek / volume).
   if (window.location.pathname.includes('/play/')) return
 
-  // TV: cap held-key repeat to ~11 moves/s so focus keeps pace with the screen
+  // TV: cap held-key repeat to ~20 moves/s so focus keeps pace with the screen
   // instead of queueing dozens of moves the SoC can't paint in time.
   if (__WEBOS__) {
     const now = performance.now()
-    if (now - lastNavAt < 90) {
+    if (now - lastNavAt < 50) {
       e.preventDefault()
       return
     }

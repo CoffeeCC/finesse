@@ -18,7 +18,6 @@ import MusicPage from './pages/MusicPage'
 import AlbumPage from './pages/AlbumPage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
-import TvPointer from './components/TvPointer'
 import TvBoot from './components/TvBoot'
 import { useSpatialNavigation } from './lib/spatialNav'
 import { getAccentPref } from './api/client'
@@ -64,7 +63,6 @@ export default function App() {
   return (
     <>
       <ScrollToTop />
-      {__WEBOS__ && <TvPointer />}
       {__WEBOS__ && <TvBoot />}
       <div className="grain" aria-hidden />
       <Routes>
