@@ -94,6 +94,16 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
       editorial touches ("Recently Added · 12 new this week").
 
 ## Backlog
+- [ ] **RomM integration — play games inside Finesse (long-term stretch goal, Paul 2026-07-05)**
+      RomM is a self-hosted ROM manager with EmulatorJS built in (browser-based emulation,
+      WASM). Plan sketch: (1) install RomM as a TrueNAS app pointed at a ROM library;
+      (2) Finesse "Games" nav entry → browse RomM's library via its REST API (same nginx
+      key-injection proxy pattern as the *arr apps); (3) play via embedded EmulatorJS
+      (iframe RomM's player, or deep-link). Feasibility: web/desktop = very doable;
+      TV (CX, Chromium 68) = WASM exists but the SoC will only handle 8/16-bit era
+      (NES/SNES/GB/Genesis) at best — treat TV play as retro-only. Gamepad API for
+      controllers. RetroAchievements creds exist (Chyeadeed) — RomM supports RA
+      integration for cheevos.
 - [ ] **SyncPlay "watch together" (#5)** — synced playback via Jellyfin SyncPlay API.
 - [ ] Offline PWA downloads (direct-play titles to device).
 - [ ] Year-in-review "wrapped" stats page.
