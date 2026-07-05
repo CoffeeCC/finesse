@@ -67,6 +67,15 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 - [ ] **Fire TV / Android TV** — wrap with Capacitor → APK, sideload, leanback/D-pad polish.
 - Per-platform: remote Back-key handling, focus-on-launch, 10-foot type scaling, app icon/splash.
 
+## URGENT — TV player broken (reported 2026-07-05, fix scheduled)
+- [ ] **TV playback has no controls/UI at all** — while watching on the webOS app the player
+      chrome never appears (likely: controls visibility is driven by mousemove/touch, and
+      D-pad keydown never triggers the show-controls path; also check TV CSS didn't hide it).
+- [ ] **Buffering spinner never clears on TV** — appears mid-content and stays forever
+      (likely: `waiting` fires but the matching `playing`/`canplay` handler never clears the
+      state on Chromium 68, or the spinner state is only cleared by a listener the old engine
+      doesn't fire; check hls.js buffering events on MSE/Chromium 68).
+
 ## Beauty / polish roadmap (Paul-approved 2026-07-03; do 1+2+6 first)
 - [ ] 1. **Living backdrop (lean-back mode)** — rest focus on a poster ~2s → page background
       crossfades to that title's dimmed backdrop (preload + opacity-only, TV-cheap).
