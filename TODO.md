@@ -67,14 +67,17 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 - [ ] **Fire TV / Android TV** — wrap with Capacitor → APK, sideload, leanback/D-pad polish.
 - Per-platform: remote Back-key handling, focus-on-launch, 10-foot type scaling, app icon/splash.
 
-## URGENT — TV player broken (reported 2026-07-05, fix scheduled)
-- [ ] **TV playback has no controls/UI at all** — while watching on the webOS app the player
-      chrome never appears (likely: controls visibility is driven by mousemove/touch, and
-      D-pad keydown never triggers the show-controls path; also check TV CSS didn't hide it).
-- [ ] **Buffering spinner never clears on TV** — appears mid-content and stays forever
-      (likely: `waiting` fires but the matching `playing`/`canplay` handler never clears the
-      state on Chromium 68, or the spinner state is only cleared by a listener the old engine
-      doesn't fire; check hls.js buffering events on MSE/Chromium 68).
+## TV player — FIXED v0.3.1 (2026-07-05)
+- [x] **TV playback has no controls/UI** — auto-hide effect only revealed controls on
+      mousemove/touchstart; D-pad keydown never fired the reveal, so the chrome vanished after
+      the first 3.2s timeout forever. Fix: keydown also reveals (+ 5s hide on TV), and OK/Enter
+      maps to play/pause (a remote has no spacebar).
+- [x] **Buffering spinner never clears on TV** — cleared only by `playing`/`canplay`, which
+      Chromium 68 fires unreliably after a mid-stream stall. Fix: clear buffering on
+      `timeupdate` while not paused (a firing timeupdate = time advanced = playing).
+- [ ] FOLLOW-UP: D-pad can't move focus between the control-bar buttons on the player (spatialNav
+      is disabled on /play/). OK/seek/back work; reaching Skip-Intro/menus by remote still needs
+      a focus model. Revisit if Paul wants full remote control of the player chrome.
 
 ## Beauty / polish roadmap (Paul-approved 2026-07-03; do 1+2+6 first)
 - [ ] 1. **Living backdrop (lean-back mode)** — rest focus on a poster ~2s → page background
@@ -95,6 +98,9 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 
 ## Backlog
 - [ ] **RomM integration — play games inside Finesse (long-term stretch goal, Paul 2026-07-05)**
+      NOTE: Paul says RomM is already installed, but no RomM container found on the TrueNAS
+      (running or stopped) as of 2026-07-05 — confirm where it's hosted / how it was installed
+      before wiring Finesse to it.
       RomM is a self-hosted ROM manager with EmulatorJS built in (browser-based emulation,
       WASM). Plan sketch: (1) install RomM as a TrueNAS app pointed at a ROM library;
       (2) Finesse "Games" nav entry → browse RomM's library via its REST API (same nginx

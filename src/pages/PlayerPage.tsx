@@ -310,6 +310,11 @@ export default function PlayerPage() {
       const s = streamRef.current
       if (!s) return
       setAbsTime(s.offsetSec + v.currentTime)
+      // A firing 'timeupdate' means the media time actually advanced, i.e. we're
+      // playing — the reliable "not buffering" signal. webOS Chromium 68 doesn't
+      // fire 'playing'/'canplay' dependably after a mid-stream stall, so the
+      // spinner would otherwise hang forever.
+      if (!v.paused) setBuffering(false)
       try {
         const b = v.buffered
         if (b.length) setBufferedAbs(s.offsetSec + b.end(b.length - 1))
@@ -436,9 +441,17 @@ export default function PlayerPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return
+      // Let Enter activate a focused control (Skip Intro, Next episode) rather
+      // than toggling play out from under it.
+      const onControl = e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement
       switch (e.key) {
         case ' ':
         case 'k':
+          e.preventDefault()
+          togglePlay()
+          break
+        case 'Enter': // TV remote OK button
+          if (onControl) return
           e.preventDefault()
           togglePlay()
           break
@@ -482,14 +495,21 @@ export default function PlayerPage() {
       hideTimer.current = setTimeout(() => {
         setControlsVisible(false)
         setMenu(null)
-      }, 3200)
+        // A TV needs a focus target that persists once the bar hides, or the
+        // remote's next press has nothing to act on; blur any hidden control.
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      }, __WEBOS__ ? 5000 : 3200)
     }
     show()
     window.addEventListener('mousemove', show)
     window.addEventListener('touchstart', show)
+    // TV remotes emit no pointer events — a D-pad/OK keypress must reveal the
+    // controls, otherwise the chrome vanishes after the first timeout for good.
+    window.addEventListener('keydown', show)
     return () => {
       window.removeEventListener('mousemove', show)
       window.removeEventListener('touchstart', show)
+      window.removeEventListener('keydown', show)
       clearTimeout(hideTimer.current)
     }
   }, [])
