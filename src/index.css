@@ -306,3 +306,40 @@ body {
     transition: none !important;
   }
 }
+
+/* ---------- Editorial row headers (brand serif) ---------- */
+.row-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Living backdrop (FocusBackdrop) ---------- */
+.backdrop-fade-in {
+  animation: bdFade 1.1s ease both;
+}
+@keyframes bdFade {
+  from { opacity: 0; }
+  to { opacity: 0.34; }
+}
+
+/* ---------- Time-of-day ambience: aurora re-tints per daypart ---------- */
+[data-daypart='morning'] .aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.15), transparent 65%);
+}
+[data-daypart='morning'] .aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.09), transparent 65%);
+}
+[data-daypart='evening'] .aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.11), transparent 65%);
+}
+[data-daypart='evening'] .aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(217, 70, 139, 0.10), transparent 65%);
+}
+[data-daypart='night'] .aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(67, 56, 202, 0.16), transparent 65%);
+}
+[data-daypart='night'] .aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(126, 34, 206, 0.12), transparent 65%);
+}

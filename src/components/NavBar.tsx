@@ -157,6 +157,21 @@ export default function NavBar() {
           </svg>
         </button>
 
+        {/* TV: an inline input D-pad-focuses straight into the on-screen keyboard,
+            trapping navigation before the icons to its right. A plain button to
+            the Search page keeps the whole bar traversable. */}
+        {__WEBOS__ && (
+          <Link
+            to="/search"
+            aria-label="Search"
+            className="flex h-9 w-9 mr-1 items-center justify-center rounded-full text-ink-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
+            </svg>
+          </Link>
+        )}
+        {!__WEBOS__ && (
         <form
           onSubmit={(e) => {
             e.preventDefault()
@@ -221,6 +236,7 @@ export default function NavBar() {
             </div>
           )}
         </form>
+        )}
 
         <div className="relative ml-2" ref={menuRef}>
           <button

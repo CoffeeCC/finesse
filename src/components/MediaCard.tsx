@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { posterUrl } from '../api/client'
+import { backdropUrl, posterUrl } from '../api/client'
 import { blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import { useTvLazy } from '../lib/tvLazy'
 import type { JfItem } from '../api/types'
@@ -79,6 +79,7 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
       }}
       className="group block shrink-0 outline-none"
       style={width ? { width } : undefined}
+      data-backdrop={backdropUrl(item, 1280) ?? undefined}
     >
       <div
         ref={(el) => {

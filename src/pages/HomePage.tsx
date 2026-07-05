@@ -22,6 +22,23 @@ const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
 const HERO_ROTATE_MS = 9000
 const HERO_COUNT = 5
 
+// Fixed at module load = once per app launch.
+const LAUNCH_SEED = Math.random()
+
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const a = [...arr]
+  let s = Math.floor(seed * 2147483647) || 1
+  const rnd = () => {
+    s = (s * 1103515245 + 12345) % 2147483648
+    return s / 2147483648
+  }
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
 const PREFERRED_GENRES = [
   'Action', 'Animation', 'Comedy', 'Science Fiction', 'Horror',
   'Fantasy', 'Adventure', 'Drama', 'Thriller', 'Family',
@@ -197,7 +214,9 @@ export default function HomePage() {
   const { data: latestShows, isLoading: showsLoading } = useLatest(showLib?.Id)
   const heroItems = useMemo(() => {
     const candidates = [...(latestMovies ?? []), ...(latestShows ?? [])]
-    return candidates.filter((i) => i.BackdropImageTags?.length).slice(0, HERO_COUNT)
+    // Shuffled with a per-launch seed: a fresh hero lineup every time the app
+    // starts, but stable while navigating around within a session.
+    return seededShuffle(candidates.filter((i) => i.BackdropImageTags?.length), LAUNCH_SEED).slice(0, HERO_COUNT)
   }, [latestMovies, latestShows])
   const heroLoading = viewsLoading || (moviesLoading && showsLoading)
 

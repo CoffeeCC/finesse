@@ -48,7 +48,7 @@ export default function MediaRow({ title, items, loading, seeAllHref, hideTitle 
         {seeAllHref ? (
           <Link
             to={seeAllHref}
-            className="group/title flex items-baseline gap-2 text-lg font-semibold text-white tracking-tight hover:text-accent-300 transition-colors"
+            className="group/title row-title flex items-baseline gap-2 text-xl text-white hover:text-accent-300 transition-colors"
           >
             {title}
             <span className="text-xs font-medium text-accent-300 opacity-0 group-hover/row:opacity-100 transition-opacity">
@@ -56,7 +56,7 @@ export default function MediaRow({ title, items, loading, seeAllHref, hideTitle 
             </span>
           </Link>
         ) : (
-          <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
+          <h2 className="row-title text-xl text-white">{title}</h2>
         )}
         <div className="hidden md:flex gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
           <button

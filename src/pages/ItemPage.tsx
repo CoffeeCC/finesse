@@ -180,7 +180,9 @@ function Seasons({ series }: { series: JfItem }) {
           </button>
         ))}
       </div>
-      <div className="space-y-1">
+      {/* Grid instead of a single column: a season fits in a screen or two
+          instead of one long scroll. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-1">
         {isLoading && <p className="text-ink-400 text-sm px-3 py-6">Loading episodes…</p>}
         {episodes?.Items.map((ep) => <EpisodeRow key={ep.Id} ep={ep} />)}
       </div>
@@ -351,7 +353,9 @@ export default function ItemPage() {
             <div className="flex items-center gap-3">
               {isPlayable && <PlayLink item={item} />}
               {isSeries && <SeriesPlayLink seriesId={item.Id} />}
-              {previewKind && (
+              {/* TV: YouTube's iframe player doesn't run on the CX's engine — only
+                  offer the button when we have a self-hosted clip to play. */}
+              {previewKind && (!__WEBOS__ || previewKind === 'clip') && (
                 <button
                   onClick={() => setPreviewOn(true)}
                   className="inline-flex items-center gap-2 rounded-lg bg-white/10 backdrop-blur-md px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/20 active:scale-95 transition-all"

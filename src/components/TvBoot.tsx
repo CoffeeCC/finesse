@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { currentDaypart, DAYPART_GREETING } from '../lib/timeAmbience'
 
 /** TV-only branded splash that trades a moment of startup for a fully-dressed
  *  first frame: it covers the UI until the first screenful of poster images has
@@ -64,7 +65,7 @@ export default function TvBoot() {
           Finesse.
         </div>
         <div style={{ marginTop: 12, color: '#6b7280', fontSize: 15, letterSpacing: 2 }}>
-          SETTING THE SCENE
+          {DAYPART_GREETING[currentDaypart()]}
         </div>
       </div>
     </div>

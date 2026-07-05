@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import './lib/accent' // applies the saved accent color before first paint
 import { applyUiScale } from './lib/settings'
+import { applyTimeAmbience } from './lib/timeAmbience'
 
 applyUiScale() // apply saved UI zoom before first paint (no flash)
+applyTimeAmbience() // daypart-tinted ambience (aurora hues, greeting copy)
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { ToastProvider } from './components/Toast'

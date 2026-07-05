@@ -58,7 +58,12 @@ export const BITRATE_OPTIONS: { label: string; value: number }[] = [
 export function getPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(KEY)
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS }
+    const parsed = raw ? (JSON.parse(raw) as Partial<Prefs>) : {}
+    const merged = { ...DEFAULTS, ...parsed }
+    // 10-foot default: unless the user explicitly picked a size, the TV runs at
+    // 130% — bigger type AND fewer cards on screen (less to paint per frame).
+    if (__WEBOS__ && !('uiScale' in parsed)) merged.uiScale = 1.3
+    return merged
   } catch {
     return { ...DEFAULTS }
   }

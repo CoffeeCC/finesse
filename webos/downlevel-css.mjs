@@ -184,8 +184,12 @@ export function downlevelCss(css) {
   ]
   for (const [sel, pad] of aspects) {
     if (!css.includes(sel + '{')) continue
+    // Ratio comes from a ::before padder: padding-top % on the element itself
+    // resolves against the PARENT's width (episode thumbs in a full-width row
+    // blew up to ~950px tall); on a ::before it resolves against the element.
     css +=
-      `${sel}{position:relative;height:0;padding-top:${pad}}` +
+      `${sel}{position:relative}` +
+      `${sel}:before{content:"";display:block;padding-top:${pad}}` +
       `${sel}>img,${sel}>.w-full{position:absolute;top:0;left:0;width:100%;height:100%}`
   }
 
