@@ -19,6 +19,7 @@ import AlbumPage from './pages/AlbumPage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
 import TvBoot from './components/TvBoot'
+import TvPointer from './components/TvPointer'
 import FocusBackdrop from './components/FocusBackdrop'
 import { useSpatialNavigation } from './lib/spatialNav'
 import { getAccentPref } from './api/client'
@@ -65,6 +66,7 @@ export default function App() {
     <>
       <ScrollToTop />
       {__WEBOS__ && <TvBoot />}
+      {__WEBOS__ && <TvPointer />}
       <FocusBackdrop />
       <div className="grain" aria-hidden />
       <Routes>

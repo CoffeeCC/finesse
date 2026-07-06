@@ -211,6 +211,9 @@ export function downlevelCss(css) {
     '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
     '.blur-3xl{display:none!important}' +
     'html{scroll-behavior:auto!important}' +
+    // Hide the flaky webOS system pointer everywhere — TvPointer draws our own,
+    // so there's never a double cursor or a missing one.
+    '*{cursor:none!important}' +
     // Shadows (including Tailwind rings — they're box-shadows) cost real paint
     // time on scroll for hundreds of rounded cards; the accent outline replaces
     // them as the edge/highlight. contain limits repaint scope per card.

@@ -142,6 +142,7 @@ export default function PlayerPage() {
 
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const seekbarRef = useRef<HTMLDivElement>(null)
+  const playerRef = useRef<HTMLDivElement>(null)
   // Per-series remembered audio/sub languages, and a once-per-item apply guard.
   const trackPrefsRef = useRef<Record<string, api.TrackPref>>({})
   const tracksApplied = useRef(false)
@@ -455,17 +456,23 @@ export default function PlayerPage() {
           e.preventDefault()
           togglePlay()
           break
+        // On TV the arrows drive focus between the on-screen controls (see the
+        // player-focus effect); only a mouse/keyboard build seeks/adjusts here.
         case 'ArrowLeft':
+          if (__WEBOS__) break
           seekTo(absTime - 10)
           break
         case 'ArrowRight':
+          if (__WEBOS__) break
           seekTo(absTime + 10)
           break
         case 'ArrowUp':
+          if (__WEBOS__) break
           e.preventDefault()
           setVolume((v) => Math.min(1, v + 0.05))
           break
         case 'ArrowDown':
+          if (__WEBOS__) break
           e.preventDefault()
           setVolume((v) => Math.max(0, v - 0.05))
           break
@@ -512,6 +519,54 @@ export default function PlayerPage() {
       window.removeEventListener('keydown', show)
       clearTimeout(hideTimer.current)
     }
+  }, [])
+
+  // ---------- TV: D-pad focus between the on-screen player controls ----------
+  useEffect(() => {
+    if (!__WEBOS__) return
+    const controls = () =>
+      [...(playerRef.current?.querySelectorAll<HTMLElement>('button, a[href]') ?? [])].filter((el) => {
+        const r = el.getBoundingClientRect()
+        return r.width > 0 && r.height > 0
+      })
+
+    const onNav = (e: KeyboardEvent) => {
+      const dir = e.key
+      if (dir !== 'ArrowLeft' && dir !== 'ArrowRight' && dir !== 'ArrowUp' && dir !== 'ArrowDown') return
+      const els = controls()
+      if (els.length === 0) return
+      e.preventDefault()
+      const active = document.activeElement as HTMLElement | null
+      // First press (nothing here focused, e.g. controls just revealed) → play/pause.
+      if (!active || !els.includes(active)) {
+        ;(els.find((el) => el.getAttribute('aria-label') === 'Play/Pause') ?? els[0]).focus()
+        return
+      }
+      const c = active.getBoundingClientRect()
+      const cx = c.left + c.width / 2
+      const cy = c.top + c.height / 2
+      let best: HTMLElement | null = null
+      let bestScore = Infinity
+      for (const el of els) {
+        if (el === active) continue
+        const r = el.getBoundingClientRect()
+        const dx = r.left + r.width / 2 - cx
+        const dy = r.top + r.height / 2 - cy
+        let inDir = false
+        let primary = 0
+        let cross = 0
+        if (dir === 'ArrowRight') { inDir = dx > 4; primary = dx; cross = Math.abs(dy) }
+        else if (dir === 'ArrowLeft') { inDir = dx < -4; primary = -dx; cross = Math.abs(dy) }
+        else if (dir === 'ArrowDown') { inDir = dy > 4; primary = dy; cross = Math.abs(dx) }
+        else { inDir = dy < -4; primary = -dy; cross = Math.abs(dx) }
+        if (!inDir) continue
+        const score = primary + cross * 2
+        if (score < bestScore) { bestScore = score; best = el }
+      }
+      if (best) best.focus()
+    }
+    window.addEventListener('keydown', onNav)
+    return () => window.removeEventListener('keydown', onNav)
   }, [])
 
   // ---------- Segments: Skip Intro + Next episode ----------
@@ -657,7 +712,7 @@ export default function PlayerPage() {
   const bufferedFrac = durationSec ? Math.min(1, bufferedAbs / durationSec) : 0
 
   return (
-    <div className={`fixed inset-0 bg-black ${controlsVisible ? '' : 'cursor-none'}`}>
+    <div ref={playerRef} className={`fixed inset-0 bg-black ${controlsVisible ? '' : 'cursor-none'}`}>
       <video
         ref={videoRef}
         autoPlay

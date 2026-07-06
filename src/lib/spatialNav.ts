@@ -92,8 +92,10 @@ function onKeyDown(e: KeyboardEvent) {
   if (e.altKey || e.ctrlKey || e.metaKey) return
   const dir = dirFor(e.key)
   if (!dir) return
-  // The full-bleed player owns the arrow keys (seek / volume).
-  if (window.location.pathname.includes('/play/')) return
+  // The full-bleed player owns the arrow keys (seek / focus its own controls).
+  // On the TV build the route lives in the hash (HashRouter), so check both —
+  // otherwise global nav fights the player's own D-pad focus handler.
+  if (window.location.pathname.includes('/play/') || window.location.hash.includes('/play/')) return
 
   // TV: cap held-key repeat to ~20 moves/s so focus keeps pace with the screen
   // instead of queueing dozens of moves the SoC can't paint in time.
