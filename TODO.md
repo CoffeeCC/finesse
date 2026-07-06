@@ -75,17 +75,18 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 - [x] **Buffering spinner never clears on TV** — cleared only by `playing`/`canplay`, which
       Chromium 68 fires unreliably after a mid-stream stall. Fix: clear buffering on
       `timeupdate` while not paused (a firing timeupdate = time advanced = playing).
-- [x] FOLLOW-UP DONE (v0.3.2): D-pad moves focus between player control buttons by geometry, OK activates.
-      is disabled on /play/). OK/seek/back work; reaching Skip-Intro/menus by remote still needs
-      a focus model. Revisit if Paul wants full remote control of the player chrome.
+- [x] FOLLOW-UP DONE (v0.3.2): D-pad moves focus between player control buttons by geometry
+      (arrows navigate, OK activates); first press lands on Play/Pause. spatialNav player-skip
+      now checks location.hash too (TV HashRouter). Custom TV cursor + native cursor hidden.
 
 ## Beauty / polish roadmap (Paul-approved 2026-07-03; do 1+2+6 first)
-- [ ] 1. **Living backdrop (lean-back mode)** — rest focus on a poster ~2s → page background
-      crossfades to that title's dimmed backdrop (preload + opacity-only, TV-cheap).
+- [x] 1. **Living backdrop (lean-back mode)** — DONE v0.3.0 (`FocusBackdrop.tsx`): rest focus/
+      pointer on a card ~1.5s → page background crossfades to that title's dimmed backdrop.
 - [ ] 2. **Per-title color grading** — grade each detail page (buttons/progress/scrims) from
       the poster's palette (client-side sampling, cached). Every film's page feels custom.
-- [ ] 6. **Time-of-day ambience** — aurora hues + splash copy shift with the clock (cool
-      mornings, warm evenings; "SETTING THE SCENE" → "TONIGHT'S FEATURE").
+      (Partial: ItemPage already derives accentRgb from the poster blurhash — extend it.)
+- [x] 6. **Time-of-day ambience** — DONE v0.3.0 (`lib/timeAmbience.ts`): aurora hues +
+      splash greeting shift with the clock (morning blues → evening ambers → late violets).
 - [ ] 3. **Marquee screensaver** — idle on TV → drift through library backdrops with title
       logos + taglines, slow crossfades.
 - [ ] 4. **UI sound design** — subtle D-pad tick + select confirm (WebAudio, Settings toggle).
@@ -93,8 +94,10 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
       resume point on focus (trickplay tiles already exist server-side).
 - [ ] 7. **Poster light-spill** — focused card casts a glow in its dominant color (web full,
       TV cheap gradient version).
-- [ ] 8. **Editorial row headers** — serif-italic brand typography for row titles with
-      editorial touches ("Recently Added · 12 new this week").
+- [x] 8. **Editorial row headers** — DONE v0.3.0: row titles now render in the brand serif
+      italic (`.row-title` in index.css / MediaRow). Editorial subtext ("12 new this week")
+      still TODO if wanted.
+- Also shipped v0.3.0: per-launch hero shuffle (fresh billboard each app start).
 
 ## Backlog
 - [ ] **RomM integration — play games inside Finesse (long-term stretch goal, Paul 2026-07-05)**
