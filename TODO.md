@@ -75,7 +75,7 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 - [x] **Buffering spinner never clears on TV** — cleared only by `playing`/`canplay`, which
       Chromium 68 fires unreliably after a mid-stream stall. Fix: clear buffering on
       `timeupdate` while not paused (a firing timeupdate = time advanced = playing).
-- [ ] FOLLOW-UP: D-pad can't move focus between the control-bar buttons on the player (spatialNav
+- [x] FOLLOW-UP DONE (v0.3.2): D-pad moves focus between player control buttons by geometry, OK activates.
       is disabled on /play/). OK/seek/back work; reaching Skip-Intro/menus by remote still needs
       a focus model. Revisit if Paul wants full remote control of the player chrome.
 
