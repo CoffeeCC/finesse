@@ -4,6 +4,22 @@
 export type VisualizerStyle = 'bars' | 'waveform' | 'radial' | 'particles'
 export const VISUALIZER_STYLES: VisualizerStyle[] = ['bars', 'waveform', 'radial', 'particles']
 
+// Preview-clip quality (hover + hero). Per-account so each person can match it
+// to their own connection. Maps to the pre-generated clip resolutions on the
+// NAS (see deploy/genclips.sh): low = 480p (always present), medium = 720p,
+// high = 1080p, each falling back to the next one down if not yet generated.
+export type PreviewQuality = 'low' | 'medium' | 'high'
+export const PREVIEW_QUALITY_HEIGHT: Record<PreviewQuality, number> = {
+  low: 480,
+  medium: 720,
+  high: 1080,
+}
+export const PREVIEW_QUALITY_OPTIONS: { label: string; value: PreviewQuality }[] = [
+  { label: 'High — 1080p (fast/local network)', value: 'high' },
+  { label: 'Medium — 720p', value: 'medium' },
+  { label: 'Low — 480p (slow connections)', value: 'low' },
+]
+
 export interface Prefs {
   /** Max streaming bitrate in bits/sec. 0 = unlimited (direct, no cap). */
   maxBitrate: number
@@ -15,6 +31,10 @@ export interface Prefs {
   visualizer: VisualizerStyle
   /** Whole-UI zoom factor (1 = 100%). Mainly for 10-foot TV viewing. */
   uiScale: number
+  /** Subtle UI sound effects (nav tick + select confirm). On by default. */
+  uiSounds: boolean
+  /** Preview-clip quality (hover + hero). Per-account; matches your connection. */
+  previewQuality: PreviewQuality
 }
 
 const KEY = 'finesse.prefs'
@@ -25,6 +45,8 @@ const DEFAULTS: Prefs = {
   autoPlayNext: true,
   visualizer: 'bars',
   uiScale: 1,
+  uiSounds: true,
+  previewQuality: 'high',
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike

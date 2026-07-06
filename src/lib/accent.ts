@@ -53,6 +53,93 @@ export function setStoredAccent(name: string): void {
   }
 }
 
+// ---------- Per-title color grading ----------
+// A detail page (and a focused card's light-spill) adopts *that title's* color,
+// sampled from its poster. Poster averages are muddy and desaturated, so we
+// convert to HSL, keep the hue, and force a vivid, consistent saturation +
+// lightness ladder — so a film reads as a deliberate color, never grey-brown.
+
+function clampByte(n: number): number {
+  return Math.min(255, Math.max(0, Math.round(n)))
+}
+
+export function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255
+  g /= 255
+  b /= 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  let h = 0
+  let s = 0
+  const d = max - min
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0)
+        break
+      case g:
+        h = (b - r) / d + 2
+        break
+      default:
+        h = (r - g) / d + 4
+    }
+    h /= 6
+  }
+  return [h * 360, s, l]
+}
+
+export function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  h /= 360
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  if (s === 0) {
+    const v = clampByte(l * 255)
+    return [v, v, v]
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  return [
+    clampByte(hue2rgb(p, q, h + 1 / 3) * 255),
+    clampByte(hue2rgb(p, q, h) * 255),
+    clampByte(hue2rgb(p, q, h - 1 / 3) * 255),
+  ]
+}
+
+function toHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map((n) => clampByte(n).toString(16).padStart(2, '0')).join('')
+}
+
+/** Hue + a punched-up saturation from a muddy sampled color. */
+function gradeHueSat(r: number, g: number, b: number): [number, number] {
+  const [h, s] = rgbToHsl(r, g, b)
+  const sat = Math.min(0.72, Math.max(0.5, s * 1.6 + 0.25))
+  return [h, sat]
+}
+
+/** Four accent shades (300/400/500/600) graded from a sampled RGB color. */
+export function shadesFromRgb(r: number, g: number, b: number): AccentPreset['shades'] {
+  const [h, s] = gradeHueSat(r, g, b)
+  const at = (l: number) => {
+    const [rr, gg, bb] = hslToRgb(h, s, l)
+    return toHex(rr, gg, bb)
+  }
+  return { 300: at(0.74), 400: at(0.66), 500: at(0.58), 600: at(0.48) }
+}
+
+/** A vivid RGB triple for glows / light-spill, from a muddy sampled color. */
+export function vividRgb(r: number, g: number, b: number): [number, number, number] {
+  const [h, s] = gradeHueSat(r, g, b)
+  return hslToRgb(h, s, 0.6)
+}
+
 // Apply the last-used accent immediately at import time (before first paint),
 // so returning users never see a flash of the default color.
 applyAccent(getStoredAccent())

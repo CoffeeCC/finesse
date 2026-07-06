@@ -51,6 +51,14 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  // Preview clips (hover-preview + detail-page hero) are served by the NAS
+  // nginx, not the dev server. Proxy them so `npm run dev` shows real previews
+  // too. Override the origin with CONTENT_HOST in .env.local if the box moves.
+  proxy['/finesse/previews'] = {
+    target: env.CONTENT_HOST || `${arrHost}:30500`,
+    changeOrigin: true,
+  }
+
   return {
     // Web build is served under /finesse/ behind the Tailscale Funnel (shares
     // :10000 with Jellyfin). The webOS build runs off file:// so it needs a

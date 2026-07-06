@@ -22,8 +22,11 @@ import TvBoot from './components/TvBoot'
 import TvPointer from './components/TvPointer'
 import FocusBackdrop from './components/FocusBackdrop'
 import { useSpatialNavigation } from './lib/spatialNav'
-import { getAccentPref } from './api/client'
+import { initUiSounds } from './lib/sound'
+import { useClipManifest } from './api/queries'
+import { getAccentPref, getPreviewQualityPref } from './api/client'
 import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
+import { getPrefs, setPrefs, type PreviewQuality } from './lib/settings'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -41,6 +44,13 @@ export default function App() {
   const location = useLocation()
   useSpatialNavigation()
 
+  // Global select-confirm sound (opt-in via Settings). Idempotent.
+  useEffect(() => initUiSounds(), [])
+
+  // Warm the preview-clip manifest once so cards can offer hover-preview
+  // (read from the shared cache) without each card firing its own fetch.
+  useClipManifest()
+
   // Pull this account's saved accent (synced via DisplayPreferences) and apply it,
   // updating the local mirror so future loads are instant.
   useEffect(() => {
@@ -49,6 +59,13 @@ export default function App() {
       if (name && name !== getStoredAccent()) {
         setStoredAccent(name)
         applyAccent(name)
+      }
+    })
+    // Pull this account's synced preview-quality choice (falls back to the local
+    // default until the server answers).
+    getPreviewQualityPref().then((q) => {
+      if ((q === 'low' || q === 'medium' || q === 'high') && q !== getPrefs().previewQuality) {
+        setPrefs({ previewQuality: q as PreviewQuality })
       }
     })
   }, [session])

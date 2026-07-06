@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
@@ -14,7 +14,9 @@ import {
   waitForImageChange,
 } from '../api/client'
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
-import { CONTENT_BASE } from '../lib/contentOrigin'
+import { shadesFromRgb, vividRgb } from '../lib/accent'
+import { getPrefs } from '../lib/settings'
+import { previewClipUrl, EMPTY_MANIFEST } from '../lib/preview'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
 import CastMenu from '../components/CastMenu'
@@ -203,7 +205,8 @@ export default function ItemPage() {
   const { data: clipSet } = useClipManifest()
 
   const trailerId = item ? firstTrailerId(item) : null
-  const hasClip = !!(item && clipSet?.has(item.Id))
+  const heroClipUrl = item ? previewClipUrl(item.Id, getPrefs().previewQuality, clipSet ?? EMPTY_MANIFEST) : null
+  const hasClip = !!heroClipUrl
   // Prefer the local clip (offline, always matches) over the YouTube trailer
   const previewKind: 'clip' | 'trailer' | null = hasClip ? 'clip' : trailerId ? 'trailer' : null
 
@@ -229,9 +232,22 @@ export default function ItemPage() {
   const isPlayable = item.Type === 'Movie' || item.Type === 'Episode'
   const isFavorite = item.UserData?.IsFavorite ?? false
 
-  // Per-title accent pulled from the poster art
+  // Per-title color grading: sample the poster, then re-theme the whole detail
+  // page from it. Overriding the accent CSS vars on the page root cascades to
+  // every accent utility inside (buttons, season pills, progress bars, focus
+  // rings, cast hover) — so each film's page adopts its own bespoke palette.
   const avg = blurhashAverageColor(primaryBlurhash(item))
-  const accentRgb = avg ? `${avg[0]}, ${avg[1]}, ${avg[2]}` : '98, 121, 205'
+  const vivid = avg ? vividRgb(avg[0], avg[1], avg[2]) : [98, 121, 205]
+  const accentRgb = `${vivid[0]}, ${vivid[1]}, ${vivid[2]}`
+  const grade = avg ? shadesFromRgb(avg[0], avg[1], avg[2]) : null
+  const gradeStyle = grade
+    ? ({
+        '--color-accent-300': grade[300],
+        '--color-accent-400': grade[400],
+        '--color-accent-500': grade[500],
+        '--color-accent-600': grade[600],
+      } as CSSProperties)
+    : undefined
 
   const refreshMetadata = async () => {
     setRefreshing(true)
@@ -265,7 +281,7 @@ export default function ItemPage() {
   }
 
   return (
-    <div className="pb-16">
+    <div className="pb-16" style={gradeStyle}>
       {/* Ambilight: the backdrop, blown out and breathing, washes the whole page */}
       {backdrop && (
         <div className="fixed inset-0 -z-10 overflow-hidden" aria-hidden>
@@ -288,8 +304,8 @@ export default function ItemPage() {
             />
           )}
           {/* Hero preview after a dwell: local clip (offline) first, else YouTube trailer. Hover fades audio in. */}
-          {previewOn && previewKind === 'clip' && item && (
-            <VideoClipHero clipUrl={`${CONTENT_BASE}previews/${item.Id}.mp4`} onClose={() => setPreviewOn(false)} />
+          {previewOn && previewKind === 'clip' && heroClipUrl && (
+            <VideoClipHero clipUrl={heroClipUrl} onClose={() => setPreviewOn(false)} />
           )}
           {previewOn && previewKind === 'trailer' && trailerId && (
             <TrailerHero youtubeId={trailerId} onClose={() => setPreviewOn(false)} />

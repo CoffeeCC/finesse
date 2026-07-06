@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { BITRATE_OPTIONS, UI_SCALE_OPTIONS, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
+import { BITRATE_OPTIONS, PREVIEW_QUALITY_OPTIONS, UI_SCALE_OPTIONS, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
-import { createUser, ApiError, setAccentPref } from '../api/client'
+import { createUser, ApiError, setAccentPref, setPreviewQualityPref } from '../api/client'
 import { ACCENT_PRESETS, applyAccent, getStoredAccent, setStoredAccent } from '../lib/accent'
 import { checkForUpdate, currentVersion, downloadAndStage, type UpdateInfo } from '../lib/webosUpdate'
+import { playSelect } from '../lib/sound'
 
 const inputClass =
   'w-full rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 transition-colors'
@@ -311,6 +312,40 @@ export default function SettingsPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <Toggle
+            label="Interface sounds"
+            hint="A subtle tick as you move around and a soft confirm on select. Silenced while something is playing."
+            checked={prefs.uiSounds}
+            onChange={(v) => {
+              update({ uiSounds: v })
+              if (v) playSelect()
+            }}
+          />
+
+          <div className="py-4">
+            <label className="block text-sm font-medium text-ink-200 mb-1">Preview quality</label>
+            <p className="text-xs text-ink-400 mb-3">
+              Resolution of the hover &amp; detail previews. Higher looks sharper but uses more
+              bandwidth — pick what your connection handles. Synced to your account.
+            </p>
+            <select
+              value={prefs.previewQuality}
+              onChange={(e) => {
+                const v = e.target.value as Prefs['previewQuality']
+                update({ previewQuality: v })
+                setPreviewQualityPref(v).catch(() => {})
+                toast('Preview quality saved')
+              }}
+              className="w-full rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 text-ink-200"
+            >
+              {PREVIEW_QUALITY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="py-4">

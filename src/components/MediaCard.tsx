@@ -1,7 +1,17 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { backdropUrl, posterUrl } from '../api/client'
-import { blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
+import { useClipManifest } from '../api/queries'
+import { blurhashAverageColor, blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
+import { vividRgb } from '../lib/accent'
+import { getPrefs } from '../lib/settings'
+import {
+  claimPreview,
+  releasePreview,
+  previewClipUrl,
+  prefetchWhenVisible,
+  EMPTY_MANIFEST,
+} from '../lib/preview'
 import { useTvLazy } from '../lib/tvLazy'
 import type { JfItem } from '../api/types'
 
@@ -37,6 +47,53 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
   const tiltRef = useRef<HTMLDivElement>(null)
   const frame = useRef(0)
 
+  // Hover-preview: mouse over a poster and a short muted clip of the real title
+  // plays over it (Netflix-style). Clips are pre-generated per resolution under
+  // /previews/ (see deploy/genclips.sh). The manifest is a shared query (one
+  // fetch app-wide); reading it here reactively lets prefetch re-arm the moment
+  // it loads. The URL is resolved at the user's chosen quality.
+  const [preview, setPreview] = useState(false)
+  const [playing, setPlaying] = useState(false) // revealed only once decoding
+  const hoverTimer = useRef(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  // TV skips it (pointer-remote hover + many cards would swamp the SoC), and
+  // reduced-motion users opt out of the autoplaying video.
+  const canPreview = !__WEBOS__ && !REDUCED_MOTION
+
+  const { data: manifest } = useClipManifest()
+  const clipUrl = canPreview ? previewClipUrl(item.Id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST) : null
+
+  // Stop this card's preview (also the single-play lock's stop fn).
+  const stopPreview = useCallback(() => {
+    setPreview(false)
+    setPlaying(false)
+  }, [])
+
+  useEffect(() => () => {
+    window.clearTimeout(hoverTimer.current)
+    releasePreview(stopPreview)
+  }, [stopPreview])
+
+  // Warm this card's clip once it scrolls into view (web only), so the first
+  // hover starts instantly instead of waiting on the network. Re-arms when the
+  // manifest resolves (clipUrl flips from null to a real URL).
+  useEffect(() => {
+    if (!canPreview || !clipUrl) return
+    const el = tiltRef.current
+    if (!el) return
+    return prefetchWhenVisible(el, clipUrl)
+  }, [canPreview, clipUrl])
+
+  const startPreview = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canPreview || e.pointerType !== 'mouse' || !clipUrl) return
+    // Short intent guard so a pointer just passing over doesn't fire.
+    window.clearTimeout(hoverTimer.current)
+    hoverTimer.current = window.setTimeout(() => {
+      claimPreview(stopPreview) // stops any other card/hero preview
+      setPreview(true)
+    }, 200)
+  }, [canPreview, clipUrl, stopPreview])
+
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (REDUCED_MOTION || e.pointerType === 'touch') return
     const el = tiltRef.current
@@ -56,15 +113,27 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
   }, [])
 
   const onPointerLeave = useCallback(() => {
+    window.clearTimeout(hoverTimer.current)
+    releasePreview(stopPreview)
+    stopPreview()
     const el = tiltRef.current
     if (!el) return
     cancelAnimationFrame(frame.current)
     el.classList.remove('tilting')
     el.style.transform = ''
-  }, [])
+  }, [stopPreview])
 
   // TV: skip blurhash (CPU decode per card) — the solid bg placeholder is fine.
-  const blurUrl = __WEBOS__ ? null : blurhashToDataURL(primaryBlurhash(item))
+  const hash = primaryBlurhash(item)
+  const blurUrl = __WEBOS__ ? null : blurhashToDataURL(hash)
+
+  // Light-spill: a focused/hovered card casts a soft glow in its own dominant
+  // color onto the shelf beneath. The 4×4 average decode is cheap + cached, so
+  // it's worth running on the TV too; the glow itself is a plain box-shadow.
+  const spillAvg = blurhashAverageColor(hash)
+  const spillStyle = spillAvg
+    ? ({ '--spill': vividRgb(spillAvg[0], spillAvg[1], spillAvg[2]).join(', ') } as CSSProperties)
+    : undefined
 
   // TV: real lazy loading — loading="lazy" is a no-op on the CX's Chromium 68.
   const [lazyRef, nearViewport] = useTvLazy<HTMLDivElement>()
@@ -89,8 +158,10 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
         // TV: the pointer remote streams pointermove events — tilt math + style
         // writes per move would repaint cards constantly. Outline hover is enough.
         onPointerMove={__WEBOS__ ? undefined : onPointerMove}
+        onPointerEnter={canPreview ? startPreview : undefined}
         onPointerLeave={__WEBOS__ ? undefined : onPointerLeave}
-        className="tilt relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
+        style={spillStyle}
+        className="tilt spill-card relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
       >
         {blurUrl && (
           <img src={blurUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
@@ -106,6 +177,23 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
           <div className="h-full w-full flex items-center justify-center p-3 text-center text-sm text-ink-400">
             {item.Name}
           </div>
+        )}
+
+        {preview && clipUrl && (
+          <video
+            ref={videoRef}
+            src={clipUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            onPlaying={() => setPlaying(true)}
+            onError={stopPreview}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+              playing ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
         )}
 
         <div className="tilt-glare" />

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { playNav } from './sound'
 
 // Arrow-key (D-pad) spatial navigation for TV-browser / remote use. It moves
 // focus between visible focusable elements by on-screen geometry, then scrolls
@@ -137,6 +138,7 @@ function onKeyDown(e: KeyboardEvent) {
   e.preventDefault()
   next.focus({ preventScroll: true })
   next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: SCROLL_BEHAVIOR })
+  playNav()
 }
 
 /** Enable global D-pad/arrow-key spatial navigation for the app. */

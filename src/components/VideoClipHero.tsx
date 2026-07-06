@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { claimPreview, releasePreview } from '../lib/preview'
 
 /**
  * Plays a locally-generated preview clip (a short snippet of the actual file,
@@ -10,7 +11,16 @@ export default function VideoClipHero({ clipUrl, onClose }: { clipUrl: string; o
   const fadeRef = useRef<ReturnType<typeof setInterval>>(undefined)
   const [muted, setMuted] = useState(true)
 
-  useEffect(() => () => clearInterval(fadeRef.current), [])
+  // The hero owns the one preview slot while it's up — claiming stops any card
+  // preview that was playing, and the closer runs if something else claims it.
+  useEffect(() => {
+    const stop = () => onClose()
+    claimPreview(stop)
+    return () => {
+      releasePreview(stop)
+      clearInterval(fadeRef.current)
+    }
+  }, [onClose])
 
   const fadeTo = (target: number) => {
     const v = ref.current

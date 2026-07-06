@@ -82,22 +82,45 @@ Depends on D-pad navigation (done). High Finesse reuse on all three.
 ## Beauty / polish roadmap (Paul-approved 2026-07-03; do 1+2+6 first)
 - [x] 1. **Living backdrop (lean-back mode)** — DONE v0.3.0 (`FocusBackdrop.tsx`): rest focus/
       pointer on a card ~1.5s → page background crossfades to that title's dimmed backdrop.
-- [ ] 2. **Per-title color grading** — grade each detail page (buttons/progress/scrims) from
-      the poster's palette (client-side sampling, cached). Every film's page feels custom.
-      (Partial: ItemPage already derives accentRgb from the poster blurhash — extend it.)
+- [x] 2. **Per-title color grading** — DONE v0.4.0: `shadesFromRgb`/`vividRgb` in `lib/accent.ts`
+      grade the poster's sampled color (HSL, saturation punched up) into an accent ladder;
+      ItemPage overrides `--color-accent-*` on the page root so buttons/pills/progress/rings/
+      cast-hover all adopt the film's palette. Poster glow now uses the vivid color too.
 - [x] 6. **Time-of-day ambience** — DONE v0.3.0 (`lib/timeAmbience.ts`): aurora hues +
       splash greeting shift with the clock (morning blues → evening ambers → late violets).
 - [ ] 3. **Marquee screensaver** — idle on TV → drift through library backdrops with title
       logos + taglines, slow crossfades.
-- [ ] 4. **UI sound design** — subtle D-pad tick + select confirm (WebAudio, Settings toggle).
+- [x] 4. **UI sound design** — DONE v0.4.0: `lib/sound.ts` — pure-WebAudio oscillator blips,
+      nav tick fired from spatialNav on focus move, select confirm via a global click listener.
+      Opt-in `uiSounds` pref + "Interface sounds" toggle in Settings; silenced while media plays.
 - [ ] 5. **Trickplay memory strips** — Continue Watching cards cycle real frames from the
       resume point on focus (trickplay tiles already exist server-side).
-- [ ] 7. **Poster light-spill** — focused card casts a glow in its dominant color (web full,
-      TV cheap gradient version).
+- [x] 7. **Poster light-spill** — DONE v0.4.0: MediaCard samples the poster's dominant color
+      (`vividRgb`, cheap cached 4×4 decode) into a `--spill` var; `.spill-card` in index.css
+      casts a soft colored box-shadow on hover/focus. Replaced the old flat black hover shadow.
 - [x] 8. **Editorial row headers** — DONE v0.3.0: row titles now render in the brand serif
       italic (`.row-title` in index.css / MediaRow). Editorial subtext ("12 new this week")
       still TODO if wanted.
 - Also shipped v0.3.0: per-launch hero shuffle (fresh billboard each app start).
+- [x] 9. **Card hover-preview** — DONE v0.4.0: mouse over a movie poster → its short muted
+      clip plays over the card, looping; leaves on pointer-out. Web + mouse only (TV/reduced-
+      motion opt out). Added a dev-only Vite proxy for `/finesse/previews` so `npm run dev`
+      shows real previews (was NAS-nginx-only before).
+- [x] 10. **Preview quality overhaul** — DONE v0.4.0 (client). Fixes the "blurry = feels
+      cheap" complaint + Paul's asks:
+      • Per-account **Preview quality** setting (Low 480 / Medium 720 / High 1080), synced via
+        DisplayPreferences like accent; default High. `lib/preview.ts` resolves the clip URL to
+        the best tier ≤ the pref, falling back down the ladder.
+      • **Single preview at a time** — `claimPreview`/`releasePreview` lock shared by cards +
+        hero; starting one stops the other (verified: hover A→B leaves exactly 1 video playing).
+      • **Prefetch** — clips warm as cards scroll into view (shared IntersectionObserver), so
+        hover is instant. Video reveals only on `onPlaying` (no half-decoded flash).
+      • Manifest v2: `manifest.json` (base ids) + `manifest-hd.json` ({id:[720,1080]}), merged
+        by `useClipManifest`. Back-compatible — old array manifest still works as 480-only.
+      • Poster requests bumped 360→480px on web for crispness.
+      • **NEEDS SERVER RUN:** `deploy/genclips.sh` rewritten to v2 — 480/720/1080 tiers, movies
+        AND episodes, writes `manifest-hd.json`. Until it runs on the NAS, High just serves the
+        existing 480 base (graceful). Re-encode is the long pole; run `sudo bash genclips.sh`.
 
 ## Backlog
 - [ ] **RomM integration — play games inside Finesse (long-term stretch goal, Paul 2026-07-05)**

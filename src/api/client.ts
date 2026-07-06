@@ -551,6 +551,21 @@ export async function setAccentPref(name: string): Promise<void> {
   await request(uiDpPath(), { method: 'POST', body: dp })
 }
 
+export async function getPreviewQualityPref(): Promise<string | null> {
+  try {
+    const dp = await request<JfDisplayPreferences>(uiDpPath())
+    return dp?.CustomPrefs?.previewQuality ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function setPreviewQualityPref(quality: string): Promise<void> {
+  const dp = (await request<JfDisplayPreferences>(uiDpPath()).catch(() => ({}))) as JfDisplayPreferences
+  dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), previewQuality: quality }
+  await request(uiDpPath(), { method: 'POST', body: dp })
+}
+
 // ---------- Home layout (per-account customization) ----------
 // Which home rows are hidden/collapsed and their order. Stored per-user in
 // DisplayPreferences so each profile gets its own home screen, synced across devices.
@@ -827,7 +842,7 @@ export function posterUrl(item: {
   ImageTags?: Record<string, string>
   SeriesId?: string
   SeriesPrimaryImageTag?: string
-}, maxWidth = 360): string | null {
+}, maxWidth = 480): string | null {
   if (item.ImageTags?.Primary) {
     return imageUrl(item.Id, 'Primary', { maxWidth, tag: item.ImageTags.Primary })
   }

@@ -194,6 +194,23 @@ body {
   opacity: 1;
 }
 
+/* ---------- Poster light-spill (focused card glows its own color) ---------- */
+/* A focused/hovered card casts a soft glow in its dominant color onto the
+   shelf beneath it, so browsing feels alive. --spill is set per card from the
+   poster's sampled color; falls back to the app accent. */
+.spill-card {
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s ease;
+}
+.group:hover .spill-card,
+.group:focus-visible .spill-card,
+.group:focus-within .spill-card {
+  box-shadow:
+    0 16px 46px -10px rgba(var(--spill, 117, 137, 216), 0.6),
+    0 6px 18px -8px rgba(0, 0, 0, 0.55);
+}
+
 /* ---------- Skeleton shimmer ---------- */
 @keyframes shimmer {
   0% { background-position: -400px 0; }
