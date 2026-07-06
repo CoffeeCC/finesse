@@ -39,6 +39,8 @@ export interface Prefs {
   uiSoundsHover: boolean
   /** Preview-clip quality (hover + hero). Per-account; matches your connection. */
   previewQuality: PreviewQuality
+  /** Play audio on card hover-previews (they start muted for autoplay, then unmute). */
+  previewSound: boolean
 }
 
 const KEY = 'finesse.prefs'
@@ -53,6 +55,7 @@ const DEFAULTS: Prefs = {
   uiSoundsVolume: 0.6,
   uiSoundsHover: false,
   previewQuality: 'high',
+  previewSound: true,
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike

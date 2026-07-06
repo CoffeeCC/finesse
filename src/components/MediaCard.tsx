@@ -188,7 +188,12 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
             loop
             playsInline
             preload="auto"
-            onPlaying={() => setPlaying(true)}
+            onPlaying={(e) => {
+              setPlaying(true)
+              // Started muted so autoplay is allowed; unmute now if the user
+              // wants preview audio (the single-play lock keeps it to one at a time).
+              if (getPrefs().previewSound) e.currentTarget.muted = false
+            }}
             onError={stopPreview}
             className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
               playing ? 'opacity-100' : 'opacity-0'

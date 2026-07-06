@@ -377,6 +377,13 @@ export default function SettingsPage() {
             </select>
           </div>
 
+          <Toggle
+            label="Preview sound"
+            hint="Play audio on hover-previews. Only one plays at a time, and it's silenced while you're actually watching something."
+            checked={prefs.previewSound}
+            onChange={(v) => update({ previewSound: v })}
+          />
+
           <div className="py-4">
             <label className="block text-sm font-medium text-ink-200 mb-1">Display size</label>
             <p className="text-xs text-ink-400 mb-3">
