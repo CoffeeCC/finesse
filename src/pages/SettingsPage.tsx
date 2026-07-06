@@ -5,7 +5,7 @@ import { useToast } from '../components/Toast'
 import { createUser, ApiError, setAccentPref, setPreviewQualityPref } from '../api/client'
 import { ACCENT_PRESETS, applyAccent, getStoredAccent, setStoredAccent } from '../lib/accent'
 import { checkForUpdate, currentVersion, downloadAndStage, type UpdateInfo } from '../lib/webosUpdate'
-import { playSelect } from '../lib/sound'
+import { playSelect, playNav } from '../lib/sound'
 
 const inputClass =
   'w-full rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 transition-colors'
@@ -323,6 +323,35 @@ export default function SettingsPage() {
               if (v) playSelect()
             }}
           />
+
+          {prefs.uiSounds && (
+            <>
+              <div className="py-4">
+                <label className="block text-sm font-medium text-ink-200 mb-1">Sound volume</label>
+                <p className="text-xs text-ink-400 mb-3">Drag to preview the level.</p>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={prefs.uiSoundsVolume}
+                  onChange={(e) => {
+                    update({ uiSoundsVolume: Number(e.target.value) })
+                    playNav() // live feedback as you slide
+                  }}
+                  className="w-full accent-accent-500 cursor-pointer"
+                  aria-label="Interface sound volume"
+                />
+              </div>
+
+              <Toggle
+                label="Tick on mouse hover"
+                hint="Also play the nav tick when your mouse passes over cards and controls, not just with the keyboard/remote."
+                checked={prefs.uiSoundsHover}
+                onChange={(v) => update({ uiSoundsHover: v })}
+              />
+            </>
+          )}
 
           <div className="py-4">
             <label className="block text-sm font-medium text-ink-200 mb-1">Preview quality</label>

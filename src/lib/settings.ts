@@ -33,6 +33,10 @@ export interface Prefs {
   uiScale: number
   /** Subtle UI sound effects (nav tick + select confirm). On by default. */
   uiSounds: boolean
+  /** UI sound volume, 0–1. */
+  uiSoundsVolume: number
+  /** Also tick when the mouse hovers a card/control (not just keyboard nav). */
+  uiSoundsHover: boolean
   /** Preview-clip quality (hover + hero). Per-account; matches your connection. */
   previewQuality: PreviewQuality
 }
@@ -46,6 +50,8 @@ const DEFAULTS: Prefs = {
   visualizer: 'bars',
   uiScale: 1,
   uiSounds: true,
+  uiSoundsVolume: 0.6,
+  uiSoundsHover: false,
   previewQuality: 'high',
 }
 

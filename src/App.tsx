@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import LoginPage from './auth/LoginPage'
@@ -42,10 +42,35 @@ function ScrollToTop() {
 export default function App() {
   const { session } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   useSpatialNavigation()
 
   // Global select-confirm sound (opt-in via Settings). Idempotent.
   useEffect(() => initUiSounds(), [])
+
+  // Keyboard/remote "back": Backspace, Escape, or the webOS remote Back button
+  // (keyCode 461) navigate one step back — so keyboard/D-pad users aren't stuck
+  // after clicking into a title. The full-bleed player owns its own keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const path = window.location.pathname + window.location.hash
+      if (path.includes('/play/')) return
+      const t = e.target as HTMLElement | null
+      const typing =
+        t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || (t?.isContentEditable ?? false)
+      if (typing) return
+      const isBack =
+        e.key === 'Backspace' ||
+        e.key === 'Escape' ||
+        e.key === 'BrowserBack' ||
+        (e as KeyboardEvent & { keyCode?: number }).keyCode === 461
+      if (!isBack) return
+      e.preventDefault()
+      navigate(-1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
 
   // Warm the preview-clip manifest once so cards can offer hover-preview
   // (read from the shared cache) without each card firing its own fetch.
