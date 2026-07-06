@@ -29,7 +29,12 @@ export default function TvPointer() {
       visible = false
     }
     const move = (e: MouseEvent) => {
-      el.style.transform = `translate3d(${e.clientX - 15}px, ${e.clientY - 15}px, 0)`
+      // The whole app is zoomed (uiScale, default 1.3 on TV) via `zoom` on <html>.
+      // This element lives inside that zoomed layout, so its translate is scaled
+      // by the same factor — divide the pointer coords back out or the ring lands
+      // ~1.3x off (usually off-screen), which is why it looked missing.
+      const z = parseFloat(document.documentElement.style.zoom) || 1
+      el.style.transform = `translate3d(${e.clientX / z - 15}px, ${e.clientY / z - 15}px, 0)`
       show()
     }
 

@@ -250,6 +250,8 @@ export interface ArrQueueItem {
   status: string
   /** True once the file(s) have downloaded (importing or done). */
   done: boolean
+  /** Why it's stuck (from *arr status messages), for "Needs attention" rows. */
+  reason?: string
   /** *arr queue record ids backing this row (an aggregated series row has several). */
   queueIds: number[]
   /** SABnzbd job ids (only for usenet downloads) — enables per-item pause/resume. */
@@ -273,8 +275,20 @@ interface RawQueueRecord {
   status?: string
   trackedDownloadStatus?: string
   trackedDownloadState?: string
+  errorMessage?: string
+  statusMessages?: { title?: string; messages?: string[] }[]
   size?: number
   sizeleft?: number
+}
+
+/** The most useful human reason a record is stuck, if any. */
+function reasonOf(r: RawQueueRecord): string | undefined {
+  if (r.errorMessage) return r.errorMessage
+  for (const m of r.statusMessages ?? []) {
+    if (m.messages?.length) return m.messages.find((x) => x && x.trim()) ?? m.title
+    if (m.title) return m.title
+  }
+  return undefined
 }
 
 /** Usenet downloads live in SABnzbd, keyed by the record's downloadId.
@@ -309,6 +323,7 @@ interface Agg {
   anyDownloading: boolean
   anyWarning: boolean
   allPaused: boolean
+  reason?: string
   queueIds: number[]
   nzoIds: string[]
 }
@@ -323,8 +338,10 @@ function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => numbe
     cur.left += left
     cur.count += 1
     if (r.status === 'downloading') cur.anyDownloading = true
-    if (r.trackedDownloadStatus === 'warning' || r.trackedDownloadState === 'importFailed' || r.status === 'failed' || r.status === 'warning')
+    if (r.trackedDownloadStatus === 'warning' || r.trackedDownloadState === 'importFailed' || r.status === 'failed' || r.status === 'warning') {
       cur.anyWarning = true
+      if (!cur.reason) cur.reason = reasonOf(r)
+    }
     if (r.status !== 'paused') cur.allPaused = false
     if (r.id) cur.queueIds.push(r.id)
     cur.nzoIds.push(...nzoOf(r))
@@ -356,6 +373,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       progress: size > 0 ? Math.round(((size - left) / size) * 100) : done ? 100 : 0,
       status: label,
       done,
+      reason: label === 'Needs attention' ? reasonOf(r) : undefined,
       queueIds: r.id ? [r.id] : [],
       nzoIds: nzoOf(r),
       paused: r.status === 'paused',
@@ -379,6 +397,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       progress: agg.size > 0 ? Math.round(((agg.size - agg.left) / agg.size) * 100) : done ? 100 : 0,
       status: label,
       done,
+      reason: label === 'Needs attention' ? agg.reason : undefined,
       queueIds: agg.queueIds,
       nzoIds: agg.nzoIds,
       paused: agg.allPaused,

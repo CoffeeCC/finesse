@@ -62,80 +62,75 @@ function Row({ d }: { d: ArrQueueItem }) {
     }
   }
 
+  const attention = d.status === 'Needs attention'
+
   return (
-    <div className="flex items-center gap-3 rounded-xl bg-ink-900/60 border border-white/5 p-2.5">
-      <div className="w-11 h-16 shrink-0 rounded-md overflow-hidden bg-ink-800">
-        {d.poster && (
-          <img src={d.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-white truncate">
-          {d.title}
-          {d.detail && <span className="text-ink-400 font-normal"> · {d.detail}</span>}
-        </p>
-        <div className="mt-1.5 h-1.5 rounded-full bg-ink-700 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-[width] duration-700 ${d.done ? 'bg-emerald-400' : d.paused ? 'bg-ink-500' : 'bg-accent-400'}`}
-            style={{ width: `${Math.max(d.done ? 100 : 4, d.progress)}%` }}
-          />
+    <div className={`rounded-xl border p-2.5 ${attention ? 'bg-amber-500/5 border-amber-500/30' : 'bg-ink-900/60 border-white/5'}`}>
+      <div className="flex items-center gap-3">
+        <div className="w-11 h-16 shrink-0 rounded-md overflow-hidden bg-ink-800">
+          {d.poster && (
+            <img src={d.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+          )}
         </div>
-        <div className="mt-1 flex items-center justify-between text-xs">
-          <span className={d.done ? 'text-emerald-300' : d.paused ? 'text-ink-400' : 'text-accent-300'}>{d.status}</span>
-          {!d.done && <span className="text-ink-400">{d.progress}%</span>}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-white truncate">
+            {d.title}
+            {d.detail && <span className="text-ink-400 font-normal"> · {d.detail}</span>}
+          </p>
+          <div className="mt-1.5 h-1.5 rounded-full bg-ink-700 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-[width] duration-700 ${d.done ? 'bg-emerald-400' : attention ? 'bg-amber-400' : d.paused ? 'bg-ink-500' : 'bg-accent-400'}`}
+              style={{ width: `${Math.max(d.done ? 100 : 4, d.progress)}%` }}
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between text-xs">
+            <span className={d.done ? 'text-emerald-300' : attention ? 'text-amber-300' : d.paused ? 'text-ink-400' : 'text-accent-300'}>{d.status}</span>
+            {!d.done && !attention && <span className="text-ink-400">{d.progress}%</span>}
+          </div>
         </div>
       </div>
 
-      {/* Controls: retry (stuck rows), pause/resume (usenet only), cancel. Hidden once importing. */}
-      {!d.done && (
-        <div className="flex items-center gap-1 shrink-0">
-          {d.status === 'Needs attention' && d.queueIds.length > 0 && (
+      {/* Why it's stuck — plain-language reason from Radarr/Sonarr/Lidarr. */}
+      {attention && (
+        <p className="mt-2 text-xs text-amber-200/80 leading-snug">
+          {d.reason
+            ? `${d.reason}`
+            : 'This download couldn’t be imported. Retry to drop it and search for a different release.'}
+        </p>
+      )}
+
+      {/* Big labeled controls — easy D-pad targets. Hidden once importing. */}
+      {!d.done && (d.queueIds.length > 0 || d.nzoIds.length > 0) && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {attention && d.queueIds.length > 0 && (
             <button
               onClick={retry}
               disabled={busy}
-              title="Drop this download and search for a different release"
-              aria-label="Retry with a different release"
-              className="h-8 w-8 rounded-full flex items-center justify-center text-amber-300 hover:text-amber-200 hover:bg-white/10 disabled:opacity-40 transition-colors"
+              className="rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-50 px-3.5 py-2 text-sm font-semibold text-ink-950 transition-colors"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-              </svg>
+              {busy ? 'Working…' : 'Retry — find another release'}
             </button>
           )}
           {d.nzoIds.length > 0 && (
             <button
               onClick={togglePause}
               disabled={busy}
-              title={d.paused ? 'Resume' : 'Pause'}
-              aria-label={d.paused ? 'Resume download' : 'Pause download'}
-              className="h-8 w-8 rounded-full flex items-center justify-center text-ink-300 hover:text-white hover:bg-white/10 disabled:opacity-40 transition-colors"
+              className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 disabled:opacity-50 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
             >
-              {d.paused ? (
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.14v13.72c0 .84.93 1.35 1.64.9l10.18-6.86a1.08 1.08 0 0 0 0-1.8L9.64 4.24A1.08 1.08 0 0 0 8 5.14Z" /></svg>
-              ) : (
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" /></svg>
-              )}
+              {d.paused ? 'Resume' : 'Pause'}
             </button>
           )}
           {d.queueIds.length > 0 && (
             <button
               onClick={cancel}
               disabled={busy}
-              title={armed ? 'Tap again to confirm' : 'Cancel download'}
-              aria-label="Cancel download"
-              className={`h-8 rounded-full flex items-center justify-center transition-all ${
+              className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
                 armed
-                  ? 'px-2.5 text-xs font-semibold text-white bg-red-500 hover:bg-red-400'
-                  : 'w-8 text-ink-300 hover:text-red-300 hover:bg-white/10'
-              } disabled:opacity-40`}
+                  ? 'bg-red-500 hover:bg-red-400 text-white font-semibold'
+                  : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
+              }`}
             >
-              {armed ? (
-                'Sure?'
-              ) : (
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-              )}
+              {armed ? 'Tap again to confirm' : 'Cancel'}
             </button>
           )}
         </div>
