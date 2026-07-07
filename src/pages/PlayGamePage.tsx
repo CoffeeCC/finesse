@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useGame } from '../api/queries'
-import { ejsCore, rommContentUrl } from '../api/romm'
+import { ejsCore, primeGamesAuth, rommContentUrl } from '../api/romm'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 
 // Plays a RomM title with EmulatorJS (client-side WASM). The ROM streams from
@@ -43,6 +43,7 @@ export default function PlayGamePage() {
       return
     }
     started.current = true
+    primeGamesAuth() // cookie so EmulatorJS's ROM fetch clears the nginx auth gate
     const w = window as unknown as Record<string, unknown>
     w.EJS_player = '#game'
     w.EJS_core = core

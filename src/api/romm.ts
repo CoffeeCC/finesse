@@ -80,11 +80,20 @@ export function rommCoverUrl(rom: RommRom): string | null {
   return `${CONTENT_BASE}games/${p.replace(/^\/+/, '')}`
 }
 
-/** ROM file URL for EmulatorJS. The Jellyfin token rides in the query string
- *  because EmulatorJS fetches the ROM without our auth headers. */
+/** Set a path-scoped cookie with the Jellyfin token so EmulatorJS's ROM fetch
+ *  (which can't send our auth header) is still gated by nginx. Cookies are sent
+ *  automatically on same-origin requests, and — unlike query args — the nginx
+ *  auth_request subrequest can read them. Call before loading a game. */
+export function primeGamesAuth(): void {
+  const token = getSession()?.token
+  if (token) {
+    document.cookie = `finesse_games_token=${token}; path=${CONTENT_BASE}games; SameSite=Lax`
+  }
+}
+
+/** ROM file URL for EmulatorJS (auth via the cookie set by primeGamesAuth). */
 export function rommContentUrl(rom: RommRom): string {
-  const token = getSession()?.token ?? ''
-  return `${gamesBase()}/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}?token=${encodeURIComponent(token)}`
+  return `${gamesBase()}/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`
 }
 
 // RomM platform slug → EmulatorJS core. Only these are browser-emulatable; every
