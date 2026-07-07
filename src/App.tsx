@@ -16,6 +16,8 @@ import PersonPage from './pages/PersonPage'
 import BrowsePage from './pages/BrowsePage'
 import MusicPage from './pages/MusicPage'
 import AlbumPage from './pages/AlbumPage'
+import GamesPage from './pages/GamesPage'
+import PlayGamePage from './pages/PlayGamePage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
 import TvBoot from './components/TvBoot'
@@ -112,8 +114,9 @@ export default function App() {
       <FocusBackdrop />
       <div className="grain" aria-hidden />
       <Routes>
-        {/* Player is full-bleed, no navbar */}
+        {/* Player + game player are full-bleed, no navbar */}
         <Route path="/play/:itemId" element={<PlayerPage />} />
+        <Route path="/games/play/:romId" element={<PlayGamePage />} />
         <Route
           path="*"
           element={
@@ -130,6 +133,7 @@ export default function App() {
                     <Route path="/browse" element={<BrowsePage />} />
                     <Route path="/music" element={<MusicPage />} />
                     <Route path="/album/:albumId" element={<AlbumPage />} />
+                    <Route path="/games" element={<GamesPage />} />
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/request" element={<RequestPage />} />
                     <Route path="/watchlist" element={<WatchlistPage />} />

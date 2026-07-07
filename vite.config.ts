@@ -59,6 +59,24 @@ export default defineConfig(({ mode }) => {
     changeOrigin: true,
   }
 
+  // Games: proxy the RomM API/assets in dev with the RomM Basic auth injected
+  // (prod does this in nginx). ROMM_AUTH = base64 of "user:pass" in .env.local.
+  if (env.ROMM_AUTH) {
+    const rommTarget = env.ROMM_HOST || `${arrHost}:30061`
+    proxy['/finesse/games/api'] = {
+      target: rommTarget,
+      changeOrigin: true,
+      rewrite: (p: string) => p.replace(/^\/finesse\/games\/api/, '/api'),
+      headers: { Authorization: `Basic ${env.ROMM_AUTH}` },
+    }
+    proxy['/finesse/games/assets'] = {
+      target: rommTarget,
+      changeOrigin: true,
+      rewrite: (p: string) => p.replace(/^\/finesse\/games\/assets/, '/assets'),
+      headers: { Authorization: `Basic ${env.ROMM_AUTH}` },
+    }
+  }
+
   return {
     // Web build is served under /finesse/ behind the Tailscale Funnel (shares
     // :10000 with Jellyfin). The webOS build runs off file:// so it needs a

@@ -9,6 +9,7 @@ const ICONS: Record<string, string> = {
   tvshows: 'M6 20.25h12M9 16.5v3.75m6-3.75v3.75M3.375 16.5h17.25c.621 0 1.125-.504 1.125-1.125V4.875A1.125 1.125 0 0 0 20.625 3.75H3.375A1.125 1.125 0 0 0 2.25 4.875v10.5c0 .621.504 1.125 1.125 1.125Z',
   search: 'm21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z',
   request: 'M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+  games: 'M7 8h10a4 4 0 0 1 3.94 4.68l-.7 4.2A2.4 2.4 0 0 1 16 17l-1.5-2h-5L8 17a2.4 2.4 0 0 1-4.24-.12l-.7-4.2A4 4 0 0 1 7 8Z M8 11v2 M7 12h2 M15.5 11.5h.01 M17 13h.01',
 }
 
 export default function BottomTabs() {
@@ -23,6 +24,7 @@ export default function BottomTabs() {
       icon: ICONS[lib.CollectionType ?? 'movies'] ?? ICONS.movies,
       end: false,
     })),
+    { to: '/games', label: 'Games', icon: ICONS.games, end: false },
     { to: '/search', label: 'Search', icon: ICONS.search, end: false },
     { to: '/request', label: 'Request', icon: ICONS.request, end: false },
   ]

@@ -4,6 +4,7 @@ import { arrQueue } from './arr'
 import { sabStatus } from './sab'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { type ClipManifest } from '../lib/preview'
+import * as romm from './romm'
 import type { JfItem } from './types'
 
 export const PAGE_SIZE = 100
@@ -104,6 +105,32 @@ export function useClipManifest() {
       }
       return { has, hd }
     },
+  })
+}
+
+// ---- Games (RomM) ----
+export function useGamePlatforms() {
+  return useQuery({
+    queryKey: ['gamePlatforms'],
+    queryFn: romm.getPlatforms,
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useGames(platformId?: number, search?: string) {
+  return useQuery({
+    queryKey: ['games', platformId ?? 'all', search ?? ''],
+    queryFn: () => romm.getRoms({ platformId, search, limit: 200 }),
+    staleTime: 60_000,
+  })
+}
+
+export function useGame(id: string | undefined) {
+  return useQuery({
+    queryKey: ['game', id],
+    enabled: !!id,
+    queryFn: () => romm.getRom(id!),
+    staleTime: 5 * 60_000,
   })
 }
 

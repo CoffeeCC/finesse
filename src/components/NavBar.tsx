@@ -122,6 +122,9 @@ export default function NavBar() {
               Music
             </NavLink>
           )}
+          <NavLink to="/games" className={linkClass}>
+            Games
+          </NavLink>
           {hasCollections && (
             <NavLink
               to="/browse?title=Collections&includeItemTypes=BoxSet&sortBy=SortName"
