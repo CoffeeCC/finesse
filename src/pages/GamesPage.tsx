@@ -1,40 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useGamePlatforms, useGames } from '../api/queries'
-import { fetchSgdbCover, rommCoverUrl, isPlayable, type RommRom } from '../api/romm'
+import { fetchSgdbCover, rommCoverUrl, isPlayable, cleanName, tileGradient, type RommRom } from '../api/romm'
 import { CardSkeleton } from '../components/Skeletons'
-
-// Brand-ish colors per console so the (mostly art-less) grid reads as designed,
-// not empty. Two-stop gradient keyed off the platform; unknown → hashed hue.
-const PLATFORM_COLORS: Record<string, [string, string]> = {
-  nes: ['#c9243f', '#7a0d1c'], famicom: ['#c9243f', '#7a0d1c'],
-  snes: ['#8b5cf6', '#4c1d95'], sfc: ['#8b5cf6', '#4c1d95'],
-  n64: ['#2f7d32', '#123f14'],
-  gb: ['#8bac0f', '#38560a'], gbc: ['#a855f7', '#6b21a8'], gba: ['#4f46e5', '#312e81'],
-  nds: ['#e11d48', '#881337'],
-  psx: ['#334155', '#0f172a'], ps1: ['#334155', '#0f172a'], ps2: ['#1d4ed8', '#0b1e57'],
-  ps3: ['#111827', '#000000'],
-  genesis: ['#1e6fd9', '#0b3a7a'], megadrive: ['#1e6fd9', '#0b3a7a'], 'genesis-slash-megadrive': ['#1e6fd9', '#0b3a7a'],
-  mastersystem: ['#2563eb', '#0b3a7a'], gamegear: ['#0891b2', '#0e3a45'],
-  switch: ['#e60012', '#7a000a'], wiiu: ['#0ea5e9', '#075985'], wii: ['#38bdf8', '#0c4a6e'],
-  gamecube: ['#6d5ae6', '#33257a'], gc: ['#6d5ae6', '#33257a'],
-  psp: ['#0f172a', '#020617'], ps4: ['#1d4ed8', '#0b1e57'],
-  arcade: ['#f59e0b', '#7c4a02'], mame: ['#f59e0b', '#7c4a02'], neogeo: ['#dc2626', '#7f1d1d'],
-  pce: ['#ea580c', '#7c2d12'], c64: ['#4b5563', '#1f2937'],
-}
-
-function hashHue(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
-  return Math.abs(h) % 360
-}
-
-function tileGradient(rom: RommRom): string {
-  const c = PLATFORM_COLORS[rom.platform_slug?.toLowerCase()]
-  if (c) return `linear-gradient(150deg, ${c[0]}, ${c[1]})`
-  const hue = hashHue(rom.platform_slug || rom.name)
-  return `linear-gradient(150deg, hsl(${hue} 55% 42%), hsl(${hue} 60% 20%))`
-}
 
 function GameCard({ rom }: { rom: RommRom }) {
   const romCover = rommCoverUrl(rom)
@@ -112,29 +80,14 @@ function GameCard({ rom }: { rom: RommRom }) {
     </div>
   )
 
-  return playable ? (
-    <Link to={`/games/play/${rom.id}`} viewTransition className="group block outline-none">
+  return (
+    <Link to={`/games/game/${rom.id}`} viewTransition className="group block outline-none">
       {inner}
       <p className="mt-2 px-0.5 text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">
         {title}
       </p>
     </Link>
-  ) : (
-    <div className="group block" title="Not playable in a browser — retro consoles only">
-      {inner}
-      <p className="mt-2 px-0.5 text-sm font-medium text-ink-400 truncate">{title}</p>
-    </div>
   )
-}
-
-/** Trim the file extension + redump/region noise for a clean display title. */
-function cleanName(name: string): string {
-  return name
-    .replace(/\.(7z|zip|rar|z64|n64|nes|smc|sfc|gb[ac]?|gba|iso|nsp|nsz|xci|nds|md|bin|cue|chd|pce)$/i, '')
-    .replace(/\[[^\]]*\]/g, '') // [NSP], [!], [FitGirl Repack]
-    .replace(/\([^)]*\)/g, (m) => (/disc/i.test(m) ? m : '')) // drop (USA)/(Rev 1)/(En,Fr) — keep (Disc N)
-    .replace(/\s{2,}/g, ' ')
-    .trim()
 }
 
 export default function GamesPage() {

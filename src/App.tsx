@@ -17,6 +17,7 @@ import BrowsePage from './pages/BrowsePage'
 import MusicPage from './pages/MusicPage'
 import AlbumPage from './pages/AlbumPage'
 import GamesPage from './pages/GamesPage'
+import GameDetailPage from './pages/GameDetailPage'
 import PlayGamePage from './pages/PlayGamePage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
@@ -134,6 +135,7 @@ export default function App() {
                     <Route path="/music" element={<MusicPage />} />
                     <Route path="/album/:albumId" element={<AlbumPage />} />
                     <Route path="/games" element={<GamesPage />} />
+                    <Route path="/games/game/:romId" element={<GameDetailPage />} />
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/request" element={<RequestPage />} />
                     <Route path="/watchlist" element={<WatchlistPage />} />
