@@ -22,6 +22,7 @@ export interface RommRom {
   id: number
   name: string
   fs_name: string
+  fs_name_no_tags?: string
   platform_id: number
   platform_slug: string
   platform_display_name: string
@@ -29,9 +30,47 @@ export interface RommRom {
   path_cover_large?: string
   url_cover?: string
   is_unidentified?: boolean
+  is_main_sibling?: boolean
   summary?: string
   ra_id?: number | null
   siblings?: { id: number; name: string; fs_name?: string }[]
+}
+
+/** Save states, battery files, and other sidecar blobs — not playable ROMs. */
+const JUNK_FS = /\.(bsv|state\d*|srm|sav|eep|ips|bps|rtcsav|autosave)$/i
+
+const ROM_FORMAT_SCORE: Record<string, number> = {
+  z64: 100, n64: 100, v64: 95, smc: 100, sfc: 100, nes: 100, fds: 95,
+  gbc: 90, gba: 90, gb: 90, md: 90, gen: 90, bin: 80, iso: 80, chd: 80,
+  cue: 75, pbp: 70, cia: 70, nsp: 65, xci: 65, '7z': 50, zip: 40, rar: 30,
+}
+
+function romFileScore(rom: RommRom): number {
+  if (JUNK_FS.test(rom.fs_name)) return -1000
+  const ext = rom.fs_name.split('.').pop()?.toLowerCase() ?? ''
+  let score = ROM_FORMAT_SCORE[ext] ?? 10
+  if (rom.is_main_sibling) score += 200
+  return score
+}
+
+/** One card per game: drop sidecars and pick the best format among siblings. */
+export function dedupeRoms(roms: RommRom[]): RommRom[] {
+  const groups = new Map<string, RommRom[]>()
+  for (const rom of roms) {
+    if (JUNK_FS.test(rom.fs_name)) continue
+    const title = (rom.fs_name_no_tags || rom.name).trim().toLowerCase()
+    const key = `${rom.platform_id}:${title}`
+    const bucket = groups.get(key) ?? []
+    bucket.push(rom)
+    groups.set(key, bucket)
+  }
+  const out: RommRom[] = []
+  for (const bucket of groups.values()) {
+    bucket.sort((a, b) => romFileScore(b) - romFileScore(a))
+    out.push(bucket[0]!)
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  return out
 }
 
 async function gget<T>(path: string): Promise<T> {
@@ -63,7 +102,9 @@ export async function getRoms(
   if (opts.platformId) q.set('platform_id', String(opts.platformId))
   if (opts.search) q.set('search_term', opts.search)
   const d = await gget<RomsPage | RommRom[]>(`/roms?${q.toString()}`)
-  return Array.isArray(d) ? { items: d, total: d.length } : d
+  const page = Array.isArray(d) ? { items: d, total: d.length } : d
+  const items = dedupeRoms(page.items)
+  return { items, total: items.length }
 }
 
 export async function getRom(id: string | number): Promise<RommRom> {
@@ -72,12 +113,82 @@ export async function getRom(id: string | number): Promise<RommRom> {
 
 // ---- media + play helpers ----
 
+const sgdbCoverCache = new Map<string, string | null>()
+const sgdbInflight = new Map<string, Promise<string | null>>()
+
+// A whole grid of cards would otherwise fire hundreds of SGDB requests at once
+// (rate-limit + jank). Cap concurrency; requests queue and drain a few at a time.
+let sgdbActive = 0
+const sgdbQueue: (() => void)[] = []
+const SGDB_MAX = 5
+function sgdbSlot(): Promise<void> {
+  if (sgdbActive < SGDB_MAX) {
+    sgdbActive++
+    return Promise.resolve()
+  }
+  return new Promise<void>((res) => sgdbQueue.push(() => res())).then(() => {
+    sgdbActive++
+  })
+}
+function sgdbRelease(): void {
+  sgdbActive--
+  sgdbQueue.shift()?.()
+}
+
+/** SteamGridDB fallback when RomM has no cover (library is mostly unidentified).
+ *  Cached, in-flight-deduped, and concurrency-capped. */
+export async function fetchSgdbCover(displayName: string): Promise<string | null> {
+  const key = displayName.toLowerCase().trim()
+  if (sgdbCoverCache.has(key)) return sgdbCoverCache.get(key) ?? null
+  const existing = sgdbInflight.get(key)
+  if (existing) return existing
+  const run = sgdbFetchCover(key)
+  sgdbInflight.set(key, run)
+  return run
+}
+
+async function sgdbFetchCover(key: string): Promise<string | null> {
+  await sgdbSlot()
+  try {
+    const q = encodeURIComponent(key)
+    const searchRes = await fetch(`${CONTENT_BASE}games/sgdb/search/autocomplete/${q}`, {
+      headers: { Authorization: mediaBrowserAuthHeader() },
+    })
+    if (!searchRes.ok) throw new Error(`sgdb search ${searchRes.status}`)
+    const searchJson = (await searchRes.json()) as { data?: { id: number }[] }
+    const gameId = searchJson.data?.[0]?.id
+    if (!gameId) {
+      sgdbCoverCache.set(key, null)
+      return null
+    }
+    const gridRes = await fetch(`${CONTENT_BASE}games/sgdb/grids/game/${gameId}`, {
+      headers: { Authorization: mediaBrowserAuthHeader() },
+    })
+    if (!gridRes.ok) throw new Error(`sgdb grids ${gridRes.status}`)
+    const gridJson = (await gridRes.json()) as { data?: { thumb?: string; url?: string }[] }
+    const url = gridJson.data?.[0]?.thumb ?? gridJson.data?.[0]?.url ?? null
+    sgdbCoverCache.set(key, url)
+    return url
+  } catch {
+    sgdbCoverCache.set(key, null)
+    return null
+  } finally {
+    sgdbRelease()
+    sgdbInflight.delete(key)
+  }
+}
+
 /** Cover-art URL (proxied through /finesse/games/assets), or null if none. */
 export function rommCoverUrl(rom: RommRom): string | null {
   if (rom.url_cover && /^https?:/.test(rom.url_cover)) return rom.url_cover
   const p = rom.path_cover_small || rom.path_cover_large
-  if (!p) return null
-  return `${CONTENT_BASE}games/${p.replace(/^\/+/, '')}`
+  if (p) {
+    const norm = p.replace(/^\/+/, '')
+    // RomM returns "assets/roms/…"; nginx proxies /games/assets/ → RomM /assets/.
+    if (norm.startsWith('assets/')) return `${CONTENT_BASE}games/${norm}`
+    return `${CONTENT_BASE}games/assets/${norm}`
+  }
+  return null
 }
 
 /** Set a path-scoped cookie with the Jellyfin token so EmulatorJS's ROM fetch

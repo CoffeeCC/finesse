@@ -120,7 +120,7 @@ export function useGamePlatforms() {
 export function useGames(platformId?: number, search?: string) {
   return useQuery({
     queryKey: ['games', platformId ?? 'all', search ?? ''],
-    queryFn: () => romm.getRoms({ platformId, search, limit: 200 }),
+    queryFn: () => romm.getRoms({ platformId, search, limit: 500 }),
     staleTime: 60_000,
   })
 }

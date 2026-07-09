@@ -77,6 +77,16 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  // SteamGridDB box-art fallback (prod does this in nginx). SGDB_KEY in .env.local.
+  if (env.SGDB_KEY) {
+    proxy['/finesse/games/sgdb'] = {
+      target: 'https://www.steamgriddb.com',
+      changeOrigin: true,
+      rewrite: (p: string) => p.replace(/^\/finesse\/games\/sgdb/, '/api/v2'),
+      headers: { Authorization: `Bearer ${env.SGDB_KEY}` },
+    }
+  }
+
   return {
     // Web build is served under /finesse/ behind the Tailscale Funnel (shares
     // :10000 with Jellyfin). The webOS build runs off file:// so it needs a
