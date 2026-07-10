@@ -134,6 +134,26 @@ export function useGame(id: string | undefined) {
   })
 }
 
+/** Random library titles with backdrops for the idle marquee screensaver.
+ *  Only fetched once the screensaver actually activates (enabled). */
+export function useMarqueeItems(enabled: boolean) {
+  return useQuery({
+    queryKey: ['marquee'],
+    enabled,
+    staleTime: 30 * 60_000,
+    queryFn: async () => {
+      const res = await api.getItems({
+        includeItemTypes: 'Movie,Series',
+        recursive: true,
+        sortBy: 'Random',
+        limit: 40,
+        fields: 'Taglines,Overview,Genres',
+      })
+      return res.Items.filter((it) => (it.BackdropImageTags?.length ?? 0) > 0)
+    },
+  })
+}
+
 export function useLyrics(itemId: string | undefined) {
   return useQuery({
     queryKey: ['lyrics', itemId],

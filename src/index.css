@@ -307,6 +307,7 @@ body {
   .aurora > div,
   .kenburns,
   .slowzoom,
+  .marquee-slide,
   .ambient-breathe,
   .page-enter,
   .hero-content-in,
@@ -330,6 +331,31 @@ body {
   font-style: italic;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+/* ---------- Marquee screensaver ---------- */
+@keyframes marqueeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.marquee-in {
+  animation: marqueeIn 1s ease both;
+}
+@keyframes marqueeSlide {
+  0% { opacity: 0; transform: scale(1.05); }
+  12% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1.14) translate3d(-1%, -0.8%, 0); }
+}
+.marquee-slide {
+  animation: marqueeSlide 9.5s ease-out both;
+  will-change: transform, opacity;
+}
+@keyframes marqueeContent {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.marquee-fade {
+  animation: marqueeContent 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ---------- Living backdrop (FocusBackdrop) ---------- */

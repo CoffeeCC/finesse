@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import LoginPage from './auth/LoginPage'
+import InvitePage from './pages/InvitePage'
 import NavBar from './components/NavBar'
 import BottomTabs from './components/BottomTabs'
 import HomePage from './pages/HomePage'
@@ -24,6 +25,7 @@ import NowPlaying from './components/NowPlaying'
 import TvBoot from './components/TvBoot'
 import TvPointer from './components/TvPointer'
 import FocusBackdrop from './components/FocusBackdrop'
+import Marquee from './components/Marquee'
 import { useSpatialNavigation } from './lib/spatialNav'
 import { initUiSounds } from './lib/sound'
 import { useClipManifest } from './api/queries'
@@ -102,6 +104,8 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/invite" element={<InvitePage />} />
+        <Route path="/invite/:code" element={<InvitePage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     )
@@ -113,6 +117,7 @@ export default function App() {
       {__WEBOS__ && <TvBoot />}
       {__WEBOS__ && <TvPointer />}
       <FocusBackdrop />
+      <Marquee />
       <div className="grain" aria-hidden />
       <Routes>
         {/* Player + game player are full-bleed, no navbar */}

@@ -41,6 +41,8 @@ export interface Prefs {
   previewQuality: PreviewQuality
   /** Play audio on card hover-previews (they start muted for autoplay, then unmute). */
   previewSound: boolean
+  /** Idle "marquee" screensaver — library backdrops + logos drift by when idle. */
+  screensaver: boolean
 }
 
 const KEY = 'finesse.prefs'
@@ -56,6 +58,7 @@ const DEFAULTS: Prefs = {
   uiSoundsHover: false,
   previewQuality: 'high',
   previewSound: true,
+  screensaver: true,
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike

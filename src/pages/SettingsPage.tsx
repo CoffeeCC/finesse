@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { BITRATE_OPTIONS, PREVIEW_QUALITY_OPTIONS, UI_SCALE_OPTIONS, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
@@ -6,6 +6,14 @@ import { createUser, ApiError, setAccentPref, setPreviewQualityPref } from '../a
 import { ACCENT_PRESETS, applyAccent, getStoredAccent, setStoredAccent } from '../lib/accent'
 import { checkForUpdate, currentVersion, downloadAndStage, type UpdateInfo } from '../lib/webosUpdate'
 import { playSelect, playNav } from '../lib/sound'
+import {
+  createInvite,
+  deleteInvite,
+  inviteShareUrls,
+  listInviteLibraries,
+  listInvites,
+  type InviteAdmin,
+} from '../api/invite'
 
 const inputClass =
   'w-full rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 transition-colors'
@@ -384,6 +392,13 @@ export default function SettingsPage() {
             onChange={(v) => update({ previewSound: v })}
           />
 
+          <Toggle
+            label="Screensaver"
+            hint="When idle, the screen becomes drifting library art — backdrops, logos, and a clock. Any input dismisses it. Never during playback."
+            checked={prefs.screensaver}
+            onChange={(v) => update({ screensaver: v })}
+          />
+
           <div className="py-4">
             <label className="block text-sm font-medium text-ink-200 mb-1">Display size</label>
             <p className="text-xs text-ink-400 mb-3">
@@ -432,11 +447,246 @@ export default function SettingsPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-400 mb-3">
             Administration
           </h2>
-          <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4">
+          <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">
             <CreateUserForm />
+            <div className="border-t border-white/5 pt-6">
+              <InvitesAdmin />
+            </div>
           </div>
         </section>
       )}
+    </div>
+  )
+}
+
+function InvitesAdmin() {
+  const toast = useToast()
+  const [invites, setInvites] = useState<InviteAdmin[] | null>(null)
+  const [libs, setLibs] = useState<{ id: string; name: string }[]>([])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [preset, setPreset] = useState<'standard' | 'family' | 'custom'>('standard')
+  const [code, setCode] = useState('')
+  const [expiry, setExpiry] = useState<'never' | '7' | '30'>('7')
+  const [selectedLibs, setSelectedLibs] = useState<string[]>([])
+  const [liveTv, setLiveTv] = useState(false)
+
+  const refresh = useCallback(async () => {
+    try {
+      const [inv, lib] = await Promise.all([listInvites(), listInviteLibraries()])
+      setInvites(inv.invites)
+      setLibs(lib.libraries)
+      setError('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load invites')
+      setInvites([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    if (!libs.length) return
+    if (preset === 'standard') {
+      setSelectedLibs(
+        libs.filter((l) => /movie|show|series|tv/i.test(l.name)).map((l) => l.id),
+      )
+      setLiveTv(false)
+    } else if (preset === 'family') {
+      setSelectedLibs(libs.map((l) => l.id))
+      setLiveTv(true)
+    }
+  }, [preset, libs])
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const inv = await createInvite({
+        code: code.trim() || undefined,
+        label: preset === 'family' ? 'Family' : preset === 'standard' ? 'Standard' : undefined,
+        library_ids: selectedLibs,
+        expires_in_days: expiry === 'never' ? null : Number(expiry),
+        unlimited: false,
+        allow_downloads: true,
+        allow_live_tv: liveTv,
+      })
+      toast(`Invite ${inv.code} created`)
+      setCode('')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast(`Copied ${label}`)
+    } catch {
+      toast('Could not copy')
+    }
+  }
+
+  const revoke = async (id: number, c: string) => {
+    if (!confirm(`Revoke invite ${c}?`)) return
+    try {
+      await deleteInvite(id)
+      toast(`Revoked ${c}`)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Revoke failed')
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-ink-200 mb-1">Invites</label>
+      <p className="text-xs text-ink-400 mb-4">
+        Share a Finesse link — they create an account and land in the app. Works on LAN and Funnel.
+      </p>
+
+      <form onSubmit={create} className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {(['standard', 'family', 'custom'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPreset(p)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                preset === p
+                  ? 'bg-accent-500 text-white'
+                  : 'bg-ink-800 text-ink-300 border border-white/10 hover:border-accent-500/50'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          placeholder="Custom code (optional)"
+          className={inputClass}
+          autoComplete="off"
+        />
+
+        <select
+          value={expiry}
+          onChange={(e) => setExpiry(e.target.value as 'never' | '7' | '30')}
+          className={inputClass}
+        >
+          <option value="7">Link expires in 7 days</option>
+          <option value="30">Link expires in 30 days</option>
+          <option value="never">Link never expires</option>
+        </select>
+
+        {preset === 'custom' && (
+          <div className="flex flex-wrap gap-2">
+            {libs.map((l) => {
+              const on = selectedLibs.includes(l.id)
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() =>
+                    setSelectedLibs((prev) =>
+                      on ? prev.filter((x) => x !== l.id) : [...prev, l.id],
+                    )
+                  }
+                  className={`rounded-full px-3 py-1 text-xs border transition-colors ${
+                    on
+                      ? 'border-accent-400 bg-accent-500/20 text-ink-100'
+                      : 'border-white/10 text-ink-400'
+                  }`}
+                >
+                  {l.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-400">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={busy || selectedLibs.length === 0}
+          className="rounded-lg bg-accent-500 hover:bg-accent-400 disabled:opacity-50 px-4 py-2 text-sm font-semibold text-white active:scale-[0.98] transition-all"
+        >
+          {busy ? 'Creating…' : 'Create invite'}
+        </button>
+      </form>
+
+      <div className="mt-6 space-y-3">
+        {invites === null && <p className="text-xs text-ink-400">Loading…</p>}
+        {invites?.length === 0 && <p className="text-xs text-ink-400">No invites yet.</p>}
+        {invites?.map((inv) => {
+          const urls = inviteShareUrls(inv.code)
+          return (
+            <div
+              key={inv.id}
+              className="rounded-xl border border-white/5 bg-ink-950/40 px-4 py-3 text-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-mono font-semibold text-ink-100">{inv.code}</span>
+                  <span
+                    className={`ml-2 text-[10px] uppercase tracking-wider ${
+                      inv.status === 'pending'
+                        ? 'text-accent-400'
+                        : inv.status === 'used'
+                          ? 'text-ink-400'
+                          : 'text-red-400'
+                    }`}
+                  >
+                    {inv.status}
+                  </span>
+                  {inv.label && (
+                    <span className="ml-2 text-xs text-ink-400">{inv.label}</span>
+                  )}
+                </div>
+                {inv.status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => revoke(inv.id, inv.code)}
+                    className="text-xs text-ink-400 hover:text-red-400"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-ink-400 truncate">
+                {inv.libraries.join(' · ') || 'No libraries'}
+              </p>
+              {inv.status === 'pending' && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => copy(urls.funnel, 'Funnel link')}
+                    className="rounded-lg bg-ink-800 border border-white/10 px-2.5 py-1 text-[11px] text-ink-200 hover:border-accent-500/50"
+                  >
+                    Copy Funnel link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copy(urls.lan, 'LAN link')}
+                    className="rounded-lg bg-ink-800 border border-white/10 px-2.5 py-1 text-[11px] text-ink-200 hover:border-accent-500/50"
+                  >
+                    Copy LAN link
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
