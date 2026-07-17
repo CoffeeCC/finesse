@@ -4,17 +4,35 @@ import { playNav } from './sound'
 // Arrow-key (D-pad) spatial navigation for TV-browser / remote use. It moves
 // focus between visible focusable elements by on-screen geometry, then scrolls
 // the target into view. Enter/Space activation is native to <a>/<button>, so we
-// don't handle it. Only triggers on arrow keys, so mouse/touch users are never
-// affected. Most interactive elements are already <a>/<button> with :focus-visible
-// rings (see MediaCard + index.css), so they light up automatically.
+// don't handle it. Mouse/touch users are unaffected until an arrow/D-pad key is
+// actually pressed. Most interactive elements are already <a>/<button> with
+// focus rings (see MediaCard + index.css).
+//
+// IMPORTANT: many TV *browsers* (Fire TV Silk, some Android TV Chromes) put the
+// remote into cursor/pointer mode and only inject mouse events — spatial nav
+// cannot run until the browser delivers real Arrow/D-pad key events. Fire TV
+// Phone Remote often moves a cursor, not focus.
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 type Dir = 'up' | 'down' | 'left' | 'right'
 
-// Smooth scrolling janks hard on TV SoCs — jump instantly there.
+// Smooth scrolling janks hard on TV SoCs — jump instantly there. Also use
+// instant scroll when the user has already entered spatial-nav mode (TV browser).
 const SCROLL_BEHAVIOR: ScrollBehavior = __WEBOS__ ? 'auto' : 'smooth'
+
+function scrollBehavior(): ScrollBehavior {
+  if (__WEBOS__) return 'auto'
+  if (document.documentElement.dataset.navMode === 'spatial') return 'auto'
+  return SCROLL_BEHAVIOR
+}
+
+/** Mark the document as D-pad navigated so CSS can show always-on focus rings. */
+function enterSpatialMode() {
+  if (document.documentElement.dataset.navMode === 'spatial') return
+  document.documentElement.dataset.navMode = 'spatial'
+}
 
 function isVisible(el: HTMLElement): boolean {
   // Exclude display:none / visibility:hidden / content-visibility, but deliberately
@@ -77,30 +95,40 @@ function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], current
   return best
 }
 
-function dirFor(key: string): Dir | null {
-  switch (key) {
+function dirFor(e: KeyboardEvent): Dir | null {
+  switch (e.key) {
     case 'ArrowUp': return 'up'
     case 'ArrowDown': return 'down'
     case 'ArrowLeft': return 'left'
     case 'ArrowRight': return 'right'
-    default: return null
   }
+  // Android / Fire TV WebViews often report D-pad via keyCode, not e.key.
+  // 19–22 = DPAD_UP/DOWN/LEFT/RIGHT; 37–40 = classic arrow keyCodes.
+  switch (e.keyCode) {
+    case 19: case 38: return 'up'
+    case 20: case 40: return 'down'
+    case 21: case 37: return 'left'
+    case 22: case 39: return 'right'
+  }
+  return null
 }
 
 let lastNavAt = 0
 
 function onKeyDown(e: KeyboardEvent) {
   if (e.altKey || e.ctrlKey || e.metaKey) return
-  const dir = dirFor(e.key)
+  const dir = dirFor(e)
   if (!dir) return
   // The full-bleed player owns the arrow keys (seek / focus its own controls).
   // On the TV build the route lives in the hash (HashRouter), so check both —
   // otherwise global nav fights the player's own D-pad focus handler.
   if (window.location.pathname.includes('/play/') || window.location.hash.includes('/play/')) return
 
-  // TV: cap held-key repeat to ~20 moves/s so focus keeps pace with the screen
-  // instead of queueing dozens of moves the SoC can't paint in time.
-  if (__WEBOS__) {
+  enterSpatialMode()
+
+  // Cap held-key repeat on lean-back devices so focus keeps pace with paint.
+  const leanBack = __WEBOS__ || document.documentElement.dataset.navMode === 'spatial'
+  if (leanBack) {
     const now = performance.now()
     if (now - lastNavAt < 50) {
       e.preventDefault()
@@ -119,7 +147,7 @@ function onKeyDown(e: KeyboardEvent) {
   if (els.length === 0) return
 
   let next: HTMLElement | null
-  if (!active || active === document.body) {
+  if (!active || active === document.body || !els.includes(active)) {
     next = els[0]
   } else {
     next = bestInDirection(active.getBoundingClientRect(), dir, els, active)
@@ -129,7 +157,7 @@ function onKeyDown(e: KeyboardEvent) {
     // No focusable target this way. For up/down, nudge-scroll so off-screen rows
     // (which lazy-load / reveal on scroll) come in and become reachable next press.
     if (dir === 'up' || dir === 'down') {
-      window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: SCROLL_BEHAVIOR })
+      window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: scrollBehavior() })
       e.preventDefault()
     }
     return
@@ -137,14 +165,32 @@ function onKeyDown(e: KeyboardEvent) {
 
   e.preventDefault()
   next.focus({ preventScroll: true })
-  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: SCROLL_BEHAVIOR })
+  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: scrollBehavior() })
   playNav()
+}
+
+/** If nothing is focused, land on the first visible focusable (TV needs a start). */
+function ensureInitialFocus() {
+  const active = document.activeElement as HTMLElement | null
+  if (active && active !== document.body && active !== document.documentElement) {
+    const tag = active.tagName
+    if (tag === 'A' || tag === 'BUTTON' || tag === 'INPUT' || active.tabIndex >= 0) return
+  }
+  const first = candidates()[0]
+  if (first) first.focus({ preventScroll: true })
 }
 
 /** Enable global D-pad/arrow-key spatial navigation for the app. */
 export function useSpatialNavigation() {
   useEffect(() => {
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    const opts: AddEventListenerOptions = { capture: true }
+    window.addEventListener('keydown', onKeyDown, opts)
+    // Give the first paint a beat, then focus something so the first D-pad press
+    // has a current rect to navigate from (body-focus is a poor start point).
+    const t = window.setTimeout(ensureInitialFocus, 300)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, opts)
+      clearTimeout(t)
+    }
   }, [])
 }

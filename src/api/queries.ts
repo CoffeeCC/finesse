@@ -283,6 +283,25 @@ export function useEpisodes(seriesId: string | undefined, seasonId: string | und
   })
 }
 
+/** All episodes in a series (every season), ordered for prev/next navigation. */
+export function useSeriesEpisodes(seriesId: string | undefined) {
+  return useQuery({
+    queryKey: ['seriesEpisodes', seriesId],
+    enabled: !!seriesId,
+    staleTime: 5 * 60_000,
+    queryFn: () =>
+      api.getItems({
+        parentId: seriesId,
+        includeItemTypes: 'Episode',
+        recursive: true,
+        sortBy: 'ParentIndexNumber,IndexNumber',
+        sortOrder: 'Ascending',
+        fields: 'PrimaryImageAspectRatio,Overview',
+        limit: 100_000,
+      }),
+  })
+}
+
 export function itemTypesForCollection(collectionType?: string): string {
   switch (collectionType) {
     case 'movies':

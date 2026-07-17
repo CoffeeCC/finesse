@@ -1,7 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { getPublicUsers, publicUserImageUrl, splashscreenUrl, type JfPublicUser } from '../api/client'
+import { getPublicUsers, publicUserImageUrl, type JfPublicUser } from '../api/client'
+import AuthShell, {
+  FinesseWordmark,
+  authInputClass,
+  authLabelClass,
+  authPrimaryBtn,
+} from '../components/AuthShell'
 
 // On the tailnet funnel the LAN IP is unreachable (and mixed-content blocked),
 // so default to Jellyfin's own funnel on :10000 of the same host instead.
@@ -84,20 +90,8 @@ export default function LoginPage() {
     if (selected) doLogin(selected.Name, password)
   }
 
-  const inputClass =
-    'mt-1 w-full rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 transition-colors'
-  const labelClass = 'mt-4 block text-xs font-medium uppercase tracking-wider text-ink-400'
-
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      <img
-        src={splashscreenUrl(server || DEFAULT_SERVER)}
-        alt=""
-        className="slowzoom absolute inset-0 h-full w-full object-cover opacity-40 blur-sm"
-        onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-      />
-      <div className="absolute inset-0 bg-gradient-to-b from-ink-950/70 via-ink-950/40 to-ink-950" />
-
+    <AuthShell server={server}>
       {/* Who's watching? */}
       {mode === 'profiles' && (
         <div className="card-in relative text-center px-6">
@@ -105,7 +99,7 @@ export default function LoginPage() {
             Who&rsquo;s watching?
           </h1>
           <p className="text-sm text-ink-400 mb-10">
-            Finesse<span className="text-accent-400">.</span> · {server.replace(/^https?:\/\//, '')}
+            <FinesseWordmark /> · {server.replace(/^https?:\/\//, '')}
           </p>
 
           {users === null ? (
@@ -155,6 +149,12 @@ export default function LoginPage() {
           >
             Use another account or server
           </button>
+          <Link
+            to="/invite"
+            className="mt-4 block text-xs text-ink-400 hover:text-accent-300 transition-colors"
+          >
+            Have an invite code?
+          </Link>
         </div>
       )}
 
@@ -215,46 +215,49 @@ export default function LoginPage() {
           className="card-in relative w-full max-w-sm mx-4 rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl"
         >
           <h1 className="text-3xl font-semibold tracking-tight text-white">
-            Finesse<span className="text-accent-400">.</span>
+            <FinesseWordmark />
           </h1>
-          <p className="mt-1 text-sm text-ink-400">Sign in to your Jellyfin server</p>
+          <p className="mt-1 text-sm text-ink-400">Sign in to your media server</p>
 
-          <label className={labelClass}>Server</label>
+          <label className={authLabelClass}>Server</label>
           <input
             value={server}
             onChange={(e) => setServer(e.target.value)}
-            className={inputClass}
+            className={authInputClass}
             placeholder={DEFAULT_SERVER}
             autoComplete="url"
           />
 
-          <label className={labelClass}>Username</label>
+          <label className={authLabelClass}>Username</label>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className={inputClass}
+            className={authInputClass}
             autoComplete="username"
             autoFocus
           />
 
-          <label className={labelClass}>Password</label>
+          <label className={authLabelClass}>Password</label>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className={inputClass}
+            className={authInputClass}
             autoComplete="current-password"
           />
 
           {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={busy || !username}
-            className="mt-6 w-full rounded-lg bg-accent-500 hover:bg-accent-400 disabled:opacity-50 disabled:hover:bg-accent-500 py-2.5 text-sm font-semibold text-white active:scale-[0.98] transition-all"
-          >
+          <button type="submit" disabled={busy || !username} className={`${authPrimaryBtn} mt-6`}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
+
+          <Link
+            to="/invite"
+            className="mt-4 block text-center text-xs text-ink-400 hover:text-accent-300 transition-colors"
+          >
+            Have an invite code?
+          </Link>
 
           {(users?.length ?? 0) > 0 && (
             <button
@@ -270,6 +273,6 @@ export default function LoginPage() {
           )}
         </form>
       )}
-    </div>
+    </AuthShell>
   )
 }

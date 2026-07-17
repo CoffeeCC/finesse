@@ -49,6 +49,41 @@ export interface ArrResult {
   raw: Record<string, unknown>
 }
 
+/** What's on disk for an in-library title (for upgrade/downgrade UI). */
+export interface ArrQualityInfo {
+  qualityName?: string
+  /** Quality profile resolution bucket (e.g. 1080), not always real pixel height. */
+  qualityResolution?: number
+  width?: number
+  height?: number
+  /** e.g. "1920x800" from mediaInfo when width/height missing. */
+  resolutionLabel?: string
+  videoCodec?: string
+  sizeBytes?: number
+  /** Series: how many episode files were summarized. */
+  fileCount?: number
+  /** Series: min–max quality names if mixed. */
+  qualityRange?: string
+}
+
+/** A release from interactive search (Radarr/Sonarr). */
+export interface ArrRelease {
+  guid: string
+  indexerId: number
+  title: string
+  qualityName: string
+  qualityResolution?: number
+  size: number
+  seeders?: number
+  ageHours?: number
+  rejected: boolean
+  rejections: string[]
+  customFormatScore: number
+  /** True if *arr thinks this is an upgrade over the current file. */
+  isUpgrade?: boolean
+  raw: Record<string, unknown>
+}
+
 async function arrFetch<T>(
   kind: ArrKind,
   path: string,
@@ -67,9 +102,31 @@ async function arrFetch<T>(
     let detail = `${res.status} ${res.statusText}`
     try {
       const text = await res.text()
-      if (text) detail = text
+      if (text) {
+        // *arr returns { message, description } for many failures (e.g. SABnzbd).
+        try {
+          const j = JSON.parse(text) as { message?: string; description?: string; error?: string }
+          const msg = (j.message || j.error || '').trim()
+          // description often includes a stack trace — keep only the first line
+          const desc = (j.description || '').split('\n')[0]?.trim()
+          if (msg && desc && !desc.startsWith(msg)) detail = `${msg}${desc ? ` — ${desc}` : ''}`
+          else if (msg) detail = msg
+          else if (desc) detail = desc
+          else detail = text
+        } catch {
+          detail = text
+        }
+      }
     } catch {
       /* ignore */
+    }
+    // Friendly rewrites for common download-client failures
+    if (/sabnzbd/i.test(detail) && /error response/i.test(detail)) {
+      detail =
+        'SABnzbd rejected the grab (NZB may be dead, client busy, or category misconfigured). Try another release.'
+    }
+    if (/qbittorrent/i.test(detail) && /error|fail/i.test(detail)) {
+      detail = 'qBittorrent rejected the grab. Torrents may be disabled for this title, or qBit is unreachable.'
     }
     throw new ArrError(res.status, detail)
   }
@@ -446,4 +503,167 @@ export async function arrQueueRetry(item: ArrQueueItem): Promise<void> {
         ? { name: 'SeriesSearch', seriesId: item.refId }
         : { name: 'ArtistSearch', artistId: item.refId }
   await arrFetch(item.kind, '/command', { method: 'POST', body: command })
+}
+
+// ---------- Quality / upgrade / downgrade ----------
+
+function fmtBytes(n?: number): string | undefined {
+  if (n == null || !Number.isFinite(n) || n <= 0) return undefined
+  const gb = n / 1_000_000_000
+  if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`
+  const mb = n / 1_000_000
+  return `${mb.toFixed(0)} MB`
+}
+
+/** Human line for cards/modals, e.g. "Bluray-1080p · 1920×800 · 8.9 GB". */
+export function formatQualityInfo(q: ArrQualityInfo): string {
+  const parts: string[] = []
+  if (q.qualityRange) parts.push(q.qualityRange)
+  else if (q.qualityName) parts.push(q.qualityName)
+  if (q.width && q.height) parts.push(`${q.width}×${q.height}`)
+  else if (q.resolutionLabel) parts.push(q.resolutionLabel.replace(/x/i, '×'))
+  if (q.videoCodec) parts.push(q.videoCodec)
+  if (q.fileCount && q.fileCount > 1) parts.push(`${q.fileCount} files`)
+  const size = fmtBytes(q.sizeBytes)
+  if (size) parts.push(size)
+  return parts.join(' · ') || 'On disk'
+}
+
+function qualityFromFile(file: Record<string, unknown> | undefined): Partial<ArrQualityInfo> {
+  if (!file) return {}
+  const q = (file.quality as { quality?: { name?: string; resolution?: number } } | undefined)?.quality
+  const mi = (file.mediaInfo as Record<string, unknown> | undefined) ?? {}
+  const width = typeof mi.width === 'number' ? mi.width : undefined
+  const height = typeof mi.height === 'number' ? mi.height : undefined
+  const resolutionLabel =
+    typeof mi.resolution === 'string' && mi.resolution.includes('x')
+      ? mi.resolution
+      : width && height
+        ? `${width}x${height}`
+        : undefined
+  return {
+    qualityName: q?.name,
+    qualityResolution: q?.resolution,
+    width,
+    height,
+    resolutionLabel,
+    videoCodec: typeof mi.videoCodec === 'string' ? mi.videoCodec : undefined,
+    sizeBytes: typeof file.size === 'number' ? file.size : undefined,
+  }
+}
+
+/** Load current on-disk quality for a library movie or series. */
+export async function arrLibraryQuality(kind: ArrKind, id: number): Promise<ArrQualityInfo | null> {
+  if (kind === 'artist' || !id) return null
+  if (kind === 'movie') {
+    const m = await arrFetch<Record<string, unknown>>('movie', `/movie/${id}`)
+    const file = m.movieFile as Record<string, unknown> | undefined
+    if (!file && !m.hasFile) return null
+    return qualityFromFile(file) as ArrQualityInfo
+  }
+  // Series: summarize episode files (most common quality + pixel range if present).
+  const files = await arrFetch<Record<string, unknown>[]>('series', `/episodefile?seriesId=${id}`)
+  if (!files?.length) return null
+  const names = new Map<string, number>()
+  let totalSize = 0
+  let minW: number | undefined
+  let minH: number | undefined
+  let maxW: number | undefined
+  let maxH: number | undefined
+  let codec: string | undefined
+  for (const f of files) {
+    const partial = qualityFromFile(f)
+    if (partial.qualityName) names.set(partial.qualityName, (names.get(partial.qualityName) ?? 0) + 1)
+    if (partial.sizeBytes) totalSize += partial.sizeBytes
+    if (partial.width && partial.height) {
+      minW = minW == null ? partial.width : Math.min(minW, partial.width)
+      minH = minH == null ? partial.height : Math.min(minH, partial.height)
+      maxW = maxW == null ? partial.width : Math.max(maxW, partial.width)
+      maxH = maxH == null ? partial.height : Math.max(maxH, partial.height)
+    }
+    if (!codec && partial.videoCodec) codec = partial.videoCodec
+  }
+  const sorted = [...names.entries()].sort((a, b) => b[1] - a[1])
+  const top = sorted[0]?.[0]
+  const qualityRange =
+    sorted.length > 1 ? `${sorted[sorted.length - 1]![0]} – ${sorted[0]![0]}` : top
+  const resolutionLabel =
+    minW && minH && maxW && maxH
+      ? minW === maxW && minH === maxH
+        ? `${minW}x${minH}`
+        : `${minW}x${minH}–${maxW}x${maxH}`
+      : undefined
+  return {
+    qualityName: top,
+    qualityRange,
+    width: maxW,
+    height: maxH,
+    resolutionLabel,
+    videoCodec: codec,
+    sizeBytes: totalSize || undefined,
+    fileCount: files.length,
+  }
+}
+
+function mapRelease(r: Record<string, unknown>): ArrRelease {
+  const q = (r.quality as { quality?: { name?: string; resolution?: number } } | undefined)?.quality
+  const rejections = Array.isArray(r.rejections)
+    ? (r.rejections as unknown[]).map((x) => (typeof x === 'string' ? x : String(x)))
+    : []
+  return {
+    guid: String(r.guid ?? ''),
+    indexerId: Number(r.indexerId ?? 0),
+    title: String(r.title ?? 'Unknown release'),
+    qualityName: q?.name ?? 'Unknown',
+    qualityResolution: q?.resolution,
+    size: Number(r.size ?? 0),
+    seeders: typeof r.seeders === 'number' ? r.seeders : undefined,
+    ageHours: typeof r.ageHours === 'number' ? r.ageHours : typeof r.age === 'number' ? r.age * 24 : undefined,
+    rejected: Boolean(r.rejected) || rejections.length > 0,
+    rejections,
+    customFormatScore: Number(r.customFormatScore ?? 0),
+    isUpgrade: typeof r.isUpgrade === 'boolean' ? r.isUpgrade : undefined,
+    raw: r,
+  }
+}
+
+/** Interactive search — list available releases for a movie or series. */
+export async function arrSearchReleases(kind: ArrKind, id: number): Promise<ArrRelease[]> {
+  if (kind === 'artist') throw new ArrError(0, 'Quality change is only available for movies and shows')
+  const path = kind === 'movie' ? `/release?movieId=${id}` : `/release?seriesId=${id}`
+  const data = await arrFetch<Record<string, unknown>[]>(kind, path)
+  const mapped = (data ?? []).map(mapRelease)
+  // Prefer upgrades + higher score first; rejected last.
+  return mapped.sort((a, b) => {
+    if (a.rejected !== b.rejected) return a.rejected ? 1 : -1
+    if (Boolean(a.isUpgrade) !== Boolean(b.isUpgrade)) return a.isUpgrade ? -1 : 1
+    const res = (b.qualityResolution ?? 0) - (a.qualityResolution ?? 0)
+    if (res) return res
+    return (b.customFormatScore ?? 0) - (a.customFormatScore ?? 0) || (b.seeders ?? 0) - (a.seeders ?? 0)
+  })
+}
+
+/** Grab a specific release (works for upgrade or downgrade / force). */
+export async function arrGrabRelease(kind: ArrKind, release: ArrRelease): Promise<void> {
+  if (kind === 'artist') throw new ArrError(0, 'Not supported for music')
+  // Post the original release payload — *arr expects its own shape (guid + indexerId at minimum).
+  await arrFetch(kind, '/release', {
+    method: 'POST',
+    body: release.raw?.guid
+      ? release.raw
+      : { guid: release.guid, indexerId: release.indexerId },
+  })
+}
+
+/** Automatic search for a better release within the quality profile (MoviesSearch / SeriesSearch). */
+export async function arrAutomaticSearch(kind: ArrKind, id: number): Promise<void> {
+  if (kind === 'movie') {
+    await arrFetch('movie', '/command', { method: 'POST', body: { name: 'MoviesSearch', movieIds: [id] } })
+    return
+  }
+  if (kind === 'series') {
+    await arrFetch('series', '/command', { method: 'POST', body: { name: 'SeriesSearch', seriesId: id } })
+    return
+  }
+  throw new ArrError(0, 'Automatic search is only available for movies and shows')
 }

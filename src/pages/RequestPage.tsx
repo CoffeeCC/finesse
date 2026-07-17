@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { arrAdd, arrLookup, ArrError, type ArrKind, type ArrResult } from '../api/arr'
+import { useQuery, useQueries } from '@tanstack/react-query'
+import {
+  arrAdd,
+  arrLibraryQuality,
+  arrLookup,
+  ArrError,
+  formatQualityInfo,
+  type ArrKind,
+  type ArrResult,
+} from '../api/arr'
 import { useArrQueue } from '../api/queries'
 import DownloadsSection from '../components/DownloadsSection'
+import QualityModal from '../components/QualityModal'
 import SabPanel from '../components/SabPanel'
 import { useToast } from '../components/Toast'
 
@@ -24,6 +33,8 @@ export default function RequestPage() {
   const toast = useToast()
   // Per-result override so a freshly-requested item flips state immediately.
   const [overrides, setOverrides] = useState<Record<string, ItemState>>({})
+  /** Open quality/upgrade modal for an in-library title. */
+  const [qualityItem, setQualityItem] = useState<ArrResult | null>(null)
 
   // URL is the source of truth, debounced from typing.
   useEffect(() => {
@@ -56,6 +67,20 @@ export default function RequestPage() {
   const { data: queue } = useArrQueue()
   const queueByRef = new Map((queue ?? []).map((q) => [`${q.kind}-${q.refId}`, q]))
 
+  // Current on-disk quality for library hits (movies/shows only).
+  const libraryHits = (data ?? []).filter((r) => r.id > 0 && r.hasFile && r.kind !== 'artist')
+  const qualityQueries = useQueries({
+    queries: libraryHits.map((r) => ({
+      queryKey: ['arrQuality', r.kind, r.id] as const,
+      queryFn: () => arrLibraryQuality(r.kind, r.id),
+      staleTime: 5 * 60_000,
+      retry: 1,
+    })),
+  })
+  const qualityByKey = new Map(
+    libraryHits.map((r, i) => [`${r.kind}-${r.id}`, qualityQueries[i]?.data] as const),
+  )
+
   const keyOf = (r: ArrResult) => `${r.kind}:${r.tmdbId ?? r.tvdbId ?? r.title}`
 
   const request = async (r: ArrResult) => {
@@ -83,7 +108,8 @@ export default function RequestPage() {
       <div className="px-4 sm:px-6 lg:px-12 py-6">
         <h1 className="text-2xl font-bold text-white tracking-tight mb-1">Request</h1>
         <p className="text-sm text-ink-400 mb-4">
-          Can’t find something? Search for it and add it to the library.
+          Can’t find something? Search and add it — or open an in-library title to upgrade /
+          downgrade quality.
         </p>
 
         <div className="flex items-center gap-2 mb-4">
@@ -144,6 +170,8 @@ export default function RequestPage() {
             const state: ItemState = overrides[keyOf(r)] ?? (r.id > 0 ? 'requested' : 'idle')
             const inLibrary = r.id > 0 && r.hasFile
             const dl = r.id > 0 ? queueByRef.get(`${r.kind}-${r.id}`) : undefined
+            const qInfo = inLibrary ? qualityByKey.get(`${r.kind}-${r.id}`) : undefined
+            const canQuality = inLibrary && (r.kind === 'movie' || r.kind === 'series')
             return (
               <div
                 key={keyOf(r)}
@@ -160,14 +188,33 @@ export default function RequestPage() {
                     {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
                   </p>
                   <p className="mt-1 text-xs text-ink-400 line-clamp-3">{r.overview}</p>
-                  <div className="mt-auto pt-2">
+                  {canQuality && qInfo && (
+                    <p className="mt-1.5 text-[11px] text-ink-300 tabular-nums">
+                      <span className="text-ink-400">Current </span>
+                      {formatQualityInfo(qInfo)}
+                    </p>
+                  )}
+                  <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
                     {inLibrary ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300">
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                        In library
-                      </span>
+                      <>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300">
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                          </svg>
+                          In library
+                        </span>
+                        {canQuality && (
+                          <button
+                            onClick={() => setQualityItem(r)}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                            </svg>
+                            Upgrade / quality
+                          </button>
+                        )}
+                      </>
                     ) : dl ? (
                       <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${dl.done ? 'text-emerald-300' : 'text-accent-300'}`}>
                         <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -207,6 +254,10 @@ export default function RequestPage() {
           })}
         </div>
       </div>
+
+      {qualityItem && (
+        <QualityModal item={qualityItem} onClose={() => setQualityItem(null)} />
+      )}
     </div>
   )
 }

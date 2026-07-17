@@ -661,8 +661,20 @@ function buildDeviceProfile() {
       { Container: 'mp3', Type: 'Audio', AudioCodec: 'mp3', Protocol: 'http', Context: 'Streaming' },
     ],
     SubtitleProfiles: [
+      // Encode first so PlaybackInfo can burn-in when SubtitleMethod=Encode.
+      { Format: 'vtt', Method: 'Encode' },
+      { Format: 'subrip', Method: 'Encode' },
+      { Format: 'srt', Method: 'Encode' },
+      { Format: 'ass', Method: 'Encode' },
+      { Format: 'ssa', Method: 'Encode' },
+      { Format: 'pgssub', Method: 'Encode' },
+      { Format: 'dvdsub', Method: 'Encode' },
+      // External for direct-play + blob <track> path.
       { Format: 'vtt', Method: 'External' },
       { Format: 'subrip', Method: 'External' },
+      { Format: 'srt', Method: 'External' },
+      { Format: 'ass', Method: 'External' },
+      { Format: 'ssa', Method: 'External' },
     ],
     CodecProfiles: [],
     ResponseProfiles: [],
@@ -674,23 +686,53 @@ export function getPlaybackInfo(
   startTimeTicks = 0,
   audioStreamIndex?: number,
   subtitleStreamIndex?: number,
+  mediaSourceId?: string,
 ) {
   const cap = getPrefs().maxBitrate
+  // Burn-in subtitles require a transcode path; direct play can't paint them.
+  // Jellyfin only honors SubtitleStreamIndex when MediaSourceId is set and
+  // SubtitleMethod=Encode is sent (otherwise it silently drops both).
+  const burningSubs = subtitleStreamIndex !== undefined
+  // Cap burn-in encodes — full 4K HEVC→H264 with burn-in is huge/slow and
+  // often fails over Funnel. Prefer ~1080p ladder.
+  const maxBr = burningSubs
+    ? Math.min(cap > 0 ? cap : 12_000_000, 16_000_000)
+    : cap > 0
+      ? cap
+      : 40_000_000
+  const profile = buildDeviceProfile()
+  if (burningSubs) {
+    const tp = (profile.TranscodingProfiles as Record<string, unknown>[])?.[0]
+    if (tp) {
+      tp.MaxWidth = 1920
+      tp.MaxHeight = 1080
+    }
+  }
   return request<JfPlaybackInfo>(
     `/Items/${itemId}/PlaybackInfo` + qs({ UserId: session!.userId }),
     {
       method: 'POST',
       body: {
         UserId: session!.userId,
+        // Still sent for JF bookkeeping; do not put on HLS URL (causes segment 400s).
         StartTimeTicks: startTimeTicks,
-        DeviceProfile: buildDeviceProfile(),
-        ...(cap > 0 ? { MaxStreamingBitrate: cap } : {}),
+        // Required for JF to attach subtitle/audio choices to the transcode URL
+        MediaSourceId: mediaSourceId || itemId,
+        DeviceProfile: profile,
+        MaxStreamingBitrate: maxBr,
         AutoOpenLiveStream: true,
-        EnableDirectPlay: cap === 0,
-        EnableDirectStream: true,
+        EnableDirectPlay: cap === 0 && !burningSubs,
+        EnableDirectStream: !burningSubs,
         EnableTranscoding: true,
+        AllowVideoStreamCopy: !burningSubs,
+        AllowAudioStreamCopy: true,
         ...(audioStreamIndex !== undefined ? { AudioStreamIndex: audioStreamIndex } : {}),
-        ...(subtitleStreamIndex !== undefined ? { SubtitleStreamIndex: subtitleStreamIndex } : {}),
+        ...(burningSubs
+          ? {
+              SubtitleStreamIndex: subtitleStreamIndex,
+              SubtitleMethod: 'Encode',
+            }
+          : {}),
       },
     },
   )
@@ -739,9 +781,18 @@ export function audioStreamUrl(itemId: string): string {
   )
 }
 
-export function transcodeUrl(transcodingUrl: string): string {
-  const url = `${session!.server}${transcodingUrl}`
-  return url.includes('api_key') ? url : `${url}&api_key=${session!.token}`
+/** Build a playable HLS/transcode URL.
+ *  IMPORTANT: do NOT append StartTimeTicks — on current Jellyfin this makes
+ *  segment requests return HTTP 400 (hls.js networkError). Resume by seeking
+ *  inside the full VOD playlist after MANIFEST_PARSED instead. */
+export function transcodeUrl(transcodingUrl: string, _startTimeTicks = 0): string {
+  let url = `${session!.server}${transcodingUrl}`
+  if (!/[?&](api_key|ApiKey)=/i.test(url)) {
+    url += (url.includes('?') ? '&' : '?') + `api_key=${session!.token}`
+  }
+  // Strip StartTimeTicks if JF or a caller already put it on the URL.
+  url = url.replace(/([?&])StartTimeTicks=\d+&?/gi, '$1').replace(/[?&]$/, '')
+  return url
 }
 
 interface PlaybackReport {

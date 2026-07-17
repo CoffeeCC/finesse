@@ -30,8 +30,30 @@ html {
   border-radius: 8px;
 }
 
+/* After the first real D-pad/arrow press, spatialNav sets data-nav-mode=spatial.
+   TV browsers often don't set :focus-visible the way desktop Chrome does — show
+   the same ring for plain :focus so focused cards are always obvious. */
+html[data-nav-mode="spatial"] :where(a, button, input, select, textarea, [tabindex]):focus {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
 body {
   @apply bg-ink-950 text-ink-200 font-sans antialiased;
+}
+
+/* In-player text subtitles (<track> / WebVTT) — high contrast on any scene */
+video::cue {
+  color: #fff;
+  background: transparent;
+  text-shadow:
+    0 0 0.15em #000,
+    0 0 0.35em #000,
+    0.05em 0.05em 0.1em #000,
+    -0.05em -0.05em 0.1em #000;
+  font-size: 1.15em;
+  line-height: 1.35;
 }
 
 /* ---------- Scrollbar ---------- */
