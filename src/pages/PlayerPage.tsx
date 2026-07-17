@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import * as api from '../api/client'
-import { useEpisodes, useItem } from '../api/queries'
+import { useItem, useSeriesEpisodes } from '../api/queries'
 import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
 import { secondsToTicks, ticksToSeconds } from '../api/types'
 import type { JfItem, JfMediaStream, JfTrickplayInfo } from '../api/types'
@@ -10,6 +10,103 @@ import type { JfItem, JfMediaStream, JfTrickplayInfo } from '../api/types'
 const PROGRESS_INTERVAL_MS = 10_000
 const NEXT_CARD_FALLBACK_SECONDS = 25
 const NEXT_COUNTDOWN = 10
+
+/** Image-based subs need burn-in (stream renegotiate). Text can use <track>. */
+function isImageSubtitle(m?: JfMediaStream): boolean {
+  if (!m) return false
+  const codec = (m.Codec ?? '').toLowerCase()
+  if (/pgs|hdmv|dvd|vobsub|xsub|rle|dvb/.test(codec)) return true
+  if (m.IsTextSubtitleStream || m.IsExternal || m.DeliveryUrl) return false
+  if (/srt|subrip|vtt|webvtt|ass|ssa|mov_text|tx3g|text/.test(codec)) return false
+  return true
+}
+
+function isTextSubtitle(m?: JfMediaStream): boolean {
+  return !!m && !isImageSubtitle(m)
+}
+
+/** Absolute VTT URL for a subtitle stream (uses Jellyfin DeliveryUrl when present). */
+function subtitleVttUrl(
+  itemId: string,
+  mediaSourceId: string,
+  stream: JfMediaStream,
+): string {
+  const session = api.getSession()!
+  let path =
+    stream.DeliveryUrl ||
+    `/Videos/${itemId}/${mediaSourceId}/Subtitles/${stream.Index}/Stream.vtt`
+  // Force the .vtt extraction endpoint. When the device profile advertises
+  // ass/ssa/srt External delivery, Jellyfin hands back a DeliveryUrl in the
+  // subtitle's ORIGINAL format (e.g. .../Stream.ass) — the <track> element can
+  // only parse WebVTT, so raw ASS loads with zero cues (no subtitles). JF will
+  // transcode srt/ass/ssa → WebVTT on the fly when we ask for Stream.vtt.
+  path = path.replace(/Stream\.[A-Za-z0-9]+(?=$|\?)/, 'Stream.vtt')
+  // Prefer server-provided DeliveryUrl (correct hyphenated IDs). Always ensure api_key.
+  if (!path.startsWith('http')) path = `${session.server}${path}`
+  if (!/[?&]api_?key=/i.test(path)) {
+    path += (path.includes('?') ? '&' : '?') + `api_key=${encodeURIComponent(session.token)}`
+  }
+  return path
+}
+
+/** Fetch VTT with the session token so Funnel/CORS can't kill the <track>. */
+async function fetchVttText(vttUrl: string): Promise<string> {
+  const session = api.getSession()!
+  const res = await fetch(vttUrl, {
+    headers: {
+      Authorization: api.mediaBrowserAuthHeader(),
+      'X-Emby-Token': session.token,
+    },
+  })
+  if (!res.ok) throw new Error(`Subtitle fetch ${res.status}`)
+  const text = await res.text()
+  const trimmed = text.trimStart()
+  // Already WebVTT (the normal case now we force the Stream.vtt endpoint).
+  if (trimmed.startsWith('WEBVTT')) return text
+  // SRT-ish (has cue arrows but no header) — browsers want the WEBVTT header.
+  if (trimmed.includes('-->')) return `WEBVTT\n\n${text}`
+  // Anything else (e.g. raw ASS "[Script Info]") can't drive a <track>; wrapping
+  // it in a header just yields zero cues. Fail so the caller falls back to burn-in.
+  throw new Error('Subtitle payload is not WebVTT/SRT')
+}
+
+function parseVttTime(h: string | undefined, m: string, s: string, ms: string): number {
+  const hours = h ? Number(h.replace(':', '')) : 0
+  return hours * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000
+}
+
+function formatVttTime(sec: number): string {
+  if (sec < 0) sec = 0
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60)
+  const ms = Math.round((sec - Math.floor(sec)) * 1000)
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  return h > 0
+    ? `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms, 3)}`
+    : `${pad(m)}:${pad(s)}.${pad(ms, 3)}`
+}
+
+/** Shift all cue timestamps in a VTT by delaySec (positive = subs later). */
+function shiftVtt(vtt: string, delaySec: number): string {
+  if (!delaySec) return vtt
+  return vtt.replace(
+    /(\d{1,2}:)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{1,2}:)?(\d{2}):(\d{2})[.,](\d{3})/g,
+    (_m, h1, m1, s1, ms1, h2, m2, s2, ms2) => {
+      const t1 = Math.max(0, parseVttTime(h1, m1, s1, ms1) + delaySec)
+      const t2 = Math.max(0, parseVttTime(h2, m2, s2, ms2) + delaySec)
+      return `${formatVttTime(t1)} --> ${formatVttTime(t2)}`
+    },
+  )
+}
+
+function vttToBlobUrl(vtt: string): string {
+  return URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }))
+}
+
+const SUB_DELAY_KEY = 'finesse.subDelayMs'
+const SUB_DELAY_STEP_MS = 100
+const SUB_DELAY_STEP_LARGE_MS = 500
 
 function fmt(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0
@@ -146,6 +243,72 @@ export default function PlayerPage() {
   // Per-series remembered audio/sub languages, and a once-per-item apply guard.
   const trackPrefsRef = useRef<Record<string, api.TrackPref>>({})
   const tracksApplied = useRef(false)
+  /** True while the user is dragging the scrubber (visual-only until pointer up). */
+  const scrubbingRef = useRef(false)
+  /** Bumps so React re-renders when stream mediaSourceId becomes available (trickplay). */
+  const [streamGen, setStreamGen] = useState(0)
+  /** Object-URL for authenticated VTT (revoked on change). */
+  const [subBlobUrl, setSubBlobUrl] = useState<string | null>(null)
+  const subBlobUrlRef = useRef<string | null>(null)
+  /** Raw VTT text (unshifted) so delay can be re-applied without re-fetch. */
+  const subVttRawRef = useRef<string | null>(null)
+  /** True when overlay text track is active (shows delay controls). */
+  const [hasOverlaySubs, setHasOverlaySubs] = useState(false)
+  /** True when current stream was negotiated with SubtitleStreamIndex burn-in. */
+  const burnedInSubRef = useRef(false)
+  /** Subtitle timing offset in ms (positive = show later). */
+  const [subDelayMs, setSubDelayMs] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem(SUB_DELAY_KEY))
+      return Number.isFinite(n) ? Math.round(n) : 0
+    } catch {
+      return 0
+    }
+  })
+
+  const revokeSubBlob = useCallback(() => {
+    if (subBlobUrlRef.current) {
+      URL.revokeObjectURL(subBlobUrlRef.current)
+      subBlobUrlRef.current = null
+    }
+    setSubBlobUrl(null)
+    setHasOverlaySubs(false)
+  }, [])
+
+  const applySubBlobFromRaw = useCallback(
+    (raw: string, delayMs: number) => {
+      const shifted = shiftVtt(raw, delayMs / 1000)
+      const blobUrl = vttToBlobUrl(shifted)
+      if (subBlobUrlRef.current) URL.revokeObjectURL(subBlobUrlRef.current)
+      subBlobUrlRef.current = blobUrl
+      setSubBlobUrl(blobUrl)
+      setHasOverlaySubs(true)
+      requestAnimationFrame(() => {
+        const v = videoRef.current
+        if (!v) return
+        for (let i = 0; i < v.textTracks.length; i++) v.textTracks[i].mode = 'showing'
+      })
+    },
+    [],
+  )
+
+  const nudgeSubDelay = useCallback(
+    (deltaMs: number) => {
+      setSubDelayMs((prev) => {
+        const next = Math.max(-30_000, Math.min(30_000, prev + deltaMs))
+        try {
+          localStorage.setItem(SUB_DELAY_KEY, String(next))
+        } catch {
+          /* ignore */
+        }
+        if (subVttRawRef.current) {
+          applySubBlobFromRaw(subVttRawRef.current, next)
+        }
+        return next
+      })
+    },
+    [applySubBlobFromRaw],
+  )
 
   // Load the user's saved per-series track preferences once.
   useEffect(() => {
@@ -154,16 +317,21 @@ export default function PlayerPage() {
 
   const durationSec = ticksToSeconds(item?.RunTimeTicks)
 
-  // ---------- Next episode ----------
-  const { data: seasonEps } = useEpisodes(
+  // ---------- Prev / next episode (whole series, crosses seasons) ----------
+  const { data: seriesEps } = useSeriesEpisodes(
     item?.Type === 'Episode' ? item.SeriesId : undefined,
-    item?.Type === 'Episode' ? item.SeasonId : undefined,
   )
-  const nextEp = useMemo(() => {
-    if (!item || item.Type !== 'Episode' || !seasonEps) return undefined
-    const i = seasonEps.Items.findIndex((e) => e.Id === item.Id)
-    return i >= 0 ? seasonEps.Items[i + 1] : undefined
-  }, [item, seasonEps])
+  const { prevEp, nextEp } = useMemo(() => {
+    if (!item || item.Type !== 'Episode' || !seriesEps?.Items?.length) {
+      return { prevEp: undefined as JfItem | undefined, nextEp: undefined as JfItem | undefined }
+    }
+    const i = seriesEps.Items.findIndex((e) => e.Id === item.Id)
+    if (i < 0) return { prevEp: undefined, nextEp: undefined }
+    return {
+      prevEp: i > 0 ? seriesEps.Items[i - 1] : undefined,
+      nextEp: i < seriesEps.Items.length - 1 ? seriesEps.Items[i + 1] : undefined,
+    }
+  }, [item, seriesEps])
 
   // ---------- Stream lifecycle ----------
   const positionTicks = useCallback(() => {
@@ -211,16 +379,33 @@ export default function PlayerPage() {
     async (atTicks: number, audio?: number, sub?: number) => {
       const video = videoRef.current
       if (!video || !itemId) return
+      // Capture resume BEFORE teardown so subtitle toggles don't lose place.
+      const resumeSec = Math.max(0, ticksToSeconds(atTicks))
+      const prevMediaSourceId = streamRef.current?.mediaSourceId || itemId
+      setAbsTime(resumeSec)
       setBuffering(true)
+      setError('')
       teardownStream(true)
       try {
-        const info = await api.getPlaybackInfo(itemId, atTicks, audio, sub === -1 ? undefined : sub)
+        const subIdx = sub === undefined || sub === -1 ? undefined : sub
+        burnedInSubRef.current = subIdx !== undefined
+        const info = await api.getPlaybackInfo(
+          itemId,
+          atTicks,
+          audio,
+          subIdx,
+          prevMediaSourceId,
+        )
         const source = info.MediaSources[0]
         if (!source) throw new Error('No playable media source')
 
         let url: string
         let transcoding = false
-        if (source.SupportsDirectPlay) {
+        // Prefer HLS when burning subs or when direct play isn't offered.
+        if (source.TranscodingUrl && (subIdx !== undefined || !source.SupportsDirectPlay)) {
+          url = api.transcodeUrl(source.TranscodingUrl)
+          transcoding = true
+        } else if (source.SupportsDirectPlay) {
           url = api.directStreamUrl(itemId, source.Id, source.Container)
         } else if (source.TranscodingUrl) {
           url = api.transcodeUrl(source.TranscodingUrl)
@@ -229,11 +414,18 @@ export default function PlayerPage() {
           throw new Error('Server offered no playback method')
         }
 
+        // Confirm burn-in actually landed on the URL (JF silently drops it without MediaSourceId).
+        if (subIdx !== undefined && transcoding && !/[?&]SubtitleStreamIndex=/.test(url)) {
+          url += `&SubtitleStreamIndex=${subIdx}&SubtitleMethod=Encode&allowVideoStreamCopy=false`
+        }
+
+        // Full VOD HLS timeline: offsetSec stays 0; we seek to resumeSec after parse.
+        // (Do NOT put StartTimeTicks on the URL — JF returns 400 on segments.)
         streamRef.current = {
           playSessionId: info.PlaySessionId,
           mediaSourceId: source.Id,
           transcoding,
-          offsetSec: transcoding ? ticksToSeconds(atTicks) : 0,
+          offsetSec: 0,
           mediaStreams: source.MediaStreams ?? [],
           container: source.Container,
           sourceBitrate: source.Bitrate,
@@ -241,31 +433,70 @@ export default function PlayerPage() {
             source.TranscodingUrl?.match(/TranscodeReasons=([^&]+)/)?.[1] ?? '',
           ).replace(/,/g, ', '),
         }
+        setStreamGen((n) => n + 1)
+
+        const applyResumeSeek = () => {
+          if (resumeSec <= 0) {
+            setAbsTime(0)
+            return
+          }
+          try {
+            const dur = video.duration
+            if (Number.isFinite(dur) && dur > 0) {
+              video.currentTime = Math.min(resumeSec, Math.max(0, dur - 0.5))
+            } else {
+              video.currentTime = resumeSec
+            }
+          } catch {
+            /* ignore */
+          }
+          setAbsTime(resumeSec)
+        }
 
         if (url.includes('.m3u8') && Hls.isSupported()) {
-          const hls = new Hls({ maxBufferLength: 60, backBufferLength: 30 })
+          const hls = new Hls({
+            maxBufferLength: 60,
+            backBufferLength: 30,
+            // Seek into the VOD playlist at the resume point (works for JF full VOD HLS)
+            startPosition: resumeSec > 1 ? resumeSec : -1,
+          })
           hlsRef.current = hls
           hls.loadSource(url)
           hls.attachMedia(video)
           hls.on(Hls.Events.ERROR, (_e, data) => {
-            if (data.fatal) setError(`Playback failed (${data.type})`)
+            if (data.fatal) {
+              setError(
+                data.details
+                  ? `Playback failed (${data.type}: ${data.details})`
+                  : `Playback failed (${data.type})`,
+              )
+              setBuffering(false)
+            }
+          })
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            applyResumeSeek()
+            setBuffering(false)
+            video.play().catch(() => {})
+          })
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            const s = streamRef.current
+            if (s && video) setAbsTime(s.offsetSec + video.currentTime)
           })
         } else {
           video.src = url
-        }
-
-        if (!transcoding && atTicks > 0) {
-          const onMeta = () => {
-            video.currentTime = ticksToSeconds(atTicks)
-            video.removeEventListener('loadedmetadata', onMeta)
+          if (resumeSec > 0) {
+            video.addEventListener('loadedmetadata', applyResumeSeek)
+            video.addEventListener('loadeddata', applyResumeSeek)
+            video.addEventListener('canplay', applyResumeSeek, { once: true })
           }
-          video.addEventListener('loadedmetadata', onMeta)
+          await video.play().catch(() => {})
+          setBuffering(false)
         }
 
-        await video.play().catch(() => {})
         report(api.reportPlaybackStart)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not start playback')
+        setBuffering(false)
       }
     },
     [itemId, report, teardownStream],
@@ -279,6 +510,9 @@ export default function PlayerPage() {
     setSubIndex(-1)
     setAudioIndex(undefined)
     tracksApplied.current = false
+    burnedInSubRef.current = false
+    subVttRawRef.current = null
+    revokeSubBlob()
     loadStream(startTicks)
 
     const progressTimer = setInterval(
@@ -294,6 +528,7 @@ export default function PlayerPage() {
       clearInterval(progressTimer)
       report(api.reportPlaybackStopped)
       teardownStream(true)
+      revokeSubBlob()
       const v = videoRef.current
       if (v) {
         v.removeAttribute('src')
@@ -373,23 +608,55 @@ export default function PlayerPage() {
       const s = streamRef.current
       if (!v || !s) return
       absSec = Math.max(0, Math.min(absSec, durationSec || absSec))
-      setAbsTime(absSec) // optimistic: bar + clock jump immediately, video catches up
+      setAbsTime(absSec)
+
+      const subArg = subIndex === -1 ? undefined : subIndex
+      const renegotiate = () => {
+        setBuffering(true)
+        loadStream(secondsToTicks(absSec), audioIndex, subArg)
+      }
+
+      // ----- Direct play: full media timeline -----
       if (!s.transcoding) {
-        v.currentTime = absSec
+        try {
+          v.currentTime = absSec
+        } catch {
+          renegotiate()
+          return
+        }
+        if (absSec > 5) {
+          window.setTimeout(() => {
+            const vv = videoRef.current
+            const ss = streamRef.current
+            if (!vv || !ss || ss.transcoding) return
+            // Seek was ignored (common on some mkv remuxes) → new stream at target.
+            if (Math.abs(vv.currentTime - absSec) > 5) {
+              loadStream(secondsToTicks(absSec), audioIndex, subArg)
+            }
+          }, 400)
+        }
         return
       }
+
+      // ----- Transcode / HLS: full VOD timeline (offsetSec is 0) -----
+      // Prefer in-playlist seek. Only renegotiate when the engine ignores it.
       const rel = absSec - s.offsetSec
-      let seekableEnd = 0
       try {
-        seekableEnd = v.seekable.length ? v.seekable.end(v.seekable.length - 1) : 0
+        v.currentTime = Math.max(0, rel)
       } catch {
-        /* ignore */
+        renegotiate()
+        return
       }
-      if (rel >= 0 && rel <= seekableEnd) {
-        v.currentTime = rel
-      } else {
-        // Outside what this transcode session covers: restart the stream there
-        loadStream(secondsToTicks(absSec), audioIndex, subIndex)
+      if (absSec > 5) {
+        window.setTimeout(() => {
+          const vv = videoRef.current
+          const ss = streamRef.current
+          if (!vv || !ss) return
+          const now = ss.offsetSec + vv.currentTime
+          if (Math.abs(now - absSec) > 10) {
+            loadStream(secondsToTicks(absSec), audioIndex, subArg)
+          }
+        }, 500)
       }
     },
     [durationSec, loadStream, audioIndex, subIndex],
@@ -411,24 +678,91 @@ export default function PlayerPage() {
   const langOfStream = (idx: number) =>
     streamRef.current?.mediaStreams.find((m) => m.Index === idx)?.Language ?? undefined
 
+  /** Absolute playback position right now (prefer live video clock over React state). */
+  const liveAbsSec = () => {
+    const v = videoRef.current
+    const s = streamRef.current
+    if (v && s) return s.offsetSec + v.currentTime
+    return absTime
+  }
+
+  /** Fetch a text subtitle and paint it as an overlay <track> (no stream
+   *  restart, and the delay slider works). Falls back to a burn-in transcode
+   *  if the VTT can't be fetched/parsed. */
+  const loadTextSubOverlay = (chosen: JfMediaStream, atSec: number) => {
+    const s = streamRef.current
+    if (!s || !itemId) return
+    burnedInSubRef.current = false
+    const vttUrl = subtitleVttUrl(itemId, s.mediaSourceId, chosen)
+    fetchVttText(vttUrl)
+      .then((raw) => {
+        subVttRawRef.current = raw
+        applySubBlobFromRaw(raw, subDelayMs)
+      })
+      .catch(() => {
+        // Fallback: burn-in (no client-side delay on that path).
+        burnedInSubRef.current = true
+        loadStream(secondsToTicks(atSec), audioIndex, chosen.Index)
+      })
+  }
+
   const changeAudio = (idx: number) => {
+    const at = liveAbsSec()
     setAudioIndex(idx)
     setMenu(null)
-    loadStream(secondsToTicks(absTime), idx, subIndex)
+    setAbsTime(at)
+    loadStream(secondsToTicks(at), idx, subIndex === -1 ? undefined : subIndex)
     rememberTrack({ audioLang: langOfStream(idx) })
   }
   const changeSub = (idx: number) => {
-    setSubIndex(idx)
+    const at = liveAbsSec()
+    const streams = streamRef.current?.mediaStreams ?? []
+    const chosen =
+      idx === -1 ? undefined : streams.find((m) => m.Type === 'Subtitle' && m.Index === idx)
+    const lang = chosen?.Language
     setMenu(null)
-    loadStream(secondsToTicks(absTime), audioIndex, idx)
-    rememberTrack({ subLang: idx === -1 ? 'off' : langOfStream(idx) })
+    rememberTrack({ subLang: idx === -1 ? 'off' : lang })
+    setSubIndex(idx)
+    setAbsTime(at)
+    revokeSubBlob()
+    subVttRawRef.current = null
+
+    const s = streamRef.current
+    const wasBurnedIn = burnedInSubRef.current
+
+    // Off: drop burn-in stream if we had one, otherwise just hide tracks.
+    if (idx === -1) {
+      if (wasBurnedIn) {
+        burnedInSubRef.current = false
+        loadStream(secondsToTicks(at), audioIndex, undefined)
+      } else {
+        requestAnimationFrame(() => {
+          const v = videoRef.current
+          if (!v) return
+          for (let i = 0; i < v.textTracks.length; i++) v.textTracks[i].mode = 'disabled'
+        })
+      }
+      return
+    }
+
+    // Image-based (PGS etc.) must burn-in. Text (srt/vtt) prefer overlay track
+    // even during HLS transcode — no restart, and delay slider works.
+    if (isImageSubtitle(chosen) || !s || !itemId || !chosen) {
+      burnedInSubRef.current = true
+      loadStream(secondsToTicks(at), audioIndex, idx)
+      return
+    }
+
+    loadTextSubOverlay(chosen, at)
   }
   const changeQuality = (bitrate: number) => {
+    const at = liveAbsSec()
     setPrefs({ maxBitrate: bitrate })
     setMaxBitrate(bitrate)
     setMenu(null)
+    setAbsTime(at)
     // Re-negotiate the stream at the new cap from the current position
-    loadStream(secondsToTicks(absTime), audioIndex, subIndex)
+    loadStream(secondsToTicks(at), audioIndex, subIndex === -1 ? undefined : subIndex)
   }
 
   // Live-refresh the stats panel while it's open
@@ -485,6 +819,20 @@ export default function PlayerPage() {
         case 's':
           setShowStats((v) => !v)
           break
+        case 'n':
+        case 'N':
+          if (nextEp) {
+            e.preventDefault()
+            navigate(`/play/${nextEp.Id}`, { replace: true })
+          }
+          break
+        case 'p':
+        case 'P':
+          if (prevEp) {
+            e.preventDefault()
+            navigate(`/play/${prevEp.Id}`, { replace: true })
+          }
+          break
         case 'Escape':
           if (!document.fullscreenElement) navigate(-1)
           break
@@ -492,7 +840,7 @@ export default function PlayerPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [absTime, navigate, seekTo, togglePlay, toggleFullscreen])
+  }, [absTime, navigate, seekTo, togglePlay, toggleFullscreen, nextEp, prevEp])
 
   // ---------- Controls auto-hide ----------
   useEffect(() => {
@@ -638,9 +986,24 @@ export default function PlayerPage() {
     }
 
     if (desiredAudio !== audioIndex || desiredSub !== subIndex) {
+      const at = liveAbsSec()
+      setAbsTime(at)
+      const chosen = desiredSub === -1 ? undefined : subs.find((s) => s.Index === desiredSub)
+      const needsBurnIn = desiredSub !== -1 && isImageSubtitle(chosen)
       setAudioIndex(desiredAudio)
       setSubIndex(desiredSub)
-      loadStream(secondsToTicks(absTime), desiredAudio, desiredSub)
+      // Renegotiate the stream only when audio changes or subs need burn-in.
+      // A pure text-sub default needs its VTT fetched into an overlay <track>
+      // (setSubIndex alone paints nothing — the track is driven by subBlobUrl).
+      if (desiredAudio !== audioIndex || needsBurnIn) {
+        loadStream(
+          secondsToTicks(at),
+          desiredAudio,
+          needsBurnIn ? desiredSub : undefined,
+        )
+      } else if (chosen) {
+        loadTextSubOverlay(chosen, at)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buffering, item])
@@ -659,34 +1022,39 @@ export default function PlayerPage() {
 
   // ---------- Trickplay scrub preview ----------
   const trickplay: JfTrickplayInfo | undefined = useMemo(() => {
-    const s = streamRef.current
     if (!item?.Trickplay) return undefined
-    const byKey = (s && item.Trickplay[s.mediaSourceId]) || item.Trickplay[item.Id] ||
+    const s = streamRef.current
+    const byKey =
+      (s && item.Trickplay[s.mediaSourceId]) ||
+      item.Trickplay[item.Id] ||
       Object.values(item.Trickplay)[0]
     if (!byKey) return undefined
     const widths = Object.keys(byKey).map(Number).sort((a, b) => a - b)
     return widths.length ? byKey[String(widths[0])] : undefined
-  }, [item])
+    // streamGen re-runs once PlaybackInfo lands so mediaSourceId matches.
+  }, [item, streamGen])
 
   const preview = useMemo(() => {
-    if (!hover || !trickplay || !durationSec || !itemId || !streamRef.current) return null
+    if (!hover || !trickplay || !durationSec || !itemId) return null
+    const mediaSourceId = streamRef.current?.mediaSourceId || itemId
     const t = hover.frac * durationSec
-    const thumbIdx = Math.floor((t * 1000) / trickplay.Interval)
-    const perTile = trickplay.TileWidth * trickplay.TileHeight
+    const thumbIdx = Math.max(0, Math.floor((t * 1000) / trickplay.Interval))
+    const perTile = Math.max(1, trickplay.TileWidth * trickplay.TileHeight)
     const tileIdx = Math.floor(thumbIdx / perTile)
     const pos = thumbIdx % perTile
     const col = pos % trickplay.TileWidth
     const row = Math.floor(pos / trickplay.TileWidth)
     return {
-      url: api.trickplayTileUrl(itemId, trickplay.Width, tileIdx, streamRef.current.mediaSourceId),
+      url: api.trickplayTileUrl(itemId, trickplay.Width, tileIdx, mediaSourceId),
       x: -(col * trickplay.Width),
       y: -(row * trickplay.Height),
       w: trickplay.Width,
       h: trickplay.Height,
       time: t,
+      // hover.x is already relative to the seekbar
       left: hover.x,
     }
-  }, [hover, trickplay, durationSec, itemId])
+  }, [hover, trickplay, durationSec, itemId, streamGen])
 
   // ---------- Seekbar interactions ----------
   const fracFromEvent = (e: React.PointerEvent) => {
@@ -695,13 +1063,17 @@ export default function PlayerPage() {
     const r = bar.getBoundingClientRect()
     return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
   }
+  const relXFromEvent = (e: React.PointerEvent) => {
+    const bar = seekbarRef.current
+    if (!bar) return e.clientX
+    return e.clientX - bar.getBoundingClientRect().left
+  }
 
   // ---------- Track lists ----------
   const audioTracks = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Audio') ?? []
   const subTracks = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Subtitle') ?? []
-  const externalSub = streamRef.current?.mediaStreams.find(
-    (m) => m.Type === 'Subtitle' && m.Index === subIndex && m.DeliveryUrl,
-  )
+  // Blob VTT overlay (supports delay). Burn-in has no separate track.
+  const showTextTrack = !!subBlobUrl && subIndex >= 0
 
   const title =
     item?.Type === 'Episode'
@@ -717,18 +1089,20 @@ export default function PlayerPage() {
         ref={videoRef}
         autoPlay
         playsInline
-        crossOrigin="anonymous"
+        // No crossOrigin — it forces CORS on <track> VTT and silently kills subs
+        // when Jellyfin is reached via Funnel/LAN with mismatched origins.
         style={{ viewTransitionName: 'vt-hero' }}
         className="h-full w-full"
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
       >
-        {externalSub && (
+        {showTextTrack && subBlobUrl && (
           <track
+            key={subBlobUrl}
             kind="subtitles"
-            src={`${api.getSession()!.server}${externalSub.DeliveryUrl}`}
-            srcLang={externalSub.Language ?? 'und'}
-            label={externalSub.DisplayTitle ?? 'Subtitles'}
+            src={subBlobUrl}
+            srcLang="en"
+            label="Subtitles"
             default
           />
         )}
@@ -832,13 +1206,46 @@ export default function PlayerPage() {
           </div>
         )}
 
-        {/* Seekbar */}
+        {/* Seekbar: hover = trickplay preview only; seek commits on pointer up/click.
+            (Seeking on every move was renegotiating streams and killing previews.) */}
         <div
           ref={seekbarRef}
-          className="group/seek relative h-6 flex items-center cursor-pointer mb-1"
-          onPointerMove={(e) => setHover({ frac: fracFromEvent(e), x: e.clientX })}
-          onPointerLeave={() => setHover(null)}
-          onPointerDown={(e) => seekTo(fracFromEvent(e) * durationSec)}
+          className="group/seek relative h-6 flex items-center cursor-pointer mb-1 touch-none"
+          onPointerMove={(e) => {
+            if (durationSec <= 0) return
+            const frac = fracFromEvent(e)
+            setHover({ frac, x: relXFromEvent(e) })
+            // Visual-only while dragging — don't hit the player until release.
+            if (scrubbingRef.current) {
+              setAbsTime(frac * durationSec)
+            }
+          }}
+          onPointerLeave={() => {
+            if (!scrubbingRef.current) setHover(null)
+          }}
+          onPointerDown={(e) => {
+            if (durationSec <= 0) return
+            scrubbingRef.current = true
+            ;(e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId)
+            const frac = fracFromEvent(e)
+            setHover({ frac, x: relXFromEvent(e) })
+            setAbsTime(frac * durationSec)
+          }}
+          onPointerUp={(e) => {
+            if (!scrubbingRef.current) return
+            scrubbingRef.current = false
+            if (durationSec > 0) {
+              seekTo(fracFromEvent(e) * durationSec)
+            }
+            try {
+              ;(e.currentTarget as HTMLDivElement).releasePointerCapture?.(e.pointerId)
+            } catch {
+              /* ignore */
+            }
+          }}
+          onPointerCancel={() => {
+            scrubbingRef.current = false
+          }}
         >
           <div className="relative w-full h-1 group-hover/seek:h-1.5 rounded-full bg-white/20 transition-all">
             <div className="absolute h-full rounded-full bg-white/30" style={{ width: `${bufferedFrac * 100}%` }} />
@@ -850,8 +1257,22 @@ export default function PlayerPage() {
           </div>
         </div>
 
-        {/* Buttons row */}
-        <div className="flex items-center gap-4 text-white">
+        {/* Buttons row: Prev ep · -10s · Play · +10s · Next ep */}
+        <div className="flex items-center gap-3 sm:gap-4 text-white">
+          {item?.Type === 'Episode' && (
+            <button
+              onClick={() => prevEp && navigate(`/play/${prevEp.Id}`, { replace: true })}
+              disabled={!prevEp}
+              className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform disabled:opacity-30 disabled:hover:scale-100 disabled:cursor-default"
+              aria-label="Previous episode"
+              title={prevEp ? `Previous: ${prevEp.Name ?? 'episode'}` : 'No previous episode'}
+            >
+              {/* skip-previous: bar + triangle left */}
+              <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M6 6h2v12H6V6zm3.5 6 8.5 6V6l-8.5 6z" />
+              </svg>
+            </button>
+          )}
           <button onClick={() => seekTo(absTime - 10)} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Back 10 seconds" title="Back 10s">
             <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.5 3a9 9 0 1 0 8.49 12h-2.13a7 7 0 1 1-1.27-7.86L14 11h7V4l-2.6 2.6A8.97 8.97 0 0 0 12.5 3z"/><text x="12" y="16" fontSize="7" fontWeight="bold" textAnchor="middle" fill="currentColor">10</text></svg>
           </button>
@@ -865,9 +1286,18 @@ export default function PlayerPage() {
           <button onClick={() => seekTo(absTime + 10)} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Forward 10 seconds" title="Forward 10s">
             <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.5 3a9 9 0 1 1-8.49 12h2.13a7 7 0 1 0 1.27-7.86L10 11H3V4l2.6 2.6A8.97 8.97 0 0 1 11.5 3z"/><text x="12" y="16" fontSize="7" fontWeight="bold" textAnchor="middle" fill="currentColor">10</text></svg>
           </button>
-          {nextEp && (
-            <button onClick={() => navigate(`/play/${nextEp.Id}`, { replace: true })} className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform" aria-label="Next episode" title="Next episode">
-              <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6v12h2V6z" /></svg>
+          {item?.Type === 'Episode' && (
+            <button
+              onClick={() => nextEp && navigate(`/play/${nextEp.Id}`, { replace: true })}
+              disabled={!nextEp}
+              className="h-9 w-9 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform disabled:opacity-30 disabled:hover:scale-100 disabled:cursor-default"
+              aria-label="Next episode"
+              title={nextEp ? `Next: ${nextEp.Name ?? 'episode'}` : 'No next episode'}
+            >
+              {/* skip-next: triangle + bar */}
+              <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              </svg>
             </button>
           )}
 
@@ -923,6 +1353,65 @@ export default function PlayerPage() {
 
           {subTracks.length > 0 && (
             <div className="relative">
+              {/* Subtitle timing: only affects overlay (text) tracks */}
+              {hasOverlaySubs && (
+                <div className="flex items-center gap-0.5 rounded-lg bg-white/5 border border-white/10 px-1">
+                  <button
+                    type="button"
+                    onClick={() => nudgeSubDelay(-SUB_DELAY_STEP_LARGE_MS)}
+                    className="h-7 w-7 text-xs font-bold hover:bg-white/10 rounded"
+                    title="Subs earlier by 0.5s"
+                    aria-label="Subtitles earlier 500ms"
+                  >
+                    −−
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => nudgeSubDelay(-SUB_DELAY_STEP_MS)}
+                    className="h-7 w-7 text-sm font-bold hover:bg-white/10 rounded"
+                    title="Subs earlier by 0.1s"
+                    aria-label="Subtitles earlier 100ms"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubDelayMs(0)
+                      try {
+                        localStorage.setItem(SUB_DELAY_KEY, '0')
+                      } catch {
+                        /* ignore */
+                      }
+                      if (subVttRawRef.current) applySubBlobFromRaw(subVttRawRef.current, 0)
+                    }}
+                    className="min-w-[3.25rem] px-1 h-7 text-[11px] tabular-nums font-semibold text-ink-200 hover:text-white"
+                    title="Reset subtitle delay"
+                  >
+                    {subDelayMs === 0
+                      ? '0ms'
+                      : `${subDelayMs > 0 ? '+' : ''}${subDelayMs}ms`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => nudgeSubDelay(SUB_DELAY_STEP_MS)}
+                    className="h-7 w-7 text-sm font-bold hover:bg-white/10 rounded"
+                    title="Subs later by 0.1s"
+                    aria-label="Subtitles later 100ms"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => nudgeSubDelay(SUB_DELAY_STEP_LARGE_MS)}
+                    className="h-7 w-7 text-xs font-bold hover:bg-white/10 rounded"
+                    title="Subs later by 0.5s"
+                    aria-label="Subtitles later 500ms"
+                  >
+                    ++
+                  </button>
+                </div>
+              )}
               <button onClick={() => setMenu(menu === 'subs' ? null : 'subs')} className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors">
                 Subtitles
               </button>
