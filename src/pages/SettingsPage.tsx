@@ -459,9 +459,36 @@ export default function SettingsPage() {
   )
 }
 
+/** QR of an invite link — point a phone camera at the screen instead of typing.
+ *  The encoder is lazy-imported so it never weighs on app startup. */
+function InviteQr({ url }: { url: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    import('qrcode')
+      .then((QR) =>
+        QR.toDataURL(url, { width: 320, margin: 1, color: { dark: '#0b0d12', light: '#ffffff' } }),
+      )
+      .then((d) => {
+        if (alive) setSrc(d)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [url])
+  if (!src) return <p className="text-xs text-ink-400 mt-2">Generating…</p>
+  return (
+    <div className="mt-3 inline-block rounded-xl bg-white p-2 shadow-lg">
+      <img src={src} alt={`QR code for ${url}`} className="h-40 w-40" />
+    </div>
+  )
+}
+
 function InvitesAdmin() {
   const toast = useToast()
   const [invites, setInvites] = useState<InviteAdmin[] | null>(null)
+  const [qrFor, setQrFor] = useState<number | null>(null)
   const [libs, setLibs] = useState<{ id: string; name: string }[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -681,8 +708,20 @@ function InvitesAdmin() {
                   >
                     Copy LAN link
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setQrFor((q) => (q === inv.id ? null : inv.id))}
+                    className={`rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
+                      qrFor === inv.id
+                        ? 'bg-accent-500 text-white'
+                        : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
+                    }`}
+                  >
+                    QR
+                  </button>
                 </div>
               )}
+              {qrFor === inv.id && inv.status === 'pending' && <InviteQr url={urls.funnel} />}
             </div>
           )
         })}

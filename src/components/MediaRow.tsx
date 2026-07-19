@@ -11,9 +11,11 @@ interface Props {
   seeAllHref?: string
   /** Hide the row's own title bar (used when an outer frame already shows it). */
   hideTitle?: boolean
+  /** Show a hover “×” on each card that calls this (e.g. drop from Continue Watching). */
+  onDismissItem?: (item: JfItem) => void
 }
 
-export default function MediaRow({ title, items, loading, seeAllHref, hideTitle }: Props) {
+export default function MediaRow({ title, items, loading, seeAllHref, hideTitle, onDismissItem }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const sectionRef = useRef<HTMLElement>(null)
   const [visible, setVisible] = useState(false)
@@ -89,7 +91,9 @@ export default function MediaRow({ title, items, loading, seeAllHref, hideTitle 
       >
         {loading
           ? Array.from({ length: 8 }).map((_, i) => <CardSkeleton key={i} width={176} />)
-          : items!.map((item) => <MediaCard key={item.Id} item={item} width={176} />)}
+          : items!.map((item) => (
+              <MediaCard key={item.Id} item={item} width={176} onDismiss={onDismissItem} />
+            ))}
       </div>
     </section>
   )

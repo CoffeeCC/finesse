@@ -59,6 +59,14 @@ export default defineConfig(({ mode }) => {
     changeOrigin: true,
   }
 
+  // Invite service (native invites) — prod nginx proxies /invite-api to the
+  // host service; in dev, hit the deployed nginx so the admin panel works.
+  proxy['/finesse/invite-api'] = {
+    target: env.CONTENT_HOST || `${arrHost}:30500`,
+    changeOrigin: true,
+    rewrite: (p: string) => p.replace(/^\/finesse\/invite-api/, '/invite-api'),
+  }
+
   // Games: proxy the RomM API/assets in dev with the RomM Basic auth injected
   // (prod does this in nginx). ROMM_AUTH = base64 of "user:pass" in .env.local.
   if (env.ROMM_AUTH) {

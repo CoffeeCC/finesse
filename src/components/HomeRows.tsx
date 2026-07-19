@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import MediaRow from './MediaRow'
 import DownloadsSection from './DownloadsSection'
 import {
@@ -8,7 +9,9 @@ import {
   useResume,
   useWatchlistItems,
 } from '../api/queries'
+import * as api from '../api/client'
 import type { ItemsQuery } from '../api/client'
+import type { JfItem } from '../api/types'
 
 // Each home row is self-contained — it fetches its own data and renders a
 // MediaRow (which renders nothing when empty). That lets HomePage render an
@@ -25,7 +28,27 @@ export function ComingSoonRow({ hideTitle }: { hideTitle?: boolean }) {
 
 export function ResumeRow({ hideTitle }: { hideTitle?: boolean }) {
   const { data, isLoading } = useResume()
-  return <MediaRow title="Continue Watching" items={data?.Items} loading={isLoading} hideTitle={hideTitle} />
+  const qc = useQueryClient()
+  const dismiss = async (item: JfItem) => {
+    // Optimistic: pull the card immediately, then confirm with the server.
+    qc.setQueryData(['resume'], (prev: typeof data) =>
+      prev ? { ...prev, Items: prev.Items.filter((i) => i.Id !== item.Id) } : prev,
+    )
+    try {
+      await api.clearResumePosition(item.Id)
+    } finally {
+      qc.invalidateQueries({ queryKey: ['resume'] })
+    }
+  }
+  return (
+    <MediaRow
+      title="Continue Watching"
+      items={data?.Items}
+      loading={isLoading}
+      hideTitle={hideTitle}
+      onDismissItem={dismiss}
+    />
+  )
 }
 
 export function NextUpRow({ hideTitle }: { hideTitle?: boolean }) {

@@ -37,7 +37,17 @@ function subtitle(item: JfItem): string {
   return item.ProductionYear ? String(item.ProductionYear) : ''
 }
 
-export default function MediaCard({ item, width }: { item: JfItem; width?: number }) {
+export default function MediaCard({
+  item,
+  width,
+  onDismiss,
+}: {
+  item: JfItem
+  width?: number
+  /** When set, a hover “×” appears (top-left) that calls this — e.g. to drop
+   *  the card from Continue Watching. tabindex=-1: not a D-pad nav stop. */
+  onDismiss?: (item: JfItem) => void
+}) {
   const poster = posterUrl(item)
   const pct = progressPct(item)
   const played = item.UserData?.Played
@@ -56,12 +66,18 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
   const [playing, setPlaying] = useState(false) // revealed only once decoding
   const hoverTimer = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
-  // TV skips it (pointer-remote hover + many cards would swamp the SoC), and
-  // reduced-motion users opt out of the autoplaying video.
-  const canPreview = !__WEBOS__ && !REDUCED_MOTION
+  // Web: mouse-hover previews. TV: hover would swamp the SoC (pointer remote
+  // streams moves over many cards), but a *deliberate* D-pad focus dwell is one
+  // card at a time — so the TV gets previews on dwell instead. Reduced-motion
+  // opts out of both.
+  const canHoverPreview = !__WEBOS__ && !REDUCED_MOTION
+  const canFocusPreview = __WEBOS__ && !REDUCED_MOTION
 
   const { data: manifest } = useClipManifest()
-  const clipUrl = canPreview ? previewClipUrl(item.Id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST) : null
+  const clipUrl =
+    canHoverPreview || canFocusPreview
+      ? previewClipUrl(item.Id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)
+      : null
 
   // Stop this card's preview (also the single-play lock's stop fn).
   const stopPreview = useCallback(() => {
@@ -76,23 +92,42 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
 
   // Warm this card's clip once it scrolls into view (web only), so the first
   // hover starts instantly instead of waiting on the network. Re-arms when the
-  // manifest resolves (clipUrl flips from null to a real URL).
+  // manifest resolves (clipUrl flips from null to a real URL). The TV skips the
+  // prefetch — dozens of speculative fetches hurt more than the dwell delay.
   useEffect(() => {
-    if (!canPreview || !clipUrl) return
+    if (!canHoverPreview || !clipUrl) return
     const el = tiltRef.current
     if (!el) return
     return prefetchWhenVisible(el, clipUrl)
-  }, [canPreview, clipUrl])
+  }, [canHoverPreview, clipUrl])
 
   const startPreview = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!canPreview || e.pointerType !== 'mouse' || !clipUrl) return
+    if (!canHoverPreview || e.pointerType !== 'mouse' || !clipUrl) return
     // Short intent guard so a pointer just passing over doesn't fire.
     window.clearTimeout(hoverTimer.current)
     hoverTimer.current = window.setTimeout(() => {
       claimPreview(stopPreview) // stops any other card/hero preview
       setPreview(true)
     }, 200)
-  }, [canPreview, clipUrl, stopPreview])
+  }, [canHoverPreview, clipUrl, stopPreview])
+
+  // TV: D-pad dwell → preview. Focus starts a longer intent timer (browsing
+  // steps through cards quickly; only a pause means "show me"), blur cancels.
+  const onTvFocus = useCallback(() => {
+    if (!canFocusPreview || !clipUrl) return
+    window.clearTimeout(hoverTimer.current)
+    hoverTimer.current = window.setTimeout(() => {
+      claimPreview(stopPreview)
+      setPreview(true)
+    }, 700)
+  }, [canFocusPreview, clipUrl, stopPreview])
+
+  const onTvBlur = useCallback(() => {
+    if (!canFocusPreview) return
+    window.clearTimeout(hoverTimer.current)
+    releasePreview(stopPreview)
+    stopPreview()
+  }, [canFocusPreview, stopPreview])
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (REDUCED_MOTION || e.pointerType === 'touch') return
@@ -149,6 +184,8 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
       className="group block shrink-0 outline-none"
       style={width ? { width } : undefined}
       data-backdrop={backdropUrl(item, 1280) ?? undefined}
+      onFocus={canFocusPreview ? onTvFocus : undefined}
+      onBlur={canFocusPreview ? onTvBlur : undefined}
     >
       <div
         ref={(el) => {
@@ -158,7 +195,7 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
         // TV: the pointer remote streams pointermove events — tilt math + style
         // writes per move would repaint cards constantly. Outline hover is enough.
         onPointerMove={__WEBOS__ ? undefined : onPointerMove}
-        onPointerEnter={canPreview ? startPreview : undefined}
+        onPointerEnter={canHoverPreview ? startPreview : undefined}
         onPointerLeave={__WEBOS__ ? undefined : onPointerLeave}
         style={spillStyle}
         className="tilt spill-card relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
@@ -202,6 +239,23 @@ export default function MediaCard({ item, width }: { item: JfItem; width?: numbe
         )}
 
         <div className="tilt-glare" />
+
+        {onDismiss && (
+          <button
+            tabIndex={-1}
+            aria-label={`Remove ${item.Name} from this row`}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onDismiss(item)
+            }}
+            className="absolute top-2 left-2 h-6 w-6 rounded-full bg-black/70 backdrop-blur flex items-center justify-center text-ink-300 hover:text-white hover:bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity shadow-md shadow-black/40"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
 
         {played && (
           <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-500 flex items-center justify-center shadow-md shadow-black/40">

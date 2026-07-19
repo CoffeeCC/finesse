@@ -389,6 +389,15 @@ export function getResume() {
   )
 }
 
+/** Drop an item from Continue Watching by zeroing its resume position
+ *  (without marking it played). Jellyfin 10.9+ UserData patch endpoint. */
+export function clearResumePosition(itemId: string) {
+  return request<void>(`/UserItems/${itemId}/UserData` + qs({ userId: session!.userId }), {
+    method: 'POST',
+    body: { PlaybackPositionTicks: 0, Played: false },
+  })
+}
+
 export function getNextUp() {
   return request<JfItemsResult>(
     '/Shows/NextUp' +

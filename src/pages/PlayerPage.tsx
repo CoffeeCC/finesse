@@ -859,6 +859,52 @@ export default function PlayerPage() {
         case 'Escape':
           if (!document.fullscreenElement) navigate(-1)
           break
+        // Dedicated transport buttons (webOS remotes report these as legacy
+        // keyCodes; some browsers use the named Media* keys instead).
+        case 'MediaPlayPause':
+          togglePlay()
+          break
+        case 'MediaPlay': {
+          const v = videoRef.current
+          if (v?.paused) v.play().catch(() => {})
+          break
+        }
+        case 'MediaPause':
+          videoRef.current?.pause()
+          break
+        case 'MediaStop':
+          navigate(-1)
+          break
+        case 'MediaRewind':
+        case 'MediaTrackPrevious':
+          seekTo(absTime - 10)
+          break
+        case 'MediaFastForward':
+        case 'MediaTrackNext':
+          seekTo(absTime + 10)
+          break
+        default: {
+          // webOS (and some TV browsers) only set keyCode for these.
+          switch (e.keyCode) {
+            case 415: { // MediaPlay
+              const v = videoRef.current
+              if (v?.paused) v.play().catch(() => {})
+              break
+            }
+            case 19:  // MediaPause (webOS uses 19 — it is NOT DPAD_UP inside the app)
+              videoRef.current?.pause()
+              break
+            case 413: // MediaStop
+              navigate(-1)
+              break
+            case 412: // MediaRewind
+              seekTo(absTime - 10)
+              break
+            case 417: // MediaFastForward
+              seekTo(absTime + 10)
+              break
+          }
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -1201,6 +1247,14 @@ export default function PlayerPage() {
           </svg>
         </button>
         <p className="text-sm font-medium text-white truncate">{title}</p>
+        {streamRef.current?.transcoding && (
+          <span
+            title={streamRef.current.transcodeReasons || 'Server is re-encoding this stream'}
+            className="shrink-0 rounded-full bg-amber-400/15 border border-amber-300/30 text-amber-300 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5"
+          >
+            Transcoding
+          </span>
+        )}
       </div>
 
       {/* Bottom control bar */}
