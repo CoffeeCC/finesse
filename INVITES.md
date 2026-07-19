@@ -18,6 +18,17 @@ Examples seeded at install: `CHRISSY` (family libraries), `DEMO1` (Movies+Shows,
 - **DB:** `/mnt/HDDs/Applications/finesse/data/invites.db`  
 - **Secrets:** `/mnt/HDDs/Applications/finesse/invite-service.env` (Jellyfin API key)
 
+## What new members see
+
+After creating their account, the success screen shows (with copy buttons):
+
+- **Watch from anywhere** — the Funnel Finesse URL (+ "Add to Home Screen" hint)
+- **On this house's wifi** — the LAN Finesse URL (faster locally)
+- **Jellyfin app option** — the Funnel origin as server address, same credentials
+
+So an invitee leaves the flow with everything needed to connect from outside the
+LAN — no follow-up "what's the link again?" texts.
+
 ## Admin
 
 Sign in as Jellyfin **admin** → **Settings → Administration → Invites**.

@@ -584,6 +584,29 @@ export default function PlayerPage() {
     }
   }, [report])
 
+  // Buffering watchdog — the spinner's source of truth. webOS Chromium drops or
+  // misorders 'playing'/'canplay'/'timeupdate' often enough that event-driven
+  // state gets stuck (ring over a playing video until you pause+resume). Instead
+  // of trusting events, poll actual playback progress: if currentTime moved, we
+  // are demonstrably playing → hide the ring; if we're nominally playing but the
+  // clock is frozen, we're stalled → show it. While paused with decoded frames,
+  // there's nothing to wait for → hide. Anything else (no media yet, mid-load,
+  // renegotiating) leaves the event-set state alone.
+  useEffect(() => {
+    let lastT = -1
+    const iv = window.setInterval(() => {
+      const v = videoRef.current
+      if (!v) return
+      const t = v.currentTime
+      const advanced = t !== lastT
+      lastT = t
+      if (advanced && t > 0) setBuffering(false)
+      else if (!v.paused && !v.ended && v.readyState < 4) setBuffering(true)
+      else if (v.paused && !v.seeking && v.readyState >= 3) setBuffering(false)
+    }, 500)
+    return () => window.clearInterval(iv)
+  }, [])
+
   // Volume
   useEffect(() => {
     const v = videoRef.current

@@ -10,13 +10,43 @@ import AuthShell, {
 } from '../components/AuthShell'
 import { getInvite, joinInvite, InviteError, type InvitePublic } from '../api/invite'
 
+// Public (Tailscale Funnel) origin — reachable from anywhere. If the invite was
+// opened on the funnel already, trust the address bar so a hostname change
+// doesn't strand this constant.
+const FUNNEL_ORIGIN = window.location.hostname.endsWith('.ts.net')
+  ? `https://${window.location.hostname}:${window.location.port || '10000'}`
+  : 'https://truenas-scale.taild65e2.ts.net:10000'
+const LAN_FINESSE = 'http://192.168.1.121:30500/finesse/'
+const FUNNEL_FINESSE = `${FUNNEL_ORIGIN}/finesse/`
+
 const DEFAULT_SERVER = window.location.hostname.endsWith('.ts.net')
-  ? `https://${window.location.hostname}:10000`
+  ? FUNNEL_ORIGIN
   : 'http://192.168.1.121:8096'
 
 type Step = 'welcome' | 'rules' | 'create' | 'success'
 
 const STEPS: Step[] = ['welcome', 'rules', 'create']
+
+function CopyRow({ label, url, note }: { label: string; url: string; note?: string }) {
+  return (
+    <div className="mt-3 rounded-xl bg-ink-800/60 border border-white/10 p-3 text-left">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-ink-200">{label}</span>
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(url).catch(() => {})
+          }}
+          className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-ink-300 hover:text-white hover:bg-white/20 transition-colors"
+        >
+          Copy
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] font-mono text-accent-300 break-all select-all">{url}</p>
+      {note && <p className="mt-1 text-[11px] text-ink-400">{note}</p>}
+    </div>
+  )
+}
 
 export default function InvitePage() {
   const { code: codeParam } = useParams()
@@ -95,14 +125,26 @@ export default function InvitePage() {
         username: username.trim(),
         password,
       })
-      setStep('success')
+      // Account exists — show the "how to watch" screen before signing in, so
+      // new members leave with the addresses they'll need away from this house.
       localStorage.setItem('finesse.lastServer', server)
-      await login(server, username.trim(), password)
-      navigate('/', { replace: true })
+      setBusy(false)
+      setStep('success')
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not create account')
       setBusy(false)
       setStep('create')
+    }
+  }
+
+  const startWatching = async () => {
+    setBusy(true)
+    try {
+      await login(server, username.trim(), password)
+      navigate('/', { replace: true })
+    } catch {
+      // Account was created; worst case they sign in manually.
+      navigate('/login', { replace: true })
     }
   }
 
@@ -301,12 +343,35 @@ export default function InvitePage() {
         )}
 
         {!loading && invite && step === 'success' && (
-          <div className="rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-10 shadow-2xl text-center">
-            <div className="h-14 w-14 mx-auto rounded-2xl bg-accent-500/20 border border-accent-400/40 flex items-center justify-center">
-              <span className="text-2xl text-accent-300">✓</span>
+          <div className="rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl text-center">
+            <div className="h-12 w-12 mx-auto rounded-2xl bg-accent-500/20 border border-accent-400/40 flex items-center justify-center">
+              <span className="text-xl text-accent-300">✓</span>
             </div>
-            <h2 className="mt-5 text-2xl font-semibold text-white">You&rsquo;re in</h2>
-            <p className="mt-2 text-sm text-ink-400">Signing you into Finesse…</p>
+            <h2 className="mt-4 text-2xl font-semibold text-white">You&rsquo;re in</h2>
+            <p className="mt-1 text-sm text-ink-400">
+              Account <span className="text-ink-200 font-medium">{username.trim()}</span> is ready.
+              Save these before you go —
+            </p>
+
+            <CopyRow
+              label="🌍 Watch from anywhere"
+              url={FUNNEL_FINESSE}
+              note="Works on any phone, tablet, or computer — bookmark it. On a phone, open it in the browser and use “Add to Home Screen” to install it like an app."
+            />
+            <CopyRow
+              label="🏠 On this house's wifi (faster)"
+              url={LAN_FINESSE}
+              note="Same app, local — use this one when you're here."
+            />
+            <CopyRow
+              label="▶ Prefer the official Jellyfin app?"
+              url={FUNNEL_ORIGIN}
+              note="Install “Jellyfin” from your app store, add this as the server address, and sign in with the same username and password."
+            />
+
+            <button type="button" onClick={startWatching} disabled={busy} className={`${authPrimaryBtn} mt-6`}>
+              {busy ? 'Signing in…' : 'Start watching'}
+            </button>
           </div>
         )}
       </div>

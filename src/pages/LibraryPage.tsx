@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useQuery } from '@tanstack/react-query'
@@ -279,12 +280,18 @@ export default function LibraryPage() {
             />
           )}
 
-          {/* Floating letter chip while fast-scrolling */}
-          {scrolling && isNameSort && activeLetter && (
-            <div className="letter-pop fixed right-16 top-1/2 -translate-y-1/2 z-40 hidden lg:flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-900/85 backdrop-blur-xl border border-white/10 shadow-2xl text-3xl font-bold text-white pointer-events-none">
-              {activeLetter}
-            </div>
-          )}
+          {/* Floating letter chip while fast-scrolling. Portaled for the same
+              reason as AlphabetRail: position:fixed breaks inside the animated
+              .page-enter wrapper (transform = containing block). */}
+          {scrolling &&
+            isNameSort &&
+            activeLetter &&
+            createPortal(
+              <div className="letter-pop fixed right-16 top-1/2 -translate-y-1/2 z-40 hidden lg:flex h-16 w-16 items-center justify-center rounded-2xl bg-ink-900/85 backdrop-blur-xl border border-white/10 shadow-2xl text-3xl font-bold text-white pointer-events-none">
+                {activeLetter}
+              </div>,
+              document.body,
+            )}
         </>
       )}
     </div>

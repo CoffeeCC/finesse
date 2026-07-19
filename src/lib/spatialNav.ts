@@ -13,8 +13,10 @@ import { playNav } from './sound'
 // cannot run until the browser delivers real Arrow/D-pad key events. Fire TV
 // Phone Remote often moves a cursor, not focus.
 
+// tabindex="-1" is the universal opt-out (hover-only chevrons etc.) — it must
+// exclude an element even when it also matches the tag-based clauses.
 const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
 
 type Dir = 'up' | 'down' | 'left' | 'right'
 
@@ -55,6 +57,12 @@ function isVisible(el: HTMLElement): boolean {
 let cachedEls: HTMLElement[] | null = null
 let cachedAt = 0
 
+/** Drop the candidate cache — rows virtualize/reveal on scroll, so the element
+ *  set changes whenever anything scrolls (page or a horizontal row). */
+export function invalidateNavCache() {
+  cachedEls = null
+}
+
 function candidates(): HTMLElement[] {
   if (__WEBOS__ && cachedEls && performance.now() - cachedAt < 400) return cachedEls
   const els = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisible)
@@ -68,31 +76,73 @@ function candidates(): HTMLElement[] {
 function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], currentEl: Element | null): HTMLElement | null {
   const cx = current.left + current.width / 2
   const cy = current.top + current.height / 2
+
+  // Two passes. Pass 1 considers only elements whose cross-axis span OVERLAPS
+  // the current element (for ↓: horizontally overlapping) and picks the NEAREST
+  // by edge distance — so moving down always lands on the next row that has
+  // anything under you (row headers, small buttons), never skipping it because
+  // a farther element was better centre-aligned. Pass 2 is the old weighted
+  // fallback for when nothing overlaps (e.g. jumping to the A–Z rail).
   let best: HTMLElement | null = null
   let bestScore = Infinity
+  let bestFallback: HTMLElement | null = null
+  let bestFallbackScore = Infinity
+
   for (const el of els) {
     if (el === currentEl) continue
     const r = el.getBoundingClientRect()
     const dx = r.left + r.width / 2 - cx
     const dy = r.top + r.height / 2 - cy
-    let primary = 0
+    let primary = 0 // distance between facing edges along the direction of travel
     let cross = 0
-    let inDir = false
+    let overlap = 0
     switch (dir) {
-      case 'right': inDir = r.left >= current.right - 4; primary = dx; cross = Math.abs(dy); break
-      case 'left':  inDir = r.right <= current.left + 4; primary = -dx; cross = Math.abs(dy); break
-      case 'down':  inDir = r.top >= current.bottom - 4; primary = dy; cross = Math.abs(dx); break
-      case 'up':    inDir = r.bottom <= current.top + 4; primary = -dy; cross = Math.abs(dx); break
+      case 'right':
+        primary = r.left - current.right
+        cross = Math.abs(dy)
+        overlap = Math.min(r.bottom, current.bottom) - Math.max(r.top, current.top)
+        break
+      case 'left':
+        primary = current.left - r.right
+        cross = Math.abs(dy)
+        overlap = Math.min(r.bottom, current.bottom) - Math.max(r.top, current.top)
+        break
+      case 'down':
+        primary = r.top - current.bottom
+        cross = Math.abs(dx)
+        overlap = Math.min(r.right, current.right) - Math.max(r.left, current.left)
+        break
+      case 'up':
+        primary = current.top - r.bottom
+        cross = Math.abs(dx)
+        overlap = Math.min(r.right, current.right) - Math.max(r.left, current.left)
+        break
     }
-    if (!inDir || primary <= 0) continue
-    // Weight cross-axis misalignment so we prefer staying in the same row/column.
-    const score = primary + cross * 2
-    if (score < bestScore) {
-      bestScore = score
-      best = el
+    // Small negative tolerance: elements butted against us (or 4px overlapping,
+    // e.g. focus-ring outsets) still count as "in that direction".
+    if (primary < -4) continue
+    // Never treat an element we're inside of / on top of as a move target.
+    if (dir === 'down' && dy <= 0) continue
+    if (dir === 'up' && dy >= 0) continue
+    if (dir === 'right' && dx <= 0) continue
+    if (dir === 'left' && dx >= 0) continue
+
+    if (overlap > 4) {
+      // Aligned: nearest edge wins; centre alignment only breaks ties.
+      const score = Math.max(0, primary) * 10 + cross
+      if (score < bestScore) {
+        bestScore = score
+        best = el
+      }
+    } else {
+      const score = Math.max(0, primary) + cross * 2
+      if (score < bestFallbackScore) {
+        bestFallbackScore = score
+        bestFallback = el
+      }
     }
   }
-  return best
+  return best ?? bestFallback
 }
 
 function dirFor(e: KeyboardEvent): Dir | null {
@@ -184,12 +234,18 @@ function ensureInitialFocus() {
 export function useSpatialNavigation() {
   useEffect(() => {
     const opts: AddEventListenerOptions = { capture: true }
+    const scrollOpts: AddEventListenerOptions = { capture: true, passive: true }
+    const onScroll = () => invalidateNavCache()
     window.addEventListener('keydown', onKeyDown, opts)
+    // Any scroll (window or a horizontal row) can mount/unmount virtualized
+    // cards — a stale cached candidate list is what made held-key nav skip them.
+    window.addEventListener('scroll', onScroll, scrollOpts)
     // Give the first paint a beat, then focus something so the first D-pad press
     // has a current rect to navigate from (body-focus is a poor start point).
     const t = window.setTimeout(ensureInitialFocus, 300)
     return () => {
       window.removeEventListener('keydown', onKeyDown, opts)
+      window.removeEventListener('scroll', onScroll, scrollOpts)
       clearTimeout(t)
     }
   }, [])
