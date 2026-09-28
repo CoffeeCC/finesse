@@ -36,15 +36,19 @@ It takes 20–30 minutes the first time. It downloads three Blender Foundation
 films, builds a music library, fetches eight homebrew games, starts two Finesse
 servers built from your working copy, sets up the demo one from
 `demo/setup.json`, and fills in a household: four profiles, history, resume
-points and My List.
+points and My List. Last, it starts a friend's server, "Maya’s place" (its own
+Jellyfin and films, with Finesse in adopt mode), and pairs it with the demo for
+the Groups scene.
 
 - **`http://localhost:8080/finesse`** is the demo. Sign in as **alex /
   FinesseDemo2026**.
 - **`http://localhost:8091/finesse`** is a fresh server for the setup-page
   scenes.
+- **`http://localhost:8093/finesse`** is Maya's place (**maya /
+  FinesseFriend2026**).
 
-After changing the app, run `sh demo/up.sh`. It rebuilds the image and restarts
-both servers, and your demo library stays.
+After changing the app, run `sh demo/up.sh`, then `sh demo/friend.sh`. They
+rebuild the image and restart the servers, and your demo library stays.
 
 > **Behind a proxy?** If this machine reaches the internet through a proxy on
 > `127.0.0.1`, the demo's apps can't use it (the Request scene needs internet).
@@ -159,4 +163,4 @@ Two things to remember:
 | `sample.mjs` | A quick narrated preview of a single take |
 | `record.sh` | All of the above, in order |
 | `assets/tobu-title.state.b64` | Save state for the games scene (Tobu Tobu Girl's title screen) |
-| `demo/` | The demo server: `build.sh`, `up.sh`, `seed.py` (reset the household), `setup.json`, library, music and games builders, a fake indexer, `api.sh` |
+| `demo/` | The demo server: `build.sh`, `up.sh`, `seed.py` (reset the household), `setup.json`, library, music and games builders, a fake indexer, `api.sh`, and `friend.sh` (Maya's place, the friend's server for the Groups scene) |

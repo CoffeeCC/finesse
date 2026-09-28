@@ -8,18 +8,20 @@ creators.
 
 - **Sintel**, **Elephants Dream**, **Big Buck Bunny**, **Tears of Steel** and the Blender Studio
   shorts (**Agent 327**, **Caminandes**, **Charge**, **Coffee Run**, **Cosmos Laundromat**,
-  **Spring**, **Sprite Fright**, **Wing It!**): © Blender Foundation,
+  **Glass Half**, **Hero**, **Spring**, **Sprite Fright**, **Wing It!**): © Blender Foundation,
   [blender.org](https://www.blender.org), licensed
   [CC BY](https://creativecommons.org/licenses/by/3.0/) (Elephants Dream: CC BY 2.5, Orange
   Open Movie Project).
 - **Pioneer One**: © Josh Bernhard and Bracey Smith, licensed
   [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/).
 - The classic films and TV shows (**His Girl Friday**, **Detour**, **The Kid**, **Sherlock Jr.**,
-  **The General**, **Metropolis**, **Nosferatu**, **The Cabinet of Dr. Caligari**,
-  **The Phantom of the Opera**, **A Trip to the Moon**, **Night of the Living Dead**,
-  **Carnival of Souls**, **Charade**, **House on Haunted Hill**, **The Little Shop of Horrors**,
-  **Plan 9 from Outer Space**, and episodes of **Bonanza**, **The Beverly Hillbillies**,
-  **Flash Gordon** and **One Step Beyond**) are in the public domain in the United States.
+  **The General**, **Metropolis**, **Nosferatu**, **The Cabinet of Dr. Caligari**, **The Phantom of
+  the Opera**, **A Trip to the Moon**, **Night of the Living Dead**, **Carnival of Souls**,
+  **Charade**, **House on Haunted Hill**, **The Little Shop of Horrors**, **Plan 9 from Outer
+  Space**, **The Hitch-Hiker**, **D.O.A.**, **Scarlet Street**, **The Stranger**, **The Last Man on
+  Earth**, **Kansas City Confidential**, **The Great Train Robbery**, and episodes of **Bonanza**,
+  **The Beverly Hillbillies**, **Flash Gordon** and **One Step Beyond**) are in the public domain in
+  the United States.
 
 ## Music
 

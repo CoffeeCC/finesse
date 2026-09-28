@@ -22,7 +22,8 @@ const EPISODES = [
   { slug: 'requests', title: 'Requests', sub: 'Don’t have it? Request it, and Finesse gets it for you.', from: 'Requests and downloads', until: 'Music and lyrics' },
   { slug: 'music', title: 'Music & lyrics', sub: 'A proper music player, with lyrics that follow the song.', from: 'Music and lyrics', until: 'Games' },
   { slug: 'games', title: 'Games', sub: 'Your retro collection, right next to your movies.', from: 'Games', until: 'Settings, your server and invites' },
-  { slug: 'server', title: 'Your server & invites', sub: 'Make it yours, keep an eye on everything, and invite people.', from: 'Settings, your server and invites', until: 'On your phone' },
+  { slug: 'server', title: 'Your server & invites', sub: 'Make it yours, keep an eye on everything, and invite people.', from: 'Settings, your server and invites', until: 'Groups: friends’ libraries' },
+  { slug: 'groups', title: 'Groups', sub: 'Share libraries with friends who run Finesse, and watch theirs.', from: 'Groups: friends’ libraries', until: 'On your phone' },
   { slug: 'phone', title: 'On your phone', sub: 'The same Finesse, made for thumbs.', from: 'On your phone', until: 'On your TV' },
   { slug: 'tv', title: 'On your TV', sub: 'Made for the remote, on LG TVs and any TV’s browser.', from: 'On your TV', until: 'Get Finesse' },
 ]

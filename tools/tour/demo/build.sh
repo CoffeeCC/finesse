@@ -1,8 +1,9 @@
 #!/bin/sh
 # Builds the demo household from nothing: freely licensed films, a music library,
-# homebrew games, a Finesse server set up from setup.json, and a lived-in
-# household (profiles, history, resume points, My List). Safe to re-run: each
-# step skips what's already there. Takes 20–30 minutes the first time.
+# homebrew games, a Finesse server set up from setup.json, a lived-in household
+# (profiles, history, resume points, My List), and a friend's server it shares
+# with. Safe to re-run: each step skips what's already there. Takes 20–30
+# minutes the first time.
 #   sh demo/build.sh
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -48,4 +49,6 @@ node "$HERE/ids.mjs"
 
 step "household"
 python3 "$HERE/seed.py" "$DEMO"
+step "a friend’s server for the Groups scene (Maya’s place)"
+sh "$HERE/friend.sh"
 step "done — the demo is at http://localhost:8080/finesse (alex / FinesseDemo2026)"

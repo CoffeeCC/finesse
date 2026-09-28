@@ -409,6 +409,50 @@ await scene('settings', async () => {
   await d.clear()
 })
 
+// Needs the friend's server: sh demo/friend.sh (it pairs "Maya’s place" with the demo).
+await scene('groups', async () => {
+  const into = async (loc, top = 110, ms = 1600) => {
+    await loc.waitFor({ timeout: 20000 })
+    const box = await loc.boundingBox()
+    if (box) await d.scroll(box.y - top, ms)
+  }
+  if (!page.url().includes('/settings')) {
+    await page.goto(`${APP}/settings`)
+    await d.click(by('button', /^Server/), { after: 2000 })
+  }
+  const groups = page.locator('#settings-groups')
+  await into(groups, 90, 1800)
+  await d.caption('Groups', 'Friends who run Finesse can share their libraries with you, and you with them. Watch only: nobody gets an account on your server.')
+  await sleep(2600)
+  await d.caption('Share with a code', 'Tick what they can watch, and send them a code. They add it on their server, and you add theirs the same way.')
+  await d.click(groups.locator('label').filter({ hasText: 'Movies' }).first(), { after: 900 })
+  await d.click(by('button', 'Create a code'), { after: 3000 })
+  await into(groups.getByText('Watching your server'), 260, 1400)
+  await sleep(2400)
+  await d.clear()
+
+  await page.goto(`${APP}/`)
+  await sleep(1500)
+  // Rows further down mount as they come near, so glide down to the friend's row.
+  await d.move(1500, 620, 500)
+  const row = page.getByRole('heading', { name: /^From Maya/ }).first()
+  for (let i = 0; i < 8 && !(await row.count()); i++) await d.scroll(900, 700)
+  await into(row, 150, 1200)
+  await d.caption('Friends’ libraries', 'What they share gets a row on Home, and a page of its own under Friends. Your progress stays yours.')
+  await sleep(2200)
+  await d.scroll(-99999, 1)
+  await sleep(400)
+  await d.click(by('button', 'More'), { after: 700 })
+  await d.click(page.getByRole('menuitem', { name: 'Friends' }), { after: 2600 })
+  await d.click(page.getByRole('link').filter({ hasText: 'Gran Dillama' }).first(), { after: 2400 })
+  await text('From Maya').waitFor({ timeout: 20000 })
+  await d.caption('Streams from their server', 'Press Play and it comes straight from their Finesse, with subtitles and resume just like your own.')
+  await sleep(2000)
+  await d.click(page.getByRole('link', { name: /^Play/ }).first(), { after: 5000 })
+  await d.click(by('button', 'Back'), { after: 1500 })
+  await d.clear()
+})
+
 if (!DRY) {
   await voWait()
   await sleep(600)

@@ -57,15 +57,17 @@ export function RowHeader({
   return (
     <div className="flex items-center gap-3 px-4 sm:px-6 lg:px-12 mb-3">
       {seeAllHref ? (
-        <Link
-          to={seeAllHref}
-          className="group/title row-title flex items-baseline gap-2 min-w-0 text-white hover:text-accent-300 transition-colors"
-        >
-          <span className="truncate">{title}</span>
-          <span className="shrink-0 font-sans not-italic text-xs font-semibold text-accent-300 opacity-0 group-hover/row:opacity-100 group-focus-visible/title:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
-            See all
-          </span>
-        </Link>
+        <h2 className="min-w-0">
+          <Link
+            to={seeAllHref}
+            className="group/title row-title flex items-baseline gap-2 min-w-0 text-white hover:text-accent-300 transition-colors"
+          >
+            <span className="truncate">{title}</span>
+            <span className="shrink-0 font-sans not-italic text-xs font-semibold text-accent-300 opacity-0 group-hover/row:opacity-100 group-focus-visible/title:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
+              See all
+            </span>
+          </Link>
+        </h2>
       ) : (
         <h2 className="row-title text-white min-w-0 truncate">{title}</h2>
       )}

@@ -7,7 +7,7 @@ and looked after for you.
 
 [![Watch the tour](docs/media/tour-poster.jpg)](docs/media/finesse-tour.mp4)
 
-**[▶ Watch the 8-minute tour](docs/media/finesse-tour.mp4)** · [Install](#install) ·
+**[▶ Watch the 9-minute tour](docs/media/finesse-tour.mp4)** · [Install](#install) ·
 [Features](#what-you-get) · [For AI agents](docs/agents/INSTALL.md) · [Docs](docs/install.md)
 
 </div>
@@ -25,15 +25,16 @@ the streaming services they already know.
 
 ## The tour
 
-An 8-minute narrated film of the real thing: installing it, the setup page, and every feature on
+A 9-minute narrated film of the real thing: installing it, the setup page, and every feature on
 the web, a phone and a TV, with captions throughout.
 [Watch it](docs/media/finesse-tour.mp4), or jump to a chapter in your video player:
 
-`0:00` Welcome · `0:17` Install and set up · `1:50` Building your server ·
-`2:08` Profiles and sign-in · `2:15` Home · `2:43` Search · `2:48` A title’s page ·
-`3:03` The player · `3:30` Movies and shows · `4:03` Requests and downloads ·
+`0:00` Welcome · `0:17` Install and set up · `1:49` Building your server ·
+`2:07` Profiles and sign-in · `2:15` Home · `2:42` Search · `2:48` A title’s page ·
+`3:02` The player · `3:30` Movies and shows · `4:03` Requests and downloads ·
 `4:27` Music and lyrics · `4:59` Games · `5:24` Settings, your server and invites ·
-`5:57` On your phone · `6:45` On your TV · `7:36` Get Finesse · `7:49` Credits
+`5:56` Groups: friends’ libraries · `6:44` On your phone · `7:32` On your TV ·
+`8:23` Get Finesse · `8:36` Credits
 
 The demo library is made of freely licensed and public-domain films and music. See the
 [credits](docs/media/CREDITS.md).

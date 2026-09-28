@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Groups polish and a new tour chapter — v1.1.1 (2026-09-28)
+
+- **Groups only offers what friends can watch.** Music and playlists no longer appear when you
+  pick libraries to share. A friend's server shows films and shows, so sharing music did nothing.
+- **The tour has a Groups chapter**, and there's a new episode, *Groups*: making a code, a
+  friend's films on Home and under **Friends**, and playing one straight from their server.
+- Row titles with **See all** are now headings, so screen readers can jump from row to row.
+
 ## Groups: share with friends who run Finesse — v1.1.0 (2026-09-28)
 
 - **Groups.** Households that each run Finesse can share libraries with each other, watch-only.

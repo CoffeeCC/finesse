@@ -28,6 +28,7 @@ async function fakeJellyfin(serverName: string, people: { name: string; token: s
     { Id: 'a'.repeat(32), Name: 'Movies', CollectionType: 'movies' },
     { Id: 'b'.repeat(32), Name: 'Shows', CollectionType: 'tvshows' },
     { Id: 'c'.repeat(32), Name: 'Private', CollectionType: 'movies' },
+    { Id: 'd'.repeat(32), Name: 'Music', CollectionType: 'music' },
   ]
   const movie = 'd'.repeat(32)
   const read = async (req: IncomingMessage) => {
@@ -178,6 +179,10 @@ test('pairing: Sam shares Movies with a code, Alex adds Sam’s server', async (
   assert.equal(links[0]!.name, 'Alex’s server')
   assert.deepEqual(links[0]!.libraries, [jfB.libs[0]!.Id])
   assert.doesNotMatch(overview.text, /secret/i)
+  // Music isn't offered (friends can't play it yet), and can't be shared by id either.
+  assert.deepEqual((overview.data.libraries as { name: string }[]).map((l) => l.name), ['Movies', 'Shows', 'Private'])
+  const music = await call(B.url, 'POST', '/api/groups/codes', 'b-admin', { libraries: ['d'.repeat(32)] })
+  assert.notEqual(music.status, 201)
 })
 
 test('Robin browses Sam’s shared library through Alex’s server, and only that', async () => {
