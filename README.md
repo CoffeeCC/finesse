@@ -55,7 +55,7 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **[Already run Jellyfin or the *arr apps?](docs/adopt.md)** Finesse can sit in front of what you
   already have.
 - **[TrueNAS SCALE](docs/truenas.md)**: install it from the Apps page, listed with your other apps.
-- **[Groups](docs/groups.md)**: share libraries with friends who run Finesse too, and watch theirs.
+- **[Groups](docs/groups.md)**: share libraries with friends who run Finesse too, and watch and listen to theirs.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.
 - **[Games](docs/games.md)**: turn on the optional retro-games library.
 - **[Let an AI agent install it](docs/agents/INSTALL.md)**: a runbook written for coding agents,
@@ -81,8 +81,9 @@ about ten minutes, and nothing is installed until you press **Build my server**.
   files don't have them) and a full-screen lyric video.
 - **Games.** Optional: retro games (NES to PlayStation) that play right in the browser, with the
   library kept by [RomM](https://romm.app). See [Games](docs/games.md).
-- **Friends' libraries.** Friends who run Finesse too can share libraries with you, and you with
-  them: watch-only, with nobody getting an account on anyone's server. See [Groups](docs/groups.md).
+- **Friends' libraries.** Friends who run Finesse too can share their films, shows and music with
+  you, and you with them: watch- and listen-only, with nobody getting an account on anyone's
+  server. See [Groups](docs/groups.md).
 
 ### Getting new things
 

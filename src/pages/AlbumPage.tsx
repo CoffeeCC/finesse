@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom'
-import { useAlbums, useItem, useTracks, useViews } from '../api/queries'
+import { useQuery } from '@tanstack/react-query'
+import { useAlbums, useFriends, useItem, useTracks, useViews } from '../api/queries'
 import { posterUrl } from '../api/client'
 import { useAudio } from '../audio/AudioPlayerContext'
 import { formatRuntime, ticksToSeconds } from '../api/types'
@@ -7,6 +8,8 @@ import type { JfItem } from '../api/types'
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { vividRgb } from '../lib/accent'
 import AlbumCard from '../components/AlbumCard'
+import { friendViewsQuery, isMusicView } from '../components/FriendAlbums'
+import { peerOf } from '../lib/peers'
 import { ROW_SCROLLER } from '../components/MediaRow'
 
 function trackLen(ticks?: number): string {
@@ -32,7 +35,12 @@ export default function AlbumPage() {
   const { data: tracks } = useTracks(albumId)
   const { playQueue, current, playing, toggle } = useAudio()
   const { data: views } = useViews()
-  const musicView = views?.Items.find((v) => v.CollectionType === 'music')
+  // An album on a friend's server (Groups): "More by" comes from their library.
+  const friendId = peerOf(albumId)
+  const { data: friends } = useFriends()
+  const { data: friendViews } = useQuery({ ...friendViewsQuery(friendId ?? ''), enabled: !!friendId })
+  const friendName = friendId ? friends?.find((f) => f.id === friendId)?.name ?? 'a friend’s server' : null
+  const musicView = (friendId ? friendViews : views)?.Items.find(isMusicView)
   const { data: albums } = useAlbums(musicView?.Id)
 
   if (isLoading || !album) return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
@@ -67,7 +75,10 @@ export default function AlbumPage() {
           )}
         </div>
         <div className="min-w-0 flex-1 text-center sm:text-left">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Album</p>
+          <p className="flex flex-wrap items-center justify-center sm:justify-start gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-white/60">
+            Album
+            {friendName && <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-medium normal-case tracking-normal text-ink-100">From {friendName}</span>}
+          </p>
           <h1 className="mt-2 font-display text-4xl sm:text-5xl lg:text-6xl leading-[1.02] text-white">{album.Name}</h1>
           <p className="mt-3 text-lg font-semibold text-white/85">{album.AlbumArtist}</p>
           <p className="mt-1 text-sm text-white/55">

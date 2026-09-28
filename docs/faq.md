@@ -52,8 +52,8 @@ What you download, and whether it's legal where you live, is up to you. The same
 
 ## Can friends see my server?
 
-Only what you choose. With [Groups](groups.md), a friend who runs Finesse watches the libraries
-you tick, from their own Finesse. They get no account on your server, can't request, download or
+Only what you choose. With [Groups](groups.md), a friend who runs Finesse watches and listens to
+the libraries you tick, from their own Finesse. They get no account on your server, can't request, download or
 delete anything, and never see your keys or where your files are. Stop sharing and it ends on
 their next click.
 

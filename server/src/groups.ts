@@ -37,8 +37,9 @@ const log = logger('groups')
 export const PEER_TOKEN = 'FINESSE_PEER_TOKEN'
 const CODE_TTL_MS = 7 * 24 * 3600e3
 const SEEN_EVERY_MS = 10 * 60e3
-// Library kinds the app can't show from a friend's server (yet), so they're never offered.
-const NOT_SHARED = new Set(['music', 'musicvideos', 'playlists', 'books', 'photos', 'livetv'])
+// Library kinds the app can't show from a friend's server, so they're never offered.
+// (Playlists belong to one person, and the app has no pages for the others.)
+const NOT_SHARED = new Set(['musicvideos', 'playlists', 'books', 'photos', 'livetv'])
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
 const newId = () => randomBytes(5).toString('hex').slice(0, 8)
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -186,7 +187,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     return nameCache.name
   }
 
-  /** The libraries a friend can watch: films, shows and mixed ones (the app has no friends' music yet). */
+  /** The libraries a friend can watch or listen to: films, shows, music and mixed ones. */
   async function libraries(): Promise<{ id: string; name: string; type: string | null }[]> {
     const r = await jf.request<{ Items?: { Id: string; Name: string; CollectionType?: string }[] }>('/Library/MediaFolders')
     return (r.Items ?? []).filter((i) => !NOT_SHARED.has(i.CollectionType ?? '')).map((i) => ({ id: i.Id, name: i.Name, type: i.CollectionType ?? null }))

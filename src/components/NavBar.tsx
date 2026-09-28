@@ -9,6 +9,7 @@ import { pushBackHandler } from '../lib/back'
 import { openSearch } from '../lib/searchOverlay'
 import { IS_TV } from '../lib/device'
 import { ActionMenu } from './Menu'
+import { useFriendMusic } from './FriendAlbums'
 import { beginServerUpdate, useServerUpdate } from '../lib/appUpdate'
 import { SparkIcon, UpdatePill, shortVersion } from './Update'
 
@@ -23,8 +24,10 @@ export function useSecondaryDestinations() {
   const { data: views } = useViews()
   const { hasAnime, hasGames } = useOptionalLibraries()
   const { data: friends } = useFriends()
+  const friendMusic = useFriendMusic()
   const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
-  const hasMusic = views?.Items.some((v) => v.CollectionType === 'music') ?? false
+  // Music shows when there's music here, or a friend shares theirs (Groups).
+  const hasMusic = (views?.Items.some((v) => v.CollectionType === 'music') ?? false) || friendMusic.rows.length > 0
   return [
     ...(hasAnime ? [{ label: 'Anime', to: ANIME_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('tags=anime') }] : []),
     ...(hasMusic ? [{ label: 'Music', to: '/music', match: (p: string) => p.startsWith('/music') || p.startsWith('/album') }] : []),

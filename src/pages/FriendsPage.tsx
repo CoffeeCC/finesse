@@ -1,18 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { getLatest, getResume, getViews } from '../api/client'
+import { getLatest, getResume } from '../api/client'
 import { useFriends } from '../api/queries'
 import type { Friend } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 import MediaRow from '../components/MediaRow'
+import { FriendAlbumsRow, friendViewsQuery, isMusicView } from '../components/FriendAlbums'
 
 const PAD = 'px-4 sm:px-6 lg:px-12'
 
 /** One friend's server: what they're sharing, a row per library. */
 function FriendServer({ friend }: { friend: Friend }) {
-  const views = useQuery({ queryKey: ['friend', friend.id, 'views'], queryFn: () => getViews(friend.id), staleTime: 5 * 60_000, retry: 1 })
+  const views = useQuery(friendViewsQuery(friend.id))
   const resume = useQuery({ queryKey: ['friend', friend.id, 'resume'], queryFn: () => getResume(friend.id), staleTime: 60_000, retry: false })
-  const libs = (views.data?.Items ?? []).filter((v) => v.CollectionType !== 'music' && v.CollectionType !== 'playlists')
+  const all = views.data?.Items ?? []
+  const libs = all.filter((v) => !isMusicView(v) && v.CollectionType !== 'playlists')
+  const music = all.filter(isMusicView)
 
   return (
     <section className="space-y-6">
@@ -28,7 +31,10 @@ function FriendServer({ friend }: { friend: Friend }) {
         <>
           <MediaRow title="Continue watching" items={resume.data?.Items} variant="wide" />
           {views.isLoading ? <MediaRow title=" " items={undefined} loading /> : libs.map((lib) => <FriendLibraryRow key={lib.Id} viewId={lib.Id} title={lib.Name} />)}
-          {!views.isLoading && !libs.length && <p className={`${PAD} text-sm text-ink-400`}>Nothing is shared with you yet.</p>}
+          {music.map((lib) => (
+            <FriendAlbumsRow key={lib.Id} viewId={lib.Id} title={lib.Name} />
+          ))}
+          {!views.isLoading && !libs.length && !music.length && <p className={`${PAD} text-sm text-ink-400`}>Nothing is shared with you yet.</p>}
         </>
       )}
     </section>
@@ -50,7 +56,7 @@ export default function FriendsPage() {
     <div className="pb-16 py-6 space-y-10">
       <div className={PAD}>
         <h1 className="text-3xl font-semibold text-white tracking-tight mb-1">Friends</h1>
-        <p className="text-sm text-ink-400">Libraries friends share from their own Finesse. Watch only: nothing is downloaded or requested there.</p>
+        <p className="text-sm text-ink-400">Libraries friends share from their own Finesse. Watch and listen only: nothing is downloaded or requested there.</p>
       </div>
       {none ? (
         <div className="mx-4 sm:mx-6 lg:mx-12 rounded-2xl border border-white/5 bg-ink-900/50 px-6 py-10 sm:p-12 text-center max-w-2xl">

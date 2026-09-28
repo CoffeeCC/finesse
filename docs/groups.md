@@ -1,9 +1,10 @@
 # Groups: share with friends who run Finesse
 
-Groups lets households that each run Finesse share libraries with each other. Your friends watch
-what you share from their own Finesse, next to their own library, and you watch theirs.
+Groups lets households that each run Finesse share libraries with each other: films, shows and
+music. Your friends watch and listen to what you share from their own Finesse, next to their own
+library, and you do the same with theirs.
 
-It's **watch-only**:
+It's **watch- and listen-only**:
 
 - **Nobody gets an account on your server.** Your friends sign in to their own Finesse as usual.
 - **They can't request, download or delete anything** on your server, or see anything you
@@ -30,7 +31,7 @@ It's **watch-only**:
 ## Share your libraries
 
 1. **Settings → Server → Groups → Share with a friend's server.**
-2. Tick the libraries they can watch, then **Create a code**.
+2. Tick the libraries they can watch or listen to, then **Create a code**.
 3. Send your friend the code and your address. The code works once, within 7 days.
 
 ## Add a friend's server
@@ -42,11 +43,13 @@ Their libraries appear for everyone in your household:
 
 - **Friends** in the menu (More on desktop and TVs, the Library tab on phones): a row for each
   library they share, plus what you're in the middle of.
-- **Home**: a "From *their server*" row with what they added lately.
-- **Search**: results from friends' servers appear under "On friends' servers".
+- **Home**: a "From *their server*" row with the films and shows they added lately.
+- **Music**: a "From *their server*" row of their albums, with Shuffle. Music appears in the menu
+  even if you have no music of your own.
+- **Search**: films and shows from friends' servers appear under "On friends' servers".
 
-A friend's titles are marked "From *their server*". Everything else works as usual:
-episodes, subtitles, audio tracks, My List, resuming.
+A friend's titles and albums are marked "From *their server*". Everything else works as usual:
+episodes, subtitles, audio tracks, lyrics, My List, resuming.
 
 ## Share back
 
@@ -65,7 +68,6 @@ Everything is under **Settings → Server → Groups**:
 
 ## Good to know
 
-- **Music isn't shared yet**: the Friends page shows movie and show libraries.
 - **Play on… stays with your own titles.** Your TVs' own Jellyfin apps can't see a friend's
   library. The Finesse TV app and the web app play friends' titles as normal.
 - **Share only what you're allowed to share.** What you share, and with whom, is up to you.
@@ -79,3 +81,4 @@ Everything is under **Settings → Server → Groups**:
 | **"Their server has to reach yours"** (sharing back) | Set your public address first (see [What you need](#what-you-need)). |
 | **"… isn't answering right now"** on the Friends page | Their server is off or unreachable, or they stopped sharing. |
 | **Their films start slowly or stutter** | It's their upload speed. Lower **Maximum streaming quality** in Settings → Playback. |
+| **A library isn't offered when you share** | Films, shows and music can be shared. Playlists, photos, books and live TV can't. |

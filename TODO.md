@@ -38,6 +38,18 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Groups share music — v1.2.0 (2026-09-28)
+
+- **Share your music with friends, and listen to theirs.** Tick Music when you share under
+  **Settings → Server → Groups**. Friends find your albums on their **Music** page, in a
+  "From *your server*" row with Shuffle, and on the **Friends** page. Albums, the player, synced
+  lyrics and Shuffle work just like their own music.
+- **Music** appears in the menu when a friend shares theirs, even if you have no music library
+  of your own.
+- Home's "From *their server*" row sticks to films and shows. Their albums are on the Music page.
+- Playlists, photos, books and live TV still aren't offered when sharing: they belong to one
+  person, or the app has no page for them.
+
 ## Groups polish and a new tour chapter — v1.1.1 (2026-09-28)
 
 - **Groups only offers what friends can watch.** Music and playlists no longer appear when you
