@@ -47,6 +47,7 @@ df -h --output=target,avail -x tmpfs -x devtmpfs -x overlay | sort -k2 -h | tail
 ls -l /dev/net/tun                         # missing → torrents unavailable (Usenet still fine)
 command -v docker && docker info --format '{{.ServerVersion}}'
 command -v curl
+command -v midclt                          # prints a path → this is TrueNAS SCALE (see below)
 ```
 
 Decide:
@@ -54,6 +55,13 @@ Decide:
 - **`DATA`**: the folder for media and downloads. Suggest the mount with the most free space
   (for example `/mnt/storage/media`), then confirm it with the person.
 - **`ROOT`**: the folder for app settings. Default `/opt/finesse`.
+
+**TrueNAS SCALE** (`midclt` exists): both folders must be on a pool, under `/mnt/<pool>/`.
+TrueNAS replaces the rest of the system on every update, and the installer refuses anything else.
+Ask the person whether they want Finesse listed on TrueNAS's Apps page. If they do, follow
+[docs/truenas.md](../truenas.md) (Install via YAML) instead of steps 3–5; step 6 still applies.
+If they already run Jellyfin there, that page's adopt mode keeps their libraries and watch
+history.
 
 If `docker ps --filter name=^/finesse$ -q` prints an ID, Finesse is already installed. Skip to
 step 5 with `finesse setup status`.

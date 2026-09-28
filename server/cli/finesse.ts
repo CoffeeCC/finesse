@@ -7,20 +7,20 @@
 //   finesse setup apply <file|->       build the server from a setup document (waits, shows progress)
 //   finesse setup status [--json]      progress of the current/last setup run
 //   finesse doctor [--json]            health report: apps, VPN, disk, backups
-//   finesse backup                     back up now
-//   finesse restore <backup>           put a backup's settings back (then restart Finesse)
+//   finesse backup [--with a,b|--all]  back up now (add watch, requests, games)
+//   finesse restore <backup> [--only a,b]  put a backup back (then restart Finesse)
 //   finesse version                    server version
 //   finesse swap <id> <image>          (internal) replace a Finesse container with a new image
 //
 // The CLI talks to the running server on localhost. Before setup it uses the
 // setup code; afterwards Finesse's own Jellyfin key (read from its config).
 
-import { chownSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { isAbsolute, join, resolve } from 'node:path'
 import { VERSION } from '../src/jellyfin.ts'
 import { Docker } from '../src/stack/docker.ts'
 import { swap } from '../src/stack/selfupdate.ts'
-import { readTar, safeRelPath } from '../src/tar.ts'
+import { BACKUP_PARTS, isPart, restoreBackup, type BackupPart } from '../src/stack/backup.ts'
 
 const configDir = resolve(process.env.FINESSE_CONFIG_DIR || '/config')
 const base = process.env.FINESSE_URL || `http://127.0.0.1:${process.env.PORT || 8080}`
@@ -31,6 +31,7 @@ const red = (s: string) => c('31', s)
 const yellow = (s: string) => c('33', s)
 const dim = (s: string) => c('2', s)
 const bold = (s: string) => c('1', s)
+const sizeText = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
 function setupCode(): string | null {
   if (process.env.FINESSE_SETUP_CODE) return process.env.FINESSE_SETUP_CODE
@@ -276,45 +277,70 @@ async function main(argv: string[]): Promise<number> {
     case 'doctor':
       return doctor(rest)
     case 'backup': {
-      const r = await api<{ name: string; size: number; error?: string }>('POST', '/api/system/backups')
-      if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
-      console.log(`${green('✔')} Backed up to ${join(configDir, 'backups', r.data.name)} (${Math.round(r.data.size / 1024)} KB)`)
-      return 0
+      const all = rest.includes('--all')
+      const withArg = rest[rest.indexOf('--with') + 1]
+      const extra = all ? ['apps', 'watch', 'requests', 'games'] : rest.includes('--with') ? (withArg ?? '').split(',').filter(Boolean) : []
+      if (!extra.length) {
+        const r = await api<{ name: string; size: number; error?: string }>('POST', '/api/system/backups')
+        if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
+        console.log(`${green('✔')} Backed up to ${join(configDir, 'backups', r.data.name)} (${sizeText(r.data.size)})`)
+        return 0
+      }
+      const bad = extra.filter((p) => !isPart(p))
+      if (bad.length) throw new Error(`Unknown part: ${bad.join(', ')}. Parts: ${BACKUP_PARTS.map((p) => p.id).join(', ')}`)
+      let parts = ['settings', 'apps', ...extra].filter((p, i, a) => a.indexOf(p) === i)
+      if (all) {
+        const info = await api<{ parts: { id: string; available: boolean }[] }>('GET', '/api/system/backups/parts')
+        parts = parts.filter((p) => info.data.parts?.find((x) => x.id === p)?.available)
+      }
+      const start = await api<{ error?: string }>('POST', '/api/system/backups', { parts })
+      if (start.status >= 400) throw new Error(start.data.error ?? `HTTP ${start.status}`)
+      let step = ''
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000))
+        const st = await api<{ backup?: { job: { state: string; step?: string; error?: string; file?: { name: string; size: number } } } }>('GET', '/api/system/status')
+        const job = st.data.backup?.job
+        if (!job) throw new Error('This Finesse doesn’t report backups')
+        if (job.step && job.step !== step) console.log(dim(`  ${(step = job.step)}`))
+        if (job.state === 'error') throw new Error(job.error ?? 'The backup failed')
+        if (job.state === 'done' && job.file) {
+          console.log(`${green('✔')} Backed up ${parts.join(', ')} to ${join(configDir, 'backups', job.file.name)} (${sizeText(job.file.size)})`)
+          return 0
+        }
+      }
     }
     case 'restore': {
-      const [name] = rest
+      const name = rest.find((a) => !a.startsWith('--') && a !== rest[rest.indexOf('--only') + 1])
       if (!name) {
-        console.error('usage: finesse restore <finesse-backup-….tar.gz>   (a path, or a file name in the backups folder)')
+        console.error('usage: finesse restore <finesse-backup-….tar.gz> [--only settings,apps,watch,requests,games]')
         return 2
       }
+      const onlyArg = rest.includes('--only') ? (rest[rest.indexOf('--only') + 1] ?? '').split(',').filter(Boolean) : null
+      if (onlyArg && !onlyArg.every(isPart)) throw new Error(`Unknown part. Parts: ${BACKUP_PARTS.map((p) => p.id).join(', ')}`)
       const file = isAbsolute(name) || existsSync(name) ? resolve(name) : join(configDir, 'backups', name)
       if (!existsSync(file)) throw new Error(`No backup at ${file}`)
-      const files = readTar(readFileSync(file), { maxUnpacked: 512 << 20 })
-      const root = (process.env.FINESSE_ROOT || '').replace(/\/+$/, '')
-      const uid = Number(process.env.PUID ?? 1000)
-      const gid = Number(process.env.PGID ?? 1000)
-      let n = 0
-      for (const f of files) {
-        const rel = safeRelPath(f.path)
-        if (!rel) continue
-        let dest: string | null = null
-        if (rel.startsWith('finesse/')) dest = join(configDir, rel.slice('finesse/'.length))
-        else if (rel.startsWith('apps/') && root) dest = join(root, 'config', rel.slice('apps/'.length))
-        if (!dest) continue
-        mkdirSync(dirname(dest), { recursive: true })
-        writeFileSync(dest, f.data, { mode: 0o600 })
-        if (rel.startsWith('apps/')) {
-          try {
-            chownSync(dest, uid, gid)
-          } catch {
-            /* not root */
-          }
-        }
-        n++
+      const root = (process.env.FINESSE_ROOT || '').replace(/\/+$/, '') || null
+      const docker = root ? new Docker() : null
+      const r = await restoreBackup(file, {
+        configDir,
+        root,
+        uid: Number(process.env.PUID ?? 1000),
+        gid: Number(process.env.PGID ?? 1000),
+        docker: docker && (await docker.ping()) ? docker : null,
+        only: (onlyArg as BackupPart[] | null) ?? undefined,
+        say: (m) => console.log(dim(`  ${m}`)),
+      })
+      const what = [r.files ? `${r.files} files` : '', r.databases.length === 1 ? `${r.databases[0]}’s database` : r.databases.length ? `the databases of ${r.databases.join(', ')}` : '', r.rommPending ? 'RomM’s games library' : ''].filter(Boolean)
+      if (!what.length) {
+        console.log(`${yellow('!')} Nothing to restore: ${file} has none of the parts asked for.`)
+        return 1
       }
-      console.log(`${green('✔')} Restored ${n} files from ${file}.`)
-      console.log(`  Now restart Finesse so it picks them up: ${bold('sudo docker restart finesse')}`)
-      console.log(dim('  (It recreates any missing apps with the restored settings within a minute.)'))
+      console.log(`${green('✔')} Restored ${what.join(' and ')} from ${file}.`)
+      if (r.rommPending) console.log(dim('  RomM’s library is imported once its database is running (within a minute or two).'))
+      if (r.settings) {
+        console.log(`  Now restart Finesse so it picks up its settings: ${bold('sudo docker restart finesse')}`)
+        console.log(dim('  (It recreates any missing apps with the restored settings within a minute.)'))
+      }
       return 0
     }
     case 'swap': {
@@ -337,8 +363,8 @@ Usage:
   finesse setup apply <file|->       build the server from a setup document
   finesse setup status [--json]      progress of the current/last setup run
   finesse doctor [--json]            health report: apps, VPN, disk, backups
-  finesse backup                     back up now
-  finesse restore <backup>           put a backup's settings back
+  finesse backup [--with a,b|--all]  back up now; add watch, requests, games (or --all)
+  finesse restore <backup> [--only a,b]  put a backup back (then restart Finesse)
   finesse version                    print the version
 
 Setup documents: https://github.com/CoffeeCC/finesse/blob/master/setup.schema.json`)

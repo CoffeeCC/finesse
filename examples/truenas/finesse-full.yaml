@@ -1,0 +1,25 @@
+# Finesse on TrueNAS SCALE 24.10+ as a full install: Finesse sets up Jellyfin,
+# Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd (and a VPN, Games…) and looks after
+# them. Apps → Discover → ⋮ → Install via YAML, name it "finesse", paste this,
+# and change the marked lines. See docs/truenas.md.
+#
+# The two folders must be the same path inside and outside (Finesse hands them
+# to the apps it creates), so each appears twice below.
+services:
+  finesse:
+    image: ghcr.io/coffeecc/finesse:latest
+    container_name: finesse
+    restart: unless-stopped
+    ports:
+      - "30500:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/POOL/finesse:/mnt/POOL/finesse          # ← settings for every app (a dataset; an SSD pool is best)
+      - /mnt/POOL/media:/mnt/POOL/media              # ← movies, shows, music and downloads (a big dataset)
+    environment:
+      FINESSE_ROOT: /mnt/POOL/finesse                # ← same as above
+      FINESSE_DATA: /mnt/POOL/media                  # ← same as above
+      FINESSE_CONFIG_DIR: /mnt/POOL/finesse/config/finesse   # ← same start as FINESSE_ROOT
+      PUID: "568"                                    # TrueNAS's "apps" user owns the files
+      PGID: "568"
+      TZ: Europe/London                              # ← your time zone

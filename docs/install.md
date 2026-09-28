@@ -25,7 +25,8 @@ Finesse watches them, repairs them, backs them up and updates them.
 
 - **A 64-bit Linux computer** (x86-64 or ARM64) that stays on: a mini PC, an old laptop, a NAS
   that runs Docker, or a Raspberry Pi 4/5 with 4 GB+. Ubuntu, Debian, Fedora, Arch and Raspberry
-  Pi OS all work.
+  Pi OS all work. On **TrueNAS SCALE**, install it from the Apps page instead: see
+  [Finesse on TrueNAS](truenas.md).
 - **4 GB of memory** or more, and **disk space for your media**. Movies are 2–60 GB each, so
   plan for a big disk.
 - **Docker.** The installer can install it for you.
@@ -143,8 +144,7 @@ Finesse looks after itself:
   you paused it). It reconnects qBittorrent when the VPN restarts. It also checks the VPN, disk
   space and each app's health.
 - **Every night** each app snapshots its database. Finesse also saves its own settings and every
-  app's key config file to `…/config/finesse/backups` (it keeps the last 14). Download them from
-  **Settings → Server → Backups**.
+  app's settings to `…/config/finesse/backups` (it keeps the last 14). See [Backups](#backups).
 - **Updates.** When a new Finesse is out, admins see an **Update** dot on their avatar. The update:
   1. backs up;
   2. downloads the new version;
@@ -154,18 +154,42 @@ Finesse looks after itself:
   newer tested versions of Jellyfin and the other apps. With **Update apps automatically** on
   (the default), those install overnight after a backup.
 
+### Backups
+
+**Settings → Server → Backups → Back up now** lets you choose what goes in, with the size of
+each part:
+
+| Part | What it holds |
+|---|---|
+| **Finesse settings & invites** | Always included. |
+| **App settings** | Keys, download clients, indexers and quality profiles for each app. |
+| **Watch history & accounts** | Jellyfin's database: accounts, what everyone watched and where they stopped. |
+| **Requests & download history** | Everything Sonarr, Radarr and Lidarr follow, plus Prowlarr's indexers. |
+| **Games library & saves** | RomM's library and collections, save games and save states. |
+
+Databases are copied safely while the apps keep running. **Download** saves the file to your
+computer, so a copy lives off the server. Finesse keeps the newest three backups that include
+databases or games (they can be big), plus the nightly ones.
+
+Movies, shows and music are never in a backup: they're far too big. Copy the media folder to
+another disk, or snapshot it if your NAS can.
+
+From the command line: `sudo docker exec finesse finesse backup --all`, or pick parts with
+`--with watch,requests`.
+
 ### Restoring a backup
 
-A backup is a `.tar.gz` holding Finesse's settings and each app's key config. To restore, for
-example on a new machine:
+On the same machine, or a new one:
 
-1. Install Finesse with the same `--root` and `--data` paths as before.
-2. Copy the backup into `/opt/finesse/config/finesse/backups/`.
+1. **On a new machine,** install Finesse with the same `--root` and `--data` paths as before.
+2. Copy the backup into `…/config/finesse/backups/` (or give its full path in the next step).
 3. Run `sudo docker exec finesse finesse restore finesse-backup-<date>.tar.gz`.
-4. Run `sudo docker restart finesse`. Finesse recreates the apps with their old settings and keys.
-
-For the libraries themselves (watch history, users), restore Jellyfin's own snapshot from
-Jellyfin's dashboard. Sonarr, Radarr and Lidarr restore theirs under **System → Backup**.
+   - Add `--only watch` (or `settings`, `apps`, `requests`, `games`, comma-separated) to bring
+     back only some parts.
+   - Each app is stopped while its database goes back, then started again.
+4. If it restored settings, run `sudo docker restart finesse`. Finesse recreates any missing apps
+   with their old settings, keys and databases. RomM's games library is imported a minute
+   later, once its database is running.
 
 ## Uninstall
 

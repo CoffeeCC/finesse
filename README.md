@@ -53,6 +53,7 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **[Install guide](docs/install.md)**: requirements, every setup step, troubleshooting and security.
 - **[Already run Jellyfin or the *arr apps?](docs/adopt.md)** Finesse can sit in front of what you
   already have.
+- **[TrueNAS SCALE](docs/truenas.md)**: install it from the Apps page, listed with your other apps.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.
 - **[Games](docs/games.md)**: turn on the optional retro-games library.
 - **[Let an AI agent install it](docs/agents/INSTALL.md)**: a runbook written for coding agents,

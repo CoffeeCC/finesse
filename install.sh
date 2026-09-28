@@ -9,7 +9,8 @@
 #
 # Options:
 #   --data DIR       where movies, shows, music and downloads live
-#   --root DIR       where Finesse keeps app settings      (default /opt/finesse)
+#   --root DIR       where Finesse keeps app settings      (default /opt/finesse;
+#                    on TrueNAS, a folder on your pool)
 #   --port N         port for the Finesse web app            (default 8080)
 #   --version V      Finesse version to install              (default latest)
 #   --setup FILE     apply a setup document right away (no browser needed)
@@ -26,6 +27,7 @@ REPO_IMAGE="${FINESSE_IMAGE_REPO:-ghcr.io/coffeecc/finesse}"
 VERSION="latest"
 IMAGE=""
 ROOT="/opt/finesse"
+ROOT_SET=0
 DATA=""
 PORT=8080
 SETUP_FILE=""
@@ -34,6 +36,7 @@ UNINSTALL=0
 NAME="finesse"
 NETWORK="finesse"
 DOCS="https://github.com/CoffeeCC/finesse/blob/master/docs/install.md"
+TRUENAS_DOCS="https://github.com/CoffeeCC/finesse/blob/master/docs/truenas.md"
 
 # ---------- output ----------
 if [ -t 1 ]; then
@@ -70,7 +73,7 @@ usage() {
 while [ $# -gt 0 ]; do
   case "$1" in
     --data) DATA="$2"; shift 2 ;;
-    --root) ROOT="$2"; shift 2 ;;
+    --root) ROOT="$2"; ROOT_SET=1; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
     --version) VERSION="${2#v}"; shift 2 ;;
     --image) IMAGE="$2"; shift 2 ;;
@@ -122,8 +125,21 @@ if [ ! -e /dev/net/tun ]; then
 fi
 if [ -e /dev/net/tun ]; then ok "VPN support (/dev/net/tun)"; else warn "No /dev/net/tun — Usenet works, but torrents (which need the VPN) won't be offered."; fi
 
+# TrueNAS SCALE: its system drive is replaced on every update, so nothing may live
+# outside a pool (/mnt/…), and Docker comes from its Apps service.
+TRUENAS=0
+if command -v midclt >/dev/null 2>&1 || [ -d /usr/lib/python3/dist-packages/middlewared ]; then
+  TRUENAS=1
+  ok "TrueNAS SCALE"
+  say "  ${D}To see Finesse on TrueNAS's Apps page with your other apps, install it from there instead:${N}"
+  say "  ${D}$TRUENAS_DOCS${N}"
+fi
+
 # ---------- Docker ----------
 step "Docker"
+if [ "$TRUENAS" = 1 ] && ! docker_ info >/dev/null 2>&1; then
+  die "Docker isn't running yet. In TrueNAS, open Apps and choose a pool for apps (Apps → Configuration → Choose Pool), then run this again."
+fi
 if ! command -v docker >/dev/null 2>&1; then
   say "  Finesse runs every app in Docker, which isn't installed."
   if confirm "Install Docker now (from get.docker.com)?"; then
@@ -151,6 +167,11 @@ if [ -n "$existing" ]; then
 else
   # ---------- folders ----------
   step "Where things go"
+  if [ "$TRUENAS" = 1 ] && [ "$ROOT_SET" = 0 ]; then
+    pool=$(ls -d /mnt/*/ 2>/dev/null | grep -v -e '/mnt/\.' -e 'ix-apps' | head -1)
+    [ -n "$pool" ] || die "No pool found under /mnt. Create one in TrueNAS (Storage), then run this again."
+    ROOT=$(ask "Settings folder (on a pool)" "${pool%/}/finesse")
+  fi
   if [ -z "$DATA" ]; then
     say "  Movies, shows, music and downloads need space. Disks with the most room:"
     df -P -BG -x tmpfs -x devtmpfs -x overlay -x squashfs -x efivarfs 2>/dev/null | awk 'NR>1 { gsub("G","",$4); print $4 " GB free  " $6 }' | sort -rn | head -4 | sed 's/^/    /'
@@ -158,6 +179,11 @@ else
   fi
   ROOT="${ROOT%/}"; DATA="${DATA%/}"
   case "$ROOT$DATA" in *" "*) die "Please use folder paths without spaces." ;; esac
+  if [ "$TRUENAS" = 1 ]; then
+    for d in "$ROOT" "$DATA"; do
+      case "$d" in /mnt/?*) ;; *) die "On TrueNAS, keep Finesse's folders on a pool (under /mnt/), not $d: TrueNAS updates replace everything else. Use --root /mnt/<pool>/finesse --data /mnt/<pool>/media." ;; esac
+    done
+  fi
   $SUDO mkdir -p "$ROOT/config" "$DATA" || die "Couldn't create $ROOT or $DATA"
   free_gb=$(df -P -BG "$DATA" | awk 'NR==2 { gsub("G","",$4); print $4 }')
   ok "Settings in $ROOT, media in $DATA (${free_gb} GB free)"
@@ -168,6 +194,8 @@ else
     PUID=$(id -u "$SUDO_USER"); PGID=$(id -g "$SUDO_USER")
   elif [ "$(id -u)" != 0 ]; then
     PUID=$(id -u); PGID=$(id -g)
+  elif [ "$TRUENAS" = 1 ]; then
+    PUID=568; PGID=568   # TrueNAS's "apps" user, like its own apps
   else
     PUID=1000; PGID=1000
   fi

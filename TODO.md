@@ -38,6 +38,24 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## TrueNAS and backups you choose — v1.0.3 (2026-09-28)
+
+- **Finesse on TrueNAS's Apps page.** TrueNAS SCALE 24.10+ can install Finesse from Apps → Install
+  via YAML, so it's listed with your other apps. There are two ready-made files: one in front of
+  the Jellyfin and download apps you already run, and one for a full install. See
+  [Finesse on TrueNAS](docs/truenas.md). Updates from inside Finesse and TrueNAS's own buttons
+  work together.
+- **The installer is TrueNAS-safe.** On TrueNAS it keeps everything on a pool, never on the
+  system drive that TrueNAS updates replace, and runs the apps as TrueNAS's `apps` user.
+- **Choose what goes in a backup.** **Settings → Server → Back up now** can add watch history
+  and accounts, requests and download history, and the games library with saves. Each part shows
+  its size, and backups download straight to your computer. Databases are copied safely while
+  the apps keep running.
+- **Restore brings it all back.** `finesse restore <file>` puts back every part, databases
+  included, on the same machine or a new one. `--only watch` restores a single part.
+- The setup-code message in the logs no longer shows the container's internal port as the
+  address.
+
 ## Fixes — v1.0.2 (2026-09-28)
 
 Found by requesting a movie, a show and an artist on a brand-new server, end to end.

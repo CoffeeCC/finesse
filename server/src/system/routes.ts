@@ -12,7 +12,9 @@ import { CATALOG, containerName, type StackServiceId } from '../stack/catalog.ts
 import { ClipMaker } from '../stack/clips.ts'
 import { GamesNudger } from '../stack/games.ts'
 import { LibraryNudger } from '../stack/libraries.ts'
+import { BACKUP_FILE, describeParts, isPart } from '../stack/backup.ts'
 import { Maintainer } from '../stack/maintain.ts'
+import { randomBytes } from 'node:crypto'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
 
 export interface StackRef {
@@ -83,6 +85,7 @@ export function systemPlugin(ref: StackRef): Plugin {
         busy: maint.isWorking,
         previews: { enabled: s.previews?.enabled !== false, ...clips.status },
         games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
+        backup: { job: maint.backupJob },
         health: maint.health,
       })
     })
@@ -243,14 +246,47 @@ export function systemPlugin(ref: StackRef): Plugin {
       sendJson(res, 200, { last: settings.get().maintenance?.lastBackup ?? null, files: maint.listBackups(), folder: settings.paths.backups })
     })
 
-    router.post('/api/system/backups', async ({ req, res }) => {
+    // What a backup can hold, with sizes (Settings → Server → Back up now).
+    router.get('/api/system/backups/parts', async ({ req, res }) => {
       await auth.requireAdmin(req)
-      sendJson(res, 201, await maint.backupNow('manual'))
+      sendJson(res, 200, { parts: describeParts(settings.get(), settings.paths) })
     })
 
-    router.get('/api/system/backups/:name', async ({ req, res, params }) => {
+    // No body: back up the usual parts and answer when done (the CLI). With
+    // { parts }: run in the background; follow it at /api/system/status.
+    router.post('/api/system/backups', async ({ req, res }) => {
       await auth.requireAdmin(req)
-      if (!/^finesse-backup-[\dT-]+\.tar\.gz$/.test(params.name!)) throw new ApiError(404, 'No such backup')
+      const body = ((await readJson(req).catch(() => null)) ?? {}) as { parts?: unknown }
+      if (body.parts === undefined) return sendJson(res, 201, await maint.backupNow('manual'))
+      if (!Array.isArray(body.parts) || !body.parts.every(isPart)) throw new ApiError(400, 'Unknown backup part')
+      const available = new Set(describeParts(settings.get(), settings.paths).filter((p) => p.available).map((p) => p.id))
+      const missing = body.parts.filter((p) => !available.has(p))
+      if (missing.length) throw new ApiError(400, `Can’t back up ${missing.join(', ')} on this server`)
+      try {
+        sendJson(res, 202, { job: maint.startBackup(body.parts) })
+      } catch (e) {
+        throw new ApiError(409, (e as Error).message)
+      }
+    })
+
+    // Big backups download through a one-time link (no sign-in token in the URL):
+    // the app asks for a ticket, then lets the browser fetch the file directly.
+    const tickets = new Map<string, { name: string; until: number }>()
+    router.post('/api/system/backups/:name/link', async ({ req, res, params }) => {
+      await auth.requireAdmin(req)
+      if (!BACKUP_FILE.test(params.name!) || !safeFile(settings.paths.backups, params.name!)) throw new ApiError(404, 'No such backup')
+      for (const [k, t] of tickets) if (t.until < Date.now()) tickets.delete(k)
+      const ticket = randomBytes(24).toString('base64url')
+      tickets.set(ticket, { name: params.name!, until: Date.now() + 60000 })
+      sendJson(res, 200, { url: `/api/system/backups/${encodeURIComponent(params.name!)}?ticket=${ticket}` })
+    })
+
+    router.get('/api/system/backups/:name', async ({ req, res, params, url }) => {
+      const ticket = url.searchParams.get('ticket')
+      const t = ticket ? tickets.get(ticket) : undefined
+      if (t) tickets.delete(ticket!)
+      if (!t || t.until < Date.now() || t.name !== params.name) await auth.requireAdmin(req)
+      if (!BACKUP_FILE.test(params.name!)) throw new ApiError(404, 'No such backup')
       const hit = safeFile(settings.paths.backups, params.name!)
       if (!hit) throw new ApiError(404, 'No such backup')
       res.setHeader('Content-Disposition', `attachment; filename="${params.name}"`)

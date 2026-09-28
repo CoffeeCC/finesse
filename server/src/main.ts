@@ -25,7 +25,8 @@ export async function main(plugins: Plugin[] = defaultPlugins()) {
   if (code) {
     const line = '─'.repeat(52)
     process.stdout.write(
-      `\n${line}\n  Finesse isn't set up yet.\n  Open http://<this-machine>:${port} and enter the setup code:\n\n      ${code}\n\n  (Show it again any time: docker exec finesse finesse setup-code)\n${line}\n\n`,
+      // The port here is the one inside the container; people know the one they published (e.g. 30500 on TrueNAS).
+      `\n${line}\n  Finesse isn't set up yet.\n  Open http://<this-machine>:<its port>/finesse/setup\n  (the port you gave Finesse, ${port} unless you changed it)\n  and enter the setup code:\n\n      ${code}\n\n  (Show it again any time: docker exec finesse finesse setup-code)\n${line}\n\n`,
     )
   }
 

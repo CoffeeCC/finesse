@@ -10,14 +10,15 @@
 // whose pinned version changed (a Finesse update bumps them) are updated in
 // the small hours.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { gzipSync } from 'node:zlib'
 import type { Paths, Settings, SettingsStore } from '../config.ts'
 import { logger } from '../log.ts'
 import { stackContext } from '../setup/apply.ts'
-import { writeTar } from '../tar.ts'
+import { writeTarGz, type TarEntry } from '../tar.ts'
+import { applyPendingRestore, BACKUP_FILE, backupName, BIG_PARTS, databaseEntries, DEFAULT_PARTS, heldApps, partsOf, type BackupPart } from './backup.ts'
 import { CATALOG, containerName, orderServices, type StackContext, type StackServiceId } from './catalog.ts'
 import { containerSpec, LABEL_MANAGED, LABEL_SPEC, Orchestrator, serviceUrl, specHash } from './orchestrator.ts'
 
@@ -66,9 +67,19 @@ export interface BackupFile {
   name: string
   size: number
   at: string
+  parts: BackupPart[]
+}
+
+export interface BackupJob {
+  state: 'idle' | 'working' | 'done' | 'error'
+  step?: string
+  file?: BackupFile
+  error?: string
 }
 
 const BACKUP_KEEP = 14
+/** Of those, how many that hold databases or games (they can be big). */
+const BIG_BACKUP_KEEP = 3
 const APP_BACKUP_KEEP = 7
 const STARTUP_GRACE_MS = 120000
 const isStackId = (id: string): id is StackServiceId => id in CATALOG
@@ -92,6 +103,7 @@ export class Maintainer {
   readonly paths: Paths
   /** True while setup runs — the loop never fights it. */
   private readonly busy: () => boolean
+  backupJob: BackupJob = { state: 'idle' }
   health: SystemHealth = { checkedAt: null, docker: false, network: false, services: [], vpn: null, disks: [], backups: { last: null, files: [] }, events: [] }
   private timer: NodeJS.Timeout | null = null
   private ticking: Promise<SystemHealth> | null = null
@@ -167,6 +179,9 @@ export class Maintainer {
     this.health.vpn = ids.includes('gluetun') ? await this.checkVpn(s) : null
     this.health.disks = this.disks(ctx)
     this.health.checkedAt = new Date().toISOString()
+    if (existsSync(join(this.paths.configDir, 'restore-pending.json')) && s.stack) {
+      await applyPendingRestore(this.paths.configDir, s.stack.hostRoot, this.orch.docker, (level, m) => this.event(level, m)).catch(() => {})
+    }
     if (!this.busy() && !this.working) await this.scheduled(s)
     return this.health
   }
@@ -175,7 +190,8 @@ export class Maintainer {
 
   private async repair(ctx: StackContext, ids: StackServiceId[], s: Settings) {
     const docker = this.orch.docker
-    const paused = new Set(s.stack?.paused ?? [])
+    // Paused by an administrator, or held while a restore swaps a database in.
+    const paused = new Set([...(s.stack?.paused ?? []), ...heldApps(this.paths.configDir)])
     let gluetunStarted = 0
     for (const id of ids) {
       const name = containerName(id)
@@ -348,10 +364,10 @@ export class Maintainer {
   listBackups(): BackupFile[] {
     try {
       return readdirSync(this.paths.backups)
-        .filter((n) => /^finesse-backup-[\dT-]+\.tar\.gz$/.test(n))
+        .filter((n) => BACKUP_FILE.test(n))
         .map((name) => {
           const st = statSync(join(this.paths.backups, name))
-          return { name, size: st.size, at: st.mtime.toISOString() }
+          return { name, size: st.size, at: st.mtime.toISOString(), parts: partsOf(name) }
         })
         .sort((a, b) => b.at.localeCompare(a.at))
     } catch {
@@ -360,10 +376,12 @@ export class Maintainer {
   }
 
   /** Asks each app for a database snapshot, then archives Finesse's state + app configs. */
-  async backupNow(reason: 'nightly' | 'manual' | 'before-update' = 'manual'): Promise<BackupFile> {
+  async backupNow(reason: 'nightly' | 'manual' | 'before-update' = 'manual', wanted: BackupPart[] = DEFAULT_PARTS, onStep: (step: string) => void = () => {}): Promise<BackupFile> {
+    const parts: BackupPart[] = ['settings', ...wanted.filter((p) => p !== 'settings')]
     const s = this.settings.get()
     const snapshotErrors: string[] = []
     // 1. Apps snapshot their own databases into their config folders.
+    onStep('Asking the apps for snapshots…')
     if (s.jellyfin.url && s.jellyfin.apiKey && s.mode === 'bundle') {
       await fetch(`${s.jellyfin.url.replace(/\/+$/, '')}${s.jellyfin.basePath}/Backup/Create`, {
         method: 'POST',
@@ -412,18 +430,20 @@ export class Maintainer {
       } else snapshotErrors.push('RomM (its database didn’t answer)')
     }
 
-    // 2. Finesse's own archive.
-    const files: { path: string; data: Buffer }[] = []
-    if (existsSync(this.paths.settingsFile)) files.push({ path: 'finesse/finesse.json', data: readFileSync(this.paths.settingsFile) })
+    // 2. Finesse's own archive, with the parts asked for.
+    onStep('Collecting…')
+    const entries: TarEntry[] = []
+    const scratch = join(this.paths.backups, `.scratch-${process.pid}-${Date.now()}`)
+    mkdirSync(this.paths.backups, { recursive: true })
+    if (existsSync(this.paths.settingsFile)) entries.push({ path: 'finesse/finesse.json', data: readFileSync(this.paths.settingsFile) })
     if (existsSync(this.paths.invitesDb)) {
       const tmp = join(this.paths.backups, `.invites-${process.pid}.db`)
-      mkdirSync(this.paths.backups, { recursive: true })
       rmSync(tmp, { force: true })
       try {
         const db = new DatabaseSync(this.paths.invitesDb)
         db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`)
         db.close()
-        files.push({ path: 'finesse/invites.db', data: readFileSync(tmp) })
+        entries.push({ path: 'finesse/invites.db', data: readFileSync(tmp) })
       } catch (e) {
         snapshotErrors.push(`invites (${(e as Error).message})`)
       } finally {
@@ -431,33 +451,48 @@ export class Maintainer {
       }
     }
     const root = s.stack ? `${s.stack.hostRoot}/config` : null
-    if (root) {
+    if (root && parts.includes('apps')) {
       for (const rel of CONFIG_FILES) {
         const f = join(root, rel)
-        if (existsSync(f)) files.push({ path: `apps/${rel}`, data: readFileSync(f) })
+        if (existsSync(f)) entries.push({ path: `apps/${rel}`, data: readFileSync(f) })
       }
       const jfConf = join(root, 'jellyfin', 'config')
       if (existsSync(jfConf)) {
-        for (const n of readdirSync(jfConf)) if (n.endsWith('.xml')) files.push({ path: `apps/jellyfin/config/${n}`, data: readFileSync(join(jfConf, n)) })
+        for (const n of readdirSync(jfConf)) if (n.endsWith('.xml')) entries.push({ path: `apps/jellyfin/config/${n}`, data: readFileSync(join(jfConf, n)) })
       }
     }
+    if (parts.some((p) => BIG_PARTS.includes(p))) onStep('Copying databases…')
+    const dbs = databaseEntries(s, parts, scratch)
+    entries.push(...dbs.entries)
+    snapshotErrors.push(...dbs.problems)
     const manifest = {
       finesse: s.version,
       createdAt: new Date().toISOString(),
       reason,
       instanceId: s.instanceId,
-      files: files.map((f) => f.path),
-      note: 'Database snapshots live with each app: config/<app>/Backups (Sonarr/Radarr/Lidarr/Prowlarr), config/jellyfin/data/backups (Jellyfin) and config/romm/backups (RomM).',
+      parts,
+      files: entries.map((f) => f.path),
+      note: 'Restore with: docker exec finesse finesse restore <this file>. Each app also keeps database snapshots in its own config folder.',
     }
-    files.unshift({ path: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2)) })
-    const name = `finesse-backup-${stamp}.tar.gz`
-    mkdirSync(this.paths.backups, { recursive: true })
+    entries.unshift({ path: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2)) })
+    const name = backupName(stamp, parts)
     const file = join(this.paths.backups, name)
-    writeFileSync(file, gzipSync(writeTar(files)), { mode: 0o600 })
+    onStep('Writing the backup…')
+    try {
+      await writeTarGz(`${file}.partial`, entries)
+      renameSync(`${file}.partial`, file)
+    } finally {
+      rmSync(`${file}.partial`, { force: true })
+      rmSync(scratch, { recursive: true, force: true })
+    }
 
-    // 3. Retention.
-    const all = this.listBackups()
-    for (const old of all.slice(BACKUP_KEEP)) rmSync(join(this.paths.backups, old.name), { force: true })
+    // 3. Retention: the newest 14, of which at most 3 big ones.
+    let big = 0
+    for (const [i, b] of this.listBackups().entries()) {
+      const isBig = b.parts.some((p) => BIG_PARTS.includes(p))
+      if (isBig) big++
+      if (i >= BACKUP_KEEP || (isBig && big > BIG_BACKUP_KEEP)) rmSync(join(this.paths.backups, b.name), { force: true })
+    }
     if (root) this.pruneAppBackups(root)
 
     const at = new Date().toISOString()
@@ -467,12 +502,25 @@ export class Maintainer {
     this.health.backups = {
       last: at,
       files: this.listBackups(),
-      error: snapshotErrors.length ? `Some apps didn’t snapshot their database: ${snapshotErrors.join(', ')}` : undefined,
+      error: snapshotErrors.length ? `Some parts couldn’t be backed up: ${snapshotErrors.join(', ')}` : undefined,
     }
     if (snapshotErrors.length) this.event('warn', this.health.backups.error!)
-    this.event('info', `Backed up (${reason})`)
+    this.event('info', `Backed up (${reason}${parts.length > 2 || !parts.includes('apps') ? `: ${parts.join(', ')}` : ''})`)
     const st = statSync(file)
-    return { name, size: st.size, at: st.mtime.toISOString() }
+    return { name, size: st.size, at: st.mtime.toISOString(), parts }
+  }
+
+  /** Runs a backup in the background (the Settings page follows backupJob). */
+  startBackup(parts: BackupPart[]): BackupJob {
+    if (this.backupJob.state === 'working') throw new Error('A backup is already running')
+    this.backupJob = { state: 'working', step: 'Starting…' }
+    this.backupNow('manual', parts, (step) => {
+      this.backupJob.step = step
+    }).then(
+      (file) => (this.backupJob = { state: 'done', file }),
+      (e) => (this.backupJob = { state: 'error', error: (e as Error).message }),
+    )
+    return this.backupJob
   }
 
   /** Apps keep manual backups forever; trim them to the newest few. */

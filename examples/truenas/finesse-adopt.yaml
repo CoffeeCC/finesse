@@ -1,0 +1,28 @@
+# Finesse on TrueNAS SCALE 24.10+, in front of the Jellyfin (and Sonarr, Radarr…)
+# you already run. Apps → Discover → ⋮ → Install via YAML, name it "finesse",
+# paste this, and change the three marked lines. See docs/truenas.md.
+services:
+  finesse:
+    image: ghcr.io/coffeecc/finesse:latest
+    container_name: finesse
+    restart: unless-stopped
+    ports:
+      - "30500:8080"                                  # ← the port people use (30500 = the old nginx port)
+    volumes:
+      - /mnt/POOL/apps/finesse:/config                # ← a dataset for Finesse's settings, invites and backups
+    extra_hosts:
+      - "host.docker.internal:host-gateway"           # this NAS, even when its LAN address changes
+    environment:
+      TZ: Europe/London                               # ← your time zone
+      # Each app's port on this NAS and its API key. Leave out the ones you don't run.
+      JELLYFIN_URL: http://host.docker.internal:8096
+      JELLYFIN_API_KEY: paste-a-jellyfin-api-key      # Jellyfin → Dashboard → API Keys → +
+      RADARR_URL: http://host.docker.internal:7878
+      RADARR_API_KEY: paste-radarr-api-key            # Radarr → Settings → General
+      SONARR_URL: http://host.docker.internal:8989
+      SONARR_API_KEY: paste-sonarr-api-key
+      LIDARR_URL: http://host.docker.internal:8686
+      LIDARR_API_KEY: paste-lidarr-api-key
+      SAB_URL: http://host.docker.internal:8080
+      SAB_API_KEY: paste-sabnzbd-api-key              # SABnzbd → Config → General
+      # FINESSE_PUBLIC_URL: https://your-nas.your-tailnet.ts.net   # for invite links

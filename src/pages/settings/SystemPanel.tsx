@@ -3,8 +3,7 @@
 // email used for invites. Administrators only.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { mediaBrowserAuthHeader } from '../../api/client'
-import { systemApi, type SystemStatus } from '../../api/setup'
+import { systemApi, type BackupFile, type BackupPart, type BackupPartInfo, type SystemStatus } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { pushBackHandler } from '../../lib/back'
 import { CONTENT_BASE, setContentOrigin } from '../../lib/contentOrigin'
@@ -68,6 +67,185 @@ function LogsDialog({ id, name, onClose }: { id: string; name: string; onClose: 
         <pre className="flex-1 overflow-auto p-5 font-mono text-[11.5px] leading-relaxed text-ink-300 whitespace-pre-wrap break-all">{text ?? 'Loading…'}</pre>
       </div>
     </div>
+  )
+}
+
+const PART_SHORT: Record<BackupPart, string> = { settings: 'Settings', apps: 'App settings', watch: 'Watch history', requests: 'Requests', games: 'Games' }
+
+const size = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+
+/** Settings → Server → Backups: nightly ones, plus "Back up now" with a choice of what goes in. */
+function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refresh?: boolean) => Promise<void> }) {
+  const toast = useToast()
+  const h = status.health
+  const job = status.backup?.job
+  const [parts, setParts] = useState<BackupPartInfo[] | null>(null)
+  const [picked, setPicked] = useState<Set<BackupPart>>(new Set(['settings', 'apps']))
+  const [open, setOpen] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [justMade, setJustMade] = useState<string | null>(null)
+  const working = job?.state === 'working'
+
+  // Follow a running backup closely; say when it's done.
+  const [followed, setFollowed] = useState(false)
+  useEffect(() => {
+    if (!working) return
+    setFollowed(true)
+    const t = window.setInterval(() => void reload(), 2000)
+    return () => clearInterval(t)
+  }, [working, reload])
+  useEffect(() => {
+    if (!followed || working) return
+    setFollowed(false)
+    if (job?.state === 'done' && job.file) {
+      setJustMade(job.file.name)
+      toast(`Backed up · ${size(job.file.size)}`)
+    } else if (job?.state === 'error') toast(job.error ?? 'The backup failed', 'error')
+  }, [followed, working, job, toast])
+
+  const openPicker = async () => {
+    setOpen(true)
+    try {
+      const r = await systemApi.backupParts()
+      setParts(r.parts)
+      setPicked((p) => new Set([...p].filter((id) => r.parts.find((x) => x.id === id)?.available)))
+    } catch (e) {
+      toast((e as Error).message, 'error')
+      setOpen(false)
+    }
+  }
+  const start = async () => {
+    setStarting(true)
+    try {
+      await systemApi.startBackup([...picked])
+      setOpen(false)
+      await reload()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setStarting(false)
+    }
+  }
+  const download = async (f: BackupFile) => {
+    try {
+      const a = document.createElement('a')
+      a.href = await systemApi.backupLink(f.name)
+      a.download = f.name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch (e) {
+      toast((e as Error).message || 'Download failed', 'error')
+    }
+  }
+  const total = parts?.filter((p) => picked.has(p.id)).reduce((n, p) => n + p.bytes, 0) ?? 0
+
+  return (
+    <Block
+      title="Backups"
+      action={
+        !open && (
+          <button type="button" className={smallBtn} disabled={working} onClick={() => void openPicker()}>
+            {working && <Spinner className="h-3 w-3" />}
+            {working ? job?.step ?? 'Backing up…' : 'Back up now'}
+          </button>
+        )
+      }
+    >
+      <div className={`${CARD} px-5 py-4`}>
+        <p className="text-[13px] text-ink-300">
+          Every night, Finesse backs up its settings and each app’s settings. Last backup: <span className="text-white">{ago(h.backups.last)}</span>.
+        </p>
+        {h.backups.error && <p className="mt-2 text-[12.5px] text-amber-200">{h.backups.error}</p>}
+
+        {open && (
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <p className="text-[13px] font-semibold text-white">What should this backup include?</p>
+            {!parts ? (
+              <p className="mt-3 flex items-center gap-2 text-[12.5px] text-ink-400">
+                <Spinner className="h-3 w-3" /> Checking sizes…
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-1">
+                {parts.map((p) => {
+                  const fixed = p.id === 'settings'
+                  const on = fixed || picked.has(p.id)
+                  return (
+                    <li key={p.id}>
+                      <label className={`flex items-start gap-3 rounded-lg px-2 py-2 ${p.available && !fixed ? 'cursor-pointer hover:bg-white/[0.03]' : 'opacity-60'}`}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                          checked={on && p.available}
+                          disabled={fixed || !p.available}
+                          onChange={(e) =>
+                            setPicked((cur) => {
+                              const next = new Set(cur)
+                              if (e.target.checked) next.add(p.id)
+                              else next.delete(p.id)
+                              return next
+                            })
+                          }
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-3">
+                            <span className="text-[13px] font-medium text-white">{p.label}</span>
+                            {p.available && <span className="shrink-0 text-[12px] tabular-nums text-ink-400">{size(p.bytes)}</span>}
+                          </span>
+                          <span className="block text-[12px] leading-relaxed text-ink-400">{p.available ? p.detail : p.why}</span>
+                        </span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            <p className="mt-3 text-[12px] leading-relaxed text-ink-400">
+              Movies, shows and music aren’t included: they’re far too big. Copy your media folder to another disk, or snapshot it if your NAS can.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button type="button" className={primaryBtn} disabled={!parts || starting} onClick={() => void start()}>
+                {starting && <Spinner className="h-3 w-3" />}
+                Back up{parts ? ` · about ${size(total)}` : ''}
+              </button>
+              <button type="button" className={smallBtn} onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {h.backups.files.length > 0 && (
+          <ul className="mt-3 divide-y divide-white/5">
+            {h.backups.files.slice(0, 6).map((f) => (
+              <li key={f.name} className="flex flex-wrap items-center justify-between gap-3 py-2.5 text-[12.5px]">
+                <span className="min-w-0">
+                  <span className={justMade === f.name ? 'font-medium text-white' : 'text-ink-200'}>{new Date(f.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                  <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                    {(f.parts ?? ['settings', 'apps']).map((p) => (
+                      <span key={p} className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10.5px] text-ink-300">
+                        {PART_SHORT[p]}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+                <button type="button" className={smallBtn} onClick={() => void download(f)}>
+                  Download · {size(f.size)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <details className="mt-3 text-[12px] text-ink-400">
+          <summary className="cursor-pointer select-none text-ink-300 hover:text-white">How to restore a backup</summary>
+          <p className="mt-2 leading-relaxed">
+            Put the file in Finesse’s backups folder (or give its full path), then on the server run{' '}
+            <code className="rounded bg-white/10 px-1 text-[11.5px]">sudo docker exec finesse finesse restore {'<file>'}</code> and restart Finesse. Add{' '}
+            <code className="rounded bg-white/10 px-1 text-[11.5px]">--only watch</code> to bring back just one part. Each app is stopped while its database goes back.
+          </p>
+        </details>
+      </div>
+    </Block>
   )
 }
 
@@ -335,46 +513,7 @@ export default function SystemPanel() {
       )}
 
       {/* Backups */}
-      <Block
-        title="Backups"
-        action={
-          <button type="button" className={smallBtn} disabled={busy === 'backup'} onClick={() => act('backup', () => systemApi.backupNow(), 'Backed up')}>
-            {busy === 'backup' && <Spinner className="h-3 w-3" />}
-            Back up now
-          </button>
-        }
-      >
-        <div className={`${CARD} px-5 py-4`}>
-          <p className="text-[13px] text-ink-300">
-            Nightly, automatically. Last backup: <span className="text-white">{ago(h.backups.last)}</span>. Each app also keeps its own database snapshots in its config folder.
-          </p>
-          {h.backups.error && <p className="mt-2 text-[12.5px] text-amber-200">{h.backups.error}</p>}
-          {h.backups.files.length > 0 && (
-            <ul className="mt-3 divide-y divide-white/5">
-              {h.backups.files.slice(0, 5).map((f) => (
-                <li key={f.name} className="flex items-center justify-between gap-3 py-2 text-[12.5px]">
-                  <span className="truncate font-mono text-ink-300">{f.name}</span>
-                  <button
-                    type="button"
-                    className={smallBtn}
-                    onClick={async () => {
-                      const r = await fetch(systemApi.backupUrl(f.name), { headers: { Authorization: mediaBrowserAuthHeader() } })
-                      if (!r.ok) return toast('Download failed', 'error')
-                      const a = document.createElement('a')
-                      a.href = URL.createObjectURL(await r.blob())
-                      a.download = f.name
-                      a.click()
-                      setTimeout(() => URL.revokeObjectURL(a.href), 5000)
-                    }}
-                  >
-                    Download · {Math.max(1, Math.round(f.size / 1024))} KB
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </Block>
+      <BackupsBlock status={s} reload={load} />
 
       <SharingSettings onSaved={refreshFinesse} />
 

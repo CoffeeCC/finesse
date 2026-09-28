@@ -89,8 +89,8 @@ On the NAS (TrueNAS SCALE shown; any Docker host works the same):
    ```
 
    Here `finesse.env` holds the `JELLYFIN_*`, `RADARR_*` … variables from the table above, using
-   the addresses and keys from step 1. On TrueNAS you can do the same as a *Custom App* with
-   these settings.
+   the addresses and keys from step 1. On TrueNAS, install it from the Apps page instead, so it's listed with your
+   other apps: see [Finesse on TrueNAS](truenas.md).
 4. **Tailscale Funnel / reverse proxy:** point it at the new container's port, as before.
 5. **Check:**
    - Open `http://<nas>:30500/finesse/`, sign in, and look at **Settings → Server → Invites**.

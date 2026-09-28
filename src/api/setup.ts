@@ -183,6 +183,22 @@ export const setupApi = {
 
 export type ServiceState = 'running' | 'starting' | 'restarting' | 'stopped' | 'paused' | 'missing' | 'unreachable'
 
+export type BackupPart = 'settings' | 'apps' | 'watch' | 'requests' | 'games'
+export interface BackupFile {
+  name: string
+  size: number
+  at: string
+  parts?: BackupPart[]
+}
+export interface BackupPartInfo {
+  id: BackupPart
+  label: string
+  detail: string
+  available: boolean
+  bytes: number
+  why?: string
+}
+
 export interface SystemStatus {
   version: string
   web: string | null
@@ -193,6 +209,7 @@ export interface SystemStatus {
   busy: boolean
   previews?: { enabled: boolean; made: number; pending: number; total: number; lastRun: string | null }
   games?: { enabled: boolean; folder: string | null; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
+  backup?: { job: { state: 'idle' | 'working' | 'done' | 'error'; step?: string; file?: BackupFile; error?: string } }
   health: {
     checkedAt: string | null
     docker: boolean
@@ -200,7 +217,7 @@ export interface SystemStatus {
     services: { id: string; name: string; role: string; state: ServiceState; detail?: string; image: string; updatePending: boolean; startedAt?: string }[]
     vpn: { connected: boolean; publicIp?: string; country?: string; city?: string; error?: string } | null
     disks: { label: string; path: string; total: number; free: number }[]
-    backups: { last: string | null; files: { name: string; size: number; at: string }[]; error?: string }
+    backups: { last: string | null; files: BackupFile[]; error?: string }
     events: { at: string; level: 'info' | 'warn' | 'error'; message: string }[]
   }
 }
@@ -220,8 +237,11 @@ export const systemApi = {
   setGames: (enabled: boolean, steamGridDbKey?: string) => call<{ job: unknown }>('PUT', '/api/system/games', { enabled, ...(steamGridDbKey ? { steamGridDbKey } : {}) }),
   makePreviews: () => call<{ started: boolean }>('POST', '/api/system/previews'),
   setAutoUpdates: (auto: boolean) => call<{ auto: boolean }>('PUT', '/api/system/updates', { auto }),
-  backupNow: () => call<{ name: string; size: number; at: string }>('POST', '/api/system/backups', undefined, { timeoutMs: 600000 }),
-  backupUrl: (name: string) => finesseApi(`/api/system/backups/${encodeURIComponent(name)}`),
+  backupParts: () => call<{ parts: BackupPartInfo[] }>('GET', '/api/system/backups/parts'),
+  /** Starts a backup in the background; follow it in status().backup.job. */
+  startBackup: (parts: BackupPart[]) => call<{ job: unknown }>('POST', '/api/system/backups', { parts }),
+  /** A one-time link the browser can download directly (big backups never pass through memory). */
+  backupLink: async (name: string) => finesseApi((await call<{ url: string }>('POST', `/api/system/backups/${encodeURIComponent(name)}/link`)).url),
   email: () => call<{ email: (Omit<EmailDoc, 'password'> & { hasPassword: boolean }) | null; publicUrl: string | null }>('GET', '/api/system/email'),
   saveEmail: (body: { email?: (Partial<EmailDoc> & { keepPassword?: boolean }) | null; publicUrl?: string | null }) =>
     call<{ email: (Omit<EmailDoc, 'password'> & { hasPassword: boolean }) | null; publicUrl: string | null }>('PUT', '/api/system/email', body),
