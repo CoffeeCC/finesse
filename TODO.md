@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Fixes — v1.0.1 (2026-09-28)
+
+- **Setup no longer stops at "Setting up Games" when Games is off.** 1.0.0 tried to start the
+  games database on every install and gave up after 3 minutes. Steps a setup doesn't need are
+  now skipped. If it happened to you: run the install command with `--uninstall`, run the
+  install command again (your folders are kept), then go through setup with the same account.
+  What was already done is skipped, so it takes under a minute.
+
 ## Finesse 1.0 — your own streaming service, set up for you — v1.0.0 (2026-09-28)
 
 Finesse is now a complete, self-hosted streaming service: one command on a Linux machine, a

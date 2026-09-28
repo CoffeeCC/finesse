@@ -138,6 +138,8 @@ async function waitDatabase(orch: Orchestrator, timeoutMs = 180000) {
 
 /** Starts RomM + its database and signs Finesse in (shared by setup and Settings → Server). */
 async function installGames(orch: Orchestrator, ctx: StackContext, settings: SettingsStore, say: (m: string) => void): Promise<{ username: string; password: string }> {
+  // Without its passwords the database would never start; say why instead of waiting 3 minutes.
+  if (!ctx.games) throw new Error('Games isn’t switched on, so there’s nothing to set up')
   clearFinishedTcLog(ctx.hostRoot)
   await orch.ensureService('romm-db', ctx)
   say('Waiting for the games database…')
@@ -187,7 +189,9 @@ export class SetupRunner {
 
   private async run(id: string, fn: (s: Step) => Promise<void>) {
     const s = this.step(id)
-    if (!s) return
+    // A step this setup doesn't need (Games left off, no downloads, no remote
+    // access) never runs.
+    if (!s || s.state === 'skipped') return
     s.state = 'running'
     this.say(`▶ ${s.title}`)
     try {

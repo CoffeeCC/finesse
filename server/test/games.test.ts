@@ -101,3 +101,23 @@ test('turning Games off drops RomM from the settings before removing its contain
   assert.deepEqual(events, ['settings: jellyfin', 'remove romm', 'remove romm-db'])
   assert.ok(!('romm' in s.services))
 })
+
+test('a setup without Games never runs the Games step', async () => {
+  const { SetupRunner } = await import('../src/setup/apply.ts')
+  const runner = new SetupRunner({ get: () => ({}), update: () => ({}) } as never, {} as never)
+  runner.status = {
+    state: 'running',
+    steps: [
+      { id: 'games', title: 'Setting up Games', state: 'skipped' },
+      { id: 'finish', title: 'Finishing up', state: 'pending' },
+    ],
+    log: [],
+    warnings: [],
+  }
+  const ran: string[] = []
+  const run = (runner as unknown as { run: (id: string, fn: () => Promise<void>) => Promise<void> }).run.bind(runner)
+  await run('games', async () => void ran.push('games'))
+  await run('finish', async () => void ran.push('finish'))
+  assert.deepEqual(ran, ['finish'])
+  assert.deepEqual(runner.status.steps.map((s) => s.state), ['skipped', 'done'])
+})
