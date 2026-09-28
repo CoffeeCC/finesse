@@ -87,8 +87,45 @@ export interface Settings {
   maintenance?: { lastBackup?: string; lastStackUpdate?: string }
   /** Quality profile names new requests use, per app. */
   requests?: { profiles: Record<string, string> }
+  /** Groups: libraries shared between Finesse servers (see groups.ts). */
+  groups?: GroupsState
   /** SMTP for emailing invites (optional). */
   email?: { host: string; port: number; secure?: boolean; username?: string; password?: string; from: string }
+}
+
+/** A server that watches libraries we share (we're the sharing side). */
+export interface GroupLink {
+  id: string
+  name: string
+  /** Where that server is reached (for its admins' reference; optional). */
+  url?: string
+  /** sha256 of the secret it signs its calls with. */
+  secretHash: string
+  /** Our Jellyfin library ids it can see. */
+  libraries: string[]
+  createdAt: string
+  lastSeen?: string
+  /** One hidden Jellyfin user per person on that server who opened something. */
+  viewers: Record<string, { userId: string; name: string; password: string; token?: string }>
+}
+
+/** A server whose shared libraries our household watches. */
+export interface GroupFriend {
+  id: string
+  name: string
+  url: string
+  linkId: string
+  secret: string
+  addedAt: string
+}
+
+export interface GroupsState {
+  links: GroupLink[]
+  friends: GroupFriend[]
+  /** One-time pairing codes we handed out (hashed), with what they'll share. */
+  codes: { hash: string; libraries: string[]; expires: string }[]
+  /** A friend server offering to share back with us. */
+  offers: { id: string; name: string; url: string; code: string; at: string }[]
 }
 
 export interface Paths {

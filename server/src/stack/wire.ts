@@ -76,10 +76,10 @@ export interface JellyfinSetup {
 
 /** Detects which path Jellyfin currently answers under ('' or '/jellyfin'),
  *  waiting out its "starting up" phase (503). */
-async function jfBase(url: string, waitMs = 120000): Promise<string> {
+async function jfBase(url: string, waitMs = 120000, only?: string): Promise<string> {
   const until = Date.now() + waitMs
   do {
-    for (const base of ['/jellyfin', '']) {
+    for (const base of only !== undefined ? [only] : ['/jellyfin', '']) {
       try {
         const r = await fetch(`${url}${base}/System/Info/Public`, { signal: AbortSignal.timeout(5000), redirect: 'manual' })
         if (r.ok && /json/.test(r.headers.get('content-type') ?? '')) return base
@@ -174,7 +174,8 @@ export async function wireJellyfin(o: JellyfinSetup, step: (msg: string) => void
     net.BaseUrl = '/jellyfin'
     await http('POST', `${J()}/System/Configuration/network`, { headers: jfAuth(apiKey), body: net })
     await o.restart()
-    base = await jfBase(o.url, 180000)
+    // Only the new address counts: just after a restart it can still answer on the old one.
+    base = await jfBase(o.url, 180000, '/jellyfin')
   }
   return { apiKey, basePath: base, adminId }
 }

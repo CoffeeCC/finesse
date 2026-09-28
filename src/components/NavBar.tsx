@@ -3,7 +3,7 @@ import { getItems } from '../api/client'
 import { useFinesse } from '../lib/finesseServer'
 import { useState, useRef, useEffect } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useViews } from '../api/queries'
+import { useFriends, useViews } from '../api/queries'
 import { useAuth } from '../auth/AuthContext'
 import { pushBackHandler } from '../lib/back'
 import { openSearch } from '../lib/searchOverlay'
@@ -22,12 +22,14 @@ export const COLLECTIONS_HREF = '/browse?title=Collections&includeItemTypes=BoxS
 export function useSecondaryDestinations() {
   const { data: views } = useViews()
   const { hasAnime, hasGames } = useOptionalLibraries()
+  const { data: friends } = useFriends()
   const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
   const hasMusic = views?.Items.some((v) => v.CollectionType === 'music') ?? false
   return [
     ...(hasAnime ? [{ label: 'Anime', to: ANIME_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('tags=anime') }] : []),
     ...(hasMusic ? [{ label: 'Music', to: '/music', match: (p: string) => p.startsWith('/music') || p.startsWith('/album') }] : []),
     ...(hasGames ? [{ label: 'Games', to: '/games', match: (p: string) => p.startsWith('/games') }] : []),
+    ...(friends?.length ? [{ label: 'Friends', to: '/friends', match: (p: string) => p === '/friends' }] : []),
     ...(hasCollections
       ? [{ label: 'Collections', to: COLLECTIONS_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('BoxSet') }]
       : []),

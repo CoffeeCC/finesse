@@ -16,6 +16,7 @@ Key facts:
 - [Example setup documents](https://github.com/CoffeeCC/finesse/tree/master/examples/setup): minimal, Usenet, full
 - [Use an existing Jellyfin/*arr setup](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/adopt.md): adopt mode and migrating older installs
 - [TrueNAS SCALE](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/truenas.md): install from the Apps page (Install via YAML), adopt or full install
+- [Groups](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/groups.md): share libraries between Finesse servers (watch-only), pairing codes, share back
 - [Watch on a TV](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/tv.md): installing the LG webOS app, other TVs' browsers, Jellyfin apps
 - [Games](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/games.md): the optional retro-games library (RomM), folder layout, artwork keys
 

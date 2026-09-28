@@ -28,6 +28,7 @@ import { useToast } from '../components/Toast'
 import { browseHref } from './BrowsePage'
 import { useAuth } from '../auth/AuthContext'
 import { useFinesse } from '../lib/finesseServer'
+import FriendRows from '../components/FriendRows'
 
 const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
 const HERO_ROTATE_MS = 9000
@@ -493,6 +494,8 @@ export default function HomePage() {
             }}
           />
         ))}
+
+        {!customizing && <FriendRows />}
 
         {customizing && availableGenres.length > 0 && (
           <div className="rounded-xl border border-dashed border-white/10 p-4">

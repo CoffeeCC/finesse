@@ -6,7 +6,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
 import { join } from 'node:path'
-import type { SettingsStore } from './config.ts'
+import type { Settings, SettingsStore } from './config.ts'
 import { ApiError } from './http/core.ts'
 import { JfError, type Jellyfin, type JfUser } from './jellyfin.ts'
 import { logger } from './log.ts'
@@ -38,6 +38,13 @@ export function tokenFrom(req: IncomingMessage, opts: { cookie?: string; query?:
 }
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex')
+
+/** Jellyfin user ids of friends' viewers on this server (Groups): never household members. */
+export function groupUserIds(s: Settings): Set<string> {
+  const out = new Set<string>()
+  for (const l of s.groups?.links ?? []) for (const v of Object.values(l.viewers)) out.add(v.userId)
+  return out
+}
 
 export class Auth {
   private cache = new Map<string, { user: JfUser | null; at: number }>()
@@ -86,6 +93,8 @@ export class Auth {
     if (this.isServiceKey(token)) return { Id: 'service', Name: 'api-key', Policy: { IsAdministrator: true } }
     const user = await this.userFor(token)
     if (!user) throw new ApiError(401, 'Invalid session')
+    // A friend's viewer (Groups) only ever plays through the friend proxy, never as one of us.
+    if (groupUserIds(this.settings.get()).has(user.Id)) throw new ApiError(403, 'This account belongs to a friend’s server')
     return user
   }
 

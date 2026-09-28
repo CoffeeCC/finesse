@@ -1,5 +1,6 @@
 import type { JfAuthResult, JfItem, JfItemsResult, JfPlaybackInfo } from './types'
 import { getPrefs } from '../lib/settings'
+import { peerBase, peerOf, tagAnswer, untag } from '../lib/peers'
 
 const STORAGE_KEY = 'finesse.session'
 
@@ -159,18 +160,30 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  opts: { method?: string; body?: unknown; server?: string; token?: string } = {},
+  opts: { method?: string; body?: unknown; server?: string; token?: string; peer?: string } = {},
 ): Promise<T> {
-  const base = opts.server ?? session?.server
+  // A friend's title (tagged id) goes to the friend's server, through ours.
+  let body = opts.body !== undefined ? JSON.stringify(opts.body) : undefined
+  let peer = opts.peer ?? null
+  if (!opts.server) {
+    const p = untag(path)
+    const b = body ? untag(body) : { peer: null, text: body }
+    path = p.text
+    body = b.text
+    peer = peer ?? p.peer ?? b.peer
+  }
+  const base = peer ? peerBase(peer) : (opts.server ?? session?.server)
   if (!base) throw new ApiError(0, 'Not connected to a server')
   const res = await fetch(`${base}${path}`, {
     method: opts.method ?? 'GET',
     headers: {
       Authorization: authHeader(opts.token ?? session?.token),
-      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    body,
   })
+  // A friend stopped sharing: that's about them, not our own sign-in.
+  if (peer && (res.status === 401 || res.status === 404)) throw new ApiError(res.status, 'That server isn’t shared with you any more')
   if (res.status === 401 && session) {
     setSession(null)
     if (__WEBOS__) {
@@ -185,7 +198,16 @@ async function request<T>(
   if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`)
   if (res.status === 204) return undefined as T
   const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  const data = (text ? JSON.parse(text) : undefined) as T
+  return peer && data ? tagAnswer(data, peer) : data
+}
+
+/** A media URL built for our server, sent to a friend's instead when it names their title. */
+function routed(url: string): string {
+  if (!session) return url
+  const { peer, text } = untag(url)
+  if (!peer) return url
+  return text.startsWith(session.server) ? peerBase(peer) + text.slice(session.server.length) : text
 }
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
@@ -257,8 +279,8 @@ export function logout() {
 
 // ---------- Browse ----------
 
-export function getViews() {
-  return request<JfItemsResult>(`/Users/${session!.userId}/Views`)
+export function getViews(peer?: string) {
+  return request<JfItemsResult>(`/Users/${session!.userId}/Views`, { peer })
 }
 
 export interface ItemsQuery {
@@ -281,9 +303,21 @@ export interface ItemsQuery {
   tags?: string
   /** false = leave out missing (virtual) episodes. */
   isMissing?: boolean
+  /** Ask a friend's server (Groups) instead of ours, for calls without a tagged id. */
+  peer?: string
 }
 
-export function getItems(q: ItemsQuery) {
+export async function getItems(q: ItemsQuery): Promise<JfItemsResult> {
+  // My List can hold titles from friends' servers too: ask each server for its own.
+  const ids = q.ids?.split(',').filter(Boolean) ?? []
+  const servers = new Map<string | null, string[]>()
+  for (const id of ids) servers.set(peerOf(id), [...(servers.get(peerOf(id)) ?? []), id])
+  if (servers.size > 1) {
+    const parts = await Promise.all([...servers.values()].map((group) => getItems({ ...q, ids: group.join(',') }).catch(() => ({ Items: [] as JfItem[], TotalRecordCount: 0 }))))
+    const byId = new Map(parts.flatMap((r) => r.Items).map((i) => [i.Id, i]))
+    const Items = ids.map((id) => byId.get(id)).filter((i): i is JfItem => Boolean(i))
+    return { Items, TotalRecordCount: Items.length } as JfItemsResult
+  }
   return request<JfItemsResult>(
     `/Users/${session!.userId}/Items` +
       qs({
@@ -308,6 +342,7 @@ export function getItems(q: ItemsQuery) {
         EnableTotalRecordCount: true,
         ImageTypeLimit: 1,
       }),
+    { peer: q.peer },
   )
 }
 
@@ -389,8 +424,10 @@ export function refreshItemMetadata(itemId: string) {
 
 export function trickplayTileUrl(itemId: string, width: number, tileIndex: number, mediaSourceId: string): string {
   return (
-    `${session!.server}/Videos/${itemId}/Trickplay/${width}/${tileIndex}.jpg` +
-    qs({ MediaSourceId: mediaSourceId, ...tokenQuery() })
+    routed(
+      `${session!.server}/Videos/${itemId}/Trickplay/${width}/${tileIndex}.jpg` +
+        qs({ MediaSourceId: mediaSourceId, ...tokenQuery() }),
+    )
   )
 }
 
@@ -483,10 +520,11 @@ export function sendStopToSession(sessionId: string) {
   return request(`/Sessions/${sessionId}/Playing/Stop`, { method: 'POST' }).catch(() => {})
 }
 
-export function getResume() {
+export function getResume(peer?: string) {
   return request<JfItemsResult>(
     `/Users/${session!.userId}/Items/Resume` +
       qs({ Limit: 20, MediaTypes: 'Video', Fields: 'PrimaryImageAspectRatio,ProductionYear' }),
+    { peer },
   )
 }
 
@@ -521,6 +559,11 @@ export function getSeriesNextUp(seriesId: string) {
         Limit: 1,
       }),
   )
+}
+
+/** What a friend's server added lately, across everything it shares with us. */
+export function getPeerLatest(peer: string, limit = 24) {
+  return request<JfItem[]>(`/Users/${session!.userId}/Items/Latest` + qs({ Limit: limit, Fields: 'PrimaryImageAspectRatio,ProductionYear' }), { peer })
 }
 
 export function getLatest(parentId: string, limit = 20) {
@@ -915,10 +958,7 @@ export function getPlaybackInfo(
 
 export function directStreamUrl(itemId: string, mediaSourceId: string, container?: string): string {
   const ext = container?.split(',')[0] || 'mp4'
-  return (
-    `${session!.server}/Videos/${itemId}/stream.${ext}` +
-    qs({ static: true, mediaSourceId, ...tokenQuery(), deviceId: DEVICE_ID })
-  )
+  return routed(`${session!.server}/Videos/${itemId}/stream.${ext}` + qs({ static: true, mediaSourceId, ...tokenQuery(), deviceId: DEVICE_ID }))
 }
 
 export interface JfLyricLine {
@@ -941,7 +981,7 @@ export async function getLyrics(itemId: string): Promise<JfLyrics | null> {
 /** Playable audio URL for an <audio> element: direct file when the browser
  *  supports the container, else an http mp3 transcode. */
 export function audioStreamUrl(itemId: string): string {
-  return (
+  return routed(
     `${session!.server}/Audio/${itemId}/universal` +
     qs({
       UserId: session!.userId,
@@ -961,7 +1001,8 @@ export function audioStreamUrl(itemId: string): string {
  *  segment requests return HTTP 400 (hls.js networkError). Resume by seeking
  *  inside the full VOD playlist after MANIFEST_PARSED instead. */
 export function transcodeUrl(transcodingUrl: string, _startTimeTicks = 0): string {
-  let url = withToken(`${session!.server}${transcodingUrl}`)
+  // A friend's answer already carries the full address (see peers.ts).
+  let url = withToken(/^https?:/i.test(transcodingUrl) ? transcodingUrl : `${session!.server}${transcodingUrl}`)
   // Strip StartTimeTicks if JF or a caller already put it on the URL.
   url = url.replace(/([?&])StartTimeTicks=\d+&?/gi, '$1').replace(/[?&]$/, '')
   return url
@@ -1043,15 +1084,15 @@ export function imageUrl(itemId: string, type: string, opts: ImageOpts = {}): st
     maxWidth = Math.min(maxWidth ?? cap, cap)
     quality = Math.min(quality, 80)
   }
-  return (
+  return routed(
     `${session.server}/Items/${itemId}/Images/${type}` +
-    qs({
-      maxWidth,
-      maxHeight: opts.maxHeight,
-      tag: opts.tag,
-      quality,
-      ...tokenQuery(session.token),
-    })
+      qs({
+        maxWidth,
+        maxHeight: opts.maxHeight,
+        tag: opts.tag,
+        quality,
+        ...tokenQuery(session.token),
+      }),
   )
 }
 

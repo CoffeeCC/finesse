@@ -38,7 +38,15 @@ export interface ProxyOptions {
   timeoutMs?: number
   /** A request body already read (and checked) by the caller, sent instead of streaming req. */
   body?: Buffer
+  /**
+   * Rewrites JSON and HLS playlist replies (uncompressed, up to 32 MB) before
+   * they're sent on. Ask upstream for `accept-encoding: identity` with it.
+   */
+  rewriteText?: (text: string) => string
 }
+
+const REWRITABLE = /^(application\/(json|vnd\.apple\.mpegurl|x-mpegurl)|audio\/(x-)?mpegurl)\b/i
+const REWRITE_MAX = 32 << 20
 
 function upstreamHeaders(req: IncomingMessage, opts: ProxyOptions): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {}
@@ -101,7 +109,34 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
       (up) => {
         // Streaming may legitimately take hours (a movie) — drop the timeout.
         up.socket.setTimeout(0)
-        res.writeHead(up.statusCode ?? 502, up.statusMessage, downstreamHeaders(up.headers, opts))
+        const headers = downstreamHeaders(up.headers, opts)
+        const len = Number(up.headers['content-length'] ?? 0)
+        if (opts.rewriteText && REWRITABLE.test(String(up.headers['content-type'] ?? '')) && !up.headers['content-encoding'] && len <= REWRITE_MAX) {
+          const chunks: Buffer[] = []
+          let size = 0
+          up.on('data', (c: Buffer) => {
+            size += c.length
+            if (size <= REWRITE_MAX) chunks.push(c)
+          })
+          up.on('end', () => {
+            if (size > REWRITE_MAX) {
+              res.destroy()
+              return resolve()
+            }
+            const out = Buffer.from(opts.rewriteText!(Buffer.concat(chunks).toString('utf8')), 'utf8')
+            delete headers['transfer-encoding']
+            headers['content-length'] = String(out.length)
+            res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
+            res.end(out)
+            resolve()
+          })
+          up.on('error', () => {
+            res.destroy()
+            resolve()
+          })
+          return
+        }
+        res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
         up.pipe(res)
         up.on('end', resolve)
         up.on('error', () => {

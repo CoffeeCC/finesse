@@ -47,7 +47,15 @@ Updates). Found a security problem? Please report it privately; see
 Finesse organises and plays media you have the right to watch. It comes with no content,
 indexers or accounts, and doesn't find them for you. The download apps it sets up are the same
 open-source ones many people use for their own recordings, Linux ISOs and public-domain media.
-What you download, and whether it's legal where you live, is up to you.
+What you download, and whether it's legal where you live, is up to you. The same goes for
+[Groups](groups.md): share only what you're allowed to share.
+
+## Can friends see my server?
+
+Only what you choose. With [Groups](groups.md), a friend who runs Finesse watches the libraries
+you tick, from their own Finesse. They get no account on your server, can't request, download or
+delete anything, and never see your keys or where your files are. Stop sharing and it ends on
+their next click.
 
 ## Why does the LG TV app need Developer Mode?
 

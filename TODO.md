@@ -38,6 +38,21 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Groups: share with friends who run Finesse — v1.1.0 (2026-09-28)
+
+- **Groups.** Households that each run Finesse can share libraries with each other, watch-only.
+  Make a code under **Settings → Server → Groups**, pick what your friend can watch, and send
+  them the code with your address. They add your server, and everyone in their household finds
+  your films under **Friends**, in a "From *your server*" row on Home, and in search. Share back
+  with one click. See [Groups](docs/groups.md).
+  - Nobody gets an account on anyone else's server, and nobody can request, download or delete
+    anything there.
+  - Everyone keeps their own watch progress.
+  - Keys and file locations never leave the server that has them.
+  - Stop sharing, or change what's shared, and it applies at once.
+- Setting up an older Jellyfin under `/jellyfin` could catch it on its old address right after
+  the restart. Fixed.
+
 ## TrueNAS and backups you choose — v1.0.3 (2026-09-28)
 
 - **Finesse on TrueNAS's Apps page.** TrueNAS SCALE 24.10+ can install Finesse from Apps → Install

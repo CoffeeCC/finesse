@@ -247,3 +247,35 @@ export const systemApi = {
     call<{ email: (Omit<EmailDoc, 'password'> & { hasPassword: boolean }) | null; publicUrl: string | null }>('PUT', '/api/system/email', body),
   testEmail: (to: string) => call<{ ok: boolean }>('POST', '/api/system/email/test', { to }, { timeoutMs: 45000 }),
 }
+
+// ---------- Groups: libraries shared between Finesse servers ----------
+
+export interface Friend {
+  id: string
+  name: string
+}
+export interface GroupsOverview {
+  name: string
+  publicUrl: string | null
+  libraries: { id: string; name: string; type: string | null }[]
+  /** Servers that watch ours. */
+  links: { id: string; name: string; url: string | null; libraries: string[]; createdAt: string; lastSeen: string | null; viewers: string[] }[]
+  /** Servers whose libraries we watch. */
+  friends: (Friend & { url: string; addedAt: string })[]
+  codes: number
+  offers: { id: string; name: string; url: string; at: string }[]
+}
+
+export const groupsApi = {
+  /** Everyone at home: the friends' servers this one watches. */
+  friends: () => call<{ friends: Friend[] }>('GET', '/api/groups/friends'),
+  overview: () => call<GroupsOverview>('GET', '/api/groups'),
+  createCode: (libraries: string[]) => call<{ code: string; expires: string }>('POST', '/api/groups/codes', { libraries }),
+  setLinkLibraries: (id: string, libraries: string[]) => call<{ ok: boolean }>('PUT', `/api/groups/links/${id}`, { libraries }),
+  removeLink: (id: string) => call<{ ok: boolean }>('DELETE', `/api/groups/links/${id}`),
+  addFriend: (url: string, code: string) => call<Friend>('POST', '/api/groups/friends', { url, code }, { timeoutMs: 45000 }),
+  removeFriend: (id: string) => call<{ ok: boolean }>('DELETE', `/api/groups/friends/${id}`),
+  offer: (id: string, libraries: string[]) => call<{ ok: boolean }>('POST', `/api/groups/friends/${id}/offer`, { libraries }, { timeoutMs: 45000 }),
+  acceptOffer: (id: string) => call<Friend>('POST', `/api/groups/offers/${id}/accept`, undefined, { timeoutMs: 45000 }),
+  dismissOffer: (id: string) => call<{ ok: boolean }>('DELETE', `/api/groups/offers/${id}`),
+}

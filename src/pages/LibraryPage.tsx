@@ -19,6 +19,7 @@ import { MultiSelectMenu, SelectMenu } from '../components/Menu'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
+import { peerOf } from '../lib/peers'
 
 const TEXT_BLOCK = 56
 const ROW_GAP = 8
@@ -85,7 +86,11 @@ function useDebounced<T>(value: T, ms: number): T {
 
 export default function LibraryPage() {
   const { viewId } = useParams()
-  const { data: views } = useViews()
+  // A friend's library (Groups) is described by their server, not ours.
+  const friend = peerOf(viewId)
+  const { data: ownViews } = useViews()
+  const { data: friendViews } = useQuery({ queryKey: ['friend', friend, 'views'], queryFn: () => api.getViews(friend!), enabled: Boolean(friend), staleTime: 5 * 60_000 })
+  const views = friend ? friendViews : ownViews
   const view = views?.Items.find((v) => v.Id === viewId)
   const includeItemTypes = itemTypesForCollection(view?.CollectionType)
 

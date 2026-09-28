@@ -28,6 +28,8 @@ import { setMood } from '../lib/mood'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
 import CastMenu from '../components/CastMenu'
+import { peerOf } from '../lib/peers'
+import { useFriends } from '../api/queries'
 import { ActionMenu, type ActionItem } from '../components/Menu'
 import { ACTION_BTN, ActionButton, actionCircle } from '../components/ActionButton'
 import WatchlistButton from '../components/WatchlistButton'
@@ -261,7 +263,7 @@ function SimilarGrid({ itemId }: { itemId: string }) {
     staleTime: 10 * 60_000,
   })
   if (!isLoading && !data?.Items.length) {
-    return <p className="text-sm text-ink-400 py-6">Nothing similar in your library yet.</p>
+    return <p className="text-sm text-ink-400 py-6">{peerOf(itemId) ? 'Nothing similar shared with you yet.' : 'Nothing similar in your library yet.'}</p>
   }
   return (
     <div className="grid gap-3 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
@@ -346,6 +348,10 @@ export default function ItemPage() {
   const navigate = useNavigate()
   const toast = useToast()
   const { session } = useAuth()
+  // A friend's title (Groups): watch-only, so no admin tools or casting here.
+  const friendId = peerOf(itemId)
+  const { data: friends } = useFriends()
+  const friendName = friendId ? friends?.find((f) => f.id === friendId)?.name ?? 'a friend’s server' : null
   const [favBusy, setFavBusy] = useState(false)
   const [fixOpen, setFixOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -460,7 +466,7 @@ export default function ItemPage() {
 
   // Everyday actions first; library management (admins only) tucked under a
   // labelled group instead of sitting under the synopsis for everyone.
-  const isAdmin = session?.isAdmin !== false
+  const isAdmin = session?.isAdmin !== false && !friendId
   const moreItems: ActionItem[] = [
     ...(isPlayable || isSeries ? [{ label: played ? 'Mark as unwatched' : 'Mark as watched', onSelect: togglePlayed }] : []),
     ...(tabs.includes('details') ? [{ label: 'Cast and details', onSelect: () => setTabSel('details') }] : []),
@@ -581,6 +587,7 @@ export default function ItemPage() {
                   {g}
                 </span>
               ))}
+              {friendName && <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-100">From {friendName}</span>}
             </div>
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6">
               {isPlayable && <PlayLink item={item} />}
@@ -614,7 +621,7 @@ export default function ItemPage() {
                     }
                   />
                 )}
-                {isPlayable && <CastMenu item={item} labelled />}
+                {isPlayable && !friendId && <CastMenu item={item} labelled />}
                 <ActionMenu label="More" items={moreItems} align="right" triggerClassName={ACTION_BTN}>
                   <span className={actionCircle()}>
                     <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -662,7 +669,7 @@ export default function ItemPage() {
           <div role="tabpanel" className="pt-6">
             {tab === 'episodes' && isSeries && <Seasons series={item} />}
             {tab === 'similar' && <SimilarGrid itemId={item.Id} />}
-            {tab === 'details' && <DetailsTab item={item} cast={cast} showPath={session?.isAdmin !== false} />}
+            {tab === 'details' && <DetailsTab item={item} cast={cast} showPath={session?.isAdmin !== false && !friendId} />}
           </div>
         </section>
       )}

@@ -6,6 +6,7 @@ import { Auth, ensureSetupCode } from './auth.ts'
 import { SettingsStore, type Paths, type Settings } from './config.ts'
 import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
+import { registerGroups } from './groups.ts'
 import { InviteStore, registerInvites } from './invites.ts'
 import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
@@ -78,6 +79,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   router.get('/api/health', ({ res }) => sendJson(res, 200, { status: 'ok', version: VERSION }))
 
   registerInvites(router, { store: invites, jf, auth, settings })
+  registerGroups(router, { settings, jf, auth })
   const updater = new WebUpdater(web, releases, VERSION)
   deps.updater = updater
   registerWebUpdate(router, { auth, updater })

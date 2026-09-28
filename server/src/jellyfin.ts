@@ -15,8 +15,15 @@ export class JfError extends Error {
   }
 }
 
-export function mediaBrowserHeader(token?: string, device = 'finesse-server'): string {
-  const parts = [`Client="Finesse"`, `Device="${device}"`, `DeviceId="${device}"`, `Version="${VERSION}"`]
+export function mediaBrowserHeader(token?: string, device = 'finesse-server', deviceName = device): string {
+  // Header values must be plain ASCII (names like "Sam’s server" come from phones).
+  const clean = (v: string) =>
+    v
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u00b7\u2022]/g, '-')
+      .normalize('NFKD')
+      .replace(/[^\x20-\x7e]|["\\]/g, '')
+  const parts = [`Client="Finesse"`, `Device="${clean(deviceName)}"`, `DeviceId="${clean(device)}"`, `Version="${VERSION}"`]
   if (token) parts.push(`Token="${token}"`)
   return `MediaBrowser ${parts.join(', ')}`
 }
@@ -46,10 +53,13 @@ export class Jellyfin {
     return this.settings.get().jellyfin.apiKey
   }
 
-  async request<T = unknown>(path: string, opts: { method?: string; body?: unknown; token?: string; timeoutMs?: number; base?: string } = {}): Promise<T> {
+  async request<T = unknown>(
+    path: string,
+    opts: { method?: string; body?: unknown; token?: string; timeoutMs?: number; base?: string; deviceId?: string; deviceName?: string } = {},
+  ): Promise<T> {
     const token = opts.token ?? this.apiKey()
     const url = (opts.base ?? this.base()) + path
-    const headers: Record<string, string> = { Accept: 'application/json', Authorization: mediaBrowserHeader(token) }
+    const headers: Record<string, string> = { Accept: 'application/json', Authorization: mediaBrowserHeader(token, opts.deviceId, opts.deviceName) }
     let body: string | undefined
     if (opts.body !== undefined) {
       body = JSON.stringify(opts.body)

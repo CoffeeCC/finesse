@@ -5,6 +5,7 @@ import {
   useArrQueue,
   useGenres,
   useRequestLookup,
+  useFriendSearch,
   useSearch,
   useSearchPeople,
   useViews,
@@ -121,6 +122,9 @@ export default function SearchPanel({
   const active = term.length > 1
   const lib = useSearch(active ? term : '')
   const people = useSearchPeople(active && (scope === 'all' || scope === 'people') ? term : '')
+  const friendHits = useFriendSearch(active && (scope === 'all' || scope === 'movies' || scope === 'shows') ? term : '').filter(({ item }) =>
+    scope === 'movies' ? item.Type === 'Movie' : scope === 'shows' ? item.Type === 'Series' : true,
+  )
   const request = useRequestLookup(active && scope !== 'people' && scope !== 'episodes' ? term : '')
 
   const ranked = useMemo(() => {
@@ -177,7 +181,7 @@ export default function SearchPanel({
     }
   }
 
-  const nothing = active && !lib.isLoading && ranked.length === 0 && peopleList.length === 0 && missing.length === 0
+  const nothing = active && !lib.isLoading && ranked.length === 0 && peopleList.length === 0 && missing.length === 0 && friendHits.length === 0
 
   return (
     <div className={mode === 'overlay' ? 'flex flex-col max-h-[calc(var(--vh)*84)]' : ''}>
@@ -275,6 +279,24 @@ export default function SearchPanel({
                     <span className="flex-1 min-w-0">
                       <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
                       <span className="block text-[13px] text-ink-400 truncate">{typeLabel(item)}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-ink-400">{watchState(item)}</span>
+                  </Link>
+                ))}
+              </>
+            )}
+
+            {friendHits.length > 0 && (
+              <>
+                <p className={SECTION}>On friends’ servers</p>
+                {friendHits.slice(0, 8).map(({ item, friend }) => (
+                  <Link key={item.Id} to={`/item/${item.Id}`} onClick={opened} data-result className={ROW}>
+                    <Thumb item={item} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
+                      <span className="block text-[13px] text-ink-400 truncate">
+                        {typeLabel(item)} · {friend.name}
+                      </span>
                     </span>
                     <span className="shrink-0 text-xs text-ink-400">{watchState(item)}</span>
                   </Link>

@@ -23,6 +23,7 @@ import AlbumPage from './pages/AlbumPage'
 import GamesPage from './pages/GamesPage'
 import GameDetailPage from './pages/GameDetailPage'
 import PlayGamePage from './pages/PlayGamePage'
+import FriendsPage from './pages/FriendsPage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
 import TvBoot from './components/TvBoot'
@@ -159,6 +160,7 @@ export default function App() {
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/request" element={<RequestPage />} />
                     <Route path="/mylist" element={<MyListPage />} />
+                    <Route path="/friends" element={<FriendsPage />} />
                     <Route path="/watchlist" element={<Navigate to="/mylist" replace />} />
                     <Route path="/libraries" element={<LibrariesPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

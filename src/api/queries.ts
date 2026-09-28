@@ -7,21 +7,32 @@ import { type ClipManifest } from '../lib/preview'
 import * as romm from './romm'
 import { findLyrics } from '../lib/lyrics'
 import type { JfItem } from './types'
+import { groupsApi } from './setup'
 
 export const PAGE_SIZE = 100
 
 const CARD_FIELDS = 'PrimaryImageAspectRatio,ProductionYear'
 
+/** Friends' servers this one watches (Groups); empty when there are none or it can't tell. */
+export function useFriends() {
+  return useQuery({
+    queryKey: ['friends'],
+    queryFn: async () => (await groupsApi.friends()).friends,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
 export function useViews() {
   return useQuery({
     queryKey: ['views'],
-    queryFn: api.getViews,
+    queryFn: () => api.getViews(),
     staleTime: 10 * 60_000,
   })
 }
 
 export function useResume() {
-  return useQuery({ queryKey: ['resume'], queryFn: api.getResume })
+  return useQuery({ queryKey: ['resume'], queryFn: () => api.getResume() })
 }
 
 /** Detect another of the user's devices currently playing something → handoff. */
@@ -545,6 +556,23 @@ export function useMostWatchedAtHome() {
     enabled: !!session,
     staleTime: 30 * 60_000,
   })
+}
+
+/** Search every friend's server (Groups) too; each hit knows whose it is. */
+export function useFriendSearch(term: string) {
+  const { data: friends } = useFriends()
+  const q = term.trim()
+  const results = useQueries({
+    queries: (friends ?? []).map((f) => ({
+      queryKey: ['search', 'friend', f.id, q],
+      enabled: q.length > 1,
+      retry: false,
+      staleTime: 60_000,
+      queryFn: async () =>
+        (await api.getItems({ searchTerm: q, recursive: true, includeItemTypes: 'Movie,Series', limit: 8, fields: CARD_FIELDS, peer: f.id })).Items.map((item) => ({ item, friend: f })),
+    })),
+  })
+  return results.flatMap((r) => r.data ?? [])
 }
 
 export function useSearchPeople(term: string) {
