@@ -161,8 +161,9 @@ export default function InvitePage() {
               <FinesseWordmark />
             </h1>
             <p className="mt-2 text-sm text-ink-400">Enter the invite code you were sent.</p>
-            <label className={authLabelClass}>Invite code</label>
+            <label className={authLabelClass} htmlFor="invite-code">Invite code</label>
             <input
+              id="invite-code"
               value={codeInput}
               onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
               className={authInputClass}
@@ -281,8 +282,9 @@ export default function InvitePage() {
                   Invite <span className="text-ink-200 font-mono">{invite.code}</span>
                 </p>
 
-                <label className={authLabelClass}>Username</label>
+                <label className={authLabelClass} htmlFor="invite-username">Username</label>
                 <input
+                  id="invite-username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className={authInputClass}
@@ -291,8 +293,9 @@ export default function InvitePage() {
                   required
                 />
 
-                <label className={authLabelClass}>Password</label>
+                <label className={authLabelClass} htmlFor="invite-password">Password</label>
                 <input
+                  id="invite-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -304,8 +307,9 @@ export default function InvitePage() {
                   At least 8 characters, with upper, lower, and a number.
                 </p>
 
-                <label className={authLabelClass}>Confirm password</label>
+                <label className={authLabelClass} htmlFor="invite-confirm">Confirm password</label>
                 <input
+                  id="invite-confirm"
                   type="password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}

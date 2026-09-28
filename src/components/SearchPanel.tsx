@@ -55,11 +55,13 @@ const norm = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p
 
 /** Exact title > starts with > a word starts with > contains; films and shows
  *  outrank episodes, so "signal" tops out on the show, not one of its episodes. */
+function titleScore(title: string, q: string): number {
+  const name = norm(title)
+  return name === q ? 100 : name.startsWith(q) ? 60 : name.split(' ').some((w) => w.startsWith(q)) ? 40 : 20
+}
+
 function score(item: JfItem, q: string): number {
-  const name = norm(item.Name ?? '')
-  let s = name === q ? 100 : name.startsWith(q) ? 60 : name.split(' ').some((w) => w.startsWith(q)) ? 40 : 20
-  if (item.Type === 'Episode') s -= 15
-  return s
+  return titleScore(item.Name ?? '', q) - (item.Type === 'Episode' ? 15 : 0)
 }
 
 function typeLabel(item: JfItem): string {
@@ -133,15 +135,20 @@ export default function SearchPanel({
   }, [lib.data, term, scope])
 
   // "Not in your library": drop anything the library search already found
-  // (a title Radarr doesn't track still shows up in Jellyfin).
+  // (a title Radarr doesn't track still shows up in Jellyfin). Ranked like the
+  // library, so the show someone typed exactly isn't below a loose movie match.
   const missing = useMemo(() => {
+    const q = norm(term)
     const have = new Set((lib.data?.Items ?? []).map((i) => `${norm(i.Name ?? '')}|${i.ProductionYear ?? ''}`))
     return (request.data ?? [])
       .filter((r) => !(r.id > 0 && r.hasFile))
       .filter((r) => !have.has(`${norm(r.title)}|${r.year ?? ''}`))
       .filter((r) => (scope === 'movies' ? r.kind === 'movie' : scope === 'shows' ? r.kind === 'series' : true))
+      .map((r, i) => ({ r, s: titleScore(r.title, q), i }))
+      .sort((a, b) => b.s - a.s || a.i - b.i)
+      .map((x) => x.r)
       .slice(0, 6)
-  }, [request.data, lib.data, scope])
+  }, [request.data, lib.data, scope, term])
 
   const top = scope !== 'people' ? ranked[0] : undefined
   const rest = scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []

@@ -38,6 +38,19 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Fixes — v1.0.2 (2026-09-28)
+
+Found by requesting a movie, a show and an artist on a brand-new server, end to end.
+
+- **The first movie, show or album on a new server now appears within a couple of minutes.**
+  Jellyfin ignores a library folder that was empty at its last scan, so the first download into
+  each library stayed invisible until its nightly scan. Finesse now notices files arriving in a
+  library Jellyfin still shows as empty and asks it to scan.
+- **Search puts the exact title first.** In "Not in your library", a show you typed exactly could
+  sit below a loosely matching film.
+- **Sign-in and invite forms work better with screen readers.** Their labels are now attached to
+  the fields.
+
 ## Fixes — v1.0.1 (2026-09-28)
 
 - **Setup no longer stops at "Setting up Games" when Games is off.** 1.0.0 tried to start the

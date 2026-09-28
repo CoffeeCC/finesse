@@ -11,6 +11,7 @@ import type { SetupRunner } from '../setup/apply.ts'
 import { CATALOG, containerName, type StackServiceId } from '../stack/catalog.ts'
 import { ClipMaker } from '../stack/clips.ts'
 import { GamesNudger } from '../stack/games.ts'
+import { LibraryNudger } from '../stack/libraries.ts'
 import { Maintainer } from '../stack/maintain.ts'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
 
@@ -38,7 +39,11 @@ export function systemPlugin(ref: StackRef): Plugin {
       maint.start()
       clips.start()
       const games = new GamesNudger(settings)
-      setInterval(() => void games.tick(), 60000).unref()
+      const libraries = new LibraryNudger(settings)
+      setInterval(() => {
+        void games.tick()
+        void libraries.tick()
+      }, 60000).unref()
     }
 
     // Whole-app updates: whenever Finesse runs from a registry image in Docker

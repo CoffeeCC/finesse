@@ -290,6 +290,7 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
+            aria-label={`Password for ${selected.Name}`}
             autoFocus
             autoComplete="current-password"
             className="w-full rounded-lg bg-ink-800/90 border border-white/10 px-4 py-2.5 text-sm text-center outline-none focus:border-accent-500 transition-colors"
@@ -328,8 +329,9 @@ export default function LoginPage() {
 
           {!bundled && (
             <>
-              <label className={authLabelClass}>Server</label>
+              <label className={authLabelClass} htmlFor="login-server">Server</label>
               <input
+                id="login-server"
                 value={server}
                 onChange={(e) => setServer(e.target.value)}
                 className={authInputClass}
@@ -339,8 +341,9 @@ export default function LoginPage() {
             </>
           )}
 
-          <label className={authLabelClass}>Username</label>
+          <label className={authLabelClass} htmlFor="login-username">Username</label>
           <input
+            id="login-username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             className={authInputClass}
@@ -348,8 +351,9 @@ export default function LoginPage() {
             autoFocus
           />
 
-          <label className={authLabelClass}>Password</label>
+          <label className={authLabelClass} htmlFor="login-password">Password</label>
           <input
+            id="login-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

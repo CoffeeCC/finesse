@@ -11,7 +11,13 @@ http.createServer((req, res) => {
   const t = u.searchParams.get('t'), key = u.searchParams.get('apikey')
   console.log(req.method, req.url.replace(/apikey=[^&]+/, 'apikey=***'))
   res.setHeader('content-type', 'application/xml')
-  if (u.pathname.startsWith('/getnzb/')) { res.setHeader('content-type','application/x-nzb'); return res.end('<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"></nzb>') }
+  if (u.pathname.startsWith('/getnzb/')) {
+    // A well-formed NZB (one file, one segment), so SABnzbd queues it; the articles don't exist.
+    const name = decodeURIComponent(u.pathname.slice(8)).replace(/\.nzb$/, '').replace(/[<>&"]/g, '')
+    res.setHeader('content-type', 'application/x-nzb')
+    return res.end(`<?xml version="1.0" encoding="UTF-8"?>
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb"><file poster="fake@example.com" date="${Math.floor(Date.now() / 1000)}" subject="&quot;${name}.mkv&quot; yEnc (1/1)"><groups><group>alt.binaries.test</group></groups><segments><segment bytes="750000" number="1">${encodeURIComponent(name)}.1@fake-indexer</segment></segments></file></nzb>`)
+  }
   if (key !== 'goodkey') return res.end('<?xml version="1.0"?><error code="100" description="Incorrect user credentials"/>')
   if (t === 'caps') return res.end(caps)
   res.end(rss([item('Big.Buck.Bunny.2008.1080p.BluRay.x264-FAKE', 2040), item('Sintel.2010.1080p.BluRay.x264-FAKE', 2040), item('Some.Show.S01E01.1080p.WEB.h264-FAKE', 5040), item('Artist-Album-2020-FLAC', 3040)]))
