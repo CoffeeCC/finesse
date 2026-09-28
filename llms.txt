@@ -1,0 +1,30 @@
+# Finesse
+
+> Finesse is a self-hosted streaming service for Linux: one Docker container installs, connects and looks after Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd, and qBittorrent (VPN-only via Gluetun), with a polished app for web, phones and LG TVs, plus an optional retro-games library (RomM). Setup is a browser wizard, or a single JSON document applied headlessly — designed so an AI agent can install it for someone.
+
+Key facts:
+- Install: `curl -fsSL https://raw.githubusercontent.com/CoffeeCC/finesse/master/install.sh | bash` (Linux x86-64/ARM64, Docker).
+- Headless: write a setup document (JSON Schema below), then `docker exec -i finesse finesse setup apply - < setup.json`. Idempotent and resumable.
+- Health: `docker exec finesse finesse doctor [--json]`. Credentials test: `finesse setup check - < setup.json`.
+- Torrents only ever run through the VPN; secrets never leave the server; only containers labelled `finesse.managed` are touched.
+
+## Install
+
+- [Runbook for AI agents](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/agents/INSTALL.md): step-by-step install with commands, expected output and fixes
+- [Install guide](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/install.md): requirements, the wizard, after setup, troubleshooting, security
+- [Setup document schema](https://raw.githubusercontent.com/CoffeeCC/finesse/master/setup.schema.json): every field of the setup JSON, with descriptions
+- [Example setup documents](https://github.com/CoffeeCC/finesse/tree/master/examples/setup): minimal, Usenet, full
+- [Use an existing Jellyfin/*arr setup](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/adopt.md): adopt mode and migrating older installs
+- [Watch on a TV](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/tv.md): installing the LG webOS app, other TVs' browsers, Jellyfin apps
+- [Games](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/games.md): the optional retro-games library (RomM), folder layout, artwork keys
+
+## Develop
+
+- [AGENTS.md](https://raw.githubusercontent.com/CoffeeCC/finesse/master/AGENTS.md): layout, commands, rules, testing, releasing
+- [ROADMAP.md](https://raw.githubusercontent.com/CoffeeCC/finesse/master/ROADMAP.md): architecture and principles
+
+## Optional
+
+- [README](https://raw.githubusercontent.com/CoffeeCC/finesse/master/README.md): features, screenshots and the video tour
+- [SECURITY.md](https://raw.githubusercontent.com/CoffeeCC/finesse/master/SECURITY.md): reporting vulnerabilities, the security model
+- [Changelog](https://raw.githubusercontent.com/CoffeeCC/finesse/master/TODO.md): release notes per version

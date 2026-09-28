@@ -1,0 +1,16 @@
+{
+  "name": "finesse-tour",
+  "private": true,
+  "type": "module",
+  "description": "Records the Finesse video tour and its episodes from a demo server (see README.md).",
+  "scripts": {
+    "demo": "sh demo/build.sh",
+    "demo:up": "sh demo/up.sh",
+    "voice": "node vo.mjs all",
+    "record": "sh record.sh",
+    "film": "sh record.sh film"
+  },
+  "dependencies": {
+    "playwright": "1.56.1"
+  }
+}

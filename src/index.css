@@ -1,0 +1,800 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+/* Display face for hero and row titles (Latin only, keeps the TV bundle small). */
+@import "@fontsource/instrument-serif/latin-400.css";
+@import "@fontsource/instrument-serif/latin-400-italic.css";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --color-ink-950: #0b0d12;
+  --color-ink-900: #11141c;
+  --color-ink-800: #1a1e29;
+  --color-ink-700: #262b3a;
+  --color-ink-400: #8b93a7;
+  --color-ink-200: #d2d6e0;
+  --color-accent-300: #93a5e8;
+  --color-accent-400: #7589d8;
+  --color-accent-500: #6279cd;
+  --color-accent-600: #4f63b4;
+  /* Fills that carry white text (buttons, selected chips, badges): always at
+     least 4.6:1 — lib/accent darkens light presets. */
+  --color-accent-fill: #4f63b4;
+}
+
+html {
+  background: var(--color-ink-950);
+  color-scheme: dark;
+  /* Phones: no grey flash on every tap, no text inflation in landscape. */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ---------- Keyboard / TV-remote focus ---------- */
+/* Zero-specificity (:where) so component classes like .outline-none on media
+   cards keep their own inner ring; everything else gets a clear accent outline
+   when reached by D-pad/arrow navigation (only shows for keyboard focus). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* After the first real D-pad/arrow press, spatialNav sets data-nav-mode=spatial.
+   TV browsers often don't set :focus-visible the way desktop Chrome does — show
+   the same ring for plain :focus so focused cards are always obvious. */
+/* Cards (.group links) are excluded: they glow via their poster ring, and an
+   outline around the whole link (poster + title) doubled it up. */
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* No body background: html already paints ink-950, and an opaque body would
+   cover the mood wash (a fixed layer at negative z — components/MoodWash). */
+body {
+  @apply text-ink-200 font-sans antialiased;
+}
+
+/* Controls that draw their own focus ring (profile tiles…) opt out of the
+   global outline — two rings read as a glitch. */
+.own-focus:focus,
+.own-focus:focus-visible {
+  outline: none;
+}
+
+/* Search fields draw their own focus (the wrapper's border) and their own
+   clear button — no inner ring, no second browser ✕. */
+input.search-field:focus,
+input.search-field:focus-visible {
+  outline: none;
+}
+input.search-field::-webkit-search-cancel-button,
+input.search-field::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+/* In-player text subtitles (<track> / WebVTT) — high contrast on any scene */
+video::cue {
+  color: #fff;
+  background: transparent;
+  text-shadow:
+    0 0 0.15em #000,
+    0 0 0.35em #000,
+    0.05em 0.05em 0.1em #000,
+    -0.05em -0.05em 0.1em #000;
+  font-size: 1.15em;
+  line-height: 1.35;
+}
+
+/* The caption layer, lifted clear of the bottom edge (and of the control bar
+   while it shows) by the player's --cue-lift. Cues anchor at the bottom and
+   grow upward, so a long or two-line subtitle is never cut off. */
+video::-webkit-media-text-track-container {
+  transform: translateY(calc(-1 * var(--cue-lift, 0px)));
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+/* Out of the way of the pause screen's title card. */
+video[data-cues-hidden]::-webkit-media-text-track-container {
+  opacity: 0;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #262b3a;
+  border-radius: 8px;
+  border: 2px solid #0b0d12;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6279cd;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Film grain (kills banding in dark gradients) ---------- */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- Ambient aurora (drifting gradient blobs) ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora > div {
+  position: absolute;
+  width: 55vw;
+  height: 55vw;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+.aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(98, 121, 205, 0.16), transparent 65%);
+  top: -18vw;
+  left: -10vw;
+  animation: drift-a 46s ease-in-out infinite alternate;
+}
+.aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(146, 90, 191, 0.11), transparent 65%);
+  bottom: -22vw;
+  right: -12vw;
+  animation: drift-b 58s ease-in-out infinite alternate;
+}
+.aurora > div:nth-child(3) {
+  background: radial-gradient(circle, rgba(56, 130, 196, 0.09), transparent 65%);
+  top: 30vh;
+  left: 35vw;
+  animation: drift-c 70s ease-in-out infinite alternate;
+}
+@keyframes drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(12vw, 9vh, 0) scale(1.15); }
+}
+@keyframes drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.1); }
+  to { transform: translate3d(-10vw, -7vh, 0) scale(0.95); }
+}
+@keyframes drift-c {
+  from { transform: translate3d(0, 0, 0) scale(0.9); }
+  to { transform: translate3d(-14vw, 10vh, 0) scale(1.1); }
+}
+
+/* ---------- Ken Burns (hero + login backdrops) ---------- */
+@keyframes kenburns {
+  from { transform: scale(1.06) translate3d(0, 0, 0); }
+  to { transform: scale(1.14) translate3d(-1.6%, -1.2%, 0); }
+}
+.kenburns {
+  animation: kenburns 18s ease-out forwards;
+  will-change: transform;
+}
+@keyframes slowzoom {
+  from { transform: scale(1.02); }
+  to { transform: scale(1.12); }
+}
+.slowzoom {
+  animation: slowzoom 40s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+/* ---------- Ambilight breathe (detail page backdrop wash) ---------- */
+@keyframes breathe {
+  0%, 100% { transform: scale(1.25); }
+  50% { transform: scale(1.33); }
+}
+.ambient-breathe {
+  animation: breathe 36s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* The detail hero melts into that wash instead of ending on a hard edge. */
+.hero-melt {
+  -webkit-mask-image: linear-gradient(to bottom, #000 58%, transparent);
+  mask-image: linear-gradient(to bottom, #000 58%, transparent);
+}
+/* TV: a full-screen blurred, animating layer is too heavy for the SoC — the
+   hero melts into the plain background instead. */
+html.tv .ambilight {
+  display: none;
+}
+
+/* ---------- Page transitions ---------- */
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.page-enter {
+  animation: pageIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---------- Scroll reveal ---------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- Card lift ---------- */
+.tilt {
+  transform-style: preserve-3d;
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s ease;
+  will-change: transform;
+}
+/* Mouse hover: a small, fixed lift — the card doesn't chase the pointer. */
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .tilt {
+    transform: translateY(-4px) scale(1.03);
+  }
+}
+
+/* ---------- Poster light-spill (focused card glows its own color) ---------- */
+/* A focused/hovered card casts a soft glow in its dominant color onto the
+   shelf beneath it, so browsing feels alive. --spill is set per card from the
+   poster's sampled color; falls back to the app accent. */
+.spill-card {
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s ease;
+}
+.group:hover .spill-card,
+.group:focus-visible .spill-card,
+.group:focus-within .spill-card {
+  box-shadow:
+    0 16px 46px -10px rgba(var(--spill, 117, 137, 216), 0.6),
+    0 6px 18px -8px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------- Skeleton shimmer ---------- */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #161a24 25%, #1f2433 50%, #161a24 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+/* Loading placeholders pick up the current mood colour (lib/mood). */
+html:not(.tv) .shimmer {
+  background-image:
+    linear-gradient(rgba(var(--mood-rgb, 0, 0, 0), 0.08), rgba(var(--mood-rgb, 0, 0, 0), 0.08)),
+    linear-gradient(90deg, #161a24 25%, #1f2433 50%, #161a24 75%);
+  background-size: 100% 100%, 800px 100%;
+}
+
+/* ---------- Image fade-in ---------- */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(1.02); }
+  to { opacity: 1; transform: scale(1); }
+}
+.fade-in {
+  animation: fadeIn 0.45s ease-out both;
+}
+
+/* ---------- Login card entrance ---------- */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.card-in {
+  animation: cardIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+
+/* ---------- Hero content swap ---------- */
+@keyframes heroContentIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.hero-content-in {
+  animation: heroContentIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
+}
+
+/* ---------- Mobile safe areas (PWA standalone) ---------- */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------- Toasts ---------- */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.95); }
+  to { opacity: 1; transform: none; }
+}
+.toast-in {
+  animation: toastIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---------- Floating scroll letter ---------- */
+@keyframes letterPop {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+.letter-pop {
+  animation: letterPop 0.15s ease-out both;
+}
+
+/* ---------- Continuous motion: page-to-page morphs (lib/motion.ts) ---------- */
+/* Fixed morph targets; cards get their name from lib/motion at click time. */
+[data-vt-static='vt-hero'] {
+  view-transition-name: vt-hero;
+}
+[data-vt-static='vt-poster'] {
+  view-transition-name: vt-poster;
+}
+/* App chrome that exists on both pages holds still instead of cross-fading. */
+.vt-nav {
+  view-transition-name: vt-nav;
+}
+.vt-tabs {
+  view-transition-name: vt-tabs;
+}
+/* Detail-page title row + Back sit over the hero: as their own layers they
+   fade in above the morph rather than being covered until it lands. */
+.vt-detail-head {
+  view-transition-name: vt-detail-head;
+}
+.vt-detail-back {
+  view-transition-name: vt-detail-back;
+}
+::view-transition-group(vt-hero),
+::view-transition-group(vt-poster) {
+  animation-duration: 0.55s;
+  animation-timing-function: cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+/* A 2:3 poster growing into a 16:9 backdrop (and a backdrop into the player):
+   crop to the moving shape instead of squashing the art. */
+::view-transition-old(vt-hero),
+::view-transition-new(vt-hero),
+::view-transition-old(vt-poster),
+::view-transition-new(vt-poster) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* Everything else: out quick and slightly back, in with a small rise. */
+::view-transition-old(root) {
+  animation: 200ms cubic-bezier(0.4, 0, 1, 1) both vtRootOut;
+}
+::view-transition-new(root) {
+  animation: 420ms cubic-bezier(0.22, 1, 0.36, 1) 60ms both vtRootIn;
+}
+@keyframes vtRootOut {
+  to { opacity: 0; transform: scale(0.985); }
+}
+@keyframes vtRootIn {
+  from { opacity: 0; transform: translateY(14px); }
+}
+
+/* ---------- Continuous motion: scroll depth (scroll-driven, no JS) ---------- */
+/* Rows rise up out of the page as they scroll in and recede as they leave;
+   hero art sinks behind the page while its title lifts away. Compositor-only
+   transforms; skipped on TV (html.tv) and for reduced motion. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    html:not(.tv) .depth-row {
+      animation: rowRise linear both, rowRecede linear forwards;
+      animation-timeline: view(), view();
+      animation-range: entry 0% entry 95%, exit 35% exit 100%;
+    }
+    html:not(.tv) .hero-scroll {
+      animation: heroSink linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 80vh;
+    }
+    html:not(.tv) .hero-fade {
+      animation: heroLift linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 45vh;
+    }
+  }
+}
+@keyframes rowRise {
+  from { opacity: 0.25; transform: perspective(1400px) translateY(48px) rotateX(12deg) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rowRecede {
+  to { opacity: 0.3; transform: perspective(1400px) translateY(-16px) rotateX(-7deg) scale(0.97); }
+}
+@keyframes heroSink {
+  to { transform: translateY(22%) scale(1.06); }
+}
+@keyframes heroLift {
+  to { opacity: 0; transform: translateY(-40px); }
+}
+
+/* ---------- Physical depth ---------- */
+/* Layered parallax (lib/depth.ts writes --px/--py): the art drifts against the
+   phone tilt (opt-in), the title rides a nearer plane with it. */
+.depth-back {
+  transform: translate3d(calc(var(--px, 0) * -16px), calc(var(--py, 0) * -10px), 0) scale(1.04);
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.depth-front {
+  transform: translate3d(calc(var(--px, 0) * 10px), calc(var(--py, 0) * 6px), 0);
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.tv .depth-back,
+html.tv .depth-front {
+  transform: none;
+  transition: none;
+}
+/* A band of light sweeps across a card as you land on it. */
+.sheen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.22) 47%, rgba(255, 255, 255, 0.06) 53%, transparent 62%);
+  transform: translateX(-130%);
+}
+.group:hover .sheen::after,
+.group:focus-visible .sheen::after {
+  animation: sheenSweep 0.9s cubic-bezier(0.3, 0.7, 0.3, 1) both;
+}
+@keyframes sheenSweep {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(130%); }
+}
+/* D-pad: the newly focused card swings in from the direction you came, then
+   settles (spatialNav sets data-nav-dir). */
+html[data-nav-mode='spatial'][data-nav-dir='right'] .group:focus-visible .tilt {
+  animation: leanRight 0.5s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+html[data-nav-mode='spatial'][data-nav-dir='left'] .group:focus-visible .tilt {
+  animation: leanLeft 0.5s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+html[data-nav-mode='spatial'][data-nav-dir='down'] .group:focus-visible .tilt {
+  animation: leanDown 0.5s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+html[data-nav-mode='spatial'][data-nav-dir='up'] .group:focus-visible .tilt {
+  animation: leanUp 0.5s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+@keyframes leanRight {
+  from { transform: perspective(900px) rotateY(12deg) scale(1.01); }
+}
+@keyframes leanLeft {
+  from { transform: perspective(900px) rotateY(-12deg) scale(1.01); }
+}
+@keyframes leanDown {
+  from { transform: perspective(900px) rotateX(-10deg) scale(1.01); }
+}
+@keyframes leanUp {
+  from { transform: perspective(900px) rotateX(10deg) scale(1.01); }
+}
+
+/* ---------- The app wears the film (lib/mood.ts, MoodWash) ---------- */
+.mood-wash {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+}
+.mood-layer {
+  position: absolute;
+  inset: 0;
+  transition: opacity 1.4s ease;
+}
+
+/* ---------- Ambient player glow (PlayerPage AmbientGlow) ---------- */
+.ambient-glow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(28px) saturate(1.5) brightness(0.9);
+  transform: scale(1.15);
+  opacity: 0.85;
+}
+
+/* ---------- Buffering spinner ---------- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 9999px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--color-accent-400);
+  animation: spin 0.9s linear infinite;
+}
+
+/* ---------- Accessibility: calm everything down on request ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .aurora > div,
+  .kenburns,
+  .slowzoom,
+  .marquee-slide,
+  .ambient-breathe,
+  .page-enter,
+  .hero-content-in,
+  .card-in,
+  .fade-in {
+    animation: none !important;
+  }
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .tilt {
+    transition: none !important;
+  }
+  .sheen::after {
+    display: none;
+  }
+  .depth-back,
+  .depth-front {
+    transform: none !important;
+    transition: none !important;
+  }
+  .group:focus-visible .tilt {
+    animation: none !important;
+  }
+}
+
+/* ---------- Editorial row headers (brand serif) ---------- */
+.row-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.625rem;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+@media (min-width: 640px) {
+  .row-title {
+    font-size: 1.875rem;
+  }
+}
+
+/* ---------- Top 10: big outlined numerals behind the posters ---------- */
+/* 1% of the real screen at any UI zoom (lib/settings applyUiScale overrides
+   these when zoomed). Plain vh/vw are scaled by `zoom`: size layout with these. */
+:root {
+  --vh: 1vh;
+  --vw: 1vw;
+}
+
+/* D-pad navigation positions rows itself. Snapping and smooth scrolling fight
+   it: each press interrupted the last smooth scroll, then proximity snapping
+   pulled the row back, so the focused card crept off the right edge. */
+html[data-nav-mode='spatial'] .snap-x {
+  scroll-snap-type: none;
+}
+html[data-nav-mode='spatial'],
+html[data-nav-mode='spatial'] .scroll-smooth {
+  scroll-behavior: auto;
+}
+
+/* Top 10 rank: a bold numeral in the poster's lower-left corner over a soft
+   shade, so the row reads like any other row. MediaCard sizes it from the card
+   width; it steps aside while a hover preview plays. */
+.rank-scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 48%;
+  background: linear-gradient(to top, rgba(6, 7, 11, 0.82), rgba(6, 7, 11, 0.3) 55%, transparent);
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.rank-badge {
+  position: absolute;
+  left: 0.16em;
+  bottom: 0.14em;
+  font-family: var(--font-sans);
+  font-weight: 900;
+  line-height: 0.73;
+  letter-spacing: -0.06em;
+  color: #fff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+/* ---------- Marquee screensaver ---------- */
+@keyframes marqueeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.marquee-in {
+  animation: marqueeIn 1s ease both;
+}
+@keyframes marqueeSlide {
+  0% { opacity: 0; transform: scale(1.05); }
+  12% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1.14) translate3d(-1%, -0.8%, 0); }
+}
+.marquee-slide {
+  animation: marqueeSlide 9.5s ease-out both;
+  will-change: transform, opacity;
+}
+@keyframes marqueeContent {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.marquee-fade {
+  animation: marqueeContent 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---------- Living backdrop (FocusBackdrop) ---------- */
+.backdrop-fade-in {
+  animation: bdFade 1.1s ease both;
+}
+@keyframes bdFade {
+  from { opacity: 0; }
+  to { opacity: 0.34; }
+}
+
+/* ---------- Time-of-day ambience: aurora re-tints per daypart ---------- */
+[data-daypart='morning'] .aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.15), transparent 65%);
+}
+[data-daypart='morning'] .aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.09), transparent 65%);
+}
+[data-daypart='evening'] .aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.11), transparent 65%);
+}
+[data-daypart='evening'] .aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(217, 70, 139, 0.10), transparent 65%);
+}
+[data-daypart='night'] .aurora > div:nth-child(1) {
+  background: radial-gradient(circle, rgba(67, 56, 202, 0.16), transparent 65%);
+}
+[data-daypart='night'] .aurora > div:nth-child(2) {
+  background: radial-gradient(circle, rgba(126, 34, 206, 0.12), transparent 65%);
+}
+
+/* ---------- Now-playing equalizer (album track lists) ---------- */
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  height: 14px;
+}
+.eq > span {
+  display: block;
+  width: 3px;
+  height: 100%;
+  margin-left: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: eq-bounce 0.9s ease-in-out infinite;
+}
+.eq > span:first-child { margin-left: 0; }
+.eq > span:nth-child(2) { animation-delay: -0.35s; }
+.eq > span:nth-child(3) { animation-delay: -0.7s; }
+.eq.paused > span { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .eq > span { animation: none; transform: scaleY(0.6); }
+}
+
+/* ---------- Lyric video (components/LyricVideo) ---------- */
+.lv-vignette {
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0, 0, 0, 0.7) 100%);
+}
+.lv-stage {
+  transform: scale(calc(1 + var(--beat, 0) * 0.025));
+  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.45);
+}
+.lv-word {
+  display: inline-block;
+  margin-right: 0.24em;
+  opacity: 0;
+  transform: translateY(0.32em) scale(0.97);
+  filter: blur(9px);
+  transition:
+    opacity 0.45s ease,
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.45s ease;
+}
+.lv-word:last-child {
+  margin-right: 0;
+}
+.lv-word.on {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+}
+.lv-key {
+  color: var(--lv-key);
+  text-shadow: 0 0 44px rgba(var(--lv-key-rgb), 0.5);
+  font-size: 0.86em;
+}
+.lv-ghost {
+  font-size: 22vw;
+  color: var(--lv-key);
+  opacity: 0.16;
+  white-space: nowrap;
+  text-align: center;
+}
+.lv-line.leaving {
+  animation: lv-leave 0.6s ease forwards;
+}
+.lv-line.leaving .lv-word {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+}
+@keyframes lv-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-0.5em) scale(0.97);
+    filter: blur(12px);
+  }
+}
+.lv-card {
+  animation: lv-card-in 0.9s ease both;
+}
+@keyframes lv-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.lv-note {
+  animation: lv-note 2.4s ease-in-out infinite;
+}
+@keyframes lv-note {
+  50% {
+    opacity: 0.35;
+    transform: translateY(-0.08em);
+  }
+}
+/* TVs: skip the per-word blur (costly on older engines). */
+html.tv .lv-word,
+html.tv .lv-line.leaving {
+  filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lv-word {
+    transform: none;
+    filter: none;
+    transition: opacity 0.3s ease;
+  }
+  .lv-stage {
+    transform: none;
+  }
+}

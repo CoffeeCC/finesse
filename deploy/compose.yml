@@ -1,0 +1,38 @@
+# Finesse with Docker Compose (instead of install.sh).
+#
+#   FINESSE_ROOT=/opt/finesse FINESSE_DATA=/mnt/media docker compose up -d
+#   docker exec finesse finesse setup-code     # then open http://<server>:8080
+#
+# FINESSE_ROOT (app settings) and FINESSE_DATA (media + downloads) are mounted
+# at the SAME paths inside the container: Finesse hands those paths to Docker
+# when it creates Jellyfin and the other apps. The docker socket lets it do so.
+
+name: finesse
+
+services:
+  finesse:
+    image: ghcr.io/coffeecc/finesse:latest
+    container_name: finesse
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      finesse:
+        aliases: [finesse]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${FINESSE_ROOT:-/opt/finesse}:${FINESSE_ROOT:-/opt/finesse}
+      - ${FINESSE_DATA:-/opt/finesse/data}:${FINESSE_DATA:-/opt/finesse/data}
+    environment:
+      FINESSE_ROOT: ${FINESSE_ROOT:-/opt/finesse}
+      FINESSE_DATA: ${FINESSE_DATA:-/opt/finesse/data}
+      FINESSE_CONFIG_DIR: ${FINESSE_ROOT:-/opt/finesse}/config/finesse
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+
+networks:
+  finesse:
+    name: finesse
+    labels:
+      finesse.managed: "true"

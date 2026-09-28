@@ -1,0 +1,33 @@
+name: CI
+
+# Every pull request: type-check and test the server, and build the web and TV apps.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Server — types and tests
+        run: |
+          npm run server:typecheck
+          npm run server:test
+      - name: Web app
+        run: npm run build
+      - name: TV app
+        run: npm run build:webos
+      - name: Server bundle
+        run: npm run server:build
+      - name: Installer syntax
+        run: bash -n install.sh

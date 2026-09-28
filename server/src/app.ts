@@ -1,0 +1,143 @@
+// Assembles the Finesse server: settings, auth, routes, static web, proxies.
+// `createApp()` returns an unstarted http.Server so tests can run it in-process.
+
+import { createServer, type Server } from 'node:http'
+import { Auth, ensureSetupCode } from './auth.ts'
+import { SettingsStore, type Paths, type Settings } from './config.ts'
+import { ApiError, Router, sendError, sendJson } from './http/core.ts'
+import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
+import { InviteStore, registerInvites } from './invites.ts'
+import { Jellyfin, VERSION } from './jellyfin.ts'
+import { logger } from './log.ts'
+import { handleUpgrade, registerServiceProxies } from './services.ts'
+import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
+
+const log = logger('http')
+
+export interface AppDeps {
+  settings: SettingsStore
+  jf: Jellyfin
+  auth: Auth
+  web: WebRoot
+  router: Router
+  releases: GitHubReleases
+  invites: InviteStore
+  updater?: WebUpdater
+}
+
+/** Hook for later phases (setup, stack, system) to add routes. */
+export type Plugin = (deps: AppDeps) => void
+
+const CORS_PREFIXES = ['/api/', '/arr/', '/invite-api/', '/games/']
+
+function features(s: Settings) {
+  const svc = s.services
+  return {
+    requests: Boolean(svc.radarr?.url || svc.sonarr?.url || svc.lidarr?.url),
+    movies: Boolean(svc.radarr?.url),
+    shows: Boolean(svc.sonarr?.url),
+    music: Boolean(svc.lidarr?.url),
+    usenet: Boolean(svc.sabnzbd?.url),
+    torrents: Boolean(svc.qbittorrent?.url),
+    games: Boolean(svc.romm?.url),
+    invites: true,
+    email: Boolean(s.email?.host),
+    webUpdates: true,
+    system: s.mode === 'bundle',
+  }
+}
+
+export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { server: Server; deps: AppDeps } {
+  const settings = new SettingsStore(opts.paths)
+  settings.ensureSaved()
+  const jf = new Jellyfin(settings)
+  const auth = new Auth(settings, jf)
+  const p = settings.paths
+  const web = new WebRoot({ baked: p.bakedWeb, updated: p.updatedWeb, legacy: p.legacyDist })
+  const releases = new GitHubReleases(settings)
+  const invites = new InviteStore(p.invitesDb)
+  const router = new Router()
+  const deps: AppDeps = { settings, jf, auth, web, router, releases, invites }
+
+  // Discovery: lets the app (and the TV) learn what it's talking to.
+  router.get('/api/finesse', ({ res }) => {
+    const s = settings.get()
+    sendJson(res, 200, {
+      name: 'finesse',
+      version: VERSION,
+      web: web.current().version,
+      mode: s.mode,
+      instanceId: s.instanceId,
+      jellyfin: s.jellyfin.url ? { path: '/jellyfin' } : null,
+      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready' },
+      features: features(s),
+      publicUrl: s.publicUrl ?? null,
+      requests: s.requests ? { profiles: s.requests.profiles } : undefined,
+    })
+  })
+  router.get('/api/health', ({ res }) => sendJson(res, 200, { status: 'ok', version: VERSION }))
+
+  registerInvites(router, { store: invites, jf, auth, settings })
+  const updater = new WebUpdater(web, releases, VERSION)
+  deps.updater = updater
+  registerWebUpdate(router, { auth, updater })
+  for (const plugin of opts.plugins ?? []) plugin(deps)
+  registerServiceProxies(router, { settings, auth })
+
+  const server = createServer(async (req, res) => {
+    const started = Date.now()
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    const raw = url.pathname
+    // The app lives under /finesse/ (its build base). Bare "/" goes there.
+    if (raw === '/' || raw === '') {
+      res.writeHead(302, { Location: '/finesse/' })
+      return void res.end()
+    }
+    let path = raw === '/finesse' ? '/' : raw.startsWith('/finesse/') ? raw.slice('/finesse'.length) : raw
+    const isApi = CORS_PREFIXES.some((pre) => path.startsWith(pre)) || path === '/invite-api'
+    const isPreview = path.startsWith('/previews/')
+    if (isApi || isPreview) {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Emby-Token, X-Emby-Authorization, X-Finesse-Setup-Code')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204)
+        return void res.end()
+      }
+    }
+    if (isApi && path.length > 1 && path.endsWith('/') && !path.startsWith('/arr/') && !path.startsWith('/games/')) path = path.replace(/\/+$/, '')
+    try {
+      const handled = await router.dispatch({ req, res, path, url })
+      if (!handled) {
+        // Preview clips: the config dir first, then whatever the web root carries.
+        // They're clips of your library, so for signed-in viewers only.
+        if (isPreview) {
+          await auth.requireUser(req, { query: url.searchParams })
+          const hit = safeFile(p.previews, path.slice('/previews'.length))
+          if (hit) return void sendFile(req, res, hit.file, hit.stat, path)
+        }
+        if (isApi || path.startsWith('/jellyfin')) throw new ApiError(404, 'Not found')
+        if (!serveWeb(req, res, web, path)) sendJson(res, 404, { error: 'Not found' })
+      }
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status >= 500) log.warn(`${req.method} ${raw} → ${e instanceof ApiError ? e.status : 500}`, e instanceof ApiError ? e.message : e)
+      sendError(res, e)
+    } finally {
+      const ms = Date.now() - started
+      if (ms > 5000 && !path.startsWith('/jellyfin')) log.debug(`${req.method} ${raw} took ${ms}ms`)
+    }
+  })
+
+  server.on('upgrade', (req, socket, head) => {
+    if (!handleUpgrade(settings, req, socket, head)) socket.destroy()
+  })
+
+  // Keep-alive sockets shouldn't hold shutdown open for long.
+  server.keepAliveTimeout = 65000
+  server.headersTimeout = 66000
+  server.requestTimeout = 0
+
+  return { server, deps }
+}
+
+export { ensureSetupCode }

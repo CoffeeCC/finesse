@@ -1,0 +1,16 @@
+{
+  "id": "com.finesse.tv",
+  "version": "0.1.0",
+  "vendor": "Finesse",
+  "type": "web",
+  "main": "index.html",
+  "title": "Finesse",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#6279cd",
+  "bgColor": "#0b0d12",
+  "resolution": "1920x1080",
+  "transparent": false,
+  "requiredMemory": 128,
+  "disableBackHistoryAPI": true
+}

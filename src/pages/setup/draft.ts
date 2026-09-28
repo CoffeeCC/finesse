@@ -1,0 +1,173 @@
+// The wizard's working copy of the setup document: friendlier shapes for the
+// forms (strings for numbers, UI-only toggles), converted with toDoc().
+
+import type { Indexer, SetupDoc, UsenetServer } from '../../api/setup'
+import { browserLocale } from './presets'
+
+export interface Draft {
+  admin: { username: string; password: string; confirm: string }
+  server: { name: string; timezone: string; country: string; language: string }
+  libraries: { movies: boolean; shows: boolean; music: boolean; games: boolean }
+  /** Optional game-artwork accounts (only sent when Games is on). */
+  games: { steamGridDbKey: string; igdbClientId: string; igdbClientSecret: string }
+  usenet: boolean
+  torrents: boolean
+  servers: (Omit<UsenetServer, 'port' | 'connections'> & { preset: string; port: string; connections: string })[]
+  indexers: (Indexer & { key: string })[]
+  vpn: {
+    provider: string
+    type: 'wireguard' | 'openvpn'
+    privateKey: string
+    addresses: string
+    presharedKey: string
+    endpointIp: string
+    endpointPort: string
+    publicKey: string
+    username: string
+    password: string
+    countries: string
+  }
+  quality: '720p' | '1080p' | '4k' | 'any'
+  remote: 'none' | 'tailscale' | 'cloudflare' | 'own'
+  tailscale: { authKey: string; hostname: string }
+  cloudflare: { token: string; publicUrl: string }
+  publicUrl: string
+  emailOn: boolean
+  email: { preset: string; host: string; port: string; secure: boolean; username: string; password: string; from: string }
+}
+
+export function newDraft(): Draft {
+  const loc = browserLocale()
+  return {
+    admin: { username: '', password: '', confirm: '' },
+    server: { name: 'Finesse', ...loc },
+    libraries: { movies: true, shows: true, music: true, games: false },
+    games: { steamGridDbKey: '', igdbClientId: '', igdbClientSecret: '' },
+    usenet: false,
+    torrents: false,
+    servers: [],
+    indexers: [],
+    vpn: { provider: '', type: 'wireguard', privateKey: '', addresses: '', presharedKey: '', endpointIp: '', endpointPort: '51820', publicKey: '', username: '', password: '', countries: '' },
+    quality: '1080p',
+    remote: 'none',
+    tailscale: { authKey: '', hostname: 'finesse' },
+    cloudflare: { token: '', publicUrl: '' },
+    publicUrl: '',
+    emailOn: false,
+    email: { preset: 'gmail', host: 'smtp.gmail.com', port: '465', secure: true, username: '', password: '', from: '' },
+  }
+}
+
+export function newServer(primary: boolean): Draft['servers'][number] {
+  return { preset: '', name: '', host: '', port: '563', ssl: true, username: '', password: '', connections: '20', priority: primary ? 0 : 1 }
+}
+
+let seq = 0
+export const indexerKey = () => `ix${Date.now().toString(36)}${seq++}`
+
+const clean = (s: string) => s.trim()
+
+export function vpnDoc(d: Draft): NonNullable<NonNullable<SetupDoc['downloads']>['torrents']>['vpn'] {
+  const v = d.vpn
+  const countries = v.countries
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean)
+  return {
+    provider: v.provider,
+    type: v.type,
+    ...(v.type === 'wireguard'
+      ? {
+          wireguard: {
+            privateKey: clean(v.privateKey),
+            ...(clean(v.addresses) ? { addresses: clean(v.addresses) } : {}),
+            ...(clean(v.presharedKey) ? { presharedKey: clean(v.presharedKey) } : {}),
+            ...(v.provider === 'custom' ? { endpointIp: clean(v.endpointIp), endpointPort: Number(v.endpointPort) || 51820, publicKey: clean(v.publicKey) } : {}),
+          },
+        }
+      : { openvpn: { username: clean(v.username), password: v.password } }),
+    ...(countries.length ? { countries } : {}),
+  }
+}
+
+export function toDoc(d: Draft): SetupDoc {
+  const doc: SetupDoc = {
+    admin: { username: clean(d.admin.username), password: d.admin.password },
+    server: { name: clean(d.server.name) || 'Finesse', timezone: d.server.timezone, country: d.server.country, language: d.server.language },
+    libraries: { ...d.libraries, games: Boolean(d.libraries.games) },
+    quality: { preset: d.quality },
+  }
+  if (d.libraries.games) {
+    const g = d.games
+    const games: NonNullable<SetupDoc['games']> = {}
+    if (clean(g.steamGridDbKey)) games.steamGridDbKey = clean(g.steamGridDbKey)
+    if (clean(g.igdbClientId) && clean(g.igdbClientSecret)) games.igdb = { clientId: clean(g.igdbClientId), clientSecret: clean(g.igdbClientSecret) }
+    if (Object.keys(games).length) doc.games = games
+  }
+  if (d.usenet || d.torrents) {
+    doc.downloads = {
+      usenet: d.usenet
+        ? {
+            servers: d.servers.map((s, i) => ({
+              name: clean(s.name) || clean(s.host) || `Server ${i + 1}`,
+              host: clean(s.host),
+              port: Number(s.port) || 563,
+              ssl: s.ssl,
+              username: clean(s.username),
+              password: s.password,
+              connections: Number(s.connections) || 20,
+              priority: s.priority ?? (i === 0 ? 0 : 1),
+            })),
+          }
+        : null,
+      torrents: d.torrents ? { vpn: vpnDoc(d) } : null,
+      indexers: d.indexers
+        .filter((ix) => (ix.kind === 'newznab' ? d.usenet : d.torrents))
+        .map((ix) => ({ name: clean(ix.name), kind: ix.kind, url: clean(ix.url), ...(clean(ix.apiKey ?? '') ? { apiKey: clean(ix.apiKey!) } : {}) })),
+    }
+  }
+  if (d.remote === 'tailscale') doc.remoteAccess = { method: 'tailscale', tailscale: { authKey: clean(d.tailscale.authKey), hostname: clean(d.tailscale.hostname).toLowerCase() || 'finesse' } }
+  else if (d.remote === 'cloudflare') doc.remoteAccess = { method: 'cloudflare', cloudflare: { token: clean(d.cloudflare.token), publicUrl: clean(d.cloudflare.publicUrl).replace(/\/+$/, '') } }
+  else doc.remoteAccess = { method: 'none' }
+  if (d.remote === 'own' && clean(d.publicUrl)) doc.publicUrl = clean(d.publicUrl).replace(/\/+$/, '')
+  doc.email = d.emailOn
+    ? {
+        host: clean(d.email.host),
+        port: Number(d.email.port) || 587,
+        secure: d.email.secure,
+        ...(clean(d.email.username) ? { username: clean(d.email.username) } : {}),
+        ...(d.email.password ? { password: d.email.password } : {}),
+        from: clean(d.email.from),
+      }
+    : null
+  return doc
+}
+
+// ---------- persistence (this tab only) ----------
+
+const KEY = 'finesse.setupDraft'
+
+export function loadDraft(): Draft | null {
+  try {
+    const raw = sessionStorage.getItem(KEY)
+    return raw ? { ...newDraft(), ...(JSON.parse(raw) as Draft) } : null
+  } catch {
+    return null
+  }
+}
+
+export function saveDraft(d: Draft) {
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify(d))
+  } catch {
+    /* private mode */
+  }
+}
+
+export function clearDraft() {
+  try {
+    sessionStorage.removeItem(KEY)
+  } catch {
+    /* ignore */
+  }
+}

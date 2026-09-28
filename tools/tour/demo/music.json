@@ -1,0 +1,966 @@
+[
+ {
+  "artist": "Jonathan Coulton",
+  "album": "Thing a Week Three",
+  "date": "2006",
+  "mbid": "9aca242f-48fe-41cd-8b40-10da62e21c8f",
+  "rg": "309391a6-c8e7-3e90-8fc2-c9664a4654a9",
+  "artistId": "d8df7087-06d5-4545-9024-831bb8558ad1",
+  "cover": true,
+  "tracks": [
+   {
+    "disc": 1,
+    "n": 1,
+    "title": "Madelaine",
+    "ms": 222666,
+    "rec": "4e1b55bf-8803-43f2-b84d-4a3e86786bc8"
+   },
+   {
+    "disc": 1,
+    "n": 2,
+    "title": "When You Go",
+    "ms": 233186,
+    "rec": "a0ac0678-8aac-4b28-9c4f-01be9fe60481"
+   },
+   {
+    "disc": 1,
+    "n": 3,
+    "title": "Code Monkey",
+    "ms": 189280,
+    "rec": "83306c31-9312-4cbd-a6e4-07b99d6c501b"
+   },
+   {
+    "disc": 1,
+    "n": 4,
+    "title": "The Presidents",
+    "ms": 248933,
+    "rec": "783db64f-de37-46a2-bd97-ef888dd11a0f"
+   },
+   {
+    "disc": 1,
+    "n": 5,
+    "title": "Just as Long as Me",
+    "ms": 133013,
+    "rec": "f2b4670d-e960-42cf-a9c6-a36046f60789"
+   },
+   {
+    "disc": 1,
+    "n": 6,
+    "title": "Till the Money Comes",
+    "ms": 209840,
+    "rec": "7895d7dc-c07b-4a6a-bc86-e978a4edc036"
+   },
+   {
+    "disc": 1,
+    "n": 7,
+    "title": "Tom Cruise Crazy",
+    "ms": 221240,
+    "rec": "eb780233-a1fe-4ecd-85c0-3d6a7aecd6fe"
+   },
+   {
+    "disc": 1,
+    "n": 8,
+    "title": "Famous Blue Raincoat",
+    "ms": 240560,
+    "rec": "f5017a2d-5d00-4dfd-a9b1-ac33a73bbe3a"
+   },
+   {
+    "disc": 1,
+    "n": 9,
+    "title": "Soft Rocked by Me",
+    "ms": 259146,
+    "rec": "433b52a4-68d4-4b7f-b973-7eaa4e7a914b"
+   },
+   {
+    "disc": 1,
+    "n": 10,
+    "title": "Not About You",
+    "ms": 132400,
+    "rec": "44576260-d3d4-43f4-81a6-6b5be93991d5"
+   },
+   {
+    "disc": 1,
+    "n": 11,
+    "title": "Rock and Roll Boy",
+    "ms": 208413,
+    "rec": "b50f5113-d4dd-4ffd-aecc-d6d70eeec915"
+   },
+   {
+    "disc": 1,
+    "n": 12,
+    "title": "Drinking With You",
+    "ms": 211200,
+    "rec": "0791290a-52cc-49f5-a3d9-a364c23dcc34"
+   },
+   {
+    "disc": 1,
+    "n": 13,
+    "title": "Pizza Day",
+    "ms": 189053,
+    "rec": "8d430423-0984-4be5-8148-d8eaeb45ebe8"
+   }
+  ]
+ },
+ {
+  "artist": "Nine Inch Nails",
+  "album": "The Slip",
+  "date": "2008",
+  "mbid": "12b57d46-a192-499e-a91f-7da66790a1c1",
+  "rg": "5990b23f-6412-3eaf-989c-a4831f4f95f7",
+  "artistId": "b7ffd2af-418f-4be2-bdd1-22f8b48613da",
+  "cover": true,
+  "tracks": [
+   {
+    "disc": 1,
+    "n": 1,
+    "title": "999,999",
+    "ms": 85586,
+    "rec": "30f3f33e-8d0c-4e69-8539-cbd701d18f28"
+   },
+   {
+    "disc": 1,
+    "n": 2,
+    "title": "1,000,000",
+    "ms": 236133,
+    "rec": "99244237-850b-4a93-904d-57305bcadb4e"
+   },
+   {
+    "disc": 1,
+    "n": 3,
+    "title": "Letting You",
+    "ms": 229560,
+    "rec": "b4a88e68-f66e-4155-8ef4-9f9f46944767"
+   },
+   {
+    "disc": 1,
+    "n": 4,
+    "title": "Discipline",
+    "ms": 259200,
+    "rec": "a58a2b13-70b5-44c2-9fd5-67f93db17de7"
+   },
+   {
+    "disc": 1,
+    "n": 5,
+    "title": "Echoplex",
+    "ms": 285106,
+    "rec": "52646e3f-1fc0-4a1d-a089-08ac33a30973"
+   },
+   {
+    "disc": 1,
+    "n": 6,
+    "title": "Head Down",
+    "ms": 295000,
+    "rec": "b4f9917f-4514-4e3e-aea3-3f901a9c69a7"
+   },
+   {
+    "disc": 1,
+    "n": 7,
+    "title": "Lights in the Sky",
+    "ms": 209680,
+    "rec": "d7d5eb38-bb10-4cd8-9542-f489e9f16e73"
+   },
+   {
+    "disc": 1,
+    "n": 8,
+    "title": "Corona Radiata",
+    "ms": 453520,
+    "rec": "3c55ef28-626b-4cb2-81a6-acc37b189a3f"
+   },
+   {
+    "disc": 1,
+    "n": 9,
+    "title": "The Four of Us Are Dying",
+    "ms": 277813,
+    "rec": "d7cbbdd6-96da-4da5-b01f-53eb72e73d16"
+   },
+   {
+    "disc": 1,
+    "n": 10,
+    "title": "Demon Seed",
+    "ms": 298000,
+    "rec": "9f06df64-a373-492e-9a23-6a14a3fde97e"
+   }
+  ]
+ },
+ {
+  "artist": "Nine Inch Nails",
+  "album": "Ghosts I\u2013IV",
+  "date": "2008",
+  "mbid": "94a78c1e-84fb-455c-ae9b-9ecfee51049f",
+  "rg": "550bf4b9-92ca-30ba-9ea2-8b45f9d081f1",
+  "artistId": "b7ffd2af-418f-4be2-bdd1-22f8b48613da",
+  "cover": true,
+  "tracks": [
+   {
+    "disc": 1,
+    "n": 1,
+    "title": "1 Ghosts I",
+    "ms": 168200,
+    "rec": "b2fdf3ce-78a6-4e01-9a7b-441700e8ea66"
+   },
+   {
+    "disc": 1,
+    "n": 2,
+    "title": "2 Ghosts I",
+    "ms": 196346,
+    "rec": "1f3f0aed-47ed-42f4-b1b6-f02f2a13437c"
+   },
+   {
+    "disc": 1,
+    "n": 3,
+    "title": "3 Ghosts I",
+    "ms": 231120,
+    "rec": "241a460a-7118-4bf7-abec-12954ea0df4c"
+   },
+   {
+    "disc": 1,
+    "n": 4,
+    "title": "4 Ghosts I",
+    "ms": 132893,
+    "rec": "3f5dd67f-587d-488b-b295-59ea2e4d8aca"
+   },
+   {
+    "disc": 1,
+    "n": 5,
+    "title": "5 Ghosts I",
+    "ms": 171973,
+    "rec": "132a7820-4a29-4745-bf20-222386434f47"
+   },
+   {
+    "disc": 1,
+    "n": 6,
+    "title": "6 Ghosts I",
+    "ms": 258693,
+    "rec": "00a97470-5826-4cb9-81ee-2d54558054b8"
+   },
+   {
+    "disc": 1,
+    "n": 7,
+    "title": "7 Ghosts I",
+    "ms": 120693,
+    "rec": "1d1bb32a-5bc6-4b6f-88cc-c043f6c52509"
+   },
+   {
+    "disc": 1,
+    "n": 8,
+    "title": "8 Ghosts I",
+    "ms": 175973,
+    "rec": "138f7fe7-9119-4ef1-8d70-6572a3ef7b15"
+   },
+   {
+    "disc": 1,
+    "n": 9,
+    "title": "9 Ghosts I",
+    "ms": 167093,
+    "rec": "e89d42b8-3d02-4264-94fc-07ce09da1944"
+   },
+   {
+    "disc": 1,
+    "n": 10,
+    "title": "10 Ghosts II",
+    "ms": 162280,
+    "rec": "226f53e6-ec5f-4783-8684-65bc3c85665b"
+   },
+   {
+    "disc": 1,
+    "n": 11,
+    "title": "11 Ghosts II",
+    "ms": 137333,
+    "rec": "a95eeadf-9c4a-486d-9610-58a41b6f43ed"
+   },
+   {
+    "disc": 1,
+    "n": 12,
+    "title": "12 Ghosts II",
+    "ms": 137213,
+    "rec": "59772d56-b23e-458a-80ea-63f7469b08f4"
+   },
+   {
+    "disc": 1,
+    "n": 13,
+    "title": "13 Ghosts II",
+    "ms": 193560,
+    "rec": "7ba993ec-c7c2-422b-b549-d43f940c6e27"
+   },
+   {
+    "disc": 1,
+    "n": 14,
+    "title": "14 Ghosts II",
+    "ms": 185626,
+    "rec": "0339f547-4660-4ef7-a9a9-c61205b43c2f"
+   },
+   {
+    "disc": 1,
+    "n": 15,
+    "title": "15 Ghosts II",
+    "ms": 113240,
+    "rec": "2d7f08e1-be1c-4b86-b725-6e675b7b6de0"
+   },
+   {
+    "disc": 1,
+    "n": 16,
+    "title": "16 Ghosts II",
+    "ms": 149960,
+    "rec": "e0632d22-f355-41dd-ae01-9bcd87aaacf6"
+   },
+   {
+    "disc": 1,
+    "n": 17,
+    "title": "17 Ghosts II",
+    "ms": 133333,
+    "rec": "24cab93b-96e0-41fb-adbf-ba946c7c2f06"
+   },
+   {
+    "disc": 1,
+    "n": 18,
+    "title": "18 Ghosts II",
+    "ms": 313973,
+    "rec": "1d35585f-0e0b-41bb-89b6-07a9351d77e7"
+   },
+   {
+    "disc": 2,
+    "n": 1,
+    "title": "19 Ghosts III",
+    "ms": 131800,
+    "rec": "1668f841-f56b-4dc6-a0b2-482bd30f98d6"
+   },
+   {
+    "disc": 2,
+    "n": 2,
+    "title": "20 Ghosts III",
+    "ms": 219306,
+    "rec": "217438c6-4f6a-480b-a483-b028d03035fb"
+   },
+   {
+    "disc": 2,
+    "n": 3,
+    "title": "21 Ghosts III",
+    "ms": 174360,
+    "rec": "888974e2-f43c-48e3-91e2-6a091a414469"
+   },
+   {
+    "disc": 2,
+    "n": 4,
+    "title": "22 Ghosts III",
+    "ms": 151120,
+    "rec": "c8795f14-8162-4caa-98c2-0d80b1338034"
+   },
+   {
+    "disc": 2,
+    "n": 5,
+    "title": "23 Ghosts III",
+    "ms": 163666,
+    "rec": "653bec24-9274-404b-bebd-a0550b30784a"
+   },
+   {
+    "disc": 2,
+    "n": 6,
+    "title": "24 Ghosts III",
+    "ms": 159253,
+    "rec": "3fffc4ec-6cf0-4e4c-b1e5-5c988f07bf3e"
+   },
+   {
+    "disc": 2,
+    "n": 7,
+    "title": "25 Ghosts III",
+    "ms": 118946,
+    "rec": "68d1bdc5-4af4-4f16-9277-96cb4c909635"
+   },
+   {
+    "disc": 2,
+    "n": 8,
+    "title": "26 Ghosts III",
+    "ms": 145920,
+    "rec": "26f09300-1e78-4f79-aba9-834e705b7e04"
+   },
+   {
+    "disc": 2,
+    "n": 9,
+    "title": "27 Ghosts III",
+    "ms": 171800,
+    "rec": "0ab398d5-f7af-4839-b42a-e4397cf42809"
+   },
+   {
+    "disc": 2,
+    "n": 10,
+    "title": "28 Ghosts IV",
+    "ms": 322066,
+    "rec": "e491d339-8f23-4941-af6d-d151bd6a3bfd"
+   },
+   {
+    "disc": 2,
+    "n": 11,
+    "title": "29 Ghosts IV",
+    "ms": 174600,
+    "rec": "02f7533f-7d00-4014-ada5-6710c55bff73"
+   },
+   {
+    "disc": 2,
+    "n": 12,
+    "title": "30 Ghosts IV",
+    "ms": 178680,
+    "rec": "4bda7ccb-c3dd-48e2-9bf3-014b0e127d56"
+   },
+   {
+    "disc": 2,
+    "n": 13,
+    "title": "31 Ghosts IV",
+    "ms": 145546,
+    "rec": "761cc5ef-f91f-45eb-b9e9-66f02c239254"
+   },
+   {
+    "disc": 2,
+    "n": 14,
+    "title": "32 Ghosts IV",
+    "ms": 265560,
+    "rec": "a44f8ef3-64c4-4818-aa0e-c7f15422f983"
+   },
+   {
+    "disc": 2,
+    "n": 15,
+    "title": "33 Ghosts IV",
+    "ms": 241693,
+    "rec": "51234920-358e-4daf-867c-85ed97704acf"
+   },
+   {
+    "disc": 2,
+    "n": 16,
+    "title": "34 Ghosts IV",
+    "ms": 352560,
+    "rec": "6f975d58-c074-4fc2-8bfb-34cc7f1a25fd"
+   },
+   {
+    "disc": 2,
+    "n": 17,
+    "title": "35 Ghosts IV",
+    "ms": 209933,
+    "rec": "6ebbb1de-71db-4ecf-9b90-5554c036b0fc"
+   },
+   {
+    "disc": 2,
+    "n": 18,
+    "title": "36 Ghosts IV",
+    "ms": 139053,
+    "rec": "e2c0fc50-94fa-4919-8c64-2dbfc9ec1c07"
+   },
+   {
+    "disc": 3,
+    "n": 1,
+    "title": "1 Ghosts I",
+    "ms": 180000,
+    "rec": "b2fdf3ce-78a6-4e01-9a7b-441700e8ea66"
+   },
+   {
+    "disc": 3,
+    "n": 2,
+    "title": "2 Ghosts I",
+    "ms": 180000,
+    "rec": "1f3f0aed-47ed-42f4-b1b6-f02f2a13437c"
+   },
+   {
+    "disc": 3,
+    "n": 3,
+    "title": "3 Ghosts I",
+    "ms": 180000,
+    "rec": "241a460a-7118-4bf7-abec-12954ea0df4c"
+   },
+   {
+    "disc": 3,
+    "n": 4,
+    "title": "4 Ghosts I",
+    "ms": 180000,
+    "rec": "3f5dd67f-587d-488b-b295-59ea2e4d8aca"
+   },
+   {
+    "disc": 3,
+    "n": 5,
+    "title": "5 Ghosts I",
+    "ms": 180000,
+    "rec": "132a7820-4a29-4745-bf20-222386434f47"
+   },
+   {
+    "disc": 3,
+    "n": 6,
+    "title": "6 Ghosts I",
+    "ms": 180000,
+    "rec": "00a97470-5826-4cb9-81ee-2d54558054b8"
+   },
+   {
+    "disc": 3,
+    "n": 7,
+    "title": "7 Ghosts I",
+    "ms": 180000,
+    "rec": "1d1bb32a-5bc6-4b6f-88cc-c043f6c52509"
+   },
+   {
+    "disc": 3,
+    "n": 8,
+    "title": "8 Ghosts I",
+    "ms": 180000,
+    "rec": "138f7fe7-9119-4ef1-8d70-6572a3ef7b15"
+   },
+   {
+    "disc": 3,
+    "n": 9,
+    "title": "9 Ghosts I",
+    "ms": 180000,
+    "rec": "e89d42b8-3d02-4264-94fc-07ce09da1944"
+   },
+   {
+    "disc": 3,
+    "n": 10,
+    "title": "10 Ghosts II",
+    "ms": 180000,
+    "rec": "226f53e6-ec5f-4783-8684-65bc3c85665b"
+   },
+   {
+    "disc": 3,
+    "n": 11,
+    "title": "11 Ghosts II",
+    "ms": 180000,
+    "rec": "a95eeadf-9c4a-486d-9610-58a41b6f43ed"
+   },
+   {
+    "disc": 3,
+    "n": 12,
+    "title": "12 Ghosts II",
+    "ms": 180000,
+    "rec": "59772d56-b23e-458a-80ea-63f7469b08f4"
+   },
+   {
+    "disc": 3,
+    "n": 13,
+    "title": "13 Ghosts II",
+    "ms": 180000,
+    "rec": "7ba993ec-c7c2-422b-b549-d43f940c6e27"
+   },
+   {
+    "disc": 3,
+    "n": 14,
+    "title": "14 Ghosts II",
+    "ms": 180000,
+    "rec": "0339f547-4660-4ef7-a9a9-c61205b43c2f"
+   },
+   {
+    "disc": 3,
+    "n": 15,
+    "title": "15 Ghosts II",
+    "ms": 180000,
+    "rec": "2d7f08e1-be1c-4b86-b725-6e675b7b6de0"
+   },
+   {
+    "disc": 3,
+    "n": 16,
+    "title": "16 Ghosts II",
+    "ms": 180000,
+    "rec": "e0632d22-f355-41dd-ae01-9bcd87aaacf6"
+   },
+   {
+    "disc": 3,
+    "n": 17,
+    "title": "17 Ghosts II",
+    "ms": 180000,
+    "rec": "24cab93b-96e0-41fb-adbf-ba946c7c2f06"
+   },
+   {
+    "disc": 3,
+    "n": 18,
+    "title": "18 Ghosts II",
+    "ms": 180000,
+    "rec": "1d35585f-0e0b-41bb-89b6-07a9351d77e7"
+   },
+   {
+    "disc": 3,
+    "n": 19,
+    "title": "19 Ghosts III",
+    "ms": 180000,
+    "rec": "1668f841-f56b-4dc6-a0b2-482bd30f98d6"
+   },
+   {
+    "disc": 3,
+    "n": 20,
+    "title": "20 Ghosts III",
+    "ms": 180000,
+    "rec": "217438c6-4f6a-480b-a483-b028d03035fb"
+   },
+   {
+    "disc": 3,
+    "n": 21,
+    "title": "21 Ghosts III",
+    "ms": 180000,
+    "rec": "888974e2-f43c-48e3-91e2-6a091a414469"
+   },
+   {
+    "disc": 3,
+    "n": 22,
+    "title": "22 Ghosts III",
+    "ms": 180000,
+    "rec": "c8795f14-8162-4caa-98c2-0d80b1338034"
+   },
+   {
+    "disc": 3,
+    "n": 23,
+    "title": "23 Ghosts III",
+    "ms": 180000,
+    "rec": "653bec24-9274-404b-bebd-a0550b30784a"
+   },
+   {
+    "disc": 3,
+    "n": 24,
+    "title": "24 Ghosts III",
+    "ms": 180000,
+    "rec": "3fffc4ec-6cf0-4e4c-b1e5-5c988f07bf3e"
+   },
+   {
+    "disc": 3,
+    "n": 25,
+    "title": "25 Ghosts III",
+    "ms": 180000,
+    "rec": "68d1bdc5-4af4-4f16-9277-96cb4c909635"
+   },
+   {
+    "disc": 3,
+    "n": 26,
+    "title": "26 Ghosts III",
+    "ms": 180000,
+    "rec": "26f09300-1e78-4f79-aba9-834e705b7e04"
+   },
+   {
+    "disc": 3,
+    "n": 27,
+    "title": "27 Ghosts III",
+    "ms": 180000,
+    "rec": "0ab398d5-f7af-4839-b42a-e4397cf42809"
+   },
+   {
+    "disc": 3,
+    "n": 28,
+    "title": "28 Ghosts IV",
+    "ms": 180000,
+    "rec": "e491d339-8f23-4941-af6d-d151bd6a3bfd"
+   },
+   {
+    "disc": 3,
+    "n": 29,
+    "title": "29 Ghosts IV",
+    "ms": 180000,
+    "rec": "02f7533f-7d00-4014-ada5-6710c55bff73"
+   },
+   {
+    "disc": 3,
+    "n": 30,
+    "title": "30 Ghosts IV",
+    "ms": 180000,
+    "rec": "4bda7ccb-c3dd-48e2-9bf3-014b0e127d56"
+   },
+   {
+    "disc": 3,
+    "n": 31,
+    "title": "31 Ghosts IV",
+    "ms": 180000,
+    "rec": "761cc5ef-f91f-45eb-b9e9-66f02c239254"
+   },
+   {
+    "disc": 3,
+    "n": 32,
+    "title": "32 Ghosts IV",
+    "ms": 180000,
+    "rec": "a44f8ef3-64c4-4818-aa0e-c7f15422f983"
+   },
+   {
+    "disc": 3,
+    "n": 33,
+    "title": "33 Ghosts IV",
+    "ms": 180000,
+    "rec": "51234920-358e-4daf-867c-85ed97704acf"
+   },
+   {
+    "disc": 3,
+    "n": 34,
+    "title": "34 Ghosts IV",
+    "ms": 180000,
+    "rec": "6f975d58-c074-4fc2-8bfb-34cc7f1a25fd"
+   },
+   {
+    "disc": 3,
+    "n": 35,
+    "title": "35 Ghosts IV",
+    "ms": 180000,
+    "rec": "6ebbb1de-71db-4ecf-9b90-5554c036b0fc"
+   },
+   {
+    "disc": 3,
+    "n": 36,
+    "title": "36 Ghosts IV",
+    "ms": 180000,
+    "rec": "e2c0fc50-94fa-4919-8c64-2dbfc9ec1c07"
+   },
+   {
+    "disc": 4,
+    "n": 1,
+    "title": "1 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "b4cbf7b4-563e-4003-8e23-18c543afd2d6"
+   },
+   {
+    "disc": 4,
+    "n": 2,
+    "title": "2 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "f3698c91-65ae-49c0-a6a7-053f55c3c469"
+   },
+   {
+    "disc": 4,
+    "n": 3,
+    "title": "3 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "9829737d-6171-472c-a23b-7e9b097fb799"
+   },
+   {
+    "disc": 4,
+    "n": 4,
+    "title": "4 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "b9051ba6-8ac0-4db7-9856-8252ad2a6a67"
+   },
+   {
+    "disc": 4,
+    "n": 5,
+    "title": "5 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "76193fce-ab8d-4fc4-a603-205704939b57"
+   },
+   {
+    "disc": 4,
+    "n": 6,
+    "title": "6 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "ffbac634-c39c-4d0a-ac19-92e093a81603"
+   },
+   {
+    "disc": 4,
+    "n": 7,
+    "title": "7 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "9a46cb1e-6874-45aa-b84c-6a4a6f5d7484"
+   },
+   {
+    "disc": 4,
+    "n": 8,
+    "title": "8 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "e4496c60-4e49-4a40-88c7-1b65276e7c0c"
+   },
+   {
+    "disc": 4,
+    "n": 9,
+    "title": "9 Ghosts I (multitrack)",
+    "ms": 180000,
+    "rec": "c65b4b4c-59a6-473b-a1aa-68672764a597"
+   },
+   {
+    "disc": 4,
+    "n": 10,
+    "title": "10 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "3a80bc6b-d021-44dc-8943-4045a41b7641"
+   },
+   {
+    "disc": 4,
+    "n": 11,
+    "title": "11 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "cb7d05fe-3fe1-4c3e-843a-36549d34493e"
+   },
+   {
+    "disc": 4,
+    "n": 12,
+    "title": "12 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "6314690e-d37f-4fd3-8b67-43f07b3cfa52"
+   },
+   {
+    "disc": 4,
+    "n": 13,
+    "title": "13 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "2d362b45-d633-426a-86bf-04efcdfa535e"
+   },
+   {
+    "disc": 4,
+    "n": 14,
+    "title": "14 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "69e3288b-6d05-4be7-aae7-c3c533edef2b"
+   },
+   {
+    "disc": 4,
+    "n": 15,
+    "title": "15 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "b5df6548-8430-4d66-918a-ffb9e2c8cad4"
+   },
+   {
+    "disc": 4,
+    "n": 16,
+    "title": "16 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "681cd656-f863-467a-9d4e-a3c5ac631adf"
+   },
+   {
+    "disc": 4,
+    "n": 17,
+    "title": "17 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "b6a31272-557d-44f0-9ec6-f2bc7860e4a5"
+   },
+   {
+    "disc": 4,
+    "n": 18,
+    "title": "18 Ghosts II (multitrack)",
+    "ms": 180000,
+    "rec": "1416e669-9019-484f-a6d3-ef1b2248325d"
+   },
+   {
+    "disc": 4,
+    "n": 19,
+    "title": "19 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "5cc043d7-1bae-42ed-924e-c094d5cfa537"
+   },
+   {
+    "disc": 4,
+    "n": 20,
+    "title": "20 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "f42dbb2e-5174-45db-9ba0-31c52a1fc6ad"
+   },
+   {
+    "disc": 4,
+    "n": 21,
+    "title": "21 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "f6fef88c-b5c6-4627-a2f7-9555039702ec"
+   },
+   {
+    "disc": 4,
+    "n": 22,
+    "title": "22 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "47a094c2-de4d-4f9e-a5fd-d835082f4cf3"
+   },
+   {
+    "disc": 4,
+    "n": 23,
+    "title": "23 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "49e4b360-6b27-446d-96aa-0c2bcccd128f"
+   },
+   {
+    "disc": 4,
+    "n": 24,
+    "title": "24 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "13f53db8-0b25-454c-bafc-04e2ba3f033f"
+   },
+   {
+    "disc": 4,
+    "n": 25,
+    "title": "25 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "5113dc1c-6c3f-4aee-b885-191380f24c55"
+   },
+   {
+    "disc": 4,
+    "n": 26,
+    "title": "26 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "9f2afc88-202f-4a37-b2fb-daa3ba8990ba"
+   },
+   {
+    "disc": 4,
+    "n": 27,
+    "title": "27 Ghosts III (multitrack)",
+    "ms": 180000,
+    "rec": "e545dd2f-4838-4d22-a5d9-097e2dee41b2"
+   },
+   {
+    "disc": 4,
+    "n": 28,
+    "title": "28 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "00b0ba4a-0264-48ed-9b31-264479db90be"
+   },
+   {
+    "disc": 4,
+    "n": 29,
+    "title": "29 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "d15c9754-bde6-491f-92ba-e9fd4b486ed9"
+   },
+   {
+    "disc": 4,
+    "n": 30,
+    "title": "30 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "6502dacb-b2a0-4239-87d3-06273f6b3fa8"
+   },
+   {
+    "disc": 4,
+    "n": 31,
+    "title": "31 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "5d7fd353-8100-4081-9f62-12f019aa4f51"
+   },
+   {
+    "disc": 4,
+    "n": 32,
+    "title": "32 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "85ffd034-135d-4ea7-bd87-3207c05ddadc"
+   },
+   {
+    "disc": 4,
+    "n": 33,
+    "title": "33 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "5f6a1a9c-f43b-4067-89d9-3ee324495737"
+   },
+   {
+    "disc": 4,
+    "n": 34,
+    "title": "34 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "941918bf-b5c6-4c9c-ba47-4dd4c39b0baa"
+   },
+   {
+    "disc": 4,
+    "n": 35,
+    "title": "35 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "0eed932c-6782-4395-96d8-2e1ed52161f7"
+   },
+   {
+    "disc": 4,
+    "n": 36,
+    "title": "36 Ghosts IV (multitrack)",
+    "ms": 180000,
+    "rec": "de2d5dd6-6de4-4032-a396-629571e18078"
+   },
+   {
+    "disc": 4,
+    "n": 37,
+    "title": "37 Ghosts (multitrack)",
+    "ms": 180000,
+    "rec": "c3e893f8-fe7c-4f77-b8ff-8eabef182ff1"
+   },
+   {
+    "disc": 4,
+    "n": 38,
+    "title": "38 Ghosts (multitrack)",
+    "ms": 180000,
+    "rec": "96fa609c-eb5d-442d-bb11-4ebed5f435fe"
+   }
+  ]
+ }
+]

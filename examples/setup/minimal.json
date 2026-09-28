@@ -1,0 +1,4 @@
+{
+  "$schema": "../../setup.schema.json",
+  "admin": { "username": "alex", "password": "change-me-please" }
+}

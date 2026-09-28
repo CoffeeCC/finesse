@@ -1,0 +1,30 @@
+{
+  "$schema": "../../setup.schema.json",
+  "version": 1,
+  "admin": { "username": "alex", "password": "change-me-please" },
+  "server": { "name": "The Den", "timezone": "Europe/London", "country": "GB", "language": "en" },
+  "downloads": {
+    "usenet": {
+      "servers": [
+        { "name": "Frugal", "host": "news.frugalusenet.com", "port": 563, "ssl": true, "username": "USENET_USER", "password": "USENET_PASSWORD", "connections": 50 },
+        { "name": "Blocknews (backup)", "host": "eunews.blocknews.net", "port": 563, "ssl": true, "username": "BLOCK_USER", "password": "BLOCK_PASSWORD", "connections": 10, "priority": 1 }
+      ]
+    },
+    "torrents": {
+      "vpn": {
+        "provider": "mullvad",
+        "type": "wireguard",
+        "wireguard": { "privateKey": "wOEI9rqqbDwnN8/Bpp22sVz48T71vJ4fYmFWujulwUU=", "addresses": "10.64.222.21/32" },
+        "countries": ["Netherlands", "Switzerland"]
+      }
+    },
+    "indexers": [
+      { "name": "NZBgeek", "kind": "newznab", "url": "https://api.nzbgeek.info", "apiKey": "INDEXER_API_KEY" },
+      { "name": "DrunkenSlug", "kind": "newznab", "url": "https://api.drunkenslug.com", "apiKey": "INDEXER_API_KEY" }
+    ]
+  },
+  "quality": { "preset": "4k" },
+  "remoteAccess": { "method": "tailscale", "tailscale": { "authKey": "tskey-auth-EXAMPLE", "hostname": "finesse" } },
+  "email": { "host": "smtp.fastmail.com", "port": 465, "secure": true, "username": "me@example.com", "password": "APP_PASSWORD", "from": "The Den <me@example.com>" },
+  "options": { "exposeJellyfinPort": true, "jellyfinPort": 8096 }
+}

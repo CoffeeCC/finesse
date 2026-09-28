@@ -1,0 +1,17 @@
+{
+  "$schema": "../../setup.schema.json",
+  "admin": { "username": "alex", "password": "change-me-please" },
+  "server": { "name": "The Den", "timezone": "America/New_York", "country": "US", "language": "en" },
+  "libraries": { "movies": true, "shows": true, "music": false },
+  "downloads": {
+    "usenet": {
+      "servers": [
+        { "name": "Newshosting", "host": "news.newshosting.com", "port": 563, "ssl": true, "username": "USENET_USER", "password": "USENET_PASSWORD", "connections": 30 }
+      ]
+    },
+    "indexers": [
+      { "name": "NZBgeek", "kind": "newznab", "url": "https://api.nzbgeek.info", "apiKey": "INDEXER_API_KEY" }
+    ]
+  },
+  "quality": { "preset": "1080p" }
+}

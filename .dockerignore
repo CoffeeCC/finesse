@@ -1,0 +1,10 @@
+node_modules
+.git
+.github
+webos/staging
+webos/release
+*.log
+.env
+.env.*
+# `dist` and `server/dist` are needed by the `prebuilt` target; the release
+# target rebuilds them from source inside the image.

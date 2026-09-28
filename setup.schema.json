@@ -1,0 +1,560 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/CoffeeCC/finesse/blob/master/setup.schema.json",
+  "title": "Finesse setup document",
+  "description": "Everything Finesse needs to build a media server, in one JSON object. Apply it with `docker exec -i finesse finesse setup apply - < setup.json` or POST it to /api/setup/apply (header X-Finesse-Setup-Code). Only `admin` is required: the smallest document installs Jellyfin alone. Add Usenet and/or torrents to get Sonarr, Radarr, Lidarr and Prowlarr wired up automatically. Applying is idempotent: re-running with the same document changes nothing, and after a failure it resumes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "admin"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "description": "Document format version."
+    },
+    "admin": {
+      "type": "object",
+      "description": "The first administrator account (created in Jellyfin; used to sign in to Finesse).",
+      "additionalProperties": false,
+      "required": [
+        "username",
+        "password"
+      ],
+      "properties": {
+        "username": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@-]{2,64}$",
+          "examples": [
+            "alex"
+          ]
+        },
+        "password": {
+          "type": "string",
+          "minLength": 8,
+          "description": "At least 8 characters."
+        }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Shown to people you invite.",
+          "examples": [
+            "The Den"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "description": "The household's language: metadata, and downloads (Sonarr and Radarr accept a title's original language or this one).",
+          "examples": [
+            "en",
+            "pt-BR"
+          ]
+        },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "Metadata country (ratings, release dates).",
+          "examples": [
+            "US",
+            "GB"
+          ]
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA time zone for every app.",
+          "examples": [
+            "America/New_York",
+            "Europe/London"
+          ],
+          "pattern": "^[A-Za-z_]+(/[A-Za-z0-9_+-]+)*$|^UTC$|^Etc/[A-Za-z0-9+-]+$"
+        }
+      }
+    },
+    "libraries": {
+      "type": "object",
+      "description": "Which libraries to create. Movies, shows and music are on by default; each also installs its manager when downloads are configured (shows → Sonarr, movies → Radarr, music → Lidarr). Games is off by default: it installs RomM (with MariaDB) for retro games you play in the browser.",
+      "additionalProperties": false,
+      "properties": {
+        "movies": {
+          "type": "boolean",
+          "default": true
+        },
+        "shows": {
+          "type": "boolean",
+          "default": true
+        },
+        "music": {
+          "type": "boolean",
+          "default": true
+        },
+        "games": {
+          "type": "boolean",
+          "default": false,
+          "description": "Install RomM for a Games library. Put games in <data>/media/games/roms/<system> (e.g. roms/snes)."
+        }
+      }
+    },
+    "games": {
+      "type": "object",
+      "description": "Optional accounts for game box art and descriptions (libraries.games must be on). Games get art from free sources without these.",
+      "additionalProperties": false,
+      "properties": {
+        "igdb": {
+          "type": "object",
+          "description": "IGDB (via a free Twitch developer app at dev.twitch.tv): the richest game metadata.",
+          "additionalProperties": false,
+          "required": [
+            "clientId",
+            "clientSecret"
+          ],
+          "properties": {
+            "clientId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "clientSecret": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "steamGridDbKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{16,64}$",
+          "description": "SteamGridDB API key (steamgriddb.com → Preferences → API): extra cover art."
+        },
+        "screenscraper": {
+          "type": "object",
+          "description": "ScreenScraper.fr account: box art and screenshots for many retro systems.",
+          "additionalProperties": false,
+          "required": [
+            "username",
+            "password"
+          ],
+          "properties": {
+            "username": {
+              "type": "string",
+              "minLength": 1
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "downloads": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "usenet": {
+          "description": "Usenet via SABnzbd. Needs a Usenet provider account (server + login) and at least one indexer. null = no Usenet.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "servers"
+              ],
+              "properties": {
+                "servers": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/usenetServer"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "torrents": {
+          "description": "Torrents via qBittorrent, which ONLY ever connects through the VPN (Gluetun, with a kill switch). null = no torrents.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vpn"
+              ],
+              "properties": {
+                "vpn": {
+                  "$ref": "#/$defs/vpn"
+                }
+              }
+            }
+          ]
+        },
+        "indexers": {
+          "type": "array",
+          "description": "Search sites, added to Prowlarr and synced to Sonarr/Radarr/Lidarr. newznab = Usenet indexers (need a Usenet server), torznab = torrent indexers (need torrents).",
+          "items": {
+            "$ref": "#/$defs/indexer"
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "enum": [
+            "720p",
+            "1080p",
+            "4k",
+            "any"
+          ],
+          "default": "1080p",
+          "description": "Default quality for new requests (changeable per request)."
+        }
+      }
+    },
+    "remoteAccess": {
+      "type": "object",
+      "description": "Reach Finesse away from home without opening router ports.",
+      "additionalProperties": false,
+      "required": [
+        "method"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "none",
+            "tailscale",
+            "cloudflare"
+          ]
+        },
+        "tailscale": {
+          "type": "object",
+          "description": "Tailscale Funnel: a free https://<name>.<tailnet>.ts.net address. In the Tailscale admin console enable MagicDNS + HTTPS certificates and allow Funnel, then create an auth key.",
+          "additionalProperties": false,
+          "required": [
+            "authKey"
+          ],
+          "properties": {
+            "authKey": {
+              "type": "string",
+              "pattern": "^tskey-",
+              "description": "Settings → Keys → Generate auth key (reusable off, pre-approved on)."
+            },
+            "hostname": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,63}$",
+              "default": "finesse"
+            }
+          }
+        },
+        "cloudflare": {
+          "type": "object",
+          "description": "Cloudflare Tunnel on your own domain. Create a tunnel in Zero Trust → Networks → Tunnels, add a public hostname pointing to http://finesse:8080, and paste its token.",
+          "additionalProperties": false,
+          "required": [
+            "token",
+            "publicUrl"
+          ],
+          "properties": {
+            "token": {
+              "type": "string",
+              "minLength": 20
+            },
+            "publicUrl": {
+              "type": "string",
+              "pattern": "^https://",
+              "examples": [
+                "https://media.example.com"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "publicUrl": {
+      "type": "string",
+      "pattern": "^https?://[^\\s/]+(/[^\\s]*)?$",
+      "description": "Where people reach Finesse from outside, if you run your own reverse proxy. Used in invite links. Tailscale/Cloudflare fill this in automatically."
+    },
+    "email": {
+      "description": "SMTP for emailing invites (optional; any provider — Gmail app password, Fastmail, SendGrid, Resend…). null = no email.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "host",
+            "port",
+            "from"
+          ],
+          "properties": {
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "examples": [
+                "smtp.gmail.com"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "examples": [
+                587,
+                465
+              ]
+            },
+            "secure": {
+              "type": "boolean",
+              "description": "true for port 465 (TLS from the start); false upgrades with STARTTLS (587)."
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string",
+              "pattern": "@",
+              "examples": [
+                "Finesse <media@example.com>"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exposeJellyfinPort": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also publish Jellyfin's own port for native Jellyfin apps (Infuse, Swiftfin, Findroid…)."
+        },
+        "jellyfinPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 8096,
+          "description": "If taken, the next free port is used (reported as a warning)."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "usenetServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "host",
+        "port",
+        "username",
+        "password",
+        "connections"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "examples": [
+            "Newshosting"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "pattern": "^[^\\s/]+$",
+          "examples": [
+            "news.newshosting.com"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 563
+        },
+        "ssl": {
+          "type": "boolean",
+          "default": true
+        },
+        "username": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "connections": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Your plan's connection limit (often 20–60)."
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "0 = primary; higher = backup/block account."
+        }
+      }
+    },
+    "vpn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "type"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "mullvad",
+            "protonvpn",
+            "airvpn",
+            "nordvpn",
+            "surfshark",
+            "windscribe",
+            "ivpn",
+            "fastestvpn",
+            "private internet access",
+            "expressvpn",
+            "cyberghost",
+            "ipvanish",
+            "purevpn",
+            "privado",
+            "torguard",
+            "vyprvpn",
+            "custom"
+          ],
+          "description": "Gluetun provider id. 'custom' = any WireGuard server (needs endpointIp, endpointPort, publicKey)."
+        },
+        "type": {
+          "enum": [
+            "wireguard",
+            "openvpn"
+          ],
+          "description": "WireGuard where the provider supports it (faster)."
+        },
+        "wireguard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "privateKey"
+          ],
+          "properties": {
+            "privateKey": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9+/]{42,43}=?$",
+              "description": "[Interface] PrivateKey from the provider's WireGuard config."
+            },
+            "addresses": {
+              "type": "string",
+              "description": "[Interface] Address, e.g. 10.64.222.21/32 (not needed for NordVPN)."
+            },
+            "presharedKey": {
+              "type": "string"
+            },
+            "endpointIp": {
+              "type": "string",
+              "description": "custom only: [Peer] Endpoint IP."
+            },
+            "endpointPort": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "custom only: [Peer] Endpoint port."
+            },
+            "publicKey": {
+              "type": "string",
+              "description": "custom only: [Peer] PublicKey."
+            }
+          }
+        },
+        "openvpn": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "username",
+            "password"
+          ],
+          "properties": {
+            "username": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The provider's OpenVPN/service username (often not your account email)."
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "countries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Server countries, e.g. [\"Netherlands\", \"Switzerland\"]."
+        }
+      }
+    },
+    "indexer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "url"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "examples": [
+            "NZBgeek"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "newznab",
+            "torznab"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://",
+          "examples": [
+            "https://api.nzbgeek.info"
+          ]
+        },
+        "apiKey": {
+          "type": "string"
+        },
+        "definition": {
+          "type": "string",
+          "description": "Optional Prowlarr definition name (e.g. \"nzbgeek\"); omitted = generic Newznab/Torznab."
+        }
+      }
+    }
+  }
+}

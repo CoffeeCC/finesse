@@ -1,0 +1,45 @@
+{
+ "admin": {
+  "username": "alex",
+  "password": "FinesseDemo2026"
+ },
+ "server": {
+  "name": "The Den",
+  "timezone": "Europe/London",
+  "country": "GB",
+  "language": "en"
+ },
+ "libraries": {
+  "movies": true,
+  "shows": true,
+  "music": true,
+  "games": true
+ },
+ "downloads": {
+  "usenet": {
+   "servers": [
+    {
+     "name": "Newshosting",
+     "host": "news.example.com",
+     "port": 563,
+     "ssl": true,
+     "username": "demo",
+     "password": "demo",
+     "connections": 20
+    }
+   ]
+  },
+  "indexers": [
+   {
+    "name": "NZBgeek",
+    "kind": "newznab",
+    "url": "http://fake-indexer",
+    "apiKey": "goodkey"
+   }
+  ]
+ },
+ "quality": {
+  "preset": "1080p"
+ },
+ "publicUrl": "https://media.example.com"
+}

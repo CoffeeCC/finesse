@@ -1,0 +1,50 @@
+name: Something isn't working
+description: A bug in the app, the setup page, the TV app or the server.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please **remove passwords, API keys and your public address** from anything you paste.
+        Security problems go through [private reporting](https://github.com/CoffeeCC/finesse/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where?
+      multiple: true
+      options:
+        - Web (computer)
+        - Phone
+        - LG TV app
+        - Another TV's browser
+        - Setup page / installer
+        - Settings → Server
+        - Requests / downloads
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Finesse version
+      description: Settings → Server, or `sudo docker exec finesse finesse version`
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `sudo docker exec finesse finesse doctor`
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "`sudo docker logs --tail 200 finesse`, or an app's logs from Settings → Server → Logs."
+      render: text

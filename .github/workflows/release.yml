@@ -1,0 +1,160 @@
+name: Release
+
+# A push to master whose package.json version has no GitHub Release yet
+# publishes one with both update assets:
+#   finesse-web-<v>.tar.gz   the web build — the NAS pulls it when an admin
+#                            presses "Update Finesse" (deploy/invite-service)
+#   finesse-webos-<v>.json   the TV bundle — the webOS app's OTA updater
+#   com.finesse.tv_<v>_all.ipk  the LG TV app to install (docs/tv.md)
+# and pushes the multi-arch server image ghcr.io/<owner>/finesse:<v> (+ :latest),
+# which installs and self-updates use.
+# Bump "version" to ship; pushes that don't are no-ops. A release made by hand
+# with only one asset gets the missing one uploaded.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run server:typecheck
+      - run: npm run server:test
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for an existing release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --json assets --jq '.assets[].name' > assets.txt 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if grep -qx "finesse-web-$version.tar.gz" assets.txt && grep -qx "finesse-webos-$version.json" assets.txt; then
+              echo "Release $tag already has both assets — nothing to do."
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.needed == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build web and TV bundles
+        if: steps.check.outputs.needed == 'true'
+        env:
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          npm ci
+          npm run build
+          test "$(node -p "require('./dist/version.json').version")" = "$VERSION"
+          tar -C dist -czf "finesse-web-$VERSION.tar.gz" .
+          # LG's CLI packages the installable .ipk; the OTA bundle doesn't need it.
+          npm i -g @webos-tools/cli || echo "::warning::LG webOS CLI unavailable — no .ipk this release"
+          npm run package:webos
+          cp "webos/release/finesse-webos-$VERSION.json" .
+          cp "webos/release/com.finesse.tv_${VERSION}_all.ipk" . 2>/dev/null || true
+
+      - name: Publish
+        if: steps.check.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.check.outputs.version }}
+          TAG: ${{ steps.check.outputs.tag }}
+        run: |
+          assets=("finesse-web-$VERSION.tar.gz" "finesse-webos-$VERSION.json")
+          ipk="com.finesse.tv_${VERSION}_all.ipk"
+          [ -f "$ipk" ] && assets+=("$ipk")
+          if [ "${{ steps.check.outputs.exists }}" = "true" ]; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            # Notes: this version's section of TODO.md ("## … — vX.Y.Z (date)").
+            awk -v v="v$VERSION" '
+              /^## / { if (on) exit; if (index($0, v)) { on = 1; next } }
+              on { print }
+            ' TODO.md > notes.md
+            [ -s notes.md ] || echo "Finesse $VERSION" > notes.md
+            gh release create "$TAG" "${assets[@]}" --title "Finesse $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
+
+  image:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name
+        id: img
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          repo="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/finesse"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          if docker manifest inspect "$repo:$VERSION" >/dev/null 2>&1; then
+            echo "Image $repo:$VERSION already published."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+        if: steps.img.outputs.needed == 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: steps.img.outputs.needed == 'true'
+      - uses: docker/login-action@v3
+        if: steps.img.outputs.needed == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push (amd64 + arm64)
+        if: steps.img.outputs.needed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.img.outputs.repo }}:${{ needs.release.outputs.version }}
+            ${{ steps.img.outputs.repo }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.release.outputs.version }}
+            org.opencontainers.image.title=Finesse
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.description=Your own streaming service — Jellyfin, the *arrs, Usenet and a VPN, set up for you
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
