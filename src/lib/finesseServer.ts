@@ -3,7 +3,7 @@
 // address Jellyfin answers on. Older installs (nginx + Jellyfin on its own
 // port, no discovery endpoint) still work through the legacy guess below.
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CONTENT_BASE, setContentOrigin } from './contentOrigin'
 
 export interface FinesseInfo {
@@ -94,7 +94,9 @@ export function useFinesse(): { info: FinesseInfo | null; loading: boolean; refr
       live = false
     }
   }, [n])
-  return { ...state, refresh: () => setN((x) => x + 1) }
+  // Stable, so effects can list it without re-running on every render.
+  const refresh = useCallback(() => setN((x) => x + 1), [])
+  return { ...state, refresh }
 }
 
 /** Turns what someone typed ("192.168.1.50", "nas.local:8080", "https://media.example.com")

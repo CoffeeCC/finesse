@@ -58,7 +58,7 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **[Groups](docs/groups.md)**: share libraries with friends who run Finesse too, and watch and listen to theirs.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.
 - **[Games](docs/games.md)**: turn on the optional retro-games library.
-- **[Game streaming](docs/streaming.md)**: Steam on the TV, with the Wolf you run and Moonlight.
+- **[Game streaming](docs/streaming.md)**: Steam on the TV with Wolf and Moonlight. Finesse sets Wolf up, or works with yours.
 - **[Let an AI agent install it](docs/agents/INSTALL.md)**: a runbook written for coding agents,
   with a [setup document](setup.schema.json) they can fill in and apply without a browser.
 
@@ -82,9 +82,10 @@ about ten minutes, and nothing is installed until you press **Build my server**.
   files don't have them) and a full-screen lyric video.
 - **Games.** Optional: retro games (NES to PlayStation) that play right in the browser, with the
   library kept by [RomM](https://romm.app). See [Games](docs/games.md).
-- **Game streaming.** Already run [Wolf](https://games-on-whales.github.io/wolf/)? Finesse lists
-  what it streams and pairs your TVs and phones with Moonlight's PIN, so Steam plays on the big
-  screen. See [Game streaming](docs/streaming.md).
+- **Game streaming.** One switch sets up [Wolf](https://games-on-whales.github.io/wolf/), which
+  runs Steam on your server and streams it to Moonlight on TVs, phones and computers. Finesse
+  checks the server first, lists what you can play, and pairs devices with Moonlight's PIN.
+  Already run Wolf? Connect it instead. See [Game streaming](docs/streaming.md).
 - **Friends' libraries.** Friends who run Finesse too can share their films, shows and music with
   you, and you with them: watch- and listen-only, with nobody getting an account on anyone's
   server. See [Groups](docs/groups.md).

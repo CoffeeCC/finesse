@@ -38,6 +38,25 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Finesse sets up game streaming — v1.4.0 (2026-10-02)
+
+- **One switch for Steam on the TV.** On a full install, **Settings → Server → Game streaming**
+  has **Turn on game streaming**. Finesse downloads [Wolf](https://games-on-whales.github.io/wolf/),
+  runs it, and keeps it up to date with the other apps. **Games** then lists what you can play,
+  and you pair TVs, phones and computers with Moonlight's PIN, as in 1.3. See
+  [Game streaming](docs/streaming.md).
+- **It checks the server first.** Before you turn it on, Finesse shows what the server has: an
+  Nvidia, Intel or AMD graphics card, virtual controllers, and PlayStation controller extras.
+  Anything missing comes with the commands that fix it, and a **Copy** button.
+- **Turn it off** in the same place. Wolf's folder stays, so devices and installed games are
+  there when you turn it back on.
+- **For terminals and AI agents:** `finesse streaming` shows the same check, and
+  `finesse streaming on` / `off` waits until it's done.
+- **Backups keep Wolf's settings and paired devices** (not the games).
+- Already run Wolf yourself? Keep connecting it with `WOLF_SOCKET`; Finesse won't offer a second one.
+- **Fixed:** turning Games on or off in Settings sometimes took half a minute to show it was done.
+  Game covers that don't load show the game's tile instead of a broken image.
+
 ## Request page fixes — v1.3.1 (2026-10-02)
 
 - **Artist pictures show up.** Many music requests showed the browser's broken-image icon: when

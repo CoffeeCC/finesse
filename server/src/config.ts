@@ -75,6 +75,8 @@ export interface Settings {
     exposeJellyfin?: boolean
     jellyfinPort?: number
     quality?: string
+    /** Game streaming (Wolf): whether Docker hands it the Nvidia card. */
+    streaming?: { nvidia: boolean }
     /** Services an administrator stopped on purpose (the health loop leaves them alone). */
     paused?: string[]
   }

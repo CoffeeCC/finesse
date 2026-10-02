@@ -5,11 +5,12 @@
 // its own.
 
 import { createHash } from 'node:crypto'
-import { chownSync, existsSync, mkdirSync } from 'node:fs'
+import { chownSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { logger } from '../log.ts'
 import { CATALOG, containerName, proxyFor, type ServiceDef, type StackContext, type StackServiceId } from './catalog.ts'
 import { Docker, DockerError } from './docker.ts'
+import type { StreamingProbe } from './wolf.ts'
 
 const log = logger('stack')
 
@@ -47,7 +48,7 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
     const [host, cont] = d.split(':')
     return { PathOnHost: host, PathInContainer: cont ?? host, CgroupPermissions: 'rwm' }
   })
-  const networkMode = def.networkOf ? `container:${containerName(def.networkOf)}` : ctx.network
+  const networkMode = def.hostNetwork ? 'host' : def.networkOf ? `container:${containerName(def.networkOf)}` : ctx.network
   const spec: Record<string, unknown> = {
     Image: def.image,
     Env: env,
@@ -63,11 +64,14 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
       GroupAdd: def.groupAdd?.(ctx) ?? [],
       Sysctls: def.sysctls ?? {},
       LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '3' } },
+      // Only for apps that ask, so no other app's spec (and hash) changes.
+      ...(def.deviceCgroupRules ? { DeviceCgroupRules: def.deviceCgroupRules } : {}),
+      ...(def.nvidia?.(ctx) ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] } : {}),
     },
   }
   const user = def.user?.(ctx)
   if (user) spec.User = user
-  if (!def.networkOf) {
+  if (!def.networkOf && !def.hostNetwork) {
     spec.NetworkingConfig = { EndpointsConfig: { [ctx.network]: { Aliases: [def.alias, ...(def.extraAliases ?? []), containerName(def.id)] } } }
   }
   return spec
@@ -95,7 +99,7 @@ export class Orchestrator {
   /** Which of the devices the stack cares about exist on the HOST (cached a minute). */
   async hostDevices(): Promise<string[]> {
     if (this.hostProbe && Date.now() - this.hostProbe.at < 60000) return this.hostProbe.devices
-    const want = ['/dev/net/tun', '/dev/dri']
+    const want = ['/dev/net/tun', '/dev/dri', '/dev/uinput', '/dev/uhid', '/dev/nvidia0']
     let devices: string[]
     if (!process.env.FINESSE_IN_DOCKER) {
       devices = want.filter((p) => existsSync(p))
@@ -106,6 +110,25 @@ export class Orchestrator {
     }
     this.hostProbe = { at: Date.now(), devices }
     return devices
+  }
+
+  /** What game streaming needs from this machine, checked fresh (someone may just have loaded a module). */
+  async streamingProbe(): Promise<StreamingProbe> {
+    this.hostProbe = null
+    const devices = await this.hostDevices()
+    const info = (await this.docker.info().catch(() => null)) as { Runtimes?: Record<string, unknown> } | null
+    const nvidiaRuntime = Boolean(info?.Runtimes && 'nvidia' in info.Runtimes)
+    let nvidiaModeset: boolean | null = null
+    if (devices.includes('/dev/nvidia0')) {
+      const path = '/sys/module/nvidia_drm/parameters/modeset'
+      if (!process.env.FINESSE_IN_DOCKER) {
+        nvidiaModeset = existsSync(path) && readFileSync(path, 'utf8').trim() === 'Y'
+      } else {
+        const r = await this.docker.runOnce(await this.selfImage(), ['sh', '-c', 'cat /host/sys/module/nvidia_drm/parameters/modeset 2>/dev/null; true'], ['/sys/module:/host/sys/module:ro']).catch(() => null)
+        nvidiaModeset = r ? r.output.trim().startsWith('Y') : null
+      }
+    }
+    return { devices, nvidiaRuntime, nvidiaModeset }
   }
 
   /** Whether a TCP port is free on the host (a probe container on the host network tries to bind it). */

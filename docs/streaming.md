@@ -2,7 +2,7 @@
 
 [Wolf](https://games-on-whales.github.io/wolf/) runs Steam and other apps on your server and
 streams them to [Moonlight](https://moonlight-stream.org) on TVs, phones, tablets and computers.
-Finesse works with the Wolf you run:
+Everyone who plays gets their own session.
 
 - **Games** shows what you can stream, and how to start playing.
 - **Settings → Server → Game streaming** pairs new devices. Moonlight shows a PIN, and an
@@ -11,13 +11,62 @@ Finesse works with the Wolf you run:
 The games run on the server, on its graphics card. You play in Moonlight; Finesse doesn't stream
 games itself.
 
-## What you need
+There are two ways to set it up:
 
-- **Wolf running on the same machine as Finesse,** with its graphics card set up. Follow
-  [Wolf's quickstart](https://games-on-whales.github.io/wolf/stable/user/quickstart.html).
-- **Finesse 1.3 or newer.**
+- **Finesse installed your apps (a full install)?** It sets Wolf up for you. See
+  [Turn it on](#turn-it-on-full-installs). Needs Finesse 1.4 or newer.
+- **You run Wolf yourself?** Connect it to Finesse. See [Connect your own Wolf](#connect-your-own-wolf).
+  Needs Finesse 1.3 or newer.
 
-## Connect Wolf to Finesse
+Don't run both: two Wolfs on one machine fight over Moonlight's ports.
+
+## Turn it on (full installs)
+
+1. Open **Settings → Server → Game streaming**. Finesse looks at what the server has: a graphics
+   card, virtual controllers and PlayStation controller support. Anything missing comes with the
+   commands that fix it (see [Get the server ready](#get-the-server-ready)).
+2. Press **Turn on game streaming**. Wolf is about 1 GB to download, so the first time takes a
+   few minutes. Then **Games** has "Stream from your server".
+3. [Add a device](#add-a-device).
+
+From a terminal, or for an AI agent setting up the server:
+
+```bash
+docker exec finesse finesse streaming        # what this server has, and whether it's on
+docker exec finesse finesse streaming on     # set Wolf up (waits until it's running)
+docker exec finesse finesse streaming off    # remove Wolf's container; its folder stays
+```
+
+### Get the server ready
+
+These live in the server's own system, so Finesse can't change them for you. Run the commands
+on the server (not in a container), then press **check again**. If game streaming is already on,
+turn it off and on again so Wolf gets the new devices.
+
+| Part | What it does | How |
+|---|---|---|
+| **Intel or AMD graphics** | Runs and streams the games | Works as it is. |
+| **Nvidia graphics** | Runs and streams the games | Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) 1.16 or newer and restart Docker. Then add `nvidia-drm.modeset=1` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`, run `sudo update-grub` and restart the server. On TrueNAS, turn on **Install NVIDIA Drivers** in the Apps settings instead. |
+| **Virtual controllers** | Controllers, mouse and keyboard in games | `sudo modprobe uinput`, and `echo uinput \| sudo tee -a /etc/modules-load.d/wolf.conf` to keep it after a restart. |
+| **PlayStation controller extras** | DualSense touchpad and motion | `sudo modprobe uhid`, and `echo uhid \| sudo tee -a /etc/modules-load.d/wolf.conf`. |
+
+Without a graphics card Wolf still starts, using the processor, but games are too slow to play.
+
+**On TrueNAS,** changes to `/etc` can be lost when TrueNAS updates. Add `modprobe uinput && modprobe uhid`
+as a **Post Init** command under **System → Advanced → Init/Shutdown Scripts** instead.
+
+### What Finesse sets up
+
+- **Wolf runs as `finesse-wolf`, on the server's own network,** because Moonlight connects
+  straight to it (ports 47984, 47989 and 48010 over TCP, and 47999, 48100 and 48200 over UDP).
+- **Its folder is `<Finesse's folder>/config/wolf`.** It holds Wolf's settings, paired devices,
+  and each app's files. Steam's games are installed there too, so leave room for them.
+- **Finesse keeps Wolf running and updates it** with the other apps.
+- **Nightly backups keep Wolf's settings and paired devices,** not the games.
+- **Turning it off** removes the container. The folder stays, so turning it on again brings back
+  your devices and games.
+
+## Connect your own Wolf
 
 Finesse talks to Wolf through Wolf's API socket, a file in a folder both can see.
 
@@ -69,13 +118,17 @@ stream.
   games.
 - **Keep Wolf's socket folder between Wolf and Finesse.** Wolf's API has no password, and it can
   do much more than pair devices. Finesse only uses it to list apps and to pair and remove
-  devices, and only administrators can do the pairing.
+  devices, and only administrators can do the pairing. On a full install the socket stays inside
+  Finesse's folder.
 
 ## Problems
 
 | What you see | What to do |
 |---|---|
-| **No Games in the menu, or no Game streaming in Settings** | Finesse doesn't know where Wolf's socket is. Check `WOLF_SOCKET` in Finesse's settings, then restart it. |
+| **No Games in the menu, or no Game streaming in Settings** | On a full install, turn it on under **Settings → Server → Game streaming**. With your own Wolf, Finesse doesn't know where its socket is: check `WOLF_SOCKET` in Finesse's settings, then restart it. |
+| **"Finesse's folder is too deep for Wolf"** | A socket's path can be at most 107 characters, and Wolf's go in `<Finesse's folder>/config/wolf/run`. Move Finesse's folder to a shorter path, like `/srv/finesse`. |
+| **"Wolf stopped right after starting"** | The message ends with Wolf's last log lines. Often another Wolf or Sunshine already uses Moonlight's ports: stop it first. |
+| **Controllers don't work in games** | Virtual controllers are off. See [Get the server ready](#get-the-server-ready), then turn game streaming off and on. |
 | **"Can't find Wolf's socket at …"** | The folder isn't shared with Finesse, or Wolf puts its socket somewhere else. Check that both apps have `/var/run/wolf` shared, and that Wolf has `WOLF_SOCKET_PATH` set. |
 | **"Wolf isn't running"** | The socket is there but nothing answers. Start Wolf, or check its logs. |
 | **The device never shows up to pair** | Moonlight has to be waiting on its PIN screen. Start pairing again in Moonlight. |

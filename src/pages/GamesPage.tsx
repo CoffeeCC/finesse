@@ -7,13 +7,16 @@ import StreamingSection from '../components/StreamingSection'
 import { useFinesse } from '../lib/finesseServer'
 
 function GameCard({ rom }: { rom: RommRom }) {
-  const romCover = rommCoverUrl(rom)
+  // RomM's cover, unless it didn't load: then SteamGridDB's, then the tile.
+  const [romFailed, setRomFailed] = useState(false)
+  const romCover = romFailed ? null : rommCoverUrl(rom)
   const [sgdbCover, setSgdbCover] = useState<string | null>(null)
+  const [sgdbFailed, setSgdbFailed] = useState(false)
   const [inView, setInView] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const playable = isPlayable(rom)
   const title = cleanName(rom.name)
-  const cover = romCover ?? sgdbCover
+  const cover = romCover ?? (sgdbFailed ? null : sgdbCover)
 
   // Only look up a SteamGridDB cover once the card is near the viewport, so
   // scrolling past 300 games doesn't fire hundreds of lookups up front.
@@ -55,7 +58,13 @@ function GameCard({ rom }: { rom: RommRom }) {
       }`}
     >
       {cover ? (
-        <img src={cover} alt={title} loading="lazy" className="h-full w-full object-cover fade-in" />
+        <img
+          src={cover}
+          alt={title}
+          loading="lazy"
+          className="h-full w-full object-cover fade-in"
+          onError={() => (cover === romCover ? setRomFailed(true) : setSgdbFailed(true))}
+        />
       ) : (
         <div className="h-full w-full flex flex-col justify-between p-3" style={{ backgroundImage: tileGradient(rom) }}>
           <span className="self-start rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">

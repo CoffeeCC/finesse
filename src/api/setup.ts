@@ -209,6 +209,7 @@ export interface SystemStatus {
   busy: boolean
   previews?: { enabled: boolean; made: number; pending: number; total: number; lastRun: string | null }
   games?: { enabled: boolean; folder: string | null; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
+  streaming?: { enabled: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   backup?: { job: { state: 'idle' | 'working' | 'done' | 'error'; step?: string; file?: BackupFile; error?: string } }
   health: {
     checkedAt: string | null
@@ -235,6 +236,8 @@ export const systemApi = {
   updateApps: () => call<{ updated: string[] }>('POST', '/api/system/update-apps', {}, { timeoutMs: 900000 }),
   setPreviews: (enabled: boolean) => call<{ enabled: boolean }>('PUT', '/api/system/previews', { enabled }),
   setGames: (enabled: boolean, steamGridDbKey?: string) => call<{ job: unknown }>('PUT', '/api/system/games', { enabled, ...(steamGridDbKey ? { steamGridDbKey } : {}) }),
+  setStreaming: (enabled: boolean) => call<{ job: unknown }>('PUT', '/api/system/streaming', { enabled }),
+  streamingCheck: () => call<StreamingCheck>('GET', '/api/system/streaming/check', undefined, { timeoutMs: 60000 }),
   makePreviews: () => call<{ started: boolean }>('POST', '/api/system/previews'),
   setAutoUpdates: (auto: boolean) => call<{ auto: boolean }>('PUT', '/api/system/updates', { auto }),
   backupParts: () => call<{ parts: BackupPartInfo[] }>('GET', '/api/system/backups/parts'),
@@ -287,6 +290,15 @@ export interface StreamApp {
   title: string
   hdr: boolean
   icon: boolean
+}
+
+/** What game streaming needs from the server (Settings → Server, before turning it on). */
+export interface StreamingCheck {
+  gpu: 'nvidia' | 'intel-amd' | null
+  allGood: boolean
+  items: { id: string; ok: boolean; title: string; detail: string; fix?: string[] }[]
+  /** Why Wolf can't run on this server at all; it isn't offered then. */
+  blocked?: string
 }
 
 export interface StreamingAdmin {

@@ -94,6 +94,10 @@ const CONFIG_FILES = [
   'qbittorrent/qBittorrent/qBittorrent.conf',
   'gluetun/auth/config.toml',
   'tailscale/serve.json',
+  // Game streaming: Wolf's apps and paired devices, and the certificate they paired with.
+  'wolf/cfg/config.toml',
+  'wolf/cfg/cert.pem',
+  'wolf/cfg/key.pem',
   'romm/config/config.yml',
 ]
 

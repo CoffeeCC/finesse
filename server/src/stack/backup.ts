@@ -26,7 +26,7 @@ export type BackupPart = 'settings' | 'apps' | 'watch' | 'requests' | 'games'
 
 export const BACKUP_PARTS: { id: BackupPart; label: string; detail: string }[] = [
   { id: 'settings', label: 'Finesse settings & invites', detail: 'Always included.' },
-  { id: 'apps', label: 'App settings', detail: 'Keys, download clients, indexers and quality profiles for each app.' },
+  { id: 'apps', label: 'App settings', detail: 'Keys, download clients, indexers and quality profiles for each app, and devices paired for game streaming.' },
   { id: 'watch', label: 'Watch history & accounts', detail: 'Jellyfin’s database: everyone’s accounts, what they watched and where they stopped.' },
   { id: 'requests', label: 'Requests & download history', detail: 'Every show, movie and artist Sonarr, Radarr and Lidarr follow, plus Prowlarr’s indexers.' },
   { id: 'games', label: 'Games library & saves', detail: 'RomM’s library, collections, save games and save states.' },

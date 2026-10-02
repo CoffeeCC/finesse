@@ -76,6 +76,7 @@ Ask in **one message**, grouped. Use the defaults when the person doesn't care.
 | Server name | "Finesse" | `server.name` |
 | Libraries: movies / shows / music | all three | `libraries` |
 | Games: an optional retro-games library played in the browser | off | `libraries.games` (+ optional artwork keys in `games`) |
+| Game streaming: Steam and other PC games on TVs and phones with Moonlight (needs a graphics card) | off | after setup: `finesse streaming on` (see [step 7](#7-report-to-the-person)) |
 | Downloads: Usenet, torrents, both, none | none | `downloads` |
 | Usenet provider, username, password, connection limit | none | `downloads.usenet.servers[]` |
 | Indexer(s) + API key(s) | none | `downloads.indexers[]` |
@@ -245,6 +246,12 @@ Tell them (never the passwords):
   - Other TVs: any Jellyfin app, server `http://<LAN-IP>:8096` (or the port in the warnings).
 - **Invites:** Settings → Server → Invites.
 - **Health:** Settings → Server, or `sudo docker exec finesse finesse doctor`.
+- **Game streaming (if chosen):** run `sudo docker exec finesse finesse streaming` and relay its `!`
+  lines. Fixes like `modprobe uinput` change the server's own system: run them only with the
+  person's OK. If they already run Wolf or Sunshine, don't turn it on (two fight over Moonlight's
+  ports); [docs/streaming.md](../streaming.md) connects their own Wolf instead. Then
+  `sudo docker exec finesse finesse streaming on`, and tell them to pair devices under
+  **Settings → Server → Game streaming**.
 - **Warnings:** relay any from step 5.
 
 ## Reference
@@ -255,5 +262,6 @@ Tell them (never the passwords):
 | Provider hints, indexer suggestions, defaults | `GET /api/setup/info` (setup-code header) |
 | Progress | `finesse setup status [--json]` / `GET /api/setup/status` |
 | Health | `finesse doctor [--json]` / `GET /api/system/status` (admin) |
+| Game streaming | `finesse streaming [on\|off] [--json]` / `GET /api/system/streaming/check`, `PUT /api/system/streaming` (admin) |
 | Change the setup later | Edit the document and run `finesse setup apply` again (an admin action after setup). Apps the document leaves out are turned off; their settings are kept. Games also has its own switch in Settings → Server → Games. |
 | Human guide | [docs/install.md](../install.md) |

@@ -7,7 +7,9 @@ import { existsSync } from 'node:fs'
 import type { Settings, SettingsStore } from '../config.ts'
 import { clearSetupCode } from '../auth.ts'
 import { logger } from '../log.ts'
-import { CATALOG, containerName, orderServices, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
+import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
+import { wolfCall, wolfProblem } from '../streaming.ts'
+import { wolfFolderProblem } from '../stack/wolf.ts'
 import { Orchestrator, serviceUrl } from '../stack/orchestrator.ts'
 import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe } from '../stack/seed.ts'
 import { clearFinishedTcLog } from '../stack/games.ts'
@@ -108,6 +110,7 @@ export function stackContext(s: Settings, hostDevices: string[]): StackContext |
     tailscale: st.remote?.tailscale,
     cloudflared: st.remote?.cloudflare,
     games: s.games,
+    streaming: st.streaming,
   }
 }
 
@@ -207,6 +210,7 @@ export class SetupRunner {
 
   start(doc: SetupDoc): RunStatus {
     if (this.status.state === 'running') throw new Error('Setup is already running')
+    if (this.gamesJob.state === 'working' || this.streamingJob.state === 'working') throw new Error('Finesse is busy — try again in a minute')
     const services = orderServices(servicesFor(doc))
     const has = (id: StackServiceId) => services.includes(id)
     const downloads = has('prowlarr')
@@ -494,8 +498,11 @@ export class SetupRunner {
       jellyfinScan(`${serviceUrl('jellyfin')}${jf.basePath}`, jf.apiKey).catch(() => {})
       // Re-applied with less than before (downloads or Games left out): turn
       // those apps off. Their settings stay in their folders for next time.
+      // Game streaming has its own switch (Settings → Server): a setup
+      // document leaves it as it is.
+      const streaming = Boolean(this.settings.get().stack?.services.includes('wolf'))
       for (const id of (await orch.managed()).keys()) {
-        if (!(id in CATALOG) || services.includes(id as StackServiceId)) continue
+        if (!(id in CATALOG) || services.includes(id as StackServiceId) || (id === 'wolf' && streaming)) continue
         await orch.removeService(id as StackServiceId)
         this.say(`Turned off ${CATALOG[id as StackServiceId].name} (not in this setup; its settings are kept)`)
       }
@@ -517,7 +524,8 @@ export class SetupRunner {
           timezone: ctx.timezone,
           puid: ctx.puid,
           pgid: ctx.pgid,
-          services,
+          services: streaming ? [...services, 'wolf'] : services,
+          ...(x.stack?.streaming ? { streaming: x.stack.streaming } : {}),
           vpn: ctx.vpn,
           remote: doc.remoteAccess?.method && doc.remoteAccess.method !== 'none' ? { method: doc.remoteAccess.method, tailscale: ctx.tailscale, cloudflare: ctx.cloudflared } : undefined,
           exposeJellyfin: ctx.exposeJellyfin,
@@ -577,6 +585,70 @@ export class SetupRunner {
       (e) => {
         this.gamesJob = { state: 'error', error: (e as Error).message }
         log.error('games', e)
+      },
+    )
+  }
+
+  /** Settings → Server: turn game streaming (Wolf) on or off. Wolf's settings and pairings are kept. */
+  streamingJob: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } = { state: 'idle' }
+
+  setStreaming(on: boolean) {
+    const s = this.settings.get()
+    if (s.mode !== 'bundle' || !s.stack) throw new Error('Finesse isn’t managing a stack on this server')
+    if (this.status.state === 'running' || this.gamesJob.state === 'working' || this.streamingJob.state === 'working') throw new Error('Finesse is busy — try again in a minute')
+    const folder = on ? wolfFolderProblem(wolfRunDir(s.stack)) : null
+    if (folder) throw new Error(folder)
+    this.streamingJob = { state: 'working', detail: on ? 'Checking this machine…' : 'Turning off game streaming…' }
+    const say = (m: string) => {
+      this.streamingJob.detail = m
+      this.say(m)
+    }
+    void (async () => {
+      if (!on) {
+        // Settings first, so the health loop doesn't bring Wolf back.
+        this.settings.update((x) => {
+          x.stack!.services = x.stack!.services.filter((id) => id !== 'wolf')
+          if (x.streaming) delete x.streaming.socket
+        })
+        await this.orch.removeService('wolf')
+        return
+      }
+      const probe = await this.orch.streamingProbe()
+      const nvidia = probe.devices.includes('/dev/nvidia0') && probe.nvidiaRuntime
+      this.settings.update((x) => void (x.stack!.streaming = { nvidia }))
+      const ctx = stackContext(this.settings.get(), probe.devices)!
+      this.orch.ensureDirs(ctx, ['wolf'])
+      say('Downloading Wolf…')
+      await this.orch.ensureImage(CATALOG.wolf, (e) => {
+        if (e.phase === 'pull' && e.fraction !== undefined) this.streamingJob.detail = `Downloading Wolf — ${Math.round(e.fraction * 100)}%`
+      })
+      say('Starting Wolf…')
+      await this.orch.ensureService('wolf', ctx)
+      // Wolf's API socket answers once it's up.
+      const socket = wolfSocket(ctx)
+      const until = Date.now() + 120000
+      let last: unknown = null
+      for (;;) {
+        const r = await wolfCall(socket, 'GET', '/api/v1/apps').catch((e) => ((last = e), null))
+        if (r?.status === 200) break
+        const c = await this.orch.docker.inspect(containerName('wolf'))
+        if (c && !c.State.Running && !c.State.Restarting) {
+          const logs = await this.orch.docker.logs(containerName('wolf'), 30).catch(() => '')
+          throw new Error(`Wolf stopped right after starting (exit ${c.State.ExitCode}).\n${logs.trim().split('\n').slice(-6).join('\n')}`)
+        }
+        if (Date.now() > until) throw new Error(`Wolf didn’t answer within two minutes: ${wolfProblem(last, socket)}`)
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+      this.settings.update((x) => {
+        x.stack!.services = [...new Set([...x.stack!.services, 'wolf' as const])]
+        x.streaming = { ...x.streaming, socket }
+      })
+      say('Game streaming is on')
+    })().then(
+      () => (this.streamingJob = { state: 'done' }),
+      (e) => {
+        this.streamingJob = { state: 'error', error: (e as Error).message }
+        log.error('streaming', e)
       },
     )
   }

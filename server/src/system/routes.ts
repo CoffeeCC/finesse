@@ -2,6 +2,8 @@
 // VPN, disk, backups, restarting or pausing an app, reading its logs, and
 // applying app updates. Also starts the self-maintenance loop.
 
+import { wolfRunDir } from '../stack/catalog.ts'
+import { streamingCheck } from '../stack/wolf.ts'
 import type { AppDeps, Plugin } from '../app.ts'
 import { sendMail, type SmtpConfig } from '../email.ts'
 import { ApiError, readJson, sendJson } from '../http/core.ts'
@@ -34,7 +36,7 @@ export function systemPlugin(ref: StackRef): Plugin {
     if (!runner) throw new Error('systemPlugin needs setupPlugin first')
     const orch = runner.orch
     // Hands off while setup or the Games switch is changing which apps exist.
-    const maint = new Maintainer(settings, orch, settings.paths, () => runner.status.state === 'running' || runner.gamesJob.state === 'working')
+    const maint = new Maintainer(settings, orch, settings.paths, () => runner.status.state === 'running' || runner.gamesJob.state === 'working' || runner.streamingJob.state === 'working')
     ref.maintainer = maint
     const clips = new ClipMaker(settings, orch.docker, settings.paths, () => runner.status.state !== 'running' && !maint.isWorking)
     if (process.env.FINESSE_MAINTENANCE !== 'off') {
@@ -85,6 +87,7 @@ export function systemPlugin(ref: StackRef): Plugin {
         busy: maint.isWorking,
         previews: { enabled: s.previews?.enabled !== false, ...clips.status },
         games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
+        streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
         backup: { job: maint.backupJob },
         health: maint.health,
       })
@@ -221,6 +224,27 @@ export function systemPlugin(ref: StackRef): Plugin {
       }
       maint.event('info', body.enabled ? 'Games is being added by an administrator' : 'Games was removed by an administrator (files kept)')
       sendJson(res, 202, { job: runner.gamesJob })
+    })
+
+    // Game streaming (Wolf): what this machine has, and turning it on or off.
+    router.get('/api/system/streaming/check', async ({ req, res }) => {
+      await auth.requireAdmin(req)
+      needStack()
+      sendJson(res, 200, streamingCheck(await orch.streamingProbe(), { runDir: wolfRunDir(settings.get().stack!) }))
+    })
+
+    router.put('/api/system/streaming', async ({ req, res }) => {
+      await auth.requireAdmin(req)
+      needStack()
+      const body = await readJson<{ enabled?: boolean }>(req)
+      if (typeof body.enabled !== 'boolean') throw new ApiError(400, 'enabled must be true or false')
+      try {
+        runner.setStreaming(body.enabled)
+      } catch (e) {
+        throw new ApiError(409, (e as Error).message)
+      }
+      maint.event('info', body.enabled ? 'Game streaming is being turned on by an administrator' : 'Game streaming was turned off by an administrator (Wolf’s settings kept)')
+      sendJson(res, 202, { job: runner.streamingJob })
     })
 
     // Preview clips: switch on/off, or make the missing ones now.

@@ -9,6 +9,7 @@
 //   finesse doctor [--json]            health report: apps, VPN, disk, backups
 //   finesse backup [--with a,b|--all]  back up now (add watch, requests, games)
 //   finesse restore <backup> [--only a,b]  put a backup back (then restart Finesse)
+//   finesse streaming [on|off] [--json]  game streaming (Wolf): what this machine has, or turn it on/off
 //   finesse version                    server version
 //   finesse swap <id> <image>          (internal) replace a Finesse container with a new image
 //
@@ -255,6 +256,55 @@ async function doctor(argv: string[]): Promise<number> {
   return problems ? 1 : 0
 }
 
+type StreamingJob = { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string }
+
+/** Game streaming on a full install: the readiness check, or turning Wolf on/off (waits for it). */
+async function streaming(argv: string[]): Promise<number> {
+  const action = argv.find((a) => !a.startsWith('-'))
+  const json = argv.includes('--json')
+  const status = async () => {
+    const r = await api<{ streaming?: { enabled: boolean; job: StreamingJob }; mode?: string; error?: string }>('GET', '/api/system/status')
+    if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
+    if (!r.data.streaming) throw new Error('Game streaming needs a full install (Finesse running the apps). With your own Wolf, set WOLF_SOCKET instead.')
+    return r.data.streaming
+  }
+  if (!action) {
+    const [st, check] = await Promise.all([
+      status(),
+      api<{ gpu: string | null; allGood: boolean; blocked?: string; items: { ok: boolean; title: string; detail: string; fix?: string[] }[]; error?: string }>('GET', '/api/system/streaming/check'),
+    ])
+    if (check.status >= 400) throw new Error(check.data.error ?? `HTTP ${check.status}`)
+    if (json) {
+      console.log(JSON.stringify({ enabled: st.enabled, job: st.job, check: check.data }, null, 2))
+      return 0
+    }
+    console.log(`${bold('Game streaming')} is ${st.enabled ? green('on') : 'off'}\n`)
+    for (const i of check.data.items) {
+      console.log(`  ${i.ok ? green('✔') : yellow('!')} ${i.title}${dim(`  ${i.detail}`)}`)
+      for (const f of i.fix ?? []) console.log(`      ${f}`)
+    }
+    if (!st.enabled) console.log(check.data.blocked ? `\n${red(check.data.blocked)}` : `\nTurn it on with: ${bold('finesse streaming on')}`)
+    return check.data.blocked ? 1 : 0
+  }
+  if (action !== 'on' && action !== 'off') throw new Error('usage: finesse streaming [on|off] [--json]')
+  const r = await api<{ error?: string }>('PUT', '/api/system/streaming', { enabled: action === 'on' })
+  if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
+  let last = ''
+  for (;;) {
+    await new Promise((res) => setTimeout(res, 1500))
+    const st = await status()
+    if (st.job.state === 'working') {
+      if (st.job.detail && st.job.detail !== last && !json) console.log(dim(`  ${st.job.detail}`))
+      last = st.job.detail ?? last
+      continue
+    }
+    if (st.job.state === 'error') throw new Error(st.job.error ?? 'Game streaming didn’t finish')
+    if (json) console.log(JSON.stringify({ enabled: st.enabled }))
+    else console.log(st.enabled ? `${green('✔')} Game streaming is on. Pair devices under Settings → Server → Game streaming.` : `${green('✔')} Game streaming is off. Wolf’s folder, with paired devices and games, is kept.`)
+    return 0
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv
   switch (cmd) {
@@ -276,6 +326,8 @@ async function main(argv: string[]): Promise<number> {
       return setup(rest)
     case 'doctor':
       return doctor(rest)
+    case 'streaming':
+      return streaming(rest)
     case 'backup': {
       const all = rest.includes('--all')
       const withArg = rest[rest.indexOf('--with') + 1]
@@ -365,6 +417,7 @@ Usage:
   finesse doctor [--json]            health report: apps, VPN, disk, backups
   finesse backup [--with a,b|--all]  back up now; add watch, requests, games (or --all)
   finesse restore <backup> [--only a,b]  put a backup back (then restart Finesse)
+  finesse streaming [on|off]         game streaming (Wolf): what this machine has, or turn it on/off
   finesse version                    print the version
 
 Setup documents: https://github.com/CoffeeCC/finesse/blob/master/setup.schema.json`)

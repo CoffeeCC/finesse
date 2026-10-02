@@ -20,6 +20,7 @@ export type StackServiceId =
   | 'cloudflared'
   | 'romm-db'
   | 'romm'
+  | 'wolf'
 
 export interface StackContext {
   hostRoot: string
@@ -42,6 +43,8 @@ export interface StackContext {
   proxy?: AppProxy
   /** Games (RomM): generated database/auth secrets and optional artwork keys. */
   games?: GamesConfig
+  /** Game streaming (Wolf): whether Docker can hand it an Nvidia card. */
+  streaming?: { nvidia: boolean }
 }
 
 export interface GamesConfig {
@@ -133,9 +136,20 @@ export interface ServiceDef {
   sysctls?: Record<string, string>
   /** Directories (relative to hostData) the service needs to exist. */
   dataDirs?: string[]
+  /** Runs on the host's network (Wolf: Moonlight finds it and streams over UDP). */
+  hostNetwork?: boolean
+  /** Extra device rules (Wolf: the virtual controllers it creates while it runs). */
+  deviceCgroupRules?: string[]
+  /** Asks Docker for the Nvidia card(s). */
+  nvidia?(ctx: StackContext): boolean
 }
 
 const cfg = (ctx: StackContext, id: string) => `${ctx.hostRoot}/config/${id}`
+
+/** Wolf's API socket. It sits in Wolf's own config folder, which Finesse sees at the same path. */
+/** Wolf's sockets (its API, and the PulseAudio it runs) live here, inside Finesse's folder. */
+export const wolfRunDir = (ctx: { hostRoot: string }) => `${ctx.hostRoot}/config/wolf/run`
+export const wolfSocket = (ctx: { hostRoot: string }) => `${wolfRunDir(ctx)}/wolf.sock`
 const lsio = (ctx: StackContext) => ({ PUID: String(ctx.puid), PGID: String(ctx.pgid), TZ: ctx.timezone, UMASK: '002' })
 
 export const CATALOG: Record<StackServiceId, ServiceDef> = {
@@ -335,6 +349,45 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     ],
     user: (ctx) => `${ctx.puid}:${ctx.pgid}`,
     dataDirs: ['media/games/roms', 'media/games/bios'],
+  },  // Game streaming: Wolf streams Steam and other apps to Moonlight. It starts
+  // each app in a container of its own (hence Docker), creates virtual
+  // controllers (uinput/uhid, cgroup rule for input devices) and is found by
+  // Moonlight on the home network (host networking). Its folders must have the
+  // same path inside and out: Wolf hands them to the app containers it starts.
+  wolf: {
+    id: 'wolf',
+    name: 'Wolf',
+    role: 'Game streaming',
+    image: 'ghcr.io/games-on-whales/wolf:sha-facb8e0',
+    alias: 'wolf',
+    port: 0,
+    hostNetwork: true,
+    env: (ctx) => {
+      const dir = cfg(ctx, 'wolf')
+      return {
+        TZ: ctx.timezone,
+        WOLF_CFG_FILE: `${dir}/cfg/config.toml`,
+        WOLF_PRIVATE_KEY_FILE: `${dir}/cfg/key.pem`,
+        WOLF_PRIVATE_CERT_FILE: `${dir}/cfg/cert.pem`,
+        HOST_APPS_STATE_FOLDER: dir,
+        XDG_RUNTIME_DIR: `${dir}/run`,
+        WOLF_SOCKET_PATH: wolfSocket(ctx),
+        // Games keep their saves as the same user as every other app.
+        WOLF_DEFAULT_RUN_UID: String(ctx.puid),
+        WOLF_DEFAULT_RUN_GID: String(ctx.pgid),
+        ...(ctx.streaming?.nvidia ? { NVIDIA_DRIVER_CAPABILITIES: 'all', NVIDIA_VISIBLE_DEVICES: 'all' } : {}),
+      }
+    },
+    binds: (ctx) => [
+      `${cfg(ctx, 'wolf')}:${cfg(ctx, 'wolf')}`,
+      `${cfg(ctx, 'wolf')}/run:${cfg(ctx, 'wolf')}/run`,
+      '/var/run/docker.sock:/var/run/docker.sock',
+      '/dev:/dev',
+      '/run/udev:/run/udev',
+    ],
+    devices: () => ['/dev/dri:/dev/dri', '/dev/uinput:/dev/uinput', '/dev/uhid:/dev/uhid'],
+    deviceCgroupRules: ['c 13:* rmw'],
+    nvidia: (ctx) => Boolean(ctx.streaming?.nvidia),
   },
 }
 
