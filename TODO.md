@@ -38,6 +38,17 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Request page fixes — v1.3.1 (2026-10-02)
+
+- **Artist pictures show up.** Many music requests showed the browser's broken-image icon: when
+  Lidarr had no web address for a picture, Finesse used a path only Lidarr itself can serve.
+  Pictures now come from Lidarr (or Radarr/Sonarr) through Finesse, then from the web, and
+  otherwise show the name's initials. Artists are round; films and shows keep their posters.
+- **Fits wide screens.** Requested, downloading and search results fit as many cards in a row as
+  the screen allows, instead of two stretched columns.
+- **Search results come first.** They used to sit below every download and request. A long
+  **Requested** list now shows two rows, with **Show all**.
+
 ## Game streaming with Wolf — v1.3.0 (2026-10-02)
 
 - **Steam on the TV.** Already run [Wolf](https://games-on-whales.github.io/wolf/), which streams

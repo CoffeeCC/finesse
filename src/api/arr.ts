@@ -1,4 +1,4 @@
-import { mediaBrowserAuthHeader } from './client'
+import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
@@ -23,6 +23,13 @@ export class ArrError extends Error {
  *  webOS build there's no local nginx, so this resolves to the deployed server. */
 function arrBase(): string {
   return `${CONTENT_BASE}arr`
+}
+
+/** The copy of a poster (or artist picture) that Radarr/Sonarr/Lidarr keeps,
+ *  through Finesse. An <img> can't send a sign-in header, so it rides along in
+ *  the address; Finesse drops it before asking the app. */
+export function arrCoverUrl(kind: ArrKind, id: number): string {
+  return withToken(`${arrBase()}/${APP_OF[kind]}/mediacover/${kind === 'artist' ? 'artist/' : ''}${id}/poster-250.jpg`)
 }
 
 interface ArrImage {
@@ -135,9 +142,12 @@ async function arrFetch<T>(
   return (text ? JSON.parse(text) : undefined) as T
 }
 
+/** The poster's address on the web. For something in the library, an image's
+ *  `url` is a path on the app itself (/MediaCover/…) that a browser can't load:
+ *  arrCoverUrl is that copy. Search results carry web addresses in both. */
 function pickPoster(images?: ArrImage[], remotePoster?: string): string | undefined {
   const poster = images?.find((i) => i.coverType === 'poster')
-  return poster?.remoteUrl ?? poster?.url ?? remotePoster
+  return [poster?.remoteUrl, poster?.url, remotePoster].find((u) => u && /^https?:\/\//i.test(u))
 }
 
 function mapMovie(m: Record<string, unknown>): ArrResult {

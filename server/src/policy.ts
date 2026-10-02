@@ -45,6 +45,8 @@ export function arrVerdict(method: string, path: string, query: URLSearchParams)
       new RegExp(`^${ITEM}/lookup$`),
       new RegExp(`^${ITEM}(/\\d+)?$`),
       /^(qualityprofile|rootfolder|metadataprofile|queue|wanted\/missing|release|episodefile)$/,
+      // Posters and artist pictures the app's lists show.
+      /^mediacover\/((artist|album)\/)?\d+\/[\w-]+\.(jpg|jpeg|png|gif)$/,
     ].some((r) => r.test(path))
     return ok ? { ok: true } : { ok: false }
   }

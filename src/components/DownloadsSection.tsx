@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useArrQueue } from '../api/queries'
 import { arrQueueRemove, arrQueueRetry, type ArrQueueItem } from '../api/arr'
 import { sabItemPause, sabItemResume } from '../api/sab'
+import ArrThumb from './ArrThumb'
 import { useToast } from './Toast'
 
 function Row({ d }: { d: ArrQueueItem }) {
@@ -67,11 +68,7 @@ function Row({ d }: { d: ArrQueueItem }) {
   return (
     <div className={`rounded-xl border p-2.5 ${attention ? 'bg-amber-500/5 border-amber-500/30' : 'bg-ink-900/60 border-white/5'}`}>
       <div className="flex items-center gap-3">
-        <div className="w-11 h-16 shrink-0 rounded-md overflow-hidden bg-ink-800">
-          {d.poster && (
-            <img src={d.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
-          )}
-        </div>
+        <ArrThumb kind={d.kind} id={d.refId} remote={d.poster} title={d.title} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-white truncate">
             {d.title}
@@ -153,7 +150,7 @@ export default function DownloadsSection({ limit, title = 'Downloading now' }: {
         <h2 className="text-lg font-semibold text-white tracking-tight">{title}</h2>
         <span className="text-xs text-ink-400">{data.length} in progress</span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-2.5">
         {items.map((d) => (
           <Row key={d.key} d={d} />
         ))}

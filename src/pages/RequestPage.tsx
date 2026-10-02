@@ -11,6 +11,7 @@ import {
   type ArrResult,
 } from '../api/arr'
 import { useArrQueue } from '../api/queries'
+import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
 import QualityModal from '../components/QualityModal'
@@ -150,25 +151,19 @@ export default function RequestPage() {
       </div>
 
       <div className="px-4 sm:px-6 lg:px-12">
-        {/* Downloader (SABnzbd) status: speed / disk / pause-all / speed cap. */}
-        <SabPanel />
-        {/* What's currently downloading — live from the *arr queues, with controls. */}
-        <DownloadsSection />
-        {/* Recent requests still waiting for a release. */}
-        <RequestedSection />
-
+        {/* Search results first: the lists below can be long. */}
         {authError && (
-          <p className="text-red-300">Your session expired — sign out and back in to request.</p>
+          <p className="mb-8 text-red-300">Your session expired — sign out and back in to request.</p>
         )}
         {isError && !authError && (
-          <p className="text-red-300">Couldn’t reach the request service. Try again in a moment.</p>
+          <p className="mb-8 text-red-300">Couldn’t reach the request service. Try again in a moment.</p>
         )}
-        {isLoading && <p className="text-ink-400">Searching…</p>}
+        {isLoading && <p className="mb-8 text-ink-400">Searching…</p>}
         {!isLoading && !isError && data && data.length === 0 && term.trim().length > 1 && (
-          <p className="text-ink-400">No matches for “{term}”.</p>
+          <p className="mb-8 text-ink-400">No matches for “{term}”.</p>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className={`grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-4 ${data?.length ? 'mb-10' : ''}`}>
           {data?.map((r) => {
             const state: ItemState = overrides[keyOf(r)] ?? (r.id > 0 ? 'requested' : 'idle')
             const inLibrary = r.id > 0 && r.hasFile
@@ -180,11 +175,7 @@ export default function RequestPage() {
                 key={keyOf(r)}
                 className="flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
               >
-                <div className="w-20 h-30 shrink-0 rounded-lg overflow-hidden bg-ink-800 aspect-[2/3]">
-                  {r.poster && (
-                    <img src={r.poster} alt="" loading="lazy" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                  )}
-                </div>
+                <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
                 <div className="min-w-0 flex-1 flex flex-col">
                   <p className="text-sm font-semibold text-white leading-tight">
                     {r.title}
@@ -256,6 +247,13 @@ export default function RequestPage() {
             )
           })}
         </div>
+
+        {/* Downloader (SABnzbd) status: speed / disk / pause-all / speed cap. */}
+        <SabPanel />
+        {/* What's currently downloading — live from the *arr queues, with controls. */}
+        <DownloadsSection />
+        {/* Recent requests still waiting for a release. */}
+        <RequestedSection />
       </div>
 
       {qualityItem && (

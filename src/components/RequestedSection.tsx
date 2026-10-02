@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArrQueue, useArrRequested } from '../api/queries'
 import { arrCancelRequest, arrSearchAgain, type ArrRequested } from '../api/arr'
+import ArrThumb from './ArrThumb'
 import { useToast } from './Toast'
 
 const KIND_LABEL = { movie: 'Movie', series: 'Show', artist: 'Artist' } as const
@@ -62,47 +63,62 @@ function Row({ r }: { r: ArrRequested }) {
   }
 
   return (
-    <div className="rounded-xl border bg-ink-900/60 border-white/5 p-2.5">
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-16 shrink-0 rounded-md overflow-hidden bg-ink-800">
-          {r.poster && <img src={r.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white truncate">
-            {r.title}
-            {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
-          </p>
-          <p className="mt-1 text-xs text-ink-400">
-            {KIND_LABEL[r.kind]} · requested {ago(r.added)}
-          </p>
-          <p className={`mt-1 inline-flex items-center gap-1.5 text-xs font-medium ${r.available ? 'text-accent-300' : 'text-ink-300'}`}>
-            {r.available && <span className="h-1.5 w-1.5 rounded-full bg-accent-400 animate-pulse" aria-hidden />}
-            {r.available ? 'Looking for a release' : 'Not out yet — it’ll download when it is'}
-          </p>
-        </div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        {r.available && (
+    <div className="flex gap-3 rounded-xl border bg-ink-900/60 border-white/5 p-2.5">
+      <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-white truncate">
+          {r.title}
+          {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
+        </p>
+        <p className="mt-0.5 text-xs text-ink-400">
+          {KIND_LABEL[r.kind]} · requested {ago(r.added)}
+        </p>
+        <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${r.available ? 'text-accent-300' : 'text-ink-300'}`}>
+          {r.available && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-400 animate-pulse" aria-hidden />}
+          {r.available ? 'Looking for a release' : 'Not out yet — it’ll download when it is'}
+        </p>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {r.available && (
+            <button
+              onClick={again}
+              disabled={busy}
+              className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 disabled:opacity-50 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
+            >
+              Search again
+            </button>
+          )}
           <button
-            onClick={again}
+            onClick={cancel}
             disabled={busy}
-            className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 disabled:opacity-50 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
+            className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+              armed ? 'bg-red-500 hover:bg-red-400 text-white font-semibold' : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
+            }`}
           >
-            Search again
+            {armed ? 'Tap again to confirm' : 'Take back'}
           </button>
-        )}
-        <button
-          onClick={cancel}
-          disabled={busy}
-          className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-            armed ? 'bg-red-500 hover:bg-red-400 text-white font-semibold' : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
-          }`}
-        >
-          {armed ? 'Tap again to confirm' : 'Take back'}
-        </button>
+        </div>
       </div>
     </div>
   )
+}
+
+/** Columns the grid has right now (it fits as many cards as the screen allows). */
+function useColumns() {
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
+  const [cols, setCols] = useState(1)
+  useEffect(() => {
+    if (!el) return
+    const read = () => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(' ').filter(Boolean).length))
+    read()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', read)
+      return () => window.removeEventListener('resize', read)
+    }
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [el])
+  return [setEl, cols] as const
 }
 
 /** Requests from the last 30 days that aren't downloading and have nothing on
@@ -111,19 +127,36 @@ export default function RequestedSection() {
   const { data } = useArrRequested()
   const { data: queue } = useArrQueue()
   const busy = new Set((queue ?? []).map((q) => `${q.kind}-${q.refId}`))
+  const [all, setAll] = useState(false)
+  const [grid, cols] = useColumns()
   const items = (data ?? []).filter((r) => !busy.has(r.key))
   if (items.length === 0) return null
+  // Two full rows (at least four), so a long list doesn't push everything else
+  // off the screen; no "Show all" to reveal just one more.
+  const folded = Math.max(4, cols * 2)
+  const foldable = items.length > folded + 1
+  const shown = all || !foldable ? items : items.slice(0, folded)
   return (
     <section className="mb-8">
-      <div className="flex items-baseline justify-between mb-3">
-        <h2 className="text-lg font-semibold text-white tracking-tight">Requested</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
+        <h2 className="text-lg font-semibold text-white tracking-tight">
+          Requested <span className="text-ink-400 font-normal text-base tabular-nums">{items.length}</span>
+        </h2>
         <span className="text-xs text-ink-400">Downloads start as soon as a release turns up</span>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {items.map((r) => (
+      <div ref={grid} className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-2.5">
+        {shown.map((r) => (
           <Row key={r.key} r={r} />
         ))}
       </div>
+      {foldable && (
+        <button
+          onClick={() => setAll((v) => !v)}
+          className="mt-3 rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
+        >
+          {all ? 'Show fewer' : `Show all ${items.length}`}
+        </button>
+      )}
     </section>
   )
 }

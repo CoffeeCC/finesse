@@ -54,8 +54,18 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
 
   for (const [slug, def] of Object.entries(ARR)) {
     router.any(`/arr/${slug}/*`, async ({ req, res, params, url }) => {
-      const user = def.admin ? await auth.requireAdmin(req) : await auth.requireUser(req)
       const path = safeRest(params.rest)
+      // An <img> can't send headers: a picture may carry the sign-in in its
+      // address instead, which goes no further than here.
+      const picture = !def.admin && /^mediacover\//.test(path) && /^(GET|HEAD)$/i.test(req.method ?? '')
+      const user = def.admin ? await auth.requireAdmin(req) : await auth.requireUser(req, picture ? { query: url.searchParams } : {})
+      let search = url.search
+      if (picture) {
+        const q = new URLSearchParams(url.searchParams)
+        q.delete('ApiKey')
+        q.delete('api_key')
+        search = q.toString() ? `?${q}` : ''
+      }
       const svc = need(settings.get().services[def.id], def.name)
       let body: Buffer | undefined
       // Household members get what the app's screens do; the rest is admin-only.
@@ -77,7 +87,7 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
         }
       }
       await proxyHttp(req, res, {
-        target: joinUrl(svc.url, `${def.api}/${params.rest ?? ''}`, url.search),
+        target: joinUrl(svc.url, `${def.api}/${params.rest ?? ''}`, search),
         stripAuth: true,
         setHeaders: { 'x-api-key': svc.apiKey! },
         body,

@@ -25,13 +25,15 @@ describe('the rules', () => {
     for (const [m, p] of [
       ['GET', 'movie/lookup'], ['GET', 'series/lookup'], ['GET', 'artist/lookup'], ['GET', 'qualityprofile'],
       ['GET', 'rootfolder'], ['GET', 'queue'], ['GET', 'wanted/missing'], ['GET', 'series'], ['GET', 'movie/12'],
-      ['GET', 'release'], ['GET', 'episodefile'], ['POST', 'movie'], ['POST', 'release'], ['POST', 'command'], ['DELETE', 'queue/bulk'],
+      ['GET', 'release'], ['GET', 'episodefile'], ['GET', 'mediacover/12/poster-250.jpg'], ['GET', 'mediacover/artist/3/poster.jpg'],
+      ['POST', 'movie'], ['POST', 'release'], ['POST', 'command'], ['DELETE', 'queue/bulk'],
     ] as const)
       assert.equal(arrVerdict(m, p, q()).ok, true, `${m} ${p}`)
     for (const [m, p] of [
       ['GET', 'config/host'], ['GET', 'downloadclient'], ['GET', 'indexer'], ['GET', 'notification'], ['GET', 'system/backup'],
       ['GET', 'log/file'], ['PUT', 'movie/12'], ['PUT', 'config/host'], ['POST', 'notification'], ['POST', 'downloadclient'],
       ['POST', 'customformat'], ['DELETE', 'rootfolder/1'], ['DELETE', 'moviefile/3'],
+      ['GET', 'mediacover/12/config.xml'], ['GET', 'mediacover/x/poster.jpg'], ['DELETE', 'mediacover/12/poster.jpg'],
     ] as const)
       assert.equal(arrVerdict(m, p, q()).ok, false, `${m} ${p}`)
   })
@@ -149,6 +151,21 @@ describe('through the server', () => {
     assert.equal(add.status, 200)
     assert.ok(add.upstream.some((l) => l.startsWith('radarr POST /api/v3/movie ') && l.includes('"tmdbId":5')), 'the checked body reaches Radarr intact')
     assert.equal((await call('POST', '/arr/radarr/command', USER_TOKEN, { name: 'MoviesSearch', movieIds: [5] })).status, 200)
+  })
+
+  test('posters load with the sign-in in their address, and it stops here', async () => {
+    const pic = async (path: string) => {
+      const before = seen.length
+      const r = await fetch(`${base}/finesse${path}`)
+      await r.arrayBuffer()
+      return { status: r.status, upstream: seen.slice(before) }
+    }
+    const ok = await pic(`/arr/radarr/mediacover/1/poster-250.jpg?ApiKey=${USER_TOKEN}&api_key=${USER_TOKEN}`)
+    assert.equal(ok.status, 200)
+    assert.deepEqual(ok.upstream, ['radarr GET /api/v3/mediacover/1/poster-250.jpg'])
+    assert.equal((await pic('/arr/radarr/mediacover/1/poster-250.jpg')).status, 401)
+    // Only pictures: anything else still needs the sign-in in a header.
+    assert.equal((await pic(`/arr/radarr/movie/lookup?term=x&ApiKey=${USER_TOKEN}`)).status, 401)
   })
 
   test('…but not settings, keys, other commands or other folders', async () => {
