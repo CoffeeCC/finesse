@@ -10,6 +10,7 @@ services:
       - "30500:8080"                                  # ← the port people use (30500 = the old nginx port)
     volumes:
       - /mnt/POOL/apps/finesse:/config                # ← a dataset for Finesse's settings, invites and backups
+      # - /var/run/wolf:/var/run/wolf                 # game streaming: Wolf's API folder (docs/streaming.md)
     extra_hosts:
       - "host.docker.internal:host-gateway"           # this NAS, even when its LAN address changes
     environment:
@@ -26,3 +27,4 @@ services:
       SAB_URL: http://host.docker.internal:8080
       SAB_API_KEY: paste-sabnzbd-api-key              # SABnzbd → Config → General
       # FINESSE_PUBLIC_URL: https://your-nas.your-tailnet.ts.net   # for invite links
+      # WOLF_SOCKET: /var/run/wolf/wolf.sock                       # game streaming with Wolf (docs/streaming.md)

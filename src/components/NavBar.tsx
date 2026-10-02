@@ -49,7 +49,7 @@ export function useOptionalLibraries(): { hasAnime: boolean; hasGames: boolean }
     queryFn: () => getItems({ recursive: true, tags: 'anime', includeItemTypes: 'Movie,Series', limit: 1, enableImages: false }),
     staleTime: 30 * 60_000,
   })
-  return { hasAnime: (anime?.TotalRecordCount ?? 0) > 0, hasGames: loading ? false : info ? Boolean(info.features.games) : true }
+  return { hasAnime: (anime?.TotalRecordCount ?? 0) > 0, hasGames: loading ? false : info ? Boolean(info.features.games || info.features.streaming) : true }
 }
 
 export default function NavBar() {

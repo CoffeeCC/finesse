@@ -56,6 +56,9 @@ from the last few years handles everything up to PlayStation. Plug in a controll
 keyboard. On a TV, lighter systems (8- and 16-bit) play best. In-game saves are kept by the
 browser on the device you play on.
 
+Want Steam and PC games on the TV too? They stream from the server with Wolf and Moonlight. See
+[Game streaming](streaming.md).
+
 ## Where things are kept
 
 | What | Where |

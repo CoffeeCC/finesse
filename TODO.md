@@ -38,6 +38,21 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Game streaming with Wolf — v1.3.0 (2026-10-02)
+
+- **Steam on the TV.** Already run [Wolf](https://games-on-whales.github.io/wolf/), which streams
+  Steam and other apps from your server to Moonlight? Point Finesse at it (`WOLF_SOCKET`) and
+  **Games** shows what you can stream, with how to start in Moonlight. See
+  [Game streaming](docs/streaming.md).
+- **Pair devices in Finesse.** When Moonlight shows a PIN, the device appears under
+  **Settings → Server → Game streaming** within seconds. Name it, type the PIN, done. No more
+  digging the pairing link out of Wolf's logs. Remove devices there too.
+- **Safe by design.** Wolf's API has no password and can do far more than pairing, so Finesse makes
+  only its own few calls and passes nothing else through. Only administrators pair devices, and
+  Wolf's pairing secrets and app settings never reach the browser.
+- With game streaming on, **Games** has streaming first and the games library (with its search)
+  below it. Servers with only Wolf get **Games** too.
+
 ## Groups share music — v1.2.0 (2026-09-28)
 
 - **Share your music with friends, and listen to theirs.** Tick Music when you share under

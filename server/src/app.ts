@@ -7,6 +7,7 @@ import { SettingsStore, type Paths, type Settings } from './config.ts'
 import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
+import { registerStreaming } from './streaming.ts'
 import { InviteStore, registerInvites } from './invites.ts'
 import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
@@ -41,6 +42,7 @@ function features(s: Settings) {
     usenet: Boolean(svc.sabnzbd?.url),
     torrents: Boolean(svc.qbittorrent?.url),
     games: Boolean(svc.romm?.url),
+    streaming: Boolean(s.streaming?.socket),
     invites: true,
     email: Boolean(s.email?.host),
     webUpdates: true,
@@ -80,6 +82,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
 
   registerInvites(router, { store: invites, jf, auth, settings })
   registerGroups(router, { settings, jf, auth })
+  registerStreaming(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)
   deps.updater = updater
   registerWebUpdate(router, { auth, updater })

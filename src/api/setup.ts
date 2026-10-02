@@ -1,6 +1,6 @@
 /** Client for the Finesse server's setup + system APIs (/api/setup, /api/system). */
 
-import { mediaBrowserAuthHeader } from './client'
+import { mediaBrowserAuthHeader, withToken } from './client'
 import { finesseApi } from '../lib/finesseServer'
 
 const CODE_KEY = 'finesse.setupCode'
@@ -278,4 +278,30 @@ export const groupsApi = {
   offer: (id: string, libraries: string[]) => call<{ ok: boolean }>('POST', `/api/groups/friends/${id}/offer`, { libraries }, { timeoutMs: 45000 }),
   acceptOffer: (id: string) => call<Friend>('POST', `/api/groups/offers/${id}/accept`, undefined, { timeoutMs: 45000 }),
   dismissOffer: (id: string) => call<{ ok: boolean }>('DELETE', `/api/groups/offers/${id}`),
+}
+
+// ---------- Game streaming (Wolf + Moonlight) ----------
+
+export interface StreamApp {
+  id: string
+  title: string
+  hdr: boolean
+  icon: boolean
+}
+
+export interface StreamingAdmin {
+  ok: boolean
+  error?: string
+  pending: { id: string; ip: string }[]
+  devices: { id: string; name: string | null; pairedAt: string | null }[]
+}
+
+export const streamingApi = {
+  /** Everyone at home: what Wolf can stream. */
+  apps: () => call<{ ok: boolean; apps: StreamApp[]; error?: string }>('GET', '/api/streaming'),
+  iconUrl: (id: string) => withToken(finesseApi(`/api/streaming/apps/${encodeURIComponent(id)}/icon`)),
+  admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
+  pair: (request: string, pin: string, name: string) =>
+    call<{ ok: boolean; error?: string; device?: { id: string; name: string } }>('POST', '/api/streaming/pair', { request, pin, name }, { timeoutMs: 30000 }),
+  remove: (id: string) => call<{ ok: boolean }>('DELETE', `/api/streaming/devices/${encodeURIComponent(id)}`),
 }

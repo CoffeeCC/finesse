@@ -89,6 +89,8 @@ export interface Settings {
   requests?: { profiles: Record<string, string> }
   /** Groups: libraries shared between Finesse servers (see groups.ts). */
   groups?: GroupsState
+  /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */
+  streaming?: { socket?: string; devices?: Record<string, { name: string; pairedAt: string }> }
   /** SMTP for emailing invites (optional). */
   email?: { host: string; port: number; secure?: boolean; username?: string; password?: string; from: string }
 }
@@ -204,6 +206,7 @@ function applyEnv(s: Settings): Settings {
       }
     }
   }
+  if (env.WOLF_SOCKET?.trim()) out.streaming = { ...out.streaming, socket: env.WOLF_SOCKET.trim() }
   if (env.FINESSE_REPO) out.updates.repo = env.FINESSE_REPO.trim()
   if (env.FINESSE_PUBLIC_URL) out.publicUrl = env.FINESSE_PUBLIC_URL.replace(/\/+$/, '')
   // Env-configured Jellyfin with no settings file = an adopted, already-running setup.

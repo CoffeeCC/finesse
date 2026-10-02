@@ -56,6 +56,7 @@ runs the same, plus the TV build.
 | `server/src/app.ts` | Assembles the HTTP server; `main.ts` starts it with the setup + system plugins |
 | `server/src/services.ts` | `/arr/*`, `/games/*`, `/jellyfin` proxies |
 | `server/src/invites.ts`, `update.ts`, `email.ts` | Invites, web/app updates, SMTP |
+| `server/src/streaming.ts` | Game streaming: Finesse in front of Wolf (`WOLF_SOCKET`): lists apps, pairs and removes Moonlight devices. Nothing else of Wolf's API passes through. |
 | `server/src/groups.ts`, `src/lib/peers.ts` | Groups: pairing, the friend proxies and their allow-list; the app's routing of friends' titles (`f-<friend>-<id>` ids) |
 | `server/src/stack/` | `catalog.ts` (pinned images), `orchestrator.ts`, `seed.ts` (pre-seeded configs), `wire.ts` (API wiring), `maintain.ts` (health/repair/nightly backups), `backup.ts` (backup parts + restore), `libraries.ts` (first files into an empty Jellyfin library), `games.ts`, `selfupdate.ts` |
 | `server/src/setup/` | `doc.ts` (setup document + validator), `apply.ts` (the stepped runner), `checks.ts` (live checks), `routes.ts` |

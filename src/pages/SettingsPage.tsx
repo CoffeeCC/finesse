@@ -15,6 +15,7 @@ import { useFinesse } from '../lib/finesseServer'
 import { DONATE_URL, PROJECT_URL } from '../lib/project'
 import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
 import GroupsAdmin from './settings/GroupsAdmin'
+import { StreamingSettings } from './settings/StreamingAdmin'
 import {
   createInvite,
   deleteInvite,
@@ -627,6 +628,7 @@ export default function SettingsPage() {
               <div className="space-y-8">
                 <SystemPanel />
                 <GroupsAdmin />
+                <StreamingSettings />
                 <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">
                   <CreateUserForm />
                   <div className="border-t border-white/5 pt-6">

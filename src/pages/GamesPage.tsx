@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { useGamePlatforms, useGames } from '../api/queries'
 import { fetchSgdbCover, rommCoverUrl, isPlayable, cleanName, tileGradient, type RommRom } from '../api/romm'
 import { CardSkeleton } from '../components/Skeletons'
+import StreamingSection from '../components/StreamingSection'
+import { useFinesse } from '../lib/finesseServer'
 
 function GameCard({ rom }: { rom: RommRom }) {
   const romCover = rommCoverUrl(rom)
@@ -92,7 +94,22 @@ function GameCard({ rom }: { rom: RommRom }) {
 
 const SHELF_CAP = 20
 
+/** Games: streaming from the server (Wolf) and the games library (RomM), whichever this server has. */
 export default function GamesPage() {
+  const { info } = useFinesse()
+  const streaming = Boolean(info?.features.streaming)
+  // Older servers without discovery: the games library, as before.
+  const library = info ? Boolean(info.features.games) : true
+  if (library) return <GamesLibrary top={streaming ? <StreamingSection /> : null} />
+  return (
+    <div className="px-4 sm:px-6 lg:px-12 py-6">
+      <h1 className="mb-5 text-2xl font-bold text-white tracking-tight">Games</h1>
+      {streaming && <StreamingSection />}
+    </div>
+  )
+}
+
+function GamesLibrary({ top }: { top: React.ReactNode }) {
   const { data: platforms } = useGamePlatforms()
   const [platformId, setPlatformId] = useState<number | undefined>()
   const [search, setSearch] = useState('')
@@ -115,17 +132,34 @@ export default function GamesPage() {
       .filter((x) => x.games.length > 0)
   }, [shelfMode, games, platforms])
 
+  const searchBox = (
+    <input
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+      placeholder="Search games…"
+      aria-label="Search the games library"
+      className="w-full sm:w-72 rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 text-ink-200"
+    />
+  )
+
   return (
     <div className="px-4 sm:px-6 lg:px-12 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search games…"
-          className="w-full sm:w-72 rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 text-ink-200"
-        />
-      </div>
+      {top ? (
+        // Streaming first; the search belongs to the library below it.
+        <>
+          <h1 className="text-2xl font-bold text-white tracking-tight mb-5">Games</h1>
+          {top}
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+            <h2 className="row-title text-white">Games library</h2>
+            {searchBox}
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+          <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
+          {searchBox}
+        </div>
+      )}
 
       {/* Platform filter */}
       <div className="flex items-center gap-2 mb-6 overflow-x-auto no-scrollbar pb-1">
