@@ -58,6 +58,7 @@ you need to expose, and browsers never see Jellyfin's address or any API key.
 | `SAB_URL`, `SAB_API_KEY` | SABnzbd (Config → General → API Key). |
 | `QBIT_URL`, `QBIT_USERNAME`, `QBIT_PASSWORD` | qBittorrent Web UI. |
 | `ROMM_URL`, `ROMM_USERNAME`, `ROMM_PASSWORD`, `STEAMGRIDDB_API_KEY` | Games (RomM). |
+| `FINESSE_HTTPS_PORT` | Finesse also serves https on this port, with a certificate it makes for itself (kept in `/config/tls`). Browser play needs https. Publish the same port. `FINESSE_HTTPS_NAMES`: the server's addresses for the certificate, comma separated. |
 | `WOLF_SOCKET` | Game streaming: where Wolf's API socket is, e.g. `/var/run/wolf/wolf.sock`. Share its folder too. See [Game streaming](streaming.md). Emulator apps (PS2, GameCube, PS3, Wii U, Switch): see [Emulators](emulators.md). Browser play also needs Docker's socket shared (`/var/run/docker.sock`). |
 | `FINESSE_PUBLIC_URL` | Where people reach Finesse from outside, used in invite links. |
 | `FINESSE_REPO`, `FINESSE_GITHUB_TOKEN` | Update from a fork / a private repo. |

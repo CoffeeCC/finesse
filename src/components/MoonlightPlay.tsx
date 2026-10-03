@@ -98,12 +98,36 @@ function StartHere({ rom, app }: { rom: number; app: StreamEmulator }) {
 /** Browser play (Beta): the emulator streams into Finesse itself, for screens without Moonlight. */
 function PlayInBrowser({ rom, app }: { rom: number; app: StreamEmulator }) {
   const navigate = useNavigate()
+  const { info } = useFinesse()
   const { data: list } = useQuery({ queryKey: ['streaming', 'apps'], queryFn: streamingApi.apps, staleTime: 60_000 })
   const [profile, setProfile] = useState(app.profiles.length === 1 ? app.profiles[0]! : '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const profileId = list?.profiles?.find((p) => p.name === profile)?.id
   const pick = app.profiles.length > 1
+  // The player decodes video with WebCodecs, which browsers only allow on https pages.
+  if (!window.isSecureContext) {
+    const port = info?.httpsPort
+    const secure = port ? `https://${window.location.hostname}:${port}${window.location.pathname}${window.location.search}` : null
+    return (
+      <div className="space-y-2 rounded-xl border border-white/10 bg-ink-950/40 px-4 py-3">
+        <p className="text-[13px] font-medium text-white">
+          Play in the browser <span className="ml-1 rounded-md bg-amber-300/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-200">Beta</span>
+        </p>
+        <p className="text-[12.5px] leading-relaxed text-ink-300">
+          Browsers only play games streamed like this on a secure (https) page.{' '}
+          {secure
+            ? 'Open Finesse’s https address. The first time, your browser warns that it doesn’t know Finesse’s certificate: continue to the page, then sign in there.'
+            : 'Whoever runs this server can turn on Finesse’s https address (FINESSE_HTTPS_PORT).'}
+        </p>
+        {secure && (
+          <a href={secure} className="inline-flex h-9 items-center rounded-lg bg-white px-4 text-[13px] font-semibold text-ink-950 hover:bg-ink-200">
+            Open the https address
+          </a>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">

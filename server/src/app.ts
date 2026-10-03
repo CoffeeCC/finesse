@@ -80,6 +80,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready' },
       features: features(s),
       publicUrl: s.publicUrl ?? null,
+      /** Finesse's own HTTPS port (FINESSE_HTTPS_PORT), for features that need a secure page. */
+      httpsPort: Number(process.env.FINESSE_HTTPS_PORT || 0) || null,
       requests: s.requests ? { profiles: s.requests.profiles } : undefined,
     })
   })

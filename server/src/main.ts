@@ -5,6 +5,8 @@ import { setupPlugin } from './setup/routes.ts'
 import { systemPlugin, type StackRef } from './system/routes.ts'
 import { VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
+import { certNames, finesseCert } from './tls.ts'
 
 const log = logger('finesse')
 
@@ -21,6 +23,22 @@ export async function main(plugins: Plugin[] = defaultPlugins()) {
   await new Promise<void>((resolve) => server.listen(port, host, resolve))
   log.info(`Finesse ${VERSION} listening on http://${host}:${port} (mode ${s.mode}, web ${deps.web.current().version ?? 'none'})`)
 
+  // HTTPS too, with Finesse's own certificate (browser play needs a secure page).
+  let secure: HttpsServer | null = null
+  const httpsPort = Number(process.env.FINESSE_HTTPS_PORT || 0)
+  if (httpsPort > 0) {
+    try {
+      secure = createHttpsServer(finesseCert(deps.settings.paths.configDir, certNames(s.publicUrl)))
+      for (const ev of ['request', 'upgrade'] as const) for (const fn of server.listeners(ev)) secure.on(ev, fn as (...a: unknown[]) => void)
+      secure.keepAliveTimeout = server.keepAliveTimeout
+      await new Promise<void>((resolve, reject) => secure!.once('error', reject).listen(httpsPort, host, resolve))
+      log.info(`and on https://${host}:${httpsPort} (Finesse's own certificate)`)
+    } catch (e) {
+      log.error(`HTTPS on port ${httpsPort} didn't start`, e)
+      secure = null
+    }
+  }
+
   const code = ensureSetupCode(deps.settings)
   if (code) {
     const line = '─'.repeat(52)
@@ -32,6 +50,7 @@ export async function main(plugins: Plugin[] = defaultPlugins()) {
 
   const stop = (sig: string) => {
     log.info(`${sig} — shutting down`)
+    secure?.close()
     server.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 5000).unref()
   }

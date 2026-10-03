@@ -105,6 +105,12 @@ the emulator with that game in a player of its own and streams it into the page 
 in and press a button), keyboard and mouse. Saves are the same as in Moonlight: pick whose, if
 there's more than one profile.
 
+- **It needs a secure (https) page.** Browsers only decode the stream on https. Behind your own
+  reverse proxy or Tailscale HTTPS it just works. Otherwise give Finesse its own https port:
+  `FINESSE_HTTPS_PORT=30543` (publish the same port), and optionally `FINESSE_HTTPS_NAMES` with
+  the server's address. Finesse makes a certificate for itself; the first time, the browser
+  warns that it doesn't know it. Continue to the page, sign in, and play. On a plain http page,
+  the game's page links to the https address.
 - **It needs Docker.** Full installs have it already. If you run your own apps, share Docker's
   socket with Finesse (`/var/run/docker.sock:/var/run/docker.sock`). That lets Finesse run
   containers on the server; it only makes its own (labelled `finesse.managed`).

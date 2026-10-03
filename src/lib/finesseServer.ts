@@ -17,6 +17,8 @@ export interface FinesseInfo {
   setup: { state: 'new' | 'applying' | 'ready' | 'error' | string; needsCode: boolean }
   features: Record<string, boolean>
   publicUrl: string | null
+  /** Finesse's own HTTPS port, when it has one (FINESSE_HTTPS_PORT). */
+  httpsPort?: number | null
   requests?: { profiles?: Record<string, string> }
 }
 

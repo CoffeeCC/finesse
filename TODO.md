@@ -38,6 +38,15 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Browser play over https — v2.5.3 (2026-10-03)
+
+- **Finesse can serve https itself.** Browser play needs a secure page (browsers only decode the
+  stream on https), so a plain `http://` address said the player "requires https". Set
+  `FINESSE_HTTPS_PORT` and Finesse also serves https there, with a certificate it makes for
+  itself. The first time, the browser warns that it doesn't know it: continue, sign in, play.
+- **On a plain http page, the game's page says so** and links to the https address, instead of
+  starting a player that can't show anything.
+
 ## Browser play starts with an Nvidia card — v2.5.2 (2026-10-03)
 
 - **Fixed: with an Nvidia card, browser play never showed a picture.** 2.5.1 asked the card to
