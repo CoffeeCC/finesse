@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { getItems } from '../api/client'
 import { useFinesse } from '../lib/finesseServer'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useFriends, useViews } from '../api/queries'
 import { useAuth } from '../auth/AuthContext'
@@ -61,6 +62,7 @@ export default function NavBar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(window.scrollY > 24)
   const menuRef = useRef<HTMLDivElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
   const more = useSecondaryDestinations()
   // Admins: the NAS is behind the latest release — offer to update it.
   const { data: server } = useServerUpdate()
@@ -68,7 +70,8 @@ export default function NavBar() {
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+      const t = e.target as Node
+      if (menuRef.current && !menuRef.current.contains(t) && !popRef.current?.contains(t)) setMenuOpen(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
@@ -276,50 +279,126 @@ export default function NavBar() {
             )}
           </button>
           {menuOpen && (
-            <div className={`absolute right-0 mt-2 w-56 py-1.5 text-sm toast-in ${lux ? 'rounded-2xl os-glass bg-ink-900/80' : 'rounded-xl bg-ink-800 border border-white/10 shadow-2xl'}`}>
-              <div className="px-4 py-2 text-ink-400 border-b border-white/5">
-                Signed in as <span className="text-ink-200 font-medium">{session?.userName}</span>
-              </div>
+            <AccountMenu anchor={menuRef} popRef={popRef} name={session?.userName ?? ''} admin={Boolean(session?.isAdmin)}>
               {serverUpdate && (
-                <button
+                <MenuItem
+                  icon={<SparkIcon />}
+                  accent
                   onClick={() => {
                     setMenuOpen(false)
                     void beginServerUpdate(serverUpdate, server?.kind)
                   }}
-                  className="w-full flex items-center gap-2 text-left px-4 py-2 hover:bg-white/5 text-accent-300 font-semibold transition-colors"
                 >
-                  <SparkIcon />
                   Update Finesse to {shortVersion(serverUpdate)}
-                </button>
+                </MenuItem>
               )}
-              <button
+              <MenuItem
+                icon={<Icon d={COG} extra="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />}
                 onClick={() => {
                   setMenuOpen(false)
                   navigate('/settings')
                 }}
-                className="w-full text-left px-4 py-2 hover:bg-white/5 text-ink-200 transition-colors"
               >
                 Settings
-              </button>
-              <button
+              </MenuItem>
+              <MenuItem
+                className="md:hidden"
+                icon={<Icon d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />}
                 onClick={() => {
                   setMenuOpen(false)
                   navigate('/request')
                 }}
-                className="md:hidden w-full text-left px-4 py-2 hover:bg-white/5 text-ink-200 transition-colors"
               >
                 Requests and downloads
-              </button>
-              <button
+              </MenuItem>
+              <MenuItem
+                icon={<Icon d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />}
                 onClick={logout}
-                className="w-full text-left px-4 py-2 hover:bg-white/5 text-ink-200 transition-colors"
               >
-                Switch profile / sign out
-              </button>
-            </div>
+                Switch profile or sign out
+              </MenuItem>
+            </AccountMenu>
           )}
         </div>
       </div>
     </header>
+  )
+}
+
+const COG =
+  'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z'
+
+function Icon({ d, extra }: { d: string; extra?: string }) {
+  return (
+    <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+      {extra && <path strokeLinecap="round" strokeLinejoin="round" d={extra} />}
+    </svg>
+  )
+}
+
+function MenuItem({ icon, children, onClick, accent, className = '' }: { icon: ReactNode; children: ReactNode; onClick: () => void; accent?: boolean; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${className} flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-[15px] transition-colors hover:bg-white/[0.08] focus-visible:bg-white/[0.1] [@media(hover:none)]:py-3 ${
+        accent ? 'font-semibold text-accent-300' : 'text-white/90'
+      }`}
+    >
+      <span className={`shrink-0 ${accent ? '' : 'text-white/55'}`}>{icon}</span>
+      {children}
+    </button>
+  )
+}
+
+/** The account menu. It lives outside the nav bar (a portal) on purpose: glass
+ *  only blurs what's behind it up to the nearest glass parent, so inside the
+ *  bar it would blur nothing and the page would show straight through. */
+function AccountMenu({
+  anchor,
+  popRef,
+  name,
+  admin,
+  children,
+}: {
+  anchor: RefObject<HTMLDivElement | null>
+  popRef: RefObject<HTMLDivElement | null>
+  name: string
+  admin: boolean
+  children: ReactNode
+}) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+  useLayoutEffect(() => {
+    const place = () => {
+      const r = anchor.current?.getBoundingClientRect()
+      if (r) setPos({ top: r.bottom + 10, right: Math.max(12, window.innerWidth - r.right) })
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [anchor])
+  if (!pos) return null
+  return createPortal(
+    <div
+      ref={popRef}
+      role="menu"
+      aria-label="Account"
+      className="os-menu toast-in fixed z-[60] w-[17rem] max-w-[calc(100vw-24px)] rounded-[26px] p-1.5"
+      style={{ top: pos.top, right: pos.right }}
+    >
+      <div className="flex items-center gap-3 px-3 pb-3 pt-2.5">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-[15px] font-semibold text-white">
+          {name.charAt(0).toUpperCase()}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[15px] font-semibold text-white">{name}</span>
+          <span className="block text-[13px] text-white/55">{admin ? 'Administrator' : 'Member'}</span>
+        </span>
+      </div>
+      <div className="mx-2 mb-1.5 h-px bg-white/10" />
+      {children}
+    </div>,
+    document.body,
   )
 }

@@ -38,6 +38,19 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Menus that read well on phones — v2.2.2 (2026-10-03)
+
+- **The account menu is readable over any artwork.** It used to sit inside the glass top bar,
+  where its blur couldn't reach the page, so the page showed straight through. Now it floats on
+  its own, with darker glass, icons and bigger touch targets.
+- **The Quick menu fits the screen.** It used to be sized for the screen with the browser's
+  toolbars hidden, so the top got cut off. Now it sizes to what's actually visible. Its title stays
+  put while the cards scroll, and the scroll bar no longer rides the glass edge (hidden on touch,
+  thin and inset with a mouse).
+- **The Server card tells the truth on your-own-apps installs.** Finesse doesn't watch or back up
+  apps you run yourself, so "OK" and "Backup: never" meant nothing there. It now shows the
+  Finesse version, your apps and preview progress.
+
 ## 3DS and Intellivision (Beta) — v2.2.1 (2026-10-03)
 
 - **3DS and Intellivision play in the browser, as Beta.** They come from EmulatorJS's preview
