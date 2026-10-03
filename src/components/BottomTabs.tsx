@@ -24,7 +24,12 @@ export default function BottomTabs() {
   ]
 
   return (
-    <nav aria-label="Tabs" className="vt-tabs md:hidden fixed bottom-0 inset-x-0 z-50 bg-ink-950/90 backdrop-blur-xl border-t border-white/5 pb-safe">
+    // A floating glass bar (2.0), clear of the screen's edges and the home indicator.
+    <nav
+      aria-label="Tabs"
+      className="vt-tabs md:hidden fixed inset-x-3 z-50 rounded-[26px] os-glass bg-ink-950/50"
+      style={{ bottom: 'max(10px, env(safe-area-inset-bottom))' }}
+    >
       <div className="grid grid-cols-4">
         {tabs.map((tab) => (
           <NavLink
@@ -33,8 +38,8 @@ export default function BottomTabs() {
             end={tab.end}
             className={({ isActive }) => {
               const on = isActive || tab.forceActive
-              return `flex flex-col items-center justify-center gap-1 min-h-[56px] py-2 text-[11px] transition-colors ${
-                on ? 'text-white font-semibold' : 'text-ink-400 font-medium'
+              return `flex flex-col items-center justify-center gap-1 min-h-[60px] py-2 text-[11px] transition-colors ${
+                on ? 'text-white font-semibold' : 'text-white/55 font-medium'
               }`
             }}
           >

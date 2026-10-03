@@ -100,7 +100,7 @@ export default function CastRemote() {
     <div
       role="region"
       aria-label={`Remote for ${target.deviceName}`}
-      className="fixed z-40 inset-x-3 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:inset-x-auto md:right-5 md:bottom-5 md:w-[27rem] overflow-hidden rounded-2xl border border-white/10 bg-ink-900/95 backdrop-blur-xl shadow-2xl shadow-black/50 toast-in"
+      className="fixed z-40 inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:inset-x-auto md:right-5 md:bottom-5 md:w-[27rem] overflow-hidden rounded-2xl border border-white/10 bg-ink-900/95 backdrop-blur-xl shadow-2xl shadow-black/50 toast-in"
     >
       <div className="flex items-center gap-1.5 sm:gap-3 p-2.5 pr-2">
         <div className="relative hidden sm:block h-12 w-20 shrink-0 overflow-hidden rounded-lg bg-ink-800">

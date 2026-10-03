@@ -38,6 +38,27 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Finesse 2.0: a home that's alive — v2.0.0 (2026-10-03)
+
+A new look for phones and computers. The TV app keeps its own home for now.
+
+- **One row for everything that's "now".** What you're in the middle of, the next episode,
+  what's playing on your other devices (with **Continue here**), your games, a friend's pick and
+  what just arrived.
+- **The stage.** Rest on a title and its art fills the screen, slowly drifting. A moment later
+  its preview clip plays behind it. The whole app takes on the title's colour, and the title
+  rises in with its logo (or a big serif title when the logo is too dark to read), the details,
+  and **Resume** / **Play**.
+- **A live line.** Under the row: who's watching what, downloads, what was added, what friends
+  shared.
+- **The quick menu.** The grid button at the top: who's playing what and where, the server's
+  health (for administrators), downloads, game streaming and friends.
+- **A new top bar.** Glass, with Music, Games and Friends as their own tabs. On phones the tab
+  bar floats.
+- **New type.** Geist for everything you read, Geist Mono for labels, and the serif for titles.
+- **Fixed:** preview clips (on cards and the stage) didn't play until a few minutes after you
+  signed in.
+
 ## Finesse sets up game streaming — v1.4.0 (2026-10-02)
 
 - **One switch for Steam on the TV.** On a full install, **Settings → Server → Game streaming**

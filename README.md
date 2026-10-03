@@ -20,8 +20,8 @@ installs it. A setup page in your browser then installs and connects everything 
 Prowlarr for indexers, SABnzbd for Usenet and qBittorrent, which only ever runs behind your
 VPN. Once it's built, Finesse keeps the whole thing healthy, backed up and up to date.
 
-Everyone at home uses one app, on the web, their phone and the TV. It's designed to feel like
-the streaming services they already know.
+Everyone at home uses one app, on the web, their phone and the TV: a home that feels more like
+a games console than a catalogue, with the art of whatever you rest on filling the screen.
 
 ## The tour
 
@@ -66,9 +66,14 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 
 ### Watching
 
-- **A home screen that knows you.** A spotlight with logo art, **Up next** (including the next
-  episode), **My List**, the household's **Top 10**, recently added and genre rows. Hide, reorder
-  or add rows with **Customize Home**.
+- **A home that's alive.** Everything that's *now* sits in one row: what you're in the middle
+  of, the next episode, what's playing in other rooms, your games, a friend's pick and what just
+  arrived. Rest on one and its art (then its preview clip) fills the screen, and the whole app
+  takes on its colour. A live line underneath says what's happening in the house.
+- **The quick menu.** One button for the whole house: who's playing what and where, how the
+  server is doing, downloads, game streaming and friends.
+- **Rows that know you.** **My List**, the household's **Top 10**, *Because you watched*, recently
+  added and genre rows. Hide, reorder or add rows with **Customize Home**.
 - **Previews everywhere.** Hover a poster, or open a title, and a short clip plays. Finesse
   makes the clips itself in the background: spoiler-light four-cut teasers for episodes.
 - **A proper player.** Big, clear controls, a preview as you scrub, chapters and intro/credits

@@ -25,7 +25,7 @@ export default function MiniPlayer() {
   const pct = duration ? (position / duration) * 100 : 0
 
   return (
-    <div className="fixed inset-x-0 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] md:bottom-0 z-40 border-t border-white/10 bg-ink-900/90 backdrop-blur-xl">
+    <div className="fixed inset-x-3 bottom-[calc(4.6rem+env(safe-area-inset-bottom))] rounded-2xl border border-white/10 md:inset-x-0 md:bottom-0 md:rounded-none md:border-x-0 md:border-b-0 z-40 bg-ink-900/90 backdrop-blur-xl overflow-hidden">
       {/* Seek line across the very top of the bar */}
       <div
         className="absolute -top-0.5 inset-x-0 h-1 cursor-pointer group/seek"

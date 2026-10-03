@@ -437,6 +437,7 @@ export interface JfSession {
   DeviceName?: string
   Client?: string
   UserId?: string
+  UserName?: string
   NowPlayingItem?: JfItem
   PlayState?: { PositionTicks?: number; IsPaused?: boolean }
   LastActivityDate?: string

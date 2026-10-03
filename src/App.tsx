@@ -37,6 +37,7 @@ import { routeCommitted, transitionActive } from './lib/motion'
 import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
 import SearchOverlay from './components/SearchOverlay'
+import QuickMenu from './components/os/QuickMenu'
 import { ServerUpdateOverlay } from './components/Update'
 import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
@@ -174,6 +175,7 @@ export default function App() {
               <NowPlaying />
               <BottomTabs />
               {!IS_TV && <SearchOverlay />}
+              {!IS_TV && <QuickMenu />}
               <ServerUpdateOverlay />
             </>
           }

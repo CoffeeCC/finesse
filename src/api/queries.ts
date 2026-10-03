@@ -96,8 +96,12 @@ export function useAlbums(musicViewId: string | undefined) {
  *  Served by the app's own nginx: manifest.json (base 480 ids) + optional
  *  manifest-hd.json ({ id: [720,1080] }). Both are fetched and merged. */
 export function useClipManifest() {
+  // Signed in only: fetched without a session it's refused, and that empty
+  // answer used to stick, so no clip played until it went stale.
+  const userId = api.getSession()?.userId
   return useQuery({
-    queryKey: ['clipManifest'],
+    queryKey: ['clipManifest', userId],
+    enabled: Boolean(userId),
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<ClipManifest> => {
       const base = await fetch(api.withToken(`${CONTENT_BASE}previews/manifest.json`), { cache: 'no-cache' })
@@ -233,9 +237,10 @@ export function useHomeLayout() {
 }
 
 /** Active Radarr/Sonarr downloads, polled so progress bars move on their own. */
-export function useArrQueue() {
+export function useArrQueue(enabled = true) {
   return useQuery({
     queryKey: ['arrQueue'],
+    enabled,
     queryFn: arrQueue,
     refetchInterval: 15_000,
     staleTime: 5_000,

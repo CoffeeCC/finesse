@@ -90,6 +90,9 @@ export interface JfItem {
   ParentBackdropImageTags?: string[]
   ParentThumbItemId?: string
   ParentThumbImageTag?: string
+  /** Episodes: the series' title logo. */
+  ParentLogoItemId?: string
+  ParentLogoImageTag?: string
   ImageTags?: Record<string, string>
   BackdropImageTags?: string[]
   UserData?: JfUserData
