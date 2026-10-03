@@ -989,7 +989,8 @@ export function audioStreamUrl(itemId: string): string {
       DeviceId: DEVICE_ID,
       ...tokenQuery(),
       Container: 'opus,mp3,aac,m4a,flac,webma,webm,wav,ogg',
-      AudioCodec: 'aac',
+      // mp3 in an mp3 file: Jellyfin answers aac-in-mp3 with an empty file.
+      AudioCodec: 'mp3',
       TranscodingContainer: 'mp3',
       TranscodingProtocol: 'http',
       MaxStreamingBitrate: getPrefs().maxBitrate > 0 ? getPrefs().maxBitrate : 320_000,

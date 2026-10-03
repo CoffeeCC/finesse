@@ -242,7 +242,6 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
   const onEnded = useCallback(() => {
     const a = audioRef.current
-    failures.current = 0
     if (repeat === 'one' && a) {
       a.currentTime = 0
       a.play().catch(() => {})
@@ -279,6 +278,11 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       if (still >= 4 && now >= expected - 3) {
         still = 0
         onEndedRef.current()
+      } else if (still >= 10 && now < 0.5 && a.readyState < 2) {
+        // Never got any sound (an empty or stuck stream): skip, like an error.
+        still = 0
+        failures.current += 1
+        if (failures.current <= 3) onEndedRef.current()
       }
     }, 1000)
     return () => window.clearInterval(t)

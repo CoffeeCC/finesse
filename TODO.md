@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## FLAC songs play again — v2.5.9 (2026-10-04)
+
+- **Lossless songs play.** FLAC songs over the streaming limit were converted to an empty
+  file, so they sat silent at 0:00 (on shuffle, that was over half of a typical library).
+  They now convert to MP3 properly.
+- **A song that never starts gets skipped.** If no sound arrives within 10 seconds, the
+  player moves on, and it still stops after 3 broken songs in a row instead of skipping forever.
+
 ## Controllers that stay on track, music that keeps going — v2.5.8 (2026-10-04)
 
 - **Fixed: a controller could kick you out of browser play.** Finesse's own controller
