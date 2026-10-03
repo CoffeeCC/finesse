@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Browser play on the graphics card — v2.5.1 (2026-10-03)
+
+- **Browser play encodes on the graphics card.** The player streamed with the processor's
+  encoder; now it's handed the server's graphics card for drawing and encoding (NVENC or VA-API),
+  so the picture is smoother and the server works less.
+- **When a game won't start, administrators see why:** the player's log now includes the
+  emulator's own output and what's running.
+
 ## Play in the browser — v2.5.0 (2026-10-03)
 
 - **PS2, GameCube, Wii, PS3, Wii U and Switch games play in the browser, as Beta.** On a game's

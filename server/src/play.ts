@@ -151,6 +151,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
       const [me, g] = await Promise.all([selfInfo(), gpuInfo()])
       const cat = emulatorCatalog(e.switchEmulator, HOME)
       const script = launchScript(cat[spec.emulator], Object.values(cat), { home: HOME, browser: true })
+      const render = g.devices.find((d) => /renderD\d+$/.test(d))
       const tz = process.env.TZ
       const env = [
         'PUID=1000',
@@ -170,6 +171,8 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         'SELKIES_GAMEPAD_ENABLED=true',
         'APPIMAGE_EXTRACT_AND_RUN=1',
         ...(g.nvidia ? ['NVIDIA_DRIVER_CAPABILITIES=all', 'NVIDIA_VISIBLE_DEVICES=all'] : []),
+        // The graphics card draws the desktop and encodes the video (VA-API or NVENC); without one, the processor does.
+        ...(render ? [`DRINODE=${render}`, `DRI_NODE=${render}`] : []),
         `FINESSE_GAME=${spec.game}`,
       ]
       await docker.remove(s.container, { force: true }).catch(() => {})
@@ -274,7 +277,9 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     const s = sessions.get(params.id ?? '')
     if (!s) throw new ApiError(404, 'That game has ended')
     const text = await docker.logs(s.container, 120).catch(() => '')
-    sendJson(res, 200, { log: text.split('\n').slice(-120).join('\n') })
+    // The emulator's own output, and what's running (by program name).
+    const inside = await docker.exec(s.container, ['sh', '-c', `tail -n 80 ${HOME}/finesse-play.log 2>/dev/null; echo '--- running:'; ps -eo comm= | sort | uniq -c | sort -rn | head -20`]).catch(() => null)
+    sendJson(res, 200, { log: text.split('\n').slice(-120).join('\n'), emulator: inside?.output ?? '' })
   })
 
   // The session itself: Selkies' page and files, for its owner (the cookie carries the sign-in).

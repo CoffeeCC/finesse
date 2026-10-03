@@ -291,7 +291,10 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
   const lines = [
     'set -e',
     // Wolf: Games on Whales' helpers start the app in Sway. Browser play: the desktop is already there.
-    ...(opts.browser ? ['gow_log() { echo "$*"; }', 'launcher() { exec "$@"; }'] : ['source /opt/gow/bash-lib/utils.sh', 'source /opt/gow/launch-comp.sh']),
+    // Browser play keeps its own log (Finesse shows it to administrators when a game won't start).
+    ...(opts.browser
+      ? [`exec >>${H}/finesse-play.log 2>&1`, 'echo "--- $(date)"', 'gow_log() { echo "$*"; }', 'launcher() { exec "$@"; }']
+      : ['source /opt/gow/bash-lib/utils.sh', 'source /opt/gow/launch-comp.sh']),
     'shopt -s nullglob nocaseglob',
     // Files from a read-only folder, linked by name into where the emulator looks.
     'link() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] && ln -sfn "$f" "$dst/"; done; done; return 0; }',
