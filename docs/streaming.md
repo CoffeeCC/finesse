@@ -95,6 +95,13 @@ Finesse talks to Wolf through Wolf's API socket, a file in a folder both can see
 3. **Restart both.** **Games** now has "Stream from your server", and **Settings → Server** has
    **Game streaming**.
 
+## What Games shows
+
+**Games → Stream from your server** lists what you can play. With Wolf UI (Wolf's default
+setup), Moonlight shows only **Wolf UI**, and the games sit inside Wolf UI's profiles. Finesse
+shows the profiles' apps (Steam, RetroArch, EmulationStation…), and the steps say which to pick:
+**Wolf UI**, then your profile, then the app. Wolf's "Test ball" test pattern isn't listed.
+
 ## Add a device
 
 1. **Get Moonlight** for the device from [moonlight-stream.org](https://moonlight-stream.org).

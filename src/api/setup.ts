@@ -290,6 +290,14 @@ export interface StreamApp {
   title: string
   hdr: boolean
   icon: boolean
+  /** Wolf UI: what Moonlight opens to reach the profiles' apps. */
+  launcher?: true
+}
+
+export interface StreamProfile {
+  id: string
+  name: string
+  apps: StreamApp[]
 }
 
 /** What game streaming needs from the server (Settings → Server, before turning it on). */
@@ -310,7 +318,7 @@ export interface StreamingAdmin {
 
 export const streamingApi = {
   /** Everyone at home: what Wolf can stream. */
-  apps: () => call<{ ok: boolean; apps: StreamApp[]; error?: string }>('GET', '/api/streaming'),
+  apps: () => call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; error?: string }>('GET', '/api/streaming'),
   iconUrl: (id: string) => withToken(finesseApi(`/api/streaming/apps/${encodeURIComponent(id)}/icon`)),
   admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
   pair: (request: string, pin: string, name: string) =>

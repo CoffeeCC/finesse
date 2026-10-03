@@ -5,7 +5,8 @@
 // Wolf's API lives on a unix socket (WOLF_SOCKET, shared into this container)
 // and has no login of its own. It can do much more than Finesse needs (run
 // apps, pull images, change settings), so nothing is passed through: Finesse
-// makes four calls of its own. Everyone at home sees the list of apps; only
+// makes its own few calls (read apps, profiles and devices; pair and unpair).
+// Everyone at home sees the list of apps; only
 // administrators see devices waiting to pair, pair them with the PIN Moonlight
 // shows, and remove paired devices. Wolf's pairing secrets stay on the server:
 // the browser gets a stand-in id.
@@ -91,7 +92,25 @@ export interface StreamApp {
   title: string
   hdr: boolean
   icon: boolean
+  /** Wolf UI: the app Moonlight opens to reach the profiles' apps. */
+  launcher?: true
 }
+
+export interface StreamProfile {
+  id: string
+  name: string
+  apps: StreamApp[]
+}
+
+interface WolfProfileRaw {
+  id?: unknown
+  name?: unknown
+  apps?: unknown
+}
+
+// Wolf's own test pattern: useful to Wolf's developers, not a game.
+const TEST_APP = /^test ball$/i
+const LAUNCHER = /^wolf ui$/i
 
 // Icons are fetched by app, never by a path from the browser; and only paths
 // Wolf's own get-icon call can take as they are (it splits its query on "=").
@@ -100,13 +119,22 @@ const SAFE_ICON = /^[\w./:-]{1,300}$/
 /** Only what the app shows: Wolf's app entries also carry pipelines and runner settings (Docker images, mounts, environment). */
 export function publicApps(raw: WolfAppRaw[]): StreamApp[] {
   return raw
-    .filter((a) => typeof a.id === 'string' && typeof a.title === 'string')
+    .filter((a) => typeof a.id === 'string' && typeof a.title === 'string' && !TEST_APP.test(a.title))
     .map((a) => ({
       id: a.id as string,
       title: a.title as string,
       hdr: a.support_hdr === true,
       icon: typeof a.icon_png_path === 'string' && SAFE_ICON.test(a.icon_png_path),
+      ...(LAUNCHER.test(a.title as string) ? { launcher: true as const } : {}),
     }))
+}
+
+/** Wolf's profiles (Wolf UI's "who's playing"), with only their names and apps: never their PINs. */
+export function publicProfiles(raw: WolfProfileRaw[]): StreamProfile[] {
+  return raw
+    .filter((p) => typeof p.id === 'string' && Array.isArray(p.apps))
+    .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name ? p.name : (p.id as string), apps: publicApps(p.apps as WolfAppRaw[]) }))
+    .filter((p) => p.apps.length > 0)
 }
 
 /** The browser's stand-in for a pending pair request (Wolf's pair secret never leaves the server). */
@@ -121,12 +149,23 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     return socket
   }
 
-  let appsCache: { at: number; raw: WolfAppRaw[] } | null = null
-  async function appsRaw(socket: string): Promise<WolfAppRaw[]> {
-    if (appsCache && Date.now() - appsCache.at < 30_000) return appsCache.raw
-    const r = await wolfJson<{ apps?: WolfAppRaw[] }>(socket, 'GET', '/api/v1/apps')
-    appsCache = { at: Date.now(), raw: Array.isArray(r.apps) ? r.apps : [] }
-    return appsCache.raw
+  // Moonlight's list (Wolf's apps), plus the apps inside Wolf UI's profiles:
+  // with Wolf UI, Moonlight only shows the launcher and the games live there.
+  let appsCache: { at: number; raw: WolfAppRaw[]; profiles: WolfProfileRaw[] } | null = null
+  async function wolfLists(socket: string): Promise<{ raw: WolfAppRaw[]; profiles: WolfProfileRaw[] }> {
+    if (appsCache && Date.now() - appsCache.at < 30_000) return appsCache
+    const [r, p] = await Promise.all([
+      wolfJson<{ apps?: WolfAppRaw[] }>(socket, 'GET', '/api/v1/apps'),
+      // Older Wolf has no profiles.
+      wolfJson<{ profiles?: WolfProfileRaw[] }>(socket, 'GET', '/api/v1/profiles').catch(() => ({ profiles: [] })),
+    ])
+    appsCache = { at: Date.now(), raw: Array.isArray(r.apps) ? r.apps : [], profiles: Array.isArray(p.profiles) ? p.profiles : [] }
+    return appsCache
+  }
+  /** Every app Finesse may show an icon for: Moonlight's and the profiles'. */
+  const allAppsRaw = async (socket: string) => {
+    const { raw, profiles } = await wolfLists(socket)
+    return [...raw, ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as WolfAppRaw[]) : []))]
   }
 
   const clientIds = async (socket: string) =>
@@ -142,7 +181,8 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     await auth.requireUser(req)
     const socket = need()
     try {
-      sendJson(res, 200, { ok: true, apps: publicApps(await appsRaw(socket)) })
+      const { raw, profiles } = await wolfLists(socket)
+      sendJson(res, 200, { ok: true, apps: publicApps(raw), profiles: publicProfiles(profiles) })
     } catch (e) {
       log.warn(`apps: ${wolfProblem(e, socket)}`)
       sendJson(res, 200, { ok: false, apps: [], error: 'Game streaming isn’t answering right now. Try again in a minute.' })
@@ -152,7 +192,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   router.get('/api/streaming/apps/:id/icon', async ({ req, res, params, url }) => {
     await auth.requireUser(req, { query: url.searchParams })
     const socket = need()
-    const app = (await appsRaw(socket).catch(() => [])).find((a) => a.id === params.id)
+    const app = (await allAppsRaw(socket).catch(() => [] as WolfAppRaw[])).find((a) => a.id === params.id)
     const path = typeof app?.icon_png_path === 'string' && SAFE_ICON.test(app.icon_png_path) ? app.icon_png_path : null
     if (!path) throw new ApiError(404, 'No icon')
     const r = await wolfCall(socket, 'GET', `/api/v1/utils/get-icon?icon_path=${path}`, undefined, { timeoutMs: 15000, maxBytes: 3_000_000 }).catch(() => null)

@@ -20,6 +20,13 @@ async function fakeWolf(socket: string) {
     { title: 'Steam', id: '1', support_hdr: true, icon_png_path: '/etc/wolf/icons/steam.png', h264_gst_pipeline: 'x', runner: { type: 'docker', image: 'steam', env: ['SECRET_TOKEN=hunter2'], mounts: ['/mnt/private:/data'] } },
     { title: 'Firefox', id: '2', support_hdr: false, icon_png_path: 'https://example.com/ff.png?size=big' },
     { title: 'Desktop', id: '3', support_hdr: false },
+    { title: 'Test ball', id: '4', support_hdr: false },
+    { title: 'Wolf UI', id: '5', support_hdr: false },
+  ]
+  // Wolf UI's profiles: Moonlight shows only the launcher, the games live here.
+  const profiles = [
+    { id: 'user', name: 'User', pin: [1, 2, 3, 4], apps: [{ title: 'RetroArch', id: '10', support_hdr: false, icon_png_path: '/etc/wolf/icons/ra.png', runner: { env: ['PROFILE_SECRET=x'] } }] },
+    { id: 'empty', name: 'Nobody', apps: [] },
   ]
   const read = async (req: IncomingMessage) => {
     const chunks: Buffer[] = []
@@ -35,8 +42,9 @@ async function fakeWolf(socket: string) {
     calls.push(`${req.method} ${req.url}`)
     const url = new URL(req.url ?? '/', 'http://wolf')
     if (req.method === 'GET' && url.pathname === '/api/v1/apps') return send(res, 200, { success: true, apps })
+    if (req.method === 'GET' && url.pathname === '/api/v1/profiles') return send(res, 200, { success: true, profiles })
     if (req.method === 'GET' && url.pathname === '/api/v1/utils/get-icon') {
-      if (url.search === '?icon_path=/etc/wolf/icons/steam.png') {
+      if (url.search === '?icon_path=/etc/wolf/icons/steam.png' || url.search === '?icon_path=/etc/wolf/icons/ra.png') {
         res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(PNG.length) })
         return res.end(PNG)
       }
@@ -125,8 +133,17 @@ test('everyone at home sees the apps, and nothing of their settings', async () =
     { id: '1', title: 'Steam', hdr: true, icon: true },
     { id: '2', title: 'Firefox', hdr: false, icon: false },
     { id: '3', title: 'Desktop', hdr: false, icon: false },
+    { id: '5', title: 'Wolf UI', hdr: false, icon: false, launcher: true },
   ])
   assert.doesNotMatch(r.text, /SECRET_TOKEN|hunter2|mnt\/private|gst|runner|icon_png_path/)
+})
+
+test('the apps inside Wolf UI’s profiles show too, never a profile’s PIN', async () => {
+  const r = await call('GET', '/api/streaming', USER_TOKEN)
+  assert.deepEqual(r.data.profiles, [{ id: 'user', name: 'User', apps: [{ id: '10', title: 'RetroArch', hdr: false, icon: true }] }])
+  assert.doesNotMatch(r.text, /PROFILE_SECRET|"pin"|Test ball/)
+  const icon = await fetch(`${finesse.url}/api/streaming/apps/10/icon?ApiKey=${USER_TOKEN}`)
+  assert.equal(icon.status, 200)
 })
 
 test('icons come by app, never by a path from the browser', async () => {
@@ -192,7 +209,7 @@ test('removing a device unpairs it in Wolf, and only devices Wolf knows', async 
 })
 
 test('Finesse only ever makes its own calls to Wolf', () => {
-  const allowed = /^(GET \/api\/v1\/(apps|clients|pair\/pending|utils\/get-icon\?icon_path=\/etc\/wolf\/icons\/steam\.png)|POST \/api\/v1\/(pair|unpair)\/client)$/
+  const allowed = /^(GET \/api\/v1\/(apps|profiles|clients|pair\/pending|utils\/get-icon\?icon_path=\/etc\/wolf\/icons\/(steam|ra)\.png)|POST \/api\/v1\/(pair|unpair)\/client)$/
   for (const c of wolf.calls) assert.match(c, allowed)
 })
 

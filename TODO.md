@@ -38,6 +38,15 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Your Wolf's games on the Games page — v2.2.3 (2026-10-03)
+
+- **Games shows what you can actually stream.** With Wolf UI (Wolf's default setup), Moonlight
+  lists only Wolf UI, and the games live in its profiles. Finesse used to show just "Wolf UI" and
+  "Test ball". Now it reads Wolf's profiles and shows their apps (Steam, RetroArch,
+  EmulationStation, Kodi…), with their icons. The steps say which to pick in Moonlight: Wolf UI,
+  then your profile, then the app. Profiles' PINs and settings never leave the server.
+- Wolf's "Test ball" test pattern is no longer listed.
+
 ## Menus that read well on phones — v2.2.2 (2026-10-03)
 
 - **The account menu is readable over any artwork.** It used to sit inside the glass top bar,

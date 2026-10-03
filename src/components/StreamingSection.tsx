@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { streamingApi, type StreamApp } from '../api/setup'
+import { streamingApi, type StreamApp, type StreamProfile } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 
 /** A steady colour per app, for apps without an icon. */
@@ -30,12 +30,27 @@ function AppTile({ app }: { app: StreamApp }) {
   )
 }
 
+function Row({ apps }: { apps: StreamApp[] }) {
+  return (
+    <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+      {apps.map((a) => (
+        <AppTile key={a.id} app={a} />
+      ))}
+    </div>
+  )
+}
+
 /** Games: what Wolf streams from this server to Moonlight, and how to start. */
 export default function StreamingSection() {
   const { session } = useAuth()
   const isAdmin = Boolean(session?.isAdmin)
   const { data, isLoading, isError } = useQuery({ queryKey: ['streaming', 'apps'], queryFn: streamingApi.apps, staleTime: 60_000, retry: 1 })
   const link = 'text-accent-300 underline-offset-2 hover:underline'
+  // With Wolf UI, Moonlight lists just the launcher; the games are in its profiles.
+  const launcher = data?.apps.find((a) => a.launcher)
+  const profiles: StreamProfile[] = launcher ? (data?.profiles ?? []) : []
+  const direct = (data?.apps ?? []).filter((a) => !(a.launcher && profiles.length))
+  const one = profiles.length === 1 ? profiles[0]! : null
 
   return (
     <section className="mb-9" aria-labelledby="streaming-title">
@@ -64,13 +79,22 @@ export default function StreamingSection() {
         </div>
       ) : isError || !data?.ok ? (
         <p className="rounded-xl border border-white/5 bg-ink-900/50 px-4 py-3 text-sm text-ink-300">{data?.error ?? 'Game streaming isn’t answering right now. Try again in a minute.'}</p>
-      ) : data.apps.length === 0 ? (
+      ) : direct.length === 0 && profiles.length === 0 ? (
         <p className="text-sm text-ink-400">Wolf has no apps to stream yet.</p>
       ) : (
-        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
-          {data.apps.map((a) => (
-            <AppTile key={a.id} app={a} />
+        <div className="space-y-5">
+          {profiles.map((p) => (
+            <div key={p.id}>
+              {profiles.length > 1 && <p className="mb-2 text-[13px] font-semibold text-ink-300">{p.name}</p>}
+              <Row apps={p.apps} />
+            </div>
           ))}
+          {direct.length > 0 && (
+            <div>
+              {profiles.length > 0 && <p className="mb-2 text-[13px] font-semibold text-ink-300">Straight from Moonlight</p>}
+              <Row apps={direct} />
+            </div>
+          )}
         </div>
       )}
 
@@ -90,7 +114,13 @@ export default function StreamingSection() {
           </li>
           <li>Open Moonlight and pick this server. At home it usually finds it by itself.</li>
           <li>Moonlight shows a PIN. {isAdmin ? 'Enter it under Settings → Server → Game streaming.' : 'Ask whoever runs this server to enter it in Finesse.'}</li>
-          <li>Choose a game in Moonlight and play.</li>
+          {profiles.length > 0 ? (
+            <li>
+              In Moonlight choose <b className="font-semibold text-white">{launcher!.title}</b>, then {one ? <b className="font-semibold text-white">{one.name}</b> : 'your profile'}, then the app you want.
+            </li>
+          ) : (
+            <li>Choose a game in Moonlight and play.</li>
+          )}
         </ol>
       </div>
     </section>
