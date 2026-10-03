@@ -5,6 +5,7 @@ import {
   cleanName,
   ejsCore,
   fetchSgdbCover,
+  isBeta,
   isPlayable,
   rommCoverUrl,
   tileGradient,
@@ -37,6 +38,7 @@ export default function GameDetailPage() {
   const title = cleanName(rom.name)
   const playable = isPlayable(rom)
   const core = ejsCore(rom.platform_slug)
+  const beta = core !== null && isBeta(core)
   const siblings = (rom.siblings ?? []).filter((s) => s.id !== rom.id)
 
   return (
@@ -81,7 +83,10 @@ export default function GameDetailPage() {
             <div className="flex flex-wrap items-center gap-2 mb-6 text-sm text-ink-300">
               <span className="px-2 py-0.5 rounded-md bg-white/10 font-medium">{rom.platform_display_name}</span>
               {playable ? (
-                <span className="text-emerald-400">Playable in browser</span>
+                <span className="text-emerald-400">
+                  Playable in browser
+                  {beta && <span className="text-amber-300"> · Beta: needs a fast computer, may not run every game</span>}
+                </span>
               ) : (
                 <span className="text-ink-400">Browse only — this console needs a PC emulator, not a browser</span>
               )}

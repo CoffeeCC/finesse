@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useGame } from '../api/queries'
-import { biosUrl, ejsCore, needsThreads, primeGamesAuth, rommContentUrl } from '../api/romm'
+import { biosUrl, EJS_NIGHTLY, ejsCore, isBeta, needsThreads, primeGamesAuth, rommContentUrl } from '../api/romm'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 
 // Plays a RomM title with EmulatorJS (client-side WASM). The ROM and the
@@ -72,7 +72,7 @@ export default function PlayGamePage() {
     started.current = true
     primeGamesAuth() // cookie so EmulatorJS's ROM, firmware and core fetches pass the auth gate
     void (async () => {
-      const [data, bios] = await Promise.all([emulatorData(), biosUrl(rom, core)])
+      const [data, bios] = await Promise.all([isBeta(core) ? EJS_NIGHTLY : emulatorData(), biosUrl(rom, core)])
       const w = window as unknown as Record<string, unknown>
       w.EJS_player = '#game'
       w.EJS_core = core

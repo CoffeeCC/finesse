@@ -211,7 +211,7 @@ export function rommContentUrl(rom: RommRom): string {
 
 // RomM platform slug → EmulatorJS system. Mirrors RomM's own player (RomM 5
 // slugs), plus the older short names. Consoles that need a real PC emulator
-// (Switch, PS2/3, GameCube/Wii(U), Xbox, Dreamcast, 3DS) are browse-only.
+// (Switch, PS2/3, GameCube/Wii(U), Xbox, Dreamcast) are browse-only.
 const EJS_CORES: Record<string, string> = {
   nes: 'nes', fds: 'nes', famicom: 'nes', 'game-televisison': 'nes', 'new-style-nes': 'nes',
   snes: 'snes', sfc: 'snes', sfam: 'snes', 'super-nintendo-entertainment-system': 'snes',
@@ -242,11 +242,20 @@ const EJS_CORES: Record<string, string> = {
   amiga: 'amiga', 'amiga-cd32': 'amiga',
   c64: 'c64', 'commodore-64c': 'c64', c128: 'c128', 'commmodore-128': 'c128', cpet: 'pet', 'c-plus-4': 'plus4', 'vic-20': 'vic20',
   dos: 'dos',
+  // Beta: only in EmulatorJS's preview build (see BETA).
+  '3ds': '3ds', 'new-nintendo-3ds': '3ds',
+  intellivision: 'intv',
 }
 
-/** Systems whose emulators need threads: only on a cross-origin isolated page,
+/** Systems only EmulatorJS's preview ("nightly") build has. They load from its
+ *  CDN, not RomM's copy, and the app calls them Beta. */
+const BETA = new Set(['3ds', 'intv'])
+export const isBeta = (core: string) => BETA.has(core)
+export const EJS_NIGHTLY = 'https://cdn.emulatorjs.org/nightly/data/'
+
+/** Systems whose emulators need threads (PSP, DOS, 3DS): only on a cross-origin isolated page,
  *  which the TV app (and Safari) can't give them. */
-const THREADED = new Set(['psp', 'dos'])
+const THREADED = new Set(['psp', 'dos', '3ds'])
 export const needsThreads = (core: string) => THREADED.has(core)
 
 export function ejsCore(slug: string | undefined): string | null {
@@ -278,6 +287,10 @@ const BIOS_NAMES: Record<string, string[]> = {
   pcfx: ['pcfx.rom'],
 }
 
+// Systems that need several BIOS files at once: a zip of them, which the
+// emulator unpacks (the DS: bios7, bios9, firmware; Intellivision: exec, grom).
+const BIOS_ZIP = new Set(['nds', 'intv'])
+
 export interface RommFirmware {
   id: number
   file_name: string
@@ -295,10 +308,9 @@ export async function biosUrl(rom: RommRom, core: string): Promise<string | null
   if (!files.length) return null
   const want = BIOS_NAMES[core] ?? []
   const byName = (n: string) => files.find((f) => f.file_name.toLowerCase() === n)
-  // A zip of several BIOS files (the DS needs three) is unpacked by the emulator.
   const pick =
     want.map(byName).find(Boolean) ??
-    (core === 'nds' ? files.find((f) => /\.zip$/i.test(f.file_name)) : undefined) ??
+    (BIOS_ZIP.has(core) ? files.find((f) => /\.zip$/i.test(f.file_name)) : undefined) ??
     files.find((f) => f.is_verified) ??
     files[0]!
   return `${gamesBase()}/firmware/${pick.id}/content/${encodeURIComponent(pick.file_name)}`

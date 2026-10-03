@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## 3DS and Intellivision (Beta) — v2.2.1 (2026-10-03)
+
+- **3DS and Intellivision play in the browser, as Beta.** They come from EmulatorJS's preview
+  build, which loads from its website rather than RomM. 3DS needs a fast computer and Chrome,
+  Edge or Firefox. Intellivision needs its BIOS (`exec.bin` + `grom.bin`) as a zip in RomM's
+  firmware.
+
 ## More consoles play, smoother cards — v2.2.0 (2026-10-03)
 
 - **Games: more consoles play in the browser.** Finesse now matches the names RomM 5 gives
