@@ -65,6 +65,22 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   // The queue as it was before shuffling, so turning shuffle off restores order.
   const unshuffled = useRef<JfItem[] | null>(null)
   const sessionRef = useRef<string>('')
+  // Paused on purpose (vs. stalled or blocked), so the watchdog leaves it be.
+  const userPaused = useRef(false)
+  // The browser refused to start the next song (a locked phone, a background tab): try again on the next chance.
+  const pendingPlay = useRef(false)
+  const failures = useRef(0)
+  const startPlayback = useCallback((a: HTMLAudioElement, onStarted?: () => void) => {
+    a.play().then(
+      () => {
+        pendingPlay.current = false
+        onStarted?.()
+      },
+      (e: unknown) => {
+        if ((e as { name?: string })?.name === 'NotAllowedError') pendingPlay.current = true
+      },
+    )
+  }, [])
 
   // Web Audio graph for visualizers (built once; needs crossOrigin audio + CORS)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -126,10 +142,8 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     ensureGraph()
     audioCtxRef.current?.resume().catch(() => {})
     a.src = api.audioStreamUrl(current.Id)
-    a.play().then(
-      () => report(api.reportPlaybackStart),
-      () => {},
-    )
+    userPaused.current = false
+    startPlayback(a, () => report(api.reportPlaybackStart))
     return () => {
       report(api.reportPlaybackStopped)
     }
@@ -205,9 +219,14 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const toggle = useCallback(() => {
     const a = audioRef.current
     if (!a) return
-    if (a.paused) a.play().catch(() => {})
-    else a.pause()
-  }, [])
+    if (a.paused) {
+      userPaused.current = false
+      startPlayback(a)
+    } else {
+      userPaused.current = true
+      a.pause()
+    }
+  }, [startPlayback])
 
   const seek = useCallback((sec: number) => {
     const a = audioRef.current
@@ -223,6 +242,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
   const onEnded = useCallback(() => {
     const a = audioRef.current
+    failures.current = 0
     if (repeat === 'one' && a) {
       a.currentTime = 0
       a.play().catch(() => {})
@@ -237,6 +257,58 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       } else setIndex(0)
     }
   }, [repeat, index, queue.length, report])
+
+  const onEndedRef = useRef(onEnded)
+  onEndedRef.current = onEnded
+
+  // A song that never says it ended: converted streams can stall a moment short
+  // of their end (Jellyfin estimates their length up front), and the next song
+  // never came. Within 3 s of the song's real length (Jellyfin's) and not moving
+  // for 4 s: move on as if it had ended.
+  useEffect(() => {
+    if (!current) return
+    const expected = current.RunTimeTicks ? current.RunTimeTicks / 10_000_000 : 0
+    let lastT = -1
+    let still = 0
+    const t = window.setInterval(() => {
+      const a = audioRef.current
+      if (!a || userPaused.current || !expected) return
+      const now = a.currentTime
+      still = Math.abs(now - lastT) < 0.05 ? still + 1 : 0
+      lastT = now
+      if (still >= 4 && now >= expected - 3) {
+        still = 0
+        onEndedRef.current()
+      }
+    }, 1000)
+    return () => window.clearInterval(t)
+  }, [current])
+
+  // Blocked from starting: try again when the page is back in view or on the next tap.
+  useEffect(() => {
+    const retry = () => {
+      const a = audioRef.current
+      if (pendingPlay.current && a && a.paused && !userPaused.current) startPlayback(a)
+    }
+    document.addEventListener('visibilitychange', retry)
+    window.addEventListener('focus', retry)
+    window.addEventListener('pointerdown', retry, true)
+    return () => {
+      document.removeEventListener('visibilitychange', retry)
+      window.removeEventListener('focus', retry)
+      window.removeEventListener('pointerdown', retry, true)
+    }
+  }, [startPlayback])
+
+  // A song that won't load (a broken or missing file): skip it, but don't run
+  // through a whole broken album.
+  const onError = useCallback(() => {
+    const a = audioRef.current
+    if (!a || !a.error || userPaused.current) return
+    failures.current += 1
+    if (failures.current > 3) return
+    window.setTimeout(() => onEndedRef.current(), 1200)
+  }, [])
 
   // Lock screen / notification / hardware media keys (phones, laptops).
   useEffect(() => {
@@ -254,8 +326,16 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         album: current.Album ?? '',
         artwork: cover ? [{ src: cover, sizes: '512x512' }] : [],
       })
-      ms.setActionHandler('play', () => audioRef.current?.play().catch(() => {}))
-      ms.setActionHandler('pause', () => audioRef.current?.pause())
+      ms.setActionHandler('play', () => {
+        const a = audioRef.current
+        if (!a) return
+        userPaused.current = false
+        startPlayback(a)
+      })
+      ms.setActionHandler('pause', () => {
+        userPaused.current = true
+        audioRef.current?.pause()
+      })
       ms.setActionHandler('previoustrack', prev)
       ms.setActionHandler('nexttrack', next)
       ms.setActionHandler('seekto', (d) => {
@@ -264,7 +344,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     } catch {
       /* older engines: no MediaMetadata / some actions unsupported */
     }
-  }, [current, prev, next])
+  }, [current, prev, next, startPlayback])
 
   return (
     <Ctx.Provider
@@ -282,6 +362,8 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
         onEnded={onEnded}
+        onError={onError}
+        onPlaying={() => (failures.current = 0)}
       />
     </Ctx.Provider>
   )

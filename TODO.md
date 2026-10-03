@@ -38,6 +38,31 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Controllers that stay on track, music that keeps going — v2.5.8 (2026-10-04)
+
+- **Fixed: a controller could kick you out of browser play.** Finesse's own controller
+  navigation kept running on the game page, so B meant Back (leaving the game) and the d-pad
+  moved around the page instead of reaching the emulator. The controller now belongs to the game.
+- **Fixed: the selection kept disappearing with a remote or controller.** Coming back from a
+  title, or when a row refreshed, the card you were on was replaced and nothing stayed selected.
+  Focus now moves to its replacement, so you carry on where you were.
+- **Jump between rows:** the triggers (LT/RT, L2/R2, ZL/ZR) go to the previous or next row,
+  onto the card nearest where you were; in a grid they jump about a screen. In the player they
+  still rewind and fast-forward.
+- **Music moves on to the next song reliably.** A song that stalls just before its end (converted
+  streams can), a phone that blocks the next song from starting, or a file that won't load used
+  to leave the player stuck. Now it moves on, tries again when you're back, or skips the broken
+  file.
+- **Fixed: reloading the video player said "Unauthorized".** Browser play had taken the player's
+  address; its sessions now live at their own address.
+- **Fixed: some RomM box art didn't load,** and the Games page asked SteamGridDB for art on every
+  game even without a key.
+- **Fixed: Jellyfin couldn't start on servers with a graphics card** (full installs): its
+  container was added to the "render" group by name, which Jellyfin's image doesn't have. It's
+  now added by the group's number. Jellyfin restarts once after the update.
+- **Two Finesse servers on one machine no longer close each other's browser games** when one
+  starts.
+
 ## Emulators at full speed, touch controls, working buttons — v2.5.7 (2026-10-03)
 
 - **Fixed: games ran in slow motion in the browser with an Nvidia card.** The emulators couldn't

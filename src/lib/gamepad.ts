@@ -2,12 +2,15 @@
 // press the same keys the TV remote does, so every page, menu and the player
 // work without knowing controllers exist:
 //   stick / D-pad → arrows (held: repeats)   A → OK   B → Back   Y → Search
-//   Menu → Quick menu   LB/RB → previous/next tab   LT/RT → rewind/forward
+//   Menu → Quick menu   LB/RB → previous/next tab
+//   LT/RT → previous/next row (player: rewind/forward)
 //   X → audio and subtitles (player)         right stick → scroll
-// The retro-games player reads controllers itself, so it's left alone there.
+// The game players read controllers themselves (the retro player, and browser
+// play's stream), so Finesse lets go there: B would have meant Back, leaving the game.
 
 import { useSyncExternalStore } from 'react'
 import { toggleQuickMenu } from './quickMenu'
+import { jumpRow } from './spatialNav'
 
 export type PadKind = 'xbox' | 'playstation' | 'nintendo' | 'generic'
 
@@ -59,7 +62,7 @@ export function useController(): { kind: PadKind; at: number } | null {
   )
 }
 
-const inEmulator = () => /\/games\/play\//.test(window.location.pathname + window.location.hash)
+const inEmulator = () => /\/games\/(play|stream)\//.test(window.location.pathname + window.location.hash)
 const inPlayer = () => /\/play\//.test(window.location.pathname + window.location.hash) && !inEmulator()
 
 function key(k: string, keyCode = 0): boolean {
@@ -116,9 +119,9 @@ function press(button: number) {
     case RB:
       return inPlayer() ? undefined : stepTab(1)
     case LT:
-      return void key('MediaRewind')
+      return void (inPlayer() ? key('MediaRewind') : jumpRow('up'))
     case RT:
-      return void key('MediaFastForward')
+      return void (inPlayer() ? key('MediaFastForward') : jumpRow('down'))
     case X:
       if (inPlayer()) clickFirst(['[aria-label*="ubtitle"]', '[aria-label*="udio"]'])
       return

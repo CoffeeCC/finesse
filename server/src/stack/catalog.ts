@@ -34,6 +34,8 @@ export interface StackContext {
   jellyfinPort: number
   /** /dev/dri present on the host → hardware transcoding (Intel/AMD). */
   gpu: boolean
+  /** The host's group numbers for /dev/dri (filled in by the orchestrator). */
+  gpuGroups?: string[]
   /** Host device paths that exist (probed through Docker — Finesse's own /dev is not the host's). */
   hostDevices?: string[]
   vpn?: VpnConfig
@@ -171,7 +173,8 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     ports: (ctx) => (ctx.exposeJellyfin ? [{ host: ctx.jellyfinPort, container: 8096 }] : []),
     devices: (ctx) => (ctx.gpu ? ['/dev/dri:/dev/dri'] : []),
     user: (ctx) => `${ctx.puid}:${ctx.pgid}`,
-    groupAdd: (ctx) => (ctx.gpu ? ['video', 'render'] : []),
+    // By number: Jellyfin's image has no "render" group, and Docker refuses group names an image doesn't know.
+    groupAdd: (ctx) => (ctx.gpu ? (ctx.gpuGroups ?? []) : []),
     dataDirs: ['media/movies', 'media/tv', 'media/music'],
   },
   prowlarr: {

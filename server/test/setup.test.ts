@@ -121,6 +121,13 @@ const good: [string, (d: Record<string, any>) => unknown][] = [
   ['emulators: none', (d) => ((d.emulators = { apps: [], paths: {} }), d)],
 ]
 
+test('Jellyfin joins the GPU by group number (images may not know "render" by name)', () => {
+  const ctx = { gpu: true, gpuGroups: ['44', '107'] } as unknown as StackContext
+  assert.deepEqual(CATALOG.jellyfin.groupAdd!(ctx), ['44', '107'])
+  assert.deepEqual(CATALOG.jellyfin.groupAdd!({ gpu: true } as unknown as StackContext), [], 'unknown groups: none, rather than a name Docker refuses')
+  assert.deepEqual(CATALOG.jellyfin.groupAdd!({ gpu: false, gpuGroups: ['44'] } as unknown as StackContext), [])
+})
+
 describe('setup document', () => {
   for (const [name, doc] of examples) {
     test(`example ${name} is valid in both`, () => {

@@ -368,6 +368,176 @@ function onKeyDown(e: KeyboardEvent) {
   playNav(next)
 }
 
+/** The horizontal scroller (a row of cards) an element sits in, if any. */
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+  for (let n: HTMLElement | null = el.parentElement; n && n !== document.body && n.tagName !== 'MAIN'; n = n.parentElement) {
+    const ox = getComputedStyle(n).overflowX
+    if (ox === 'auto' || ox === 'scroll') return n
+  }
+  return null
+}
+
+/** A card's row: the section (title, "See all", cards) its scroller sits in, or the scroller itself. */
+function rowOf(el: HTMLElement): HTMLElement | null {
+  const scroller = scrollerOf(el)
+  return scroller ? ((scroller.closest('section') as HTMLElement | null) ?? scroller) : null
+}
+
+/** The row of what's focused: its card row, or the section it's the title or button of (when that section has a row of cards). */
+function rowOfFocused(el: HTMLElement): HTMLElement | null {
+  const row = rowOf(el)
+  if (row) return row
+  const section = el.closest('section') as HTMLElement | null
+  if (!section) return null
+  for (const n of section.querySelectorAll<HTMLElement>('div, ul, ol')) {
+    const ox = getComputedStyle(n).overflowX
+    if (ox === 'auto' || ox === 'scroll') return section
+  }
+  return null
+}
+
+/** The candidate in `pool` nearest the x position `cx`, preferring what's on screen. */
+function nearestX(pool: HTMLElement[], cx: number): HTMLElement {
+  const viewW = window.innerWidth / screenPerRectPx()
+  const onScreen = pool.filter((el) => {
+    const r = el.getBoundingClientRect()
+    return r.right > 0 && r.left < viewW
+  })
+  let next = (onScreen.length ? onScreen : pool)[0]
+  let nd = Infinity
+  for (const el of onScreen.length ? onScreen : pool) {
+    const r = el.getBoundingClientRect()
+    const d = Math.abs(r.left + r.width / 2 - cx)
+    if (d < nd) {
+      nd = d
+      next = el
+    }
+  }
+  return next
+}
+
+/**
+ * Controller triggers. In rows of cards: the previous or next row, past its
+ * title and "See all", onto the card nearest where you were. In a grid (one
+ * section, no rows of cards): about a screen at a time. Rows further down mount
+ * as they come near, so with none rendered yet it scrolls on and the next press lands.
+ */
+export function jumpRow(dir: 'up' | 'down') {
+  enterSpatialMode()
+  const els = candidates().filter((el) => !el.closest('header'))
+  if (!els.length) return
+  const active = document.activeElement as HTMLElement | null
+  const from = active && active !== document.body && els.includes(active) ? active : nearLastFocus(els) ?? els[0]
+  const fr = from.getBoundingClientRect()
+  const cx = fr.left + fr.width / 2
+  const k = screenPerRectPx()
+  const viewH = window.innerHeight / k
+  let next: HTMLElement | null = null
+  const curRow = rowOfFocused(from)
+  if (curRow) {
+    // Rows of cards: the nearest other row that way, and only its cards.
+    const cur = curRow.getBoundingClientRect()
+    const rows = new Map<HTMLElement, HTMLElement[]>()
+    for (const el of els) {
+      const row = rowOf(el)
+      if (!row || row === curRow || !scrollerOf(el)) continue
+      const r = row.getBoundingClientRect()
+      if (dir === 'down' ? r.top < cur.bottom - 4 : r.bottom > cur.top + 4) continue
+      const list = rows.get(row) ?? []
+      list.push(el)
+      rows.set(row, list)
+    }
+    let best: HTMLElement[] | null = null
+    let edge = dir === 'down' ? Infinity : -Infinity
+    for (const [row, list] of rows) {
+      const r = row.getBoundingClientRect()
+      if (dir === 'down' ? r.top < edge : r.bottom > edge) {
+        edge = dir === 'down' ? r.top : r.bottom
+        best = list
+      }
+    }
+    if (best) next = nearestX(best, cx)
+  } else {
+    // A grid: the line about a screen away (or the last one that way).
+    const reach = viewH * 0.8
+    const way = els.filter((el) => {
+      const r = el.getBoundingClientRect()
+      return dir === 'down' ? r.top > fr.bottom - 4 : r.bottom < fr.top + 4
+    })
+    if (way.length) {
+      const target = dir === 'down' ? fr.top + reach : fr.top - reach
+      let lineTop = way[0].getBoundingClientRect().top
+      let ld = Infinity
+      for (const el of way) {
+        const t = el.getBoundingClientRect().top
+        const d = Math.abs(t - target)
+        if (d < ld) {
+          ld = d
+          lineTop = t
+        }
+      }
+      next = nearestX(way.filter((el) => Math.abs(el.getBoundingClientRect().top - lineTop) < 8), cx)
+    }
+  }
+  if (!next) {
+    window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: scrollBehavior() })
+    return
+  }
+  next.focus({ preventScroll: true })
+  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: scrollBehavior() })
+  keepClear(next)
+  lastMove = null
+  rememberFocus(next)
+  document.documentElement.dataset.navDir = dir
+  playNav(next)
+}
+
+/** What identifies a focusable across re-renders: its focus key, link, or label. */
+function sameThing(el: Element): string | null {
+  const esc = (s: string) => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(s) : s.replace(/"/g, '\\"'))
+  const fk = el.getAttribute('data-focus-key')
+  if (fk) return `[data-focus-key="${esc(fk)}"]`
+  const href = el.getAttribute('href')
+  if (href) return `${el.tagName.toLowerCase()}[href="${esc(href)}"]`
+  const label = el.getAttribute('aria-label')
+  if (label) return `${el.tagName.toLowerCase()}[aria-label="${esc(label)}"]`
+  return null
+}
+
+/**
+ * A row that re-renders replaces the focused card with a new one. With a mouse
+ * that's invisible; with a remote or controller the selection just vanished
+ * (going Back to Home, or when the Now row refreshed). Move focus to the
+ * replacement: the same link or label, nearest where the old one was.
+ */
+function keepFocusThroughRerenders(e: FocusEvent) {
+  const old = e.target
+  if (!(old instanceof HTMLElement) || e.relatedTarget || document.documentElement.dataset.navMode !== 'spatial') return
+  const sel = sameThing(old)
+  if (!sel) return
+  const r = old.getBoundingClientRect()
+  const at = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  // After React has finished swapping the nodes.
+  window.setTimeout(() => {
+    if (old.isConnected || (document.activeElement && document.activeElement !== document.body)) return
+    let best: HTMLElement | null = null
+    let bestD = Infinity
+    for (const el of document.querySelectorAll<HTMLElement>(sel)) {
+      if (!isVisible(el)) continue
+      const b = el.getBoundingClientRect()
+      const d = Math.hypot(b.left + b.width / 2 - at.x, b.top + b.height / 2 - at.y)
+      if (d < bestD) {
+        bestD = d
+        best = el
+      }
+    }
+    if (best) {
+      best.focus({ preventScroll: true })
+      rememberFocus(best)
+    }
+  }, 0)
+}
+
 /** Enable global D-pad/arrow-key spatial navigation for the app. */
 export function useSpatialNavigation() {
   useEffect(() => {
@@ -380,6 +550,7 @@ export function useSpatialNavigation() {
     }
     window.addEventListener('keydown', onKeyDown, opts)
     window.addEventListener('focusin', onFocusIn, opts)
+    window.addEventListener('focusout', keepFocusThroughRerenders, opts)
     // Any scroll (window or a horizontal row) can mount/unmount virtualized
     // cards — a stale cached candidate list is what made held-key nav skip them.
     window.addEventListener('scroll', onScroll, scrollOpts)
@@ -387,6 +558,7 @@ export function useSpatialNavigation() {
     return () => {
       window.removeEventListener('keydown', onKeyDown, opts)
       window.removeEventListener('focusin', onFocusIn, opts)
+      window.removeEventListener('focusout', keepFocusThroughRerenders, opts)
       window.removeEventListener('scroll', onScroll, scrollOpts)
     }
   }, [])

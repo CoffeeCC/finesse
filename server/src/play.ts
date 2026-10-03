@@ -6,7 +6,7 @@
 // Each session is its own container on Finesse's Docker network, labelled
 // finesse.managed / finesse.play, made from the same emulator settings as the
 // Wolf apps (folders by path, saves per profile). Finesse proxies it at
-// /play/<session>/ behind the person's sign-in, and removes it when it's left
+// /game-stream/<session>/ behind the person's sign-in, and removes it when it's left
 // idle. Nothing in the container is reachable from outside except through
 // that proxy.
 
@@ -36,6 +36,8 @@ const HOME = '/config'
 const IDLE_MS = Number(process.env.FINESSE_PLAY_IDLE_MS || 5 * 60_000)
 const MAX_AGE_MS = 6 * 3600_000
 const COOKIE = 'finesse_play_token'
+/** Where a session is served. Not /play: that's the app's own video player (/finesse/play/<item>), and reloading it hit this. */
+export const PREFIX = '/game-stream'
 
 export interface PlaySession {
   id: string
@@ -104,11 +106,15 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     log.info(`session ${s.id} (${s.title}) removed: ${why}`)
   }
 
-  // Leftovers from before a restart, then idle sessions every minute.
+  // This server's leftovers from before a restart (never another Finesse's on the same machine), then idle sessions every minute.
+  const instance = settings.get().instanceId
   void docker
     .list({ label: ['finesse.play=1'] })
     .then((list) => {
-      for (const c of (list ?? []) as { Id: string }[]) void docker.remove(c.Id, { force: true }).catch(() => {})
+      for (const c of (list ?? []) as { Id: string; Labels?: Record<string, string> }[]) {
+        const owner = c.Labels?.['finesse.play.instance']
+        if (owner === instance || owner === undefined) void docker.remove(c.Id, { force: true }).catch(() => {})
+      }
     })
     .catch(() => {})
   const reaper = setInterval(() => {
@@ -130,7 +136,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
 
   const upstreamReady = (target: string, id: string) =>
     new Promise<boolean>((resolve) => {
-      const req = request(`${target}/play/${id}/`, { method: 'GET', timeout: 3000 }, (res) => {
+      const req = request(`${target}${PREFIX}/${id}/`, { method: 'GET', timeout: 3000 }, (res) => {
         res.resume()
         resolve((res.statusCode ?? 500) < 400)
       })
@@ -157,7 +163,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         'PUID=1000',
         'PGID=1000',
         ...(tz ? [`TZ=${tz}`] : []),
-        `SUBFOLDER=/play/${s.id}/`,
+        `SUBFOLDER=${PREFIX}/${s.id}/`,
         `CUSTOM_PORT=${PORT}`,
         `TITLE=${s.title}`,
         // A kiosk for one game: no file transfers, terminals or desktop menus.
@@ -183,7 +189,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         Image: PLAY_IMAGE,
         Hostname: 'finesse-play',
         Env: env,
-        Labels: { 'finesse.managed': 'true', 'finesse.service': 'play', 'finesse.play': '1', 'finesse.play.session': s.id },
+        Labels: { 'finesse.managed': 'true', 'finesse.service': 'play', 'finesse.play': '1', 'finesse.play.session': s.id, 'finesse.play.instance': instance },
         HostConfig: {
           Binds: appMounts(spec.emulator, e, spec.profile, HOME),
           // Emulator settings (and what RPCS3 or Eden installs) per profile, between sessions.
@@ -233,7 +239,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
   const mine = (s: PlaySession | undefined, user: { Id: string; Policy?: { IsAdministrator?: boolean } }) =>
     s && (s.user === user.Id || user.Policy?.IsAdministrator) ? s : null
 
-  const view = (s: PlaySession) => ({ id: s.id, title: s.title, emulator: s.emulator, state: s.state, detail: s.detail ?? null, error: s.error ?? null, url: `/play/${s.id}/` })
+  const view = (s: PlaySession) => ({ id: s.id, title: s.title, emulator: s.emulator, state: s.state, detail: s.detail ?? null, error: s.error ?? null, url: `${PREFIX}/${s.id}/` })
 
   // Start a game in the browser.
   router.post('/api/play', async ({ req, res }) => {
@@ -288,28 +294,28 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     // The emulators' own logs say which graphics card they drew on (and why a game is slow).
     const logs = ['.local/share/eden/log/eden_log.txt', '.config/PCSX2/logs/emulog.txt', '.cache/rpcs3/RPCS3.log', '.local/share/Cemu/log.txt', '.local/share/dolphin-emu/Logs/dolphin.log'].map((f) => `${HOME}/${f}`)
     const inside = await docker
-      .exec(s.container, ['sh', '-c', `tail -n 60 ${HOME}/finesse-play.log 2>/dev/null; echo '--- graphics:'; ls /dev/dri 2>&1 | tr '\\n' ' '; echo; nvidia-smi -L 2>&1 | head -3; for f in ${logs.join(' ')}; do [ -f "$f" ] && { echo "--- $f"; grep -i -E 'gpu|vulkan|renderer|device|driver|opengl|llvmpipe|speed|fps|critical|error|sdl|controller|gamepad' "$f" | grep -v -i pipeline | head -n 30; echo ' …'; grep -i -E 'critical|error|speed|fps' "$f" | tail -n 15; }; done; echo '--- controller library loaded by:'; for m in /proc/[0-9]*/maps; do grep -q -i 'joystick_interposer\\|selkies.*\\.so' "$m" 2>/dev/null && cat "\${m%/maps}/comm"; done | sort | uniq -c; echo '--- controller env:'; tr '\\0' '\\n' < /proc/$(pgrep -o -f '/bin/eden|pcsx2|rpcs3|Cemu|dolphin' 2>/dev/null || echo 1)/environ 2>/dev/null | grep -E '^(LD_PRELOAD|SDL_)' ; echo '--- running:'; ps -eo comm= | sort | uniq -c | sort -rn | head -20`])
+      .exec(s.container, ['sh', '-c', `tail -n 60 ${HOME}/finesse-play.log 2>/dev/null; echo '--- graphics:'; ls /dev/dri 2>&1 | tr '\\n' ' '; echo; nvidia-smi -L 2>&1 | head -3; for f in ${logs.join(' ')}; do [ -f "$f" ] && { echo "--- $f"; grep -i -E 'gpu|vulkan|renderer|device|driver|opengl|llvmpipe|speed|fps|critical|error|sdl|controller|gamepad' "$f" | grep -v -i pipeline | head -n 30; echo ' …'; grep -i -E 'critical|error|speed|fps' "$f" | tail -n 15; }; done; echo '--- running:'; ps -eo comm= | sort | uniq -c | sort -rn | head -20`])
       .catch(() => null)
     sendJson(res, 200, { log: text.split('\n').slice(-120).join('\n'), emulator: inside?.output ?? '' })
   })
 
   // The session itself: Selkies' page and files, for its owner (the cookie carries the sign-in).
-  router.any('/play/:id/*', async ({ req, res, params, url }) => {
+  router.any(`${PREFIX}/:id/*`, async ({ req, res, params, url }) => {
     const user = await auth.requireUser(req, { cookie: COOKIE })
     const s = mine(sessions.get(params.id ?? ''), user)
     if (!s || s.state !== 'ready' || !s.target) throw new ApiError(404, 'That game has ended')
     s.lastActive = Date.now()
-    await proxyHttp(req, res, { target: new URL(`${s.target}/play/${s.id}/${params.rest ?? ''}${url.search}`), stripAuth: true, timeoutMs: 30000 })
+    await proxyHttp(req, res, { target: new URL(`${s.target}${PREFIX}/${s.id}/${params.rest ?? ''}${url.search}`), stripAuth: true, timeoutMs: 30000 })
   })
-  router.get('/play/:id', ({ res, params }) => {
-    res.writeHead(302, { Location: `/play/${encodeURIComponent(params.id ?? '')}/` })
+  router.get(`${PREFIX}/:id`, ({ res, params }) => {
+    res.writeHead(302, { Location: `${PREFIX}/${encodeURIComponent(params.id ?? '')}/` })
     res.end()
   })
 
-  /** WebSocket upgrades for /play/<id>/…: the video, audio and input. True when it's ours. */
+  /** WebSocket upgrades for /game-stream/<id>/…: the video, audio and input. True when it's ours. */
   function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
     const url = new URL(req.url ?? '/', 'http://x')
-    const m = /^\/(?:finesse\/)?play\/([0-9a-f]+)\/(.*)$/.exec(url.pathname)
+    const m = /^\/(?:finesse\/)?game-stream\/([0-9a-f]+)\/(.*)$/.exec(url.pathname)
     if (!m) return false
     void (async () => {
       try {
@@ -322,7 +328,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
           s.sockets = Math.max(0, s.sockets - 1)
           s.lastActive = Date.now()
         })
-        const target = new URL(`${s.target.replace(/^http/, 'ws')}/play/${s.id}/${m[2]}${url.search}`)
+        const target = new URL(`${s.target.replace(/^http/, 'ws')}${PREFIX}/${s.id}/${m[2]}${url.search}`)
         proxyUpgrade(req, socket, head, { target, stripAuth: true })
       } catch {
         socket.destroy()

@@ -4,10 +4,10 @@ import { getSession } from '../api/client'
 import { playApi, type PlaySession } from '../api/setup'
 import { finesseRoot } from '../lib/finesseServer'
 
-/** The player's page and its video WebSocket can't send our sign-in header, so it rides in a cookie scoped to /play. */
+/** The player's page and its video WebSocket can't send our sign-in header, so it rides in a cookie scoped to /game-stream. */
 function primePlayAuth() {
   const token = getSession()?.token
-  if (token) document.cookie = `finesse_play_token=${encodeURIComponent(token)}; path=/play; SameSite=Lax`
+  if (token) document.cookie = `finesse_play_token=${encodeURIComponent(token)}; path=/game-stream; SameSite=Lax`
 }
 
 // Selkies' touch gamepad (an on-screen controller games see as an Xbox pad): its page listens for these.

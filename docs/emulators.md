@@ -128,6 +128,19 @@ emulator's settings in a Docker volume per profile and emulator (`finesse-play-<
 Nothing reaches it except through Finesse, which checks the person's sign-in for the page and its
 video connection.
 
+## Controllers
+
+- **In Moonlight and in the browser, the controller belongs to the game.** Finesse's own
+  controller navigation steps aside while a game streams, so B doesn't leave the game and the
+  d-pad doesn't move around the page.
+- **PCSX2 is mapped for you:** Player 1 is the first controller. If you've mapped your own, it's
+  left alone.
+- **Eden, RPCS3, Cemu and Dolphin need a one-time mapping** in their own controller settings
+  (pick the Xbox controller as the input device). It's saved with your profile.
+- **On a phone or tablet,** the touch controller comes up with the game in the browser, and
+  **Controls** hides or shows it. Moonlight has its own: turn on "Show on-screen controls" in
+  Moonlight's settings.
+
 ## How it's put together
 
 - Every app runs on Games on Whales' ES-DE image (Sway, controllers, audio, AppImage support),

@@ -1,5 +1,6 @@
 import { getSession, mediaBrowserAuthHeader } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
+import { knownFinesse } from '../lib/finesseServer'
 
 // Games: browse the RomM library and play the retro titles via EmulatorJS.
 // Everything goes through Finesse's own nginx (/finesse/games/api → RomM, with
@@ -158,13 +159,24 @@ export async function fetchSgdbCover(displayName: string): Promise<string | null
   return run
 }
 
+// The server says SteamGridDB isn't set up (no key): stop asking for every game.
+let sgdbOff = false
+
 async function sgdbFetchCover(key: string): Promise<string | null> {
+  // The server says whether SteamGridDB has a key (older servers don't say: ask).
+  if (sgdbOff || knownFinesse()?.features.sgdb === false) return null
   await sgdbSlot()
   try {
+    if (sgdbOff) return null
     const q = encodeURIComponent(key)
     const searchRes = await fetch(`${CONTENT_BASE}games/sgdb/search/autocomplete/${q}`, {
       headers: { Authorization: mediaBrowserAuthHeader() },
     })
+    if (searchRes.status === 503) {
+      sgdbOff = true
+      sgdbCoverCache.set(key, null)
+      return null
+    }
     if (!searchRes.ok) throw new Error(`sgdb search ${searchRes.status}`)
     const searchJson = (await searchRes.json()) as { data?: { id: number }[] }
     const gameId = searchJson.data?.[0]?.id
@@ -189,12 +201,24 @@ async function sgdbFetchCover(key: string): Promise<string | null> {
   }
 }
 
+// Images can't send our sign-in header, so RomM's covers ride on the games cookie.
+// It was only set when a game started, so covers on the Games page failed (401).
+let primedFor = ''
+function primeCovers() {
+  const token = getSession()?.token
+  if (token && token !== primedFor) {
+    primedFor = token
+    primeGamesAuth()
+  }
+}
+
 /** Cover-art URL (proxied through /finesse/games/assets), or null if none. */
 export function rommCoverUrl(rom: RommRom): string | null {
   // RomM's own small copy first: it's on the server already and sized for a
   // tile. The original (IGDB etc.) is a full-size download from the internet.
   const p = rom.path_cover_small || rom.path_cover_large
   if (p) {
+    primeCovers()
     const norm = p.replace(/^\/+/, '')
     // RomM returns "assets/roms/…"; nginx proxies /games/assets/ → RomM /assets/.
     if (norm.startsWith('assets/')) return `${CONTENT_BASE}games/${norm}`

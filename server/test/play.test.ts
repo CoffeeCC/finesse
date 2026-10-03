@@ -17,7 +17,7 @@ const ROMM_PASS = 'romm-secret-pass'
 
 async function fakeSelkies() {
   const server = createServer((req, res) => {
-    if (/^\/play\/[0-9a-f]{12}\/(index\.html)?$/.test(req.url ?? '')) {
+    if (/^\/game-stream\/[0-9a-f]{12}\/(index\.html)?$/.test(req.url ?? '')) {
       res.writeHead(200, { 'Content-Type': 'text/html' })
       return res.end('<title>selkies</title>')
     }
@@ -51,7 +51,13 @@ async function fakeDocker(socket: string) {
     }
     if (p === '/_ping') return void res.end('OK')
     if (p === '/info') return json(200, { Runtimes: { runc: {} } })
-    if (p === '/containers/json') return json(200, [])
+    // Leftovers at start: this server's, another Finesse's on the same machine, and one from before players were tagged.
+    if (p === '/containers/json')
+      return json(200, [
+        { Id: 'old-mine', Labels: { 'finesse.play': '1', 'finesse.play.instance': 'play-test' } },
+        { Id: 'old-other', Labels: { 'finesse.play': '1', 'finesse.play.instance': 'someone-else' } },
+        { Id: 'old-untagged', Labels: { 'finesse.play': '1' } },
+      ])
     if (p.startsWith('/images/')) return json(200, { Id: 'sha256:x' })
     if (p === '/containers/create') {
       const name = url.searchParams.get('name')!
@@ -194,6 +200,18 @@ function ws(path: string, cookie?: string): Promise<string | null> {
 
 let id = ''
 
+test('at start it removes only its own leftover players, never another Finesse’s', () => {
+  assert.ok(docker.removed.includes('old-mine'))
+  assert.ok(docker.removed.includes('old-untagged'), 'from before players were tagged')
+  assert.ok(!docker.removed.includes('old-other'), 'another server’s game keeps running')
+})
+
+test('the app’s own video player page still loads (browser play doesn’t take /play)', async () => {
+  const r = await call('GET', '/finesse/play/2c9e4c4b4dfc8bbc5129f26e4b57b27a')
+  assert.equal(r.status, 200)
+  assert.match(r.text, /<html|<!doctype/i)
+})
+
 test('discovery says browser play is on when the emulators are set up and Docker answers', async () => {
   const r = await call('GET', '/api/finesse')
   assert.equal(r.data.features.play, true)
@@ -210,18 +228,19 @@ test('a game starts in its own container, made from the emulator settings', asyn
   assert.equal(r.status, 202, r.text)
   id = r.data.id
   assert.match(id, /^[0-9a-f]{12}$/)
-  assert.equal(r.data.url, `/play/${id}/`)
+  assert.equal(r.data.url, `/game-stream/${id}/`)
   const done = await ready(id, USER_TOKEN)
   assert.equal(done.data.state, 'ready', done.text)
   const c = docker.created.find((x) => x.name === `finesse-play-${id}`)!.config
   assert.match(c.Image, /^ghcr\.io\/linuxserver\/baseimage-selkies@sha256:[0-9a-f]{64}$/)
   assert.equal(c.Labels['finesse.managed'], 'true')
   assert.equal(c.Labels['finesse.play'], '1')
+  assert.equal(c.Labels['finesse.play.instance'], 'play-test')
   assert.ok(c.HostConfig.Binds.includes(`${folders.roms}:/finesse/roms:ro`))
   assert.ok(c.HostConfig.Binds.includes(`${folders.saves}/user/pcsx2/memcards:/config/.config/PCSX2/memcards:rw`), 'saves in the profile’s folder, where PCSX2 looks under /config')
   for (const b of c.HostConfig.Binds.filter((x: string) => !x.startsWith(folders.saves))) assert.match(b, /:ro$/)
   assert.deepEqual(c.HostConfig.Mounts, [{ Type: 'volume', Source: 'finesse-play-user-pcsx2', Target: '/config' }])
-  assert.ok(c.Env.includes(`SUBFOLDER=/play/${id}/`))
+  assert.ok(c.Env.includes(`SUBFOLDER=/game-stream/${id}/`))
   assert.ok(c.Env.includes('FINESSE_GAME=/finesse/roms/roms/ps2/A PS2 Game (USA).iso'))
   assert.ok(c.Env.includes('HARDEN_DESKTOP=true'))
   assert.ok(!c.Env.some((e: string) => /^PASSWORD=/.test(e)), 'no password of its own: Finesse is the door')
@@ -236,13 +255,13 @@ test('a game starts in its own container, made from the emulator settings', asyn
 })
 
 test('the session is its owner’s: page and WebSocket need their sign-in', async () => {
-  assert.equal((await call('GET', `/play/${id}/`)).status, 401)
-  const page = await call('GET', `/play/${id}/`, undefined, undefined, { Cookie: `finesse_play_token=${USER_TOKEN}` })
+  assert.equal((await call('GET', `/game-stream/${id}/`)).status, 401)
+  const page = await call('GET', `/game-stream/${id}/`, undefined, undefined, { Cookie: `finesse_play_token=${USER_TOKEN}` })
   assert.equal(page.status, 200)
   assert.match(page.text, /selkies/)
-  assert.equal((await call('GET', `/play/${id}`)).status, 302)
-  assert.equal(await ws(`/play/${id}/websocket`), null, 'no sign-in, no stream')
-  assert.equal(await ws(`/play/${id}/websocket`, `finesse_play_token=${USER_TOKEN}`), 'ping')
+  assert.equal((await call('GET', `/game-stream/${id}`)).status, 302)
+  assert.equal(await ws(`/game-stream/${id}/websocket`), null, 'no sign-in, no stream')
+  assert.equal(await ws(`/game-stream/${id}/websocket`, `finesse_play_token=${USER_TOKEN}`), 'ping')
   assert.ok(selkies.upgrades.every((u) => !u.includes(USER_TOKEN)), 'the sign-in stays with Finesse')
 })
 
@@ -250,8 +269,8 @@ test('someone else can’t see or reach another person’s game', async () => {
   const theirs = await call('POST', '/api/play', ADMIN_TOKEN, { rom: 7, profile: 'admin' })
   const other = (await ready(theirs.data.id, ADMIN_TOKEN)).data.id
   assert.equal((await call('GET', `/api/play/${other}`, USER_TOKEN)).status, 404)
-  assert.equal((await call('GET', `/play/${other}/`, undefined, undefined, { Cookie: `finesse_play_token=${USER_TOKEN}` })).status, 404)
-  assert.equal(await ws(`/play/${other}/websocket`, `finesse_play_token=${USER_TOKEN}`), null)
+  assert.equal((await call('GET', `/game-stream/${other}/`, undefined, undefined, { Cookie: `finesse_play_token=${USER_TOKEN}` })).status, 404)
+  assert.equal(await ws(`/game-stream/${other}/websocket`, `finesse_play_token=${USER_TOKEN}`), null)
   assert.equal((await call('GET', `/api/play/${id}/log`, USER_TOKEN)).status, 403)
   assert.match((await call('GET', `/api/play/${id}/log`, ADMIN_TOKEN)).data.log, /selkies: started/)
   await call('DELETE', `/api/play/${other}`, ADMIN_TOKEN)
@@ -264,5 +283,5 @@ test('a new game replaces the person’s old one, and Stop removes it', async ()
   const nid = (await ready(next.data.id, USER_TOKEN)).data.id
   assert.equal((await call('DELETE', `/api/play/${nid}`, USER_TOKEN)).status, 200)
   assert.ok(docker.removed.includes(`finesse-play-${nid}`))
-  assert.equal((await call('GET', `/play/${nid}/`, undefined, undefined, { Cookie: `finesse_play_token=${USER_TOKEN}` })).status, 404)
+  assert.equal((await call('GET', `/game-stream/${nid}/`, undefined, undefined, { Cookie: `finesse_play_token=${USER_TOKEN}` })).status, 404)
 })

@@ -5,7 +5,7 @@
 // its own.
 
 import { createHash } from 'node:crypto'
-import { chownSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { chownSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { logger } from '../log.ts'
 import { CATALOG, containerName, proxyFor, type ServiceDef, type StackContext, type StackServiceId } from './catalog.ts'
@@ -88,7 +88,7 @@ export class Orchestrator {
     this.docker = docker
   }
 
-  private hostProbe: { at: number; devices: string[] } | null = null
+  private hostProbe: { at: number; devices: string[]; gpuGroups: string[] } | null = null
 
   /** The image Finesse itself runs from (for throwaway probe containers). */
   async selfImage(): Promise<string> {
@@ -101,15 +101,30 @@ export class Orchestrator {
     if (this.hostProbe && Date.now() - this.hostProbe.at < 60000) return this.hostProbe.devices
     const want = ['/dev/net/tun', '/dev/dri', '/dev/uinput', '/dev/uhid', '/dev/nvidia0']
     let devices: string[]
+    let gpuGroups: string[] = []
     if (!process.env.FINESSE_IN_DOCKER) {
       devices = want.filter((p) => existsSync(p))
+      try {
+        gpuGroups = [...new Set(readdirSync('/dev/dri').filter((f) => /^(card|renderD)\d+$/.test(f)).map((f) => String(statSync(`/dev/dri/${f}`).gid)))]
+      } catch {
+        /* no graphics */
+      }
     } else {
-      const script = want.map((p) => `[ -e /host${p} ] && echo ${p}`).join('; ') + '; true'
+      // The group numbers too: images don't all have a "render" group by name, and Docker refuses unknown names.
+      const script = want.map((p) => `[ -e /host${p} ] && echo ${p}`).join('; ') + '; for f in /host/dev/dri/card* /host/dev/dri/renderD*; do [ -e "$f" ] && echo "gid:$(stat -c %g "$f")"; done; true'
       const r = await this.docker.runOnce(await this.selfImage(), ['sh', '-c', script], ['/dev:/host/dev:ro'])
-      devices = want.filter((p) => r.output.split(/\s+/).includes(p))
+      const words = r.output.split(/\s+/)
+      devices = want.filter((p) => words.includes(p))
+      gpuGroups = [...new Set(words.filter((w) => /^gid:\d+$/.test(w)).map((w) => w.slice(4)))]
     }
-    this.hostProbe = { at: Date.now(), devices }
+    this.hostProbe = { at: Date.now(), devices, gpuGroups }
     return devices
+  }
+
+  /** The host's group numbers for its graphics devices (for apps that use the GPU). */
+  async hostGpuGroups(): Promise<string[]> {
+    await this.hostDevices()
+    return this.hostProbe?.gpuGroups ?? []
   }
 
   /** What game streaming needs from this machine, checked fresh (someone may just have loaded a module). */
@@ -215,6 +230,7 @@ export class Orchestrator {
     const def = CATALOG[id]
     const name = containerName(id)
     await this.ensureImage(def, onProgress)
+    if (ctx.gpu && !ctx.gpuGroups) ctx.gpuGroups = await this.hostGpuGroups().catch(() => [])
     const spec = containerSpec(def, ctx)
     const hash = specHash(spec)
     ;(spec.Labels as Record<string, string>)[LABEL_SPEC] = hash

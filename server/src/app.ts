@@ -45,6 +45,8 @@ function features(s: Settings) {
     usenet: Boolean(svc.sabnzbd?.url),
     torrents: Boolean(svc.qbittorrent?.url),
     games: Boolean(svc.romm?.url),
+    /** SteamGridDB has a key (extra box art); without one the app doesn't ask it. */
+    sgdb: Boolean(svc.steamgriddb?.apiKey),
     streaming: Boolean(s.streaming?.socket),
     /** Browser play (Selkies): emulators set up and Docker reachable. */
     play: playState.available,
