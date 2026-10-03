@@ -258,9 +258,9 @@ html.tv .ambilight {
 /* ---------- Card lift ---------- */
 .tilt {
   transform-style: preserve-3d;
-  transition:
-    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.3s ease;
+  /* Transform only: the compositor runs it at the display's own rate (120 Hz
+     and up) without repainting the poster. */
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 /* Mouse hover: a small, fixed lift — the card doesn't chase the pointer. */
@@ -273,18 +273,27 @@ html.tv .ambilight {
 /* ---------- Poster light-spill (focused card glows its own color) ---------- */
 /* A focused/hovered card casts a soft glow in its dominant color onto the
    shelf beneath it, so browsing feels alive. --spill is set per card from the
-   poster's sampled color; falls back to the app accent. */
-.spill-card {
-  transition:
-    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.35s ease;
-}
-.group:hover .spill-card,
-.group:focus-visible .spill-card,
-.group:focus-within .spill-card {
+   poster's sampled color; falls back to the app accent. The glow is its own
+   element behind the card and only fades: animating the card's box-shadow
+   would repaint the poster on every frame and stutter the lift. */
+.spill-glow {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 0.75rem;
+  pointer-events: none;
+  opacity: 0;
   box-shadow:
     0 16px 46px -10px rgba(var(--spill, 117, 137, 216), 0.6),
     0 6px 18px -8px rgba(0, 0, 0, 0.55);
+  transition: opacity 0.35s ease;
+}
+.group:hover .spill-glow,
+.group:focus-visible .spill-glow,
+.group:focus-within .spill-glow {
+  opacity: 1;
 }
 
 /* ---------- Skeleton shimmer ---------- */

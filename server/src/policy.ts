@@ -104,5 +104,6 @@ export const isRead = (method: string) => method.toUpperCase() === 'GET' || meth
 
 /** RomM's API for non-admins: reading the library and downloading a game to play it. */
 export function rommAllowed(method: string, path: string): boolean {
-  return isRead(method) && (/^(platforms|roms)(\/\d+)?$/.test(path) || /^roms\/\d+\/content\/.+/.test(path))
+  // Firmware content too: the emulator needs a console's BIOS to start its games.
+  return isRead(method) && (/^(platforms|roms)(\/\d+)?$/.test(path) || /^(roms|firmware)\/\d+\/content\/.+/.test(path))
 }

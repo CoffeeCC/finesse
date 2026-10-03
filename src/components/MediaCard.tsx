@@ -169,104 +169,106 @@ export default function MediaCard({
       onFocus={canFocusPreview ? onTvFocus : undefined}
       onBlur={canFocusPreview ? onTvBlur : undefined}
     >
-      <div
-        ref={(el) => {
-          tiltRef.current = el
-          lazyRef.current = el
-        }}
-        onPointerEnter={canHoverPreview ? startPreview : undefined}
-        onPointerLeave={__WEBOS__ ? undefined : onPointerLeave}
-        style={spillStyle}
-        data-vt-id={linkId}
-        data-mood={mood}
-        className="tilt sheen spill-card relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
-      >
-        {blurUrl && (
-          <img src={blurUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
-        )}
-        {poster && nearViewport ? (
-          <img
-            src={poster}
-            alt={item.Name}
-            loading="lazy"
-            className="relative h-full w-full object-cover fade-in"
-          />
-        ) : poster ? null : (
-          <div className="h-full w-full flex items-center justify-center p-3 text-center text-sm text-ink-400">
-            {item.Name}
-          </div>
-        )}
-
-        {preview && clipUrl && (
-          <video
-            ref={videoRef}
-            src={clipUrl}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            onPlaying={(e) => {
-              setPlaying(true)
-              // Started muted so autoplay is allowed; unmute now if the user
-              // wants preview audio (the single-play lock keeps it to one at a time).
-              if (getPrefs().previewSound) e.currentTarget.muted = false
-            }}
-            onError={stopPreview}
-            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-              playing ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
-        )}
-
-        {rank != null && (
-          <>
-            <div aria-hidden className={`rank-scrim ${playing ? 'opacity-0' : ''}`} />
-            <span className={`rank-badge ${playing ? 'opacity-0' : ''}`} style={{ fontSize: (width ?? 176) * 0.34 }}>
-              <span className="sr-only">Number </span>
-              {rank}
-            </span>
-          </>
-        )}
-
-        {onDismiss && (
-          <button
-            tabIndex={-1}
-            aria-label={`Remove ${item.Name} from this row`}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onDismiss(item)
-            }}
-            className="absolute top-2 left-2 h-6 w-6 rounded-full bg-black/70 backdrop-blur flex items-center justify-center text-ink-300 hover:text-white hover:bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity shadow-md shadow-black/40"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
-
-        {played && (
-          <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-fill flex items-center justify-center shadow-md shadow-black/40">
-            <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-            </svg>
-          </div>
-        )}
-        {!played && unplayedCount != null && unplayedCount > 0 && (
-          <div className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-accent-fill flex items-center justify-center text-xs font-semibold text-white shadow-md shadow-black/40">
-            {unplayedCount}
-          </div>
-        )}
-
-        {pct != null && (
-          <div className="absolute bottom-0 inset-x-0 h-1 bg-black/60">
-            <div
-              className="h-full bg-accent-400 shadow-[0_0_8px_rgba(117,137,216,0.8)]"
-              style={{ width: `${pct}%` }}
+      <div className="relative" style={spillStyle}>
+        <span aria-hidden className="spill-glow" />
+        <div
+          ref={(el) => {
+            tiltRef.current = el
+            lazyRef.current = el
+          }}
+          onPointerEnter={canHoverPreview ? startPreview : undefined}
+          onPointerLeave={__WEBOS__ ? undefined : onPointerLeave}
+          data-vt-id={linkId}
+          data-mood={mood}
+          className="tilt sheen relative aspect-[2/3] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
+        >
+          {blurUrl && (
+            <img src={blurUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />
+          )}
+          {poster && nearViewport ? (
+            <img
+              src={poster}
+              alt={item.Name}
+              loading="lazy"
+              className="relative h-full w-full object-cover fade-in"
             />
-          </div>
-        )}
+          ) : poster ? null : (
+            <div className="h-full w-full flex items-center justify-center p-3 text-center text-sm text-ink-400">
+              {item.Name}
+            </div>
+          )}
+
+          {preview && clipUrl && (
+            <video
+              ref={videoRef}
+              src={clipUrl}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              onPlaying={(e) => {
+                setPlaying(true)
+                // Started muted so autoplay is allowed; unmute now if the user
+                // wants preview audio (the single-play lock keeps it to one at a time).
+                if (getPrefs().previewSound) e.currentTarget.muted = false
+              }}
+              onError={stopPreview}
+              className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+                playing ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+          )}
+
+          {rank != null && (
+            <>
+              <div aria-hidden className={`rank-scrim ${playing ? 'opacity-0' : ''}`} />
+              <span className={`rank-badge ${playing ? 'opacity-0' : ''}`} style={{ fontSize: (width ?? 176) * 0.34 }}>
+                <span className="sr-only">Number </span>
+                {rank}
+              </span>
+            </>
+          )}
+
+          {onDismiss && (
+            <button
+              tabIndex={-1}
+              aria-label={`Remove ${item.Name} from this row`}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onDismiss(item)
+              }}
+              className="absolute top-2 left-2 h-6 w-6 rounded-full bg-black/70 backdrop-blur flex items-center justify-center text-ink-300 hover:text-white hover:bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity shadow-md shadow-black/40"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+
+          {played && (
+            <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-fill flex items-center justify-center shadow-md shadow-black/40">
+              <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+            </div>
+          )}
+          {!played && unplayedCount != null && unplayedCount > 0 && (
+            <div className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-accent-fill flex items-center justify-center text-xs font-semibold text-white shadow-md shadow-black/40">
+              {unplayedCount}
+            </div>
+          )}
+
+          {pct != null && (
+            <div className="absolute bottom-0 inset-x-0 h-1 bg-black/60">
+              <div
+                className="h-full bg-accent-400 shadow-[0_0_8px_rgba(117,137,216,0.8)]"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-2 px-0.5">
@@ -337,39 +339,41 @@ export function WideCard({
         data-backdrop={backdropUrl(item, 1280) ?? undefined}
         className="group block outline-none"
       >
-        <div
-          ref={lazyRef}
-          style={spill}
-          data-vt-id={item.Id}
-          data-mood={mood}
-          className="tilt sheen spill-card relative aspect-video rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
-        >
-          {img && nearViewport && (
-            <img src={img} alt="" loading="lazy" className="h-full w-full object-cover fade-in" />
-          )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
-            <span className="h-12 w-12 rounded-full bg-white/90 flex items-center justify-center shadow-xl shadow-black/40">
-              <svg className="h-5 w-5 text-ink-950 translate-x-px" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </span>
-          </div>
-          {left && (
-            <span className="absolute bottom-2.5 right-2.5 text-[11px] font-semibold text-white/90 drop-shadow">
-              {left} left
-            </span>
-          )}
-          {isEp && pct == null && (
-            <span className="absolute bottom-2.5 left-2.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-              Next episode
-            </span>
-          )}
-          {pct != null && (
-            <div className="absolute bottom-0 inset-x-0 h-1 bg-white/15">
-              <div className="h-full bg-accent-400 shadow-[0_0_8px_rgba(117,137,216,0.8)]" style={{ width: `${pct}%` }} />
+        <div className="relative" style={spill}>
+          <span aria-hidden className="spill-glow" />
+          <div
+            ref={lazyRef}
+            data-vt-id={item.Id}
+            data-mood={mood}
+            className="tilt sheen relative aspect-video rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
+          >
+            {img && nearViewport && (
+              <img src={img} alt="" loading="lazy" className="h-full w-full object-cover fade-in" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+              <span className="h-12 w-12 rounded-full bg-white/90 flex items-center justify-center shadow-xl shadow-black/40">
+                <svg className="h-5 w-5 text-ink-950 translate-x-px" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </span>
             </div>
-          )}
+            {left && (
+              <span className="absolute bottom-2.5 right-2.5 text-[11px] font-semibold text-white/90 drop-shadow">
+                {left} left
+              </span>
+            )}
+            {isEp && pct == null && (
+              <span className="absolute bottom-2.5 left-2.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                Next episode
+              </span>
+            )}
+            {pct != null && (
+              <div className="absolute bottom-0 inset-x-0 h-1 bg-white/15">
+                <div className="h-full bg-accent-400 shadow-[0_0_8px_rgba(117,137,216,0.8)]" style={{ width: `${pct}%` }} />
+              </div>
+            )}
+          </div>
         </div>
         <div className="mt-2 px-0.5">
           <p className="text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">{title}</p>

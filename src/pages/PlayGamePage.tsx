@@ -1,15 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useGame } from '../api/queries'
-import { ejsCore, primeGamesAuth, rommContentUrl } from '../api/romm'
+import { biosUrl, ejsCore, needsThreads, primeGamesAuth, rommContentUrl } from '../api/romm'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 
-// Plays a RomM title with EmulatorJS (client-side WASM). The ROM streams from
-// RomM through our nginx; the emulator core loads from the EmulatorJS CDN. Exit
-// does a hard navigation back to /games — EmulatorJS doesn't tear down cleanly
-// (audio/gamepad loops linger), so a full reload is the reliable way to stop it.
+// Plays a RomM title with EmulatorJS (client-side WASM). The ROM and the
+// console's firmware (BIOS) stream from RomM through Finesse. The emulator
+// itself comes from RomM's own copy when it has one (on your network, and the
+// version RomM tested), else from the EmulatorJS CDN. Exit does a hard
+// navigation back to /games — EmulatorJS doesn't tear down cleanly (audio and
+// gamepad loops linger), so a full reload is the reliable way to stop it.
 
-const EJS_DATA = 'https://cdn.emulatorjs.org/stable/data/'
+const EJS_CDN = 'https://cdn.emulatorjs.org/stable/data/'
+const EJS_LOCAL = `${CONTENT_BASE}games/assets/emulatorjs/data/`
+const RELOADED = 'finesse.play.isolated'
+
+async function emulatorData(): Promise<string> {
+  try {
+    const r = await fetch(`${EJS_LOCAL}version.json`, { credentials: 'same-origin' })
+    if (r.ok && (r.headers.get('content-type') ?? '').includes('json')) return EJS_LOCAL
+  } catch {
+    // No local copy: the CDN below.
+  }
+  return EJS_CDN
+}
 
 function exitToGames() {
   window.location.href = `${CONTENT_BASE}games`
@@ -39,25 +53,43 @@ export default function PlayGamePage() {
   useEffect(() => {
     if (!rom || started.current) return
     if (!core) {
-      setError(`${rom.platform_display_name} can’t be emulated in a browser.`)
+      setError(`${rom.platform_display_name} can’t be played in a browser. Stream it from a PC with Moonlight instead.`)
       return
     }
+    // PSP and DOS emulators need threads, which only an isolated page gets: the
+    // server isolates this page when it's loaded directly, so load it once more.
+    const threads = needsThreads(core)
+    if (threads && !window.crossOriginIsolated) {
+      if (sessionStorage.getItem(RELOADED) !== String(rom.id)) {
+        sessionStorage.setItem(RELOADED, String(rom.id))
+        window.location.reload()
+        return
+      }
+      setError(`${rom.platform_display_name} games need Chrome, Edge or Firefox to play here.`)
+      return
+    }
+    sessionStorage.removeItem(RELOADED)
     started.current = true
-    primeGamesAuth() // cookie so EmulatorJS's ROM fetch clears the nginx auth gate
-    const w = window as unknown as Record<string, unknown>
-    w.EJS_player = '#game'
-    w.EJS_core = core
-    w.EJS_gameUrl = rommContentUrl(rom)
-    w.EJS_gameName = rom.name
-    w.EJS_pathtodata = EJS_DATA
-    w.EJS_startOnLoaded = true
-    w.EJS_backgroundColor = '#0b0d12'
-    w.EJS_onLoadError = () => setError('Could not load this game. Its format may be unsupported.')
-    const s = document.createElement('script')
-    s.src = `${EJS_DATA}loader.js`
-    s.async = true
-    s.onerror = () => setError('Could not reach the EmulatorJS runtime.')
-    document.body.appendChild(s)
+    primeGamesAuth() // cookie so EmulatorJS's ROM, firmware and core fetches pass the auth gate
+    void (async () => {
+      const [data, bios] = await Promise.all([emulatorData(), biosUrl(rom, core)])
+      const w = window as unknown as Record<string, unknown>
+      w.EJS_player = '#game'
+      w.EJS_core = core
+      w.EJS_gameUrl = rommContentUrl(rom)
+      w.EJS_gameName = rom.name
+      if (bios) w.EJS_biosUrl = bios
+      w.EJS_threads = threads
+      w.EJS_pathtodata = data
+      w.EJS_startOnLoaded = true
+      w.EJS_backgroundColor = '#0b0d12'
+      w.EJS_onLoadError = () => setError('Could not load this game. Its format may be unsupported.')
+      const s = document.createElement('script')
+      s.src = `${data}loader.js`
+      s.async = true
+      s.onerror = () => setError('Could not reach the emulator. Check that RomM is running.')
+      document.body.appendChild(s)
+    })()
   }, [rom, core])
 
   return (

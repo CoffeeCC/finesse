@@ -83,14 +83,15 @@ export default function GameDetailPage() {
               {playable ? (
                 <span className="text-emerald-400">Playable in browser</span>
               ) : (
-                <span className="text-ink-400">Browse only — not emulatable in a browser</span>
+                <span className="text-ink-400">Browse only — this console needs a PC emulator, not a browser</span>
               )}
             </div>
 
             {playable ? (
               <Link
                 to={`/games/play/${rom.id}`}
-                viewTransition
+                // A fresh page load, so the server can isolate it (threads for PSP/DOS).
+                reloadDocument={!__WEBOS__}
                 className="inline-flex items-center gap-2 rounded-lg bg-white text-ink-950 px-7 py-3 text-sm font-semibold hover:bg-ink-200 active:scale-[0.98] transition-all"
               >
                 <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -120,6 +121,7 @@ export default function GameDetailPage() {
                       <Link
                         key={s.id}
                         to={`/games/play/${s.id}`}
+                        reloadDocument={!__WEBOS__}
                         className="rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-medium text-ink-200 hover:text-white transition-colors"
                       >
                         {label || s.fs_name}

@@ -69,8 +69,11 @@ describe('the rules', () => {
   })
 
   test('RomM: browse and play, never change', () => {
-    for (const p of ['platforms', 'roms', 'roms/5', 'roms/5/content/Game%20(USA).zip']) assert.equal(rommAllowed('GET', p), true, p)
+    for (const p of ['platforms', 'roms', 'roms/5', 'roms/5/content/Game%20(USA).zip', 'platforms/3', 'firmware/7/content/scph5501.bin']) assert.equal(rommAllowed('GET', p), true, p)
     assert.equal(rommAllowed('DELETE', 'roms/5'), false)
+    assert.equal(rommAllowed('POST', 'firmware'), false)
+    assert.equal(rommAllowed('POST', 'firmware/delete'), false)
+    assert.equal(rommAllowed('GET', 'firmware'), false)
     assert.equal(rommAllowed('POST', 'roms'), false)
     assert.equal(rommAllowed('GET', 'users'), false)
     assert.equal(rommAllowed('GET', 'config'), false)

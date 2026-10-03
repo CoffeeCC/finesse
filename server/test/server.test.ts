@@ -109,6 +109,16 @@ describe('web app', () => {
     assert.equal((await rawGet('/finesse/assets/nope.js')).status, 404)
   })
 
+  test('only the game player page is cross-origin isolated (threads for PSP/DOS)', async () => {
+    const play = await rawGet('/finesse/games/play/42')
+    assert.equal(play.headers['cross-origin-opener-policy'], 'same-origin')
+    assert.equal(play.headers['cross-origin-embedder-policy'], 'credentialless')
+    assert.match(play.body.toString(), /<!doctype html>/)
+    assert.match((await rawGet('/finesse/games/game/42')).body.toString(), /<!doctype html>/)
+    assert.equal((await rawGet('/finesse/games')).headers['cross-origin-embedder-policy'], undefined)
+    assert.equal((await rawGet('/finesse/')).headers['cross-origin-opener-policy'], undefined)
+  })
+
   test('no path traversal, no dotfiles', async () => {
     for (const p of ['/finesse/../../../../etc/passwd', '/finesse/%2e%2e/%2e%2e/etc/passwd', '/finesse/assets/..%2f..%2f..%2fetc%2fpasswd', '/finesse/.hidden', '/previews/../finesse.json']) {
       const r = await rawGet(p)

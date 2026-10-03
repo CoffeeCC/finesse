@@ -52,7 +52,12 @@ more, add these optional keys on the setup page, or in your setup document under
 ## Playing
 
 Open a game and press **Play**. It runs on your device, not the server, so a phone or laptop
-from the last few years handles everything up to PlayStation. Plug in a controller, or use the
+from the last few years handles everything up to PlayStation and PSP. Finesse uses the emulator
+that comes with RomM and hands it the console's BIOS from RomM's firmware (scanned from `bios/`
+or uploaded in RomM). PSP and DOS games need Chrome, Edge or Firefox.
+
+Consoles that need a PC emulator show **Browse only**: Switch, PS2 and PS3, GameCube, Wii and
+Wii U, Xbox, Dreamcast and 3DS. Play those by streaming them from a PC with Moonlight. Plug in a controller, or use the
 keyboard. On a TV, lighter systems (8- and 16-bit) play best. In-game saves are kept by the
 browser on the device you play on.
 

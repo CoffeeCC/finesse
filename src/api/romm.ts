@@ -180,7 +180,8 @@ async function sgdbFetchCover(key: string): Promise<string | null> {
 
 /** Cover-art URL (proxied through /finesse/games/assets), or null if none. */
 export function rommCoverUrl(rom: RommRom): string | null {
-  if (rom.url_cover && /^https?:/.test(rom.url_cover)) return rom.url_cover
+  // RomM's own small copy first: it's on the server already and sized for a
+  // tile. The original (IGDB etc.) is a full-size download from the internet.
   const p = rom.path_cover_small || rom.path_cover_large
   if (p) {
     const norm = p.replace(/^\/+/, '')
@@ -188,6 +189,7 @@ export function rommCoverUrl(rom: RommRom): string | null {
     if (norm.startsWith('assets/')) return `${CONTENT_BASE}games/${norm}`
     return `${CONTENT_BASE}games/assets/${norm}`
   }
+  if (rom.url_cover && /^https?:/.test(rom.url_cover)) return rom.url_cover.replace(/\/t_(?:original|1080p|720p|screenshot_huge)\//, '/t_cover_big/')
   return null
 }
 
@@ -207,35 +209,99 @@ export function rommContentUrl(rom: RommRom): string {
   return `${gamesBase()}/roms/${rom.id}/content/${encodeURIComponent(rom.fs_name)}`
 }
 
-// RomM platform slug → EmulatorJS core. Only these are browser-emulatable; every
-// other platform (Switch, PS2/3, GameCube/Wii(U), Xbox, PSP, arcade/Model2, the
-// fantasy consoles) is browse-only in v1.
+// RomM platform slug → EmulatorJS system. Mirrors RomM's own player (RomM 5
+// slugs), plus the older short names. Consoles that need a real PC emulator
+// (Switch, PS2/3, GameCube/Wii(U), Xbox, Dreamcast, 3DS) are browse-only.
 const EJS_CORES: Record<string, string> = {
-  nes: 'nes', fds: 'nes', famicom: 'nes',
-  snes: 'snes', sfc: 'snes', 'super-nintendo-entertainment-system': 'snes',
-  gb: 'gb', gbc: 'gb', 'game-boy': 'gb', 'game-boy-color': 'gb',
-  gba: 'gba', 'game-boy-advance': 'gba',
-  n64: 'n64', 'nintendo-64': 'n64',
-  nds: 'nds',
+  nes: 'nes', fds: 'nes', famicom: 'nes', 'game-televisison': 'nes', 'new-style-nes': 'nes',
+  snes: 'snes', sfc: 'snes', sfam: 'snes', 'super-nintendo-entertainment-system': 'snes',
+  'super-nintendo-original-european-version': 'snes', 'super-famicom-shvc-001': 'snes',
+  'super-famicom-jr-model-shvc-101': 'snes', 'new-style-super-nes-model-sns-101': 'snes',
+  gb: 'gb', gbc: 'gb', 'game-boy': 'gb', 'game-boy-color': 'gb', 'game-boy-pocket': 'gb', 'game-boy-light': 'gb',
+  gba: 'gba', 'game-boy-advance': 'gba', 'game-boy-adavance-sp': 'gba', 'game-boy-micro': 'gba',
+  n64: 'n64', 'nintendo-64': 'n64', 'ique-player': 'n64',
+  nds: 'nds', 'nintendo-ds-lite': 'nds', 'nintendo-dsi': 'nds', 'nintendo-dsi-xl': 'nds',
+  virtualboy: 'vb', vb: 'vb',
   psx: 'psx', ps1: 'psx', playstation: 'psx',
+  psp: 'psp',
   genesis: 'segaMD', megadrive: 'segaMD', 'sega-mega-drive-genesis': 'segaMD', 'genesis-slash-megadrive': 'segaMD',
-  sms: 'segaMS', mastersystem: 'segaMS', 'sega-master-system': 'segaMS',
+  'sega-mega-drive-2-slash-genesis': 'segaMD', 'sega-mega-jet': 'segaMD', 'mega-pc': 'segaMD', 'tera-drive': 'segaMD', 'sega-nomad': 'segaMD',
+  sms: 'segaMS', mastersystem: 'segaMS', 'sega-master-system': 'segaMS', 'sega-mark-iii': 'segaMS', 'sega-game-box-9': 'segaMS',
+  'sega-master-system-ii': 'segaMS', 'master-system-super-compact': 'segaMS', 'master-system-girl': 'segaMS',
   gamegear: 'segaGG', gg: 'segaGG',
-  segacd: 'segaCD', sega32x: 'sega32x', saturn: 'segaSaturn',
-  atari2600: 'atari2600', atari5200: 'atari5200', atari7800: 'atari7800',
-  lynx: 'lynx', jaguar: 'jaguar', vb: 'vb', virtualboy: 'vb',
-  ws: 'ws', wsc: 'ws', ngp: 'ngp', ngpc: 'ngp',
-  pce: 'pce', 'pc-engine': 'pce', turbografx16: 'pce', tg16: 'pce',
-  colecovision: 'coleco', coleco: 'coleco', c64: 'commodore_c64',
-  arcade: 'arcade', mame: 'mame2003', neogeo: 'arcade', '3do': '3do',
+  segacd: 'segaCD', sega32: 'sega32x', sega32x: 'sega32x', saturn: 'segaSaturn',
+  atari2600: 'atari2600', 'atari-2600-plus': 'atari2600', atari5200: 'atari5200', atari7800: 'atari7800',
+  lynx: 'lynx', 'atari-lynx-mkii': 'lynx', jaguar: 'jaguar',
+  wonderswan: 'ws', 'wonderswan-color': 'ws', swancrystal: 'ws', ws: 'ws', wsc: 'ws',
+  'neo-geo-pocket': 'ngp', 'neo-geo-pocket-color': 'ngp', ngp: 'ngp', ngpc: 'ngp',
+  tg16: 'pce', 'turbografx-cd': 'pce', supergrafx: 'pce', pce: 'pce', 'pc-engine': 'pce', turbografx16: 'pce',
+  'pc-fx': 'pcfx',
+  colecovision: 'coleco', coleco: 'coleco',
+  arcade: 'arcade', neogeoaes: 'arcade', neogeomvs: 'arcade', neogeo: 'arcade', mame: 'mame2003',
+  '3do': '3do',
+  amiga: 'amiga', 'amiga-cd32': 'amiga',
+  c64: 'c64', 'commodore-64c': 'c64', c128: 'c128', 'commmodore-128': 'c128', cpet: 'pet', 'c-plus-4': 'plus4', 'vic-20': 'vic20',
+  dos: 'dos',
 }
 
+/** Systems whose emulators need threads: only on a cross-origin isolated page,
+ *  which the TV app (and Safari) can't give them. */
+const THREADED = new Set(['psp', 'dos'])
+export const needsThreads = (core: string) => THREADED.has(core)
+
 export function ejsCore(slug: string | undefined): string | null {
-  return slug ? EJS_CORES[slug.toLowerCase()] ?? null : null
+  const core = slug ? EJS_CORES[slug.toLowerCase()] ?? null : null
+  if (core && __WEBOS__ && needsThreads(core)) return null
+  return core
 }
 
 export function isPlayable(rom: RommRom): boolean {
   return !!ejsCore(rom.platform_slug)
+}
+
+// The BIOS file each system looks for, best first. A platform's firmware in
+// RomM is matched against these; anything else falls back to the first file.
+const BIOS_NAMES: Record<string, string[]> = {
+  psx: ['scph5501.bin', 'scph5500.bin', 'scph5502.bin', 'scph1001.bin', 'scph7001.bin', 'scph101.bin', 'psxonpsp660.bin'],
+  segaCD: ['bios_cd_u.bin', 'bios_cd_e.bin', 'bios_cd_j.bin'],
+  segaSaturn: ['saturn_bios.bin', 'sega_101.bin', 'mpr-17933.bin'],
+  '3do': ['panafz10.bin', 'panafz1.bin', 'panafz10-norsa.bin', 'goldstar.bin'],
+  lynx: ['lynxboot.img'],
+  gba: ['gba_bios.bin'],
+  nes: ['disksys.rom'],
+  pce: ['syscard3.pce', 'syscard2.pce', 'syscard1.pce'],
+  atari5200: ['5200.rom'],
+  atari7800: ['7800 bios (u).rom', '7800 bios (e).rom'],
+  coleco: ['colecovision.rom', 'coleco.rom'],
+  arcade: ['neogeo.zip'],
+  amiga: ['kick34005.a500', 'kick40068.a1200', 'kick40063.a600'],
+  pcfx: ['pcfx.rom'],
+}
+
+export interface RommFirmware {
+  id: number
+  file_name: string
+  is_verified?: boolean
+}
+
+/** The firmware to hand the emulator for this game's console, if RomM has any. */
+export async function biosUrl(rom: RommRom, core: string): Promise<string | null> {
+  let files: RommFirmware[] = []
+  try {
+    files = (await gget<{ firmware?: RommFirmware[] }>(`/platforms/${rom.platform_id}`)).firmware ?? []
+  } catch {
+    return null
+  }
+  if (!files.length) return null
+  const want = BIOS_NAMES[core] ?? []
+  const byName = (n: string) => files.find((f) => f.file_name.toLowerCase() === n)
+  // A zip of several BIOS files (the DS needs three) is unpacked by the emulator.
+  const pick =
+    want.map(byName).find(Boolean) ??
+    (core === 'nds' ? files.find((f) => /\.zip$/i.test(f.file_name)) : undefined) ??
+    files.find((f) => f.is_verified) ??
+    files[0]!
+  return `${gamesBase()}/firmware/${pick.id}/content/${encodeURIComponent(pick.file_name)}`
 }
 
 // ---- display helpers (shared by the grid + detail page) ----

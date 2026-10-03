@@ -38,6 +38,26 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## More consoles play, smoother cards — v2.2.0 (2026-10-03)
+
+- **Games: more consoles play in the browser.** Finesse now matches the names RomM 5 gives
+  its consoles. Some (the 32X, WonderSwan, Neo Geo Pocket, PC Engine CD, Neo Geo…) showed
+  "Browse only" even though they could play. New in the browser: **PSP**, **DOS**, **Amiga**,
+  PC-FX and the Commodore family.
+- **Your firmware goes to the emulator.** BIOS files you add to a console in RomM (PlayStation,
+  Sega CD, Saturn, 3DO, Lynx, Neo Geo…) now start that console's games. Finesse picks the file
+  the emulator expects.
+- **The emulator comes from your RomM.** Finesse loads the emulator from RomM's own copy on
+  your network: faster, and the version RomM tested. If RomM has none, it uses the EmulatorJS
+  CDN.
+- The game player page is cross-origin isolated (threads for the PSP and DOS emulators).
+  Reloading a game's page or the player no longer says "Not found".
+- Game covers load faster: RomM's small copy on your server comes first, not the full-size
+  original from the internet.
+- **Smoother card hover.** The glow under a hovered poster is now its own layer that only
+  fades. The lift runs on the GPU at your display's refresh rate (120 Hz and up), without
+  repainting the poster every frame.
+
 ## Check for updates that sees the server's update — v2.1.1 (2026-10-03)
 
 - **Check for updates tells admins about a new release.** In Settings → Updates, "Check for

@@ -103,7 +103,7 @@ function cacheControl(rel: string): string {
 }
 
 /** Sends one file with ranges, compression and conditional-request support. */
-export function sendFile(req: IncomingMessage, res: ServerResponse, file: string, stat: Stats, rel: string) {
+export function sendFile(req: IncomingMessage, res: ServerResponse, file: string, stat: Stats, rel: string, extra?: Record<string, string>) {
   const type = contentType(file)
   const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`
   const headers: Record<string, string> = {
@@ -113,6 +113,7 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
     ETag: etag,
     'Accept-Ranges': 'bytes',
     'X-Content-Type-Options': 'nosniff',
+    ...extra,
   }
   // Pages can't be framed by another site (clickjacking the admin screens).
   if (type.startsWith('text/html')) {
@@ -238,6 +239,12 @@ export function serveWeb(req: IncomingMessage, res: ServerResponse, web: WebRoot
   if (path.startsWith('/assets/') || /\.(js|mjs|css|map|png|jpe?g|webp|svg|woff2?|json|mp4|webm)$/i.test(path)) return false
   const index = safeFile(dir, '/index.html')
   if (!index) return false
-  sendFile(req, res, index.file, index.stat, '/index.html')
+  sendFile(req, res, index.file, index.stat, '/index.html', path.startsWith('/games/play/') ? ISOLATED : undefined)
   return true
 }
+
+// The game player page is cross-origin isolated, which unlocks threads
+// (SharedArrayBuffer): the PSP and DOS emulators won't start without them.
+// "credentialless" still lets the page load other sites' files, just without
+// cookies; browsers that don't know it (Safari) simply stay un-isolated.
+const ISOLATED = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'credentialless' }

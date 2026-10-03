@@ -30,7 +30,9 @@ export interface AppDeps {
 /** Hook for later phases (setup, stack, system) to add routes. */
 export type Plugin = (deps: AppDeps) => void
 
-const CORS_PREFIXES = ['/api/', '/arr/', '/invite-api/', '/games/']
+// The games API lives under /games/api, /games/assets and /games/sgdb; other
+// /games/… paths are app pages (a game, the player) that must reload fine.
+const CORS_PREFIXES = ['/api/', '/arr/', '/invite-api/', '/games/api/', '/games/assets/', '/games/sgdb/']
 
 function features(s: Settings) {
   const svc = s.services
