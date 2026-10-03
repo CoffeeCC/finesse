@@ -51,12 +51,14 @@ export default function SearchOverlay() {
       role="dialog"
       aria-modal="true"
       aria-label="Search"
-      className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm px-4 fade-in"
+      // Glass like the Quick menu: the page blurs behind, the panel frosts over
+      // it, and it never runs past the bottom of what's visible.
+      className="os-qm-scrim fixed inset-0 z-[90] flex flex-col bg-black/45 backdrop-blur-md px-3 pb-3 pt-[calc(var(--vh)*6)] sm:px-4 sm:pt-[calc(var(--vh)*8)] fade-in"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) closeSearch()
       }}
     >
-      <div className="mx-auto mt-[calc(var(--vh)*8)] max-w-3xl rounded-2xl bg-ink-900 border border-white/10 shadow-2xl shadow-black/60 overflow-hidden toast-in">
+      <div className="os-glass mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[28px] toast-in">
         <SearchPanel mode="overlay" initialQuery={query} onClose={closeSearch} />
       </div>
     </div>,

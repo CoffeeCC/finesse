@@ -134,13 +134,20 @@ export interface FakeGitHub {
   url: string
   /** Set what /releases/latest returns. */
   release(version: string, asset: Buffer | null, opts?: { digest?: string; assetVersion?: string }): void
+  /** Answer like GitHub does once a network has used up its 60 checks an hour. */
+  limit(on: boolean): void
   close(): Promise<void>
 }
 
 export async function fakeGitHub(): Promise<FakeGitHub> {
   let current: { version: string; asset: Buffer | null; digest?: string; assetVersion?: string } = { version: '0.0.0', asset: null }
+  let limited = false
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x')
+    if (limited && url.pathname.endsWith('/releases/latest')) {
+      res.writeHead(403, { 'Content-Type': 'application/json', 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 600) })
+      return res.end(JSON.stringify({ message: 'API rate limit exceeded' }))
+    }
     if (url.pathname.endsWith('/releases/latest')) {
       const base = `http://${req.headers.host}`
       const name = `finesse-web-${current.assetVersion ?? current.version}.tar.gz`
@@ -170,6 +177,9 @@ export async function fakeGitHub(): Promise<FakeGitHub> {
     url,
     release(version, asset, opts = {}) {
       current = { version, asset, ...opts }
+    },
+    limit(on) {
+      limited = on
     },
     close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()) }),
   }

@@ -38,6 +38,25 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Play on your TV from anywhere, foldables and tablets — v2.3.0 (2026-10-03)
+
+- **"Play on…" where you are.** Send what's on the home stage to your TV straight from the
+  stage. In the player, the new cast button moves what you're watching to the TV: it carries on
+  from where you are, and this screen steps back. It used to be only on a title's page. The device
+  list is glass and floats above everything, so nothing clips it.
+- **The top bar fits tablets, unfolded phones and small windows.** Between 768 and 1023 px it
+  needed 949 px, and your avatar slid off the edge. Now Music, Games and Friends sit under More
+  below 1024 px, search is a round button below 1280 px, and the buttons on the right never shrink
+  or leave the screen.
+- **Phones and foldables: the home stage fits what's visible.** It used to be sized for the
+  screen with the browser's toolbars hidden, so the row and the live line could hide behind the tab
+  bar. On short, wide screens (an unfolded Fold) the story is two lines and the gaps are tighter.
+- **Search is glass,** like the Quick menu. It never runs past the bottom of the screen, and its
+  results scroll without a bar riding the edge.
+- **Update checks say what went wrong.** If the server can't reach GitHub, or GitHub is limiting
+  checks from your network (60 an hour for everything at home), "Check for updates" says so, and
+  when to try again. It used to say "You're on the latest version".
+
 ## Your Wolf's games on the Games page — v2.2.3 (2026-10-03)
 
 - **Games shows what you can actually stream.** With Wolf UI (Wolf's default setup), Moonlight

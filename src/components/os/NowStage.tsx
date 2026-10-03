@@ -9,6 +9,7 @@ import { getPrefs } from '../../lib/settings'
 import { setMood } from '../../lib/mood'
 import { IS_TV } from '../../lib/device'
 import WatchlistButton from '../WatchlistButton'
+import CastMenu from '../CastMenu'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
 
 /** Resting this long on a title starts its preview clip behind the stage. */
@@ -108,6 +109,8 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
   const { chips, line } = useChips(entry)
   const logoOk = useLogoReadable(entry.logo)
   const watchlistable = entry.item && (entry.item.Type === 'Movie' || entry.item.Type === 'Series')
+  // Send it to the TV: your own titles that play as video (a friend's live on their server).
+  const castable = !IS_TV && entry.item && /^(Movie|Episode|Video|MusicVideo)$/.test(entry.item.Type) && !entry.item.Id.startsWith('f-')
   return (
     // Re-keyed per title so each one rises in.
     <div key={entry.key} className="os-hero">
@@ -143,6 +146,7 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
             More info
           </Link>
         )}
+        {castable && <CastMenu item={entry.item!} variant="os" />}
         {watchlistable && <WatchlistButton item={entry.item!} />}
       </div>
       {entry.pct !== undefined ? (

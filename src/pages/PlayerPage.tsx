@@ -8,6 +8,7 @@ import { EMPTY_MANIFEST, prefetchClip, previewClipUrl } from '../lib/preview'
 import { pickSubtitle } from '../lib/tracks'
 import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
 import { IS_TV, TOUCH_UI, inSpatialMode } from '../lib/device'
+import CastMenu from '../components/CastMenu'
 
 import { goBack, isBackKey, isTypingTarget, pushBackHandler } from '../lib/back'
 import { onRemoteCommand } from '../lib/remoteControl'
@@ -2219,6 +2220,19 @@ export default function PlayerPage() {
                 <span className="hidden sm:inline rounded border border-white/40 px-1 text-[10px] font-bold leading-4">CC</span>
               )}
             </button>
+          )}
+          {/* Move it to the TV: it carries on there from here, and this player steps back. */}
+          {!IS_TV && item && !itemId?.startsWith('f-') && (
+            <CastMenu
+              item={item}
+              variant="player"
+              className={iconBtn}
+              startTicks={positionTicks}
+              onCast={() => {
+                videoRef.current?.pause()
+                exitPlayer()
+              }}
+            />
           )}
           <button
             onClick={(e) => openMenu('settings', e.currentTarget)}

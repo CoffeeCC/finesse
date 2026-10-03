@@ -87,7 +87,16 @@ export class GitHubReleases {
     } catch {
       throw new ApiError(502, "Couldn't reach GitHub")
     }
-    if (!res.ok) throw new ApiError(502, `GitHub responded ${res.status}`)
+    if (!res.ok) {
+      // Unauthenticated, GitHub allows 60 checks an hour per network (everything
+      // at home that asks GitHub shares them).
+      if ((res.status === 403 || res.status === 429) && res.headers.get('x-ratelimit-remaining') === '0') {
+        const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000
+        const mins = reset ? Math.max(1, Math.ceil((reset - Date.now()) / 60000)) : 60
+        throw new ApiError(503, `GitHub is limiting update checks from your network for about ${mins} more minute${mins === 1 ? '' : 's'}. Try again then, or set FINESSE_GITHUB_TOKEN.`)
+      }
+      throw new ApiError(502, `GitHub responded ${res.status}`)
+    }
     let rel: { tag_name?: string; body?: string; published_at?: string; assets?: { name: string; url?: string; browser_download_url?: string; size?: number; digest?: string }[] }
     try {
       rel = (await res.json()) as typeof rel

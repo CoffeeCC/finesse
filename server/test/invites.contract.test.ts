@@ -180,6 +180,15 @@ describe('web update contract', () => {
     assert.equal((await call('GET', '/v1/update?check=1', { token: ADMIN_TOKEN })).json.latest, '1.1.0')
   })
 
+  test('a rate-limited check says so and when to try again, never "up to date"', async () => {
+    gh.limit(true)
+    const s = (await call('GET', '/v1/update?check=1', { token: ADMIN_TOKEN })).json
+    assert.equal(s.available, false)
+    assert.match(String(s.error), /limiting update checks from your network for about 10 more minutes/)
+    gh.limit(false)
+    assert.equal((await call('GET', '/v1/update?check=1', { token: ADMIN_TOKEN })).json.latest, '1.1.0')
+  })
+
   test('install swaps in the new build', async () => {
     const start = await call('POST', '/v1/update', { token: ADMIN_TOKEN })
     assert.equal(start.status, 202)

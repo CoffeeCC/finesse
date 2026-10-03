@@ -223,6 +223,8 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
     if (r.error) toast(r.error instanceof Error ? r.error.message : 'Couldn’t check for updates', 'error')
     else if (r.data) return
     else if (s?.available && s.latest) toast(`Finesse ${s.latest} is out — update the server just below`)
+    // The server couldn't ask GitHub: say so, rather than "latest" on a guess.
+    else if (s?.error) toast(`Couldn’t check for a new Finesse: ${s.error}`, 'error')
     else toast('You’re on the latest version')
   }
   const install = async () => {

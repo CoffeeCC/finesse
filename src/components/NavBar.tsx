@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getItems } from '../api/client'
 import { useFinesse } from '../lib/finesseServer'
-import { useState, useRef, useEffect, useLayoutEffect, type ReactNode, type RefObject } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useFriends, useViews } from '../api/queries'
@@ -108,8 +108,11 @@ export default function NavBar() {
   // stays under More. (The TV's stylesheet drops the glass blur it can't draw.)
   const lux = true
   const SPACES = new Set(['Music', 'Games', 'Friends'])
-  const spaces = lux ? more.filter((d) => SPACES.has(d.label)) : []
-  const rest = lux ? more.filter((d) => !SPACES.has(d.label)) : more
+  // Narrower screens (a tablet, an unfolded phone held sideways, a small
+  // window) keep the spaces under More, so the bar never runs off the edge.
+  const wide = useWide()
+  const spaces = lux && wide ? more.filter((d) => SPACES.has(d.label)) : []
+  const rest = lux && wide ? more.filter((d) => !SPACES.has(d.label)) : more
   const moreActive = rest.some((d) => d.match(pathname, search))
   const { data: queue } = useArrQueue(lux)
   const downloading = (queue ?? []).filter((d) => !d.done).length
@@ -146,7 +149,7 @@ export default function NavBar() {
           </Link>
         )}
 
-        <nav aria-label="Main" className={lux ? 'hidden md:flex items-center gap-0.5 p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
+        <nav aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
           <NavLink to="/" end className={linkClass}>
             Home
           </NavLink>
@@ -205,15 +208,15 @@ export default function NavBar() {
             aria-label="Search (press /)"
             className={
               lux
-                ? 'hidden md:flex items-center gap-2.5 w-52 lg:w-60 h-10 rounded-full os-glass pl-4 pr-2 text-sm text-white/65 hover:text-white transition-colors'
+                ? 'hidden md:flex shrink-0 items-center justify-center xl:justify-start gap-2.5 w-10 xl:w-60 h-10 rounded-full os-glass xl:pl-4 xl:pr-2 text-sm text-white/65 hover:text-white transition-colors'
                 : 'hidden md:flex items-center gap-2.5 w-56 lg:w-64 h-9 rounded-lg bg-ink-800/70 border border-white/10 pl-3 pr-2 text-sm text-ink-400 hover:text-ink-200 hover:border-white/20 transition-colors'
             }
           >
             <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
             </svg>
-            <span className="flex-1 text-left">Search</span>
-            <kbd className="h-5 min-w-5 px-1.5 rounded border border-white/15 text-[11px] font-sans text-ink-400 flex items-center justify-center">/</kbd>
+            <span className={lux ? 'hidden xl:inline flex-1 text-left' : 'flex-1 text-left'}>Search</span>
+            <kbd className={`${lux ? 'hidden xl:flex' : 'flex'} h-5 min-w-5 px-1.5 rounded border border-white/15 text-[11px] font-sans text-ink-400 items-center justify-center`}>/</kbd>
           </button>
         )}
 
@@ -223,7 +226,7 @@ export default function NavBar() {
             onClick={openQuickMenu}
             aria-label={`Quick menu${downloading ? ` (${downloading} downloading)` : ''}`}
             title="Quick menu"
-            className="relative ml-1 flex h-10 w-10 items-center justify-center rounded-full os-glass text-white/85 hover:text-white transition-colors"
+            className="relative ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full os-glass text-white/85 hover:text-white transition-colors"
           >
             <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} aria-hidden>
               <rect x="4" y="4" width="6.5" height="6.5" rx="1.8" />
@@ -245,7 +248,7 @@ export default function NavBar() {
           title="My List"
           className={({ isActive }) =>
             lux
-              ? `hidden md:flex h-10 w-10 ml-1 items-center justify-center rounded-full os-glass transition-colors ${isActive ? 'text-white' : 'text-white/80 hover:text-white'}`
+              ? `hidden md:flex h-10 w-10 shrink-0 ml-1 items-center justify-center rounded-full os-glass transition-colors ${isActive ? 'text-white' : 'text-white/80 hover:text-white'}`
               : `hidden md:inline-flex items-center gap-2 ml-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   isActive ? 'text-white bg-white/10' : 'text-ink-200 hover:text-white'
                 }`
@@ -257,7 +260,7 @@ export default function NavBar() {
           {!lux && 'My List'}
         </NavLink>
 
-        <div className="relative ml-2" ref={menuRef}>
+        <div className="relative ml-2 shrink-0" ref={menuRef}>
           <button
             onClick={() => setMenuOpen((v) => !v)}
             className={
@@ -400,5 +403,18 @@ function AccountMenu({
       {children}
     </div>,
     document.body,
+  )
+}
+
+const WIDE = '(min-width: 1024px)'
+/** Wide enough for Music, Games and Friends in the top bar. */
+function useWide(): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      const mql = window.matchMedia(WIDE)
+      mql.addListener(fn) // addEventListener('change') is missing on the TV's Chromium 68
+      return () => mql.removeListener(fn)
+    },
+    () => window.matchMedia(WIDE).matches,
   )
 }
