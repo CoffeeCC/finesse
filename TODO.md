@@ -38,6 +38,22 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Emulators at full speed, touch controls, working buttons — v2.5.7 (2026-10-03)
+
+- **Fixed: games ran in slow motion in the browser with an Nvidia card.** The emulators couldn't
+  find Nvidia's Vulkan driver in the player and drew on the processor instead. Finesse now puts the
+  driver where they look, and with Nvidia the browser player uses Selkies' Wayland desktop, which
+  the card can draw to. Emulators now run on the graphics card.
+- **Fixed: Eden couldn't read the Switch firmware** (it opens it read-write, and the firmware folder
+  is read-only), so games misbehaved or stopped. Each profile gets its own copy the first time.
+- **Fixed: PS2 face buttons did nothing** (Cross, Circle, Square, Triangle), in Moonlight and the
+  browser. PCSX2 2.x renamed them; the controller mapping now uses the new names. A mapping you
+  made yourself is left alone.
+- **Touch controls on phones and tablets.** In browser play, the on-screen controller comes up with
+  the game, and **Controls** hides or shows it. Games see it as an Xbox controller.
+- When a game won't start, administrators see the emulator's own log (which graphics card it
+  uses, controllers, errors) with the player's.
+
 ## GameCube games in a gc folder — v2.5.6 (2026-10-03)
 
 - **GameCube games filed under `gc` play too.** RomM keeps a folder named `gc` as its own console;

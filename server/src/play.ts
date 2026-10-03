@@ -17,7 +17,7 @@ import type { Duplex } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
-import { appMounts, emulatorCatalog, emulatorForConsole, launchScript, ownHome, type EmulatorId } from './emulators.ts'
+import { appMounts, emulatorCatalog, emulatorForConsole, launchScript, NVIDIA_ICD, ownHome, type EmulatorId } from './emulators.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import { logger } from './log.ts'
@@ -171,9 +171,11 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         'SELKIES_GAMEPAD_ENABLED=true',
         'APPIMAGE_EXTRACT_AND_RUN=1',
         ...(g.nvidia ? ['NVIDIA_DRIVER_CAPABILITIES=all', 'NVIDIA_VISIBLE_DEVICES=all'] : []),
-        // The graphics card encodes the video (NVENC or VA-API). Intel and AMD also draw the desktop;
-        // Nvidia's driver can't back the virtual display, so there the desktop stays on the processor.
-        ...(render ? [`DRI_NODE=${render}`, ...(g.nvidia ? [] : [`DRINODE=${render}`])] : []),
+        // The graphics card draws and encodes (NVENC or VA-API). With Nvidia that takes Selkies'
+        // Wayland desktop: its Vulkan driver can't draw to the X11 one (Xvfb), so emulators fell back
+        // to the processor (slow motion) or stopped.
+        ...(render ? [`DRI_NODE=${render}`, `DRINODE=${render}`] : []),
+        ...(render && g.nvidia ? ['PIXELFLUX_WAYLAND=true'] : []),
         `FINESSE_GAME=${spec.game}`,
       ]
       await docker.remove(s.container, { force: true }).catch(() => {})
@@ -197,9 +199,10 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
       // The desktop's autostart runs the emulator; the script is this session's.
       await docker.putArchive(s.container, '/', writeTar([
         { path: 'defaults/autostart', data: Buffer.from('bash /finesse-launch.sh\n'), mode: 0o755 },
+        { path: 'defaults/autostart_wayland', data: Buffer.from('bash /finesse-launch.sh\n'), mode: 0o755 },
         { path: 'finesse-launch.sh', data: Buffer.from(`${script}\n`), mode: 0o755 },
         // Runs as root before the desktop starts (LinuxServer's custom init hook).
-        { path: 'custom-cont-init.d/50-finesse-home', data: Buffer.from(`#!/bin/bash\n${ownHome(HOME, 'abc')}\n`), mode: 0o755 },
+        { path: 'custom-cont-init.d/50-finesse-home', data: Buffer.from(`#!/bin/bash\n${ownHome(HOME, 'abc')}\n${NVIDIA_ICD}\n`), mode: 0o755 },
       ]))
       await docker.start(s.container)
       const until = Date.now() + 90_000
@@ -282,7 +285,11 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     if (!s) throw new ApiError(404, 'That game has ended')
     const text = await docker.logs(s.container, 120).catch(() => '')
     // The emulator's own output, and what's running (by program name).
-    const inside = await docker.exec(s.container, ['sh', '-c', `tail -n 80 ${HOME}/finesse-play.log 2>/dev/null; echo '--- running:'; ps -eo comm= | sort | uniq -c | sort -rn | head -20`]).catch(() => null)
+    // The emulators' own logs say which graphics card they drew on (and why a game is slow).
+    const logs = ['.local/share/eden/log/eden_log.txt', '.config/PCSX2/logs/emulog.txt', '.cache/rpcs3/RPCS3.log', '.local/share/Cemu/log.txt', '.local/share/dolphin-emu/Logs/dolphin.log'].map((f) => `${HOME}/${f}`)
+    const inside = await docker
+      .exec(s.container, ['sh', '-c', `tail -n 60 ${HOME}/finesse-play.log 2>/dev/null; echo '--- graphics:'; ls /dev/dri 2>&1 | tr '\\n' ' '; echo; nvidia-smi -L 2>&1 | head -3; for f in ${logs.join(' ')}; do [ -f "$f" ] && { echo "--- $f"; grep -i -E 'gpu|vulkan|renderer|device|driver|opengl|llvmpipe|speed|fps|critical|error|sdl|controller|gamepad' "$f" | grep -v -i pipeline | head -n 30; echo ' …'; grep -i -E 'critical|error|speed|fps' "$f" | tail -n 15; }; done; echo '--- controller library loaded by:'; for m in /proc/[0-9]*/maps; do grep -q -i 'joystick_interposer\\|selkies.*\\.so' "$m" 2>/dev/null && cat "\${m%/maps}/comm"; done | sort | uniq -c; echo '--- controller env:'; tr '\\0' '\\n' < /proc/$(pgrep -o -f '/bin/eden|pcsx2|rpcs3|Cemu|dolphin' 2>/dev/null || echo 1)/environ 2>/dev/null | grep -E '^(LD_PRELOAD|SDL_)' ; echo '--- running:'; ps -eo comm= | sort | uniq -c | sort -rn | head -20`])
+      .catch(() => null)
     sendJson(res, 200, { log: text.split('\n').slice(-120).join('\n'), emulator: inside?.output ?? '' })
   })
 

@@ -186,6 +186,10 @@ describe('emulator settings', () => {
     assert.match(script, /printf 'BIN=%q\\nGAME=%q\\n'/, 'quoted with %q, so spaces and quotes stay one argument')
     assert.match(script, /launcher \/tmp\/finesse-run\.sh$/)
     assert.doesNotMatch(script, /(^|[\s;|])(cat|base64|xxd|od|head -c) /m, 'never reads a file')
+    // Eden opens its firmware read-write, so it gets its own copy (a link to the read-only folder can't open).
+    const eden = launchScript(emulatorCatalog('eden').switch, Object.values(emulatorCatalog('eden')))
+    assert.match(eden, /copyin \/finesse\/firmware\/switch '\/home\/retro\/\.local\/share\/eden\/nand\/system\/Contents\/registered' '\*\.nca'/)
+    assert.match(eden, /link \/finesse\/keys\/switch/)
   })
 
   test('readiness goes by file names: what’s there, what’s missing, what Finesse can’t see', () => {

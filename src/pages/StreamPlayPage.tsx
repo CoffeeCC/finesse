@@ -10,6 +10,10 @@ function primePlayAuth() {
   if (token) document.cookie = `finesse_play_token=${encodeURIComponent(token)}; path=/play; SameSite=Lax`
 }
 
+// Selkies' touch gamepad (an on-screen controller games see as an Xbox pad): its page listens for these.
+const PAD_HOST = 'touch-gamepad-host'
+const isTouch = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window)
+
 /** Browser play (Beta): the emulator streams from the server into this page with Selkies. */
 export default function StreamPlayPage() {
   const { sessionId = '' } = useParams()
@@ -18,6 +22,18 @@ export default function StreamPlayPage() {
   const [err, setErr] = useState('')
   const frame = useRef<HTMLIFrameElement>(null)
   const stopped = useRef(false)
+  const [touch] = useState(isTouch)
+  const [pad, setPad] = useState<'off' | 'on' | 'hidden'>('off')
+
+  // Phones and tablets: the touch controller comes up with the game. The player is on our own address, so we can tell it.
+  const showPad = (visible: boolean) => {
+    const w = frame.current?.contentWindow
+    if (!w) return
+    const origin = window.location.origin
+    if (pad === 'off') w.postMessage({ type: 'TOUCH_GAMEPAD_SETUP', payload: { targetDivId: PAD_HOST, visible } }, origin)
+    else w.postMessage({ type: 'TOUCH_GAMEPAD_VISIBILITY', payload: { targetDivId: PAD_HOST, visible } }, origin)
+    setPad(visible ? 'on' : 'hidden')
+  }
 
   useEffect(() => {
     primePlayAuth()
@@ -62,7 +78,11 @@ export default function StreamPlayPage() {
           className="h-full w-full border-0"
           allow="autoplay; fullscreen; gamepad; clipboard-read; clipboard-write; keyboard-map"
           allowFullScreen
-          onLoad={() => frame.current?.focus()}
+          onLoad={() => {
+            frame.current?.focus()
+            // Give the player a moment to start its touch controller, then show it.
+            if (touch) window.setTimeout(() => showPad(true), 1500)
+          }}
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
@@ -79,6 +99,20 @@ export default function StreamPlayPage() {
             </>
           )}
         </div>
+      )}
+      {ready && touch && (
+        <button
+          type="button"
+          onClick={() => showPad(pad !== 'on')}
+          aria-pressed={pad === 'on'}
+          className="absolute right-[8.5rem] top-3 z-10 inline-flex h-9 items-center gap-1.5 rounded-lg bg-black/70 px-3 text-[13px] font-medium text-white ring-1 ring-white/15 hover:bg-black/85"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+            <rect x="2.5" y="7" width="19" height="10" rx="5" />
+            <path strokeLinecap="round" d="M7 10.5v3M5.5 12h3M16 11h.01M18 13h.01" />
+          </svg>
+          {pad === 'on' ? 'Hide controls' : 'Controls'}
+        </button>
       )}
       <button
         type="button"

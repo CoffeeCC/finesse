@@ -66,13 +66,21 @@ interface Emulator {
   needs: Need[]
   /** Save folders inside the app's home, under <saves>/<profile>/<id>/<key>. */
   saves: Record<string, string>
-  /** Links made at start: the files from /finesse/<what>/<id> matching `match`, into `into`. */
-  links: { what: 'firmware' | 'keys'; match: string[]; into: string }[]
+  /** Links made at start: the files from /finesse/<what>/<id> matching `match`, into `into`. `copy` when the emulator writes to them (Eden opens its firmware read-write): copied once instead. */
+  links: { what: 'firmware' | 'keys'; match: string[]; into: string; copy?: true }[]
   /** Arguments with a game ($GAME) and without one. */
   args: { game: string; none: string }
   /** Shell run before the emulator (inside the session). */
   before?: string
+  /** Maps the first controller (Selkies' or Wolf's virtual pad; the touch controller too) unless the player mapped one themselves. */
+  controller?: string
 }
+
+// PCSX2 Player 1 on the first SDL controller. Games on Whales' mapping, with PCSX2 2.x's names for the face
+// buttons (FaceSouth…): its old A/B/X/Y are "invalid bindings" now, which left Cross, Circle, Square and Triangle dead.
+const PCSX2_PAD1 = ['[Pad1]', 'Type = DualShock2', 'Up = SDL-0/DPadUp', 'Right = SDL-0/DPadRight', 'Down = SDL-0/DPadDown', 'Left = SDL-0/DPadLeft', 'Triangle = SDL-0/FaceNorth', 'Circle = SDL-0/FaceEast', 'Cross = SDL-0/FaceSouth', 'Square = SDL-0/FaceWest', 'Select = SDL-0/Back', 'Start = SDL-0/Start', 'L1 = SDL-0/LeftShoulder', 'L2 = SDL-0/+LeftTrigger', 'R1 = SDL-0/RightShoulder', 'R2 = SDL-0/+RightTrigger', 'L3 = SDL-0/LeftStick', 'R3 = SDL-0/RightStick', 'LUp = SDL-0/-LeftY', 'LRight = SDL-0/+LeftX', 'LDown = SDL-0/+LeftY', 'LLeft = SDL-0/-LeftX', 'RUp = SDL-0/-RightY', 'RRight = SDL-0/+RightX', 'RDown = SDL-0/+RightY', 'RLeft = SDL-0/-RightX', 'Analog = SDL-0/Guide', 'LargeMotor = SDL-0/LargeMotor', 'SmallMotor = SDL-0/SmallMotor']
+const pcsx2Controller = (H: string) =>
+  `ini=${H}/.config/PCSX2/inis/PCSX2.ini; if ! grep -q -E '= *(SDL-[0-9]+/FaceSouth|Keyboard/|XInput)' "$ini" 2>/dev/null || grep -q -E '^Cross = SDL-0/A$' "$ini"; then mkdir -p "$(dirname "$ini")"; if [ -f "$ini" ]; then awk '/^\\[Pad1\\]/{s=1;next} /^\\[/{s=0} !s' "$ini" > "$ini.tmp" && mv "$ini.tmp" "$ini"; fi; printf '%s\\n' ${PCSX2_PAD1.map((l) => `'${l}'`).join(' ')} >> "$ini"; fi`
 
 /** The app's home folder: Wolf's apps (Games on Whales) use /home/retro; browser play (Selkies) uses /config. */
 export const WOLF_HOME = '/home/retro'
@@ -101,7 +109,7 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
     saves: { save: `${H}/.local/share/eden/nand/user/save` },
     links: [
       { what: 'keys', match: ['*.keys'], into: `${H}/.local/share/eden/keys` },
-      { what: 'firmware', match: ['*.nca'], into: `${H}/.local/share/eden/nand/system/Contents/registered` },
+      { what: 'firmware', match: ['*.nca'], into: `${H}/.local/share/eden/nand/system/Contents/registered`, copy: true },
     ],
     args: { game: '-f -g "$GAME"', none: '' },
   },
@@ -121,6 +129,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       saves: { memcards: `${H}/.config/PCSX2/memcards`, sstates: `${H}/.config/PCSX2/sstates` },
       links: [{ what: 'firmware', match: ['*'], into: `${H}/.config/PCSX2/bios` }],
       args: { game: '-fullscreen -nogui -- "$GAME"', none: '-bigpicture -fullscreen' },
+      controller: pcsx2Controller(H),
     },
     {
       id: 'dolphin',
@@ -282,7 +291,7 @@ const ESDE_NAMES: Record<string, string> = { ngc: 'gc', gamecube: 'gc', sms: 'ma
 
 /** The links one emulator needs in the home folder, as shell. */
 function linkLines(e: Emulator): string[] {
-  return e.links.map((l) => `link /finesse/${l.what}/${e.id} ${q(l.into)} ${l.match.map((m) => q(m)).join(' ')}`)
+  return e.links.map((l) => `${l.copy ? 'copyin' : 'link'} /finesse/${l.what}/${e.id} ${q(l.into)} ${l.match.map((m) => q(m)).join(' ')}`)
 }
 
 /** The start script: runs as the app's user, inside Wolf's session. */
@@ -298,6 +307,8 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
     'shopt -s nullglob nocaseglob',
     // Files from a read-only folder, linked by name into where the emulator looks.
     'link() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] && ln -sfn "$f" "$dst/"; done; done; return 0; }',
+    // Copied once (and again only when the file changes), for files the emulator opens read-write.
+    'copyin() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] || continue; t="$dst/$(basename "$f")"; [ -L "$t" ] && rm -f "$t"; [ -f "$t" ] && [ "$(stat -c %s "$t")" = "$(stat -c %s "$f")" ] || cp -f "$f" "$t"; done; done; return 0; }',
     'find_emu() { for p in "$@"; do for f in /finesse/emulators/$p; do [ -f "$f" ] && { echo "$f"; return 0; }; done; done; return 0; }',
     // AppImages without their executable bit (a NAS share) run from a copy.
     'runnable() { if [ -x "$1" ]; then echo "$1"; else cp "$1" "/tmp/$(basename "$1")" && chmod +x "/tmp/$(basename "$1")" && echo "/tmp/$(basename "$1")"; fi; }',
@@ -309,6 +320,7 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
     lines.push(`printf '#!/bin/bash\\nexec /Applications/esde.AppImage --appimage-extract-and-run --no-update-check\\n' > /tmp/finesse-run.sh`)
   } else {
     lines.push(...linkLines(e))
+    if (e.controller) lines.push(e.controller)
     lines.push(
       `BIN=$(find_emu ${e.program.map(q).join(' ')})`,
       `[ -n "$BIN" ] || { gow_log ${q(`${e.name} isn’t in the emulators folder`)}; exit 1; }`,
@@ -324,9 +336,16 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
 /** Docker makes the save folders' parents as root; the app's user needs to add folders beside them. Stays on the home folder's own disk (-xdev), so mounted folders are left alone. */
 export const ownHome = (home: string, user: string) => `find ${home} -xdev -type d -user root -exec chown ${user}:${user} {} + 2>/dev/null || true`
 
-/** Runs as root before the app's user takes over: the home folder's ownership, and ES-DE's /ROMs, made from RomM's folders. */
+/**
+ * Nvidia's Vulkan driver, where emulators' AppImages look for it. They bundle their own Vulkan
+ * loader and only read /usr/share/vulkan/icd.d; without the file there they fall back to
+ * software rendering (slow motion). Root only; harmless where the file already is.
+ */
+export const NVIDIA_ICD = `if [ -e /dev/nvidiactl ] && [ ! -f /usr/share/vulkan/icd.d/nvidia_icd.json ]; then mkdir -p /usr/share/vulkan/icd.d; f=$(ls /etc/vulkan/icd.d/nvidia_icd*.json /usr/share/vulkan/icd.d/nvidia*.json 2>/dev/null | head -n1); if [ -n "$f" ]; then cp "$f" /usr/share/vulkan/icd.d/nvidia_icd.json; else printf '%s' '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' > /usr/share/vulkan/icd.d/nvidia_icd.json; fi; fi`
+
+/** Runs as root before the app's user takes over: the home folder's ownership, Nvidia's Vulkan driver file, and ES-DE's /ROMs, made from RomM's folders. */
 function rootPrep(e: Emulator): string {
-  const own = ownHome(WOLF_HOME, '"${UNAME:-retro}"')
+  const own = `${ownHome(WOLF_HOME, '"${UNAME:-retro}"')}\n${NVIDIA_ICD}`
   if (e.id !== 'esde') return own
   const map = Object.entries(ESDE_NAMES)
     .map(([k, v]) => `${k}) n=${v};;`)
