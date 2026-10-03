@@ -58,7 +58,9 @@ or uploaded in RomM). PSP and DOS games need Chrome, Edge or Firefox. 3DS and
 Intellivision are Beta: they use EmulatorJS's preview build, and 3DS needs a fast computer.
 
 Consoles that need a PC emulator show **Browse only**: Switch, PS2 and PS3, GameCube, Wii and
-Wii U, Xbox and Dreamcast. Play those by streaming them from a PC with Moonlight. Plug in a controller, or use the
+Wii U, Xbox and Dreamcast. With [game streaming](streaming.md), Finesse can add their emulators
+to Wolf (PCSX2, Dolphin, RPCS3, Cemu, Ryujinx or Eden, and ES-DE): those consoles then show
+**Play on Moonlight**, with the app that plays them. See [Emulators](emulators.md). Plug in a controller, or use the
 keyboard. On a TV, lighter systems (8- and 16-bit) play best. In-game saves are kept by the
 browser on the device you play on.
 

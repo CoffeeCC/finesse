@@ -5,6 +5,7 @@
 
 import type { StackServiceId, VpnConfig } from '../stack/catalog.ts'
 import type { IndexerInput, UsenetServer } from '../stack/wire.ts'
+import { validateEmulators, type EmulatorSettings } from '../emulators.ts'
 
 export interface SetupDoc {
   version?: 1
@@ -24,6 +25,8 @@ export interface SetupDoc {
   publicUrl?: string
   email?: { host: string; port: number; secure?: boolean; username?: string; password?: string; from: string } | null
   options?: { exposeJellyfinPort?: boolean; jellyfinPort?: number }
+  /** Emulators as Wolf apps (game streaming), with the folders they get: host paths. */
+  emulators?: EmulatorSettings
 }
 
 export type QualityPreset = '720p' | '1080p' | '4k' | 'any'
@@ -85,7 +88,7 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
   const d = input as SetupDoc
   if (!d || typeof d !== 'object' || Array.isArray(d)) return { doc: null, problems: [{ path: '', message: 'Setup must be a JSON object' }] }
 
-  known(p, d, '', ['$schema', 'version', 'admin', 'server', 'libraries', 'games', 'downloads', 'quality', 'remoteAccess', 'publicUrl', 'email', 'options'])
+  known(p, d, '', ['$schema', 'version', 'admin', 'server', 'libraries', 'games', 'downloads', 'quality', 'remoteAccess', 'publicUrl', 'email', 'options', 'emulators'])
   if (d.version !== undefined && d.version !== 1) p.push({ path: 'version', message: 'Only version 1 exists' })
   known(p, d.admin, 'admin', ['username', 'password'])
   known(p, d.server, 'server', ['name', 'language', 'country', 'timezone'])
@@ -189,6 +192,7 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
     if (g.steamGridDbKey !== undefined && !/^[A-Za-z0-9]{16,64}$/.test(g.steamGridDbKey)) p.push({ path: 'games.steamGridDbKey', message: 'Paste the API key from steamgriddb.com → Preferences → API' })
     if (g.screenscraper && (!nonEmpty(g.screenscraper.username) || !nonEmpty(g.screenscraper.password))) p.push({ path: 'games.screenscraper', message: 'ScreenScraper needs your username and password' })
   }
+  if (d.emulators !== undefined) p.push(...validateEmulators(d.emulators))
   const jp = d.options?.jellyfinPort
   if (jp !== undefined && (!Number.isInteger(jp) || jp < 1024 || jp > 65535)) p.push({ path: 'options.jellyfinPort', message: 'Port must be 1024–65535' })
   return { doc: p.length ? null : d, problems: p }

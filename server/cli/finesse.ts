@@ -10,6 +10,8 @@
 //   finesse backup [--with a,b|--all]  back up now (add watch, requests, games)
 //   finesse restore <backup> [--only a,b]  put a backup back (then restart Finesse)
 //   finesse streaming [on|off] [--json]  game streaming (Wolf): what this machine has, or turn it on/off
+//   finesse emulators [--json]         the emulator apps in Wolf, and what each still needs (by file name)
+//   finesse emulators set <file|->     save the emulator settings (the setup document's "emulators") and add the apps to Wolf
 //   finesse version                    server version
 //   finesse swap <id> <image>          (internal) replace a Finesse container with a new image
 //
@@ -43,9 +45,10 @@ function setupCode(): string | null {
 function serviceKey(): string | null {
   try {
     const s = JSON.parse(readFileSync(join(configDir, 'finesse.json'), 'utf8')) as { jellyfin?: { apiKey?: string } }
-    return s.jellyfin?.apiKey || null
+    return s.jellyfin?.apiKey || process.env.JELLYFIN_API_KEY?.trim() || null
   } catch {
-    return null
+    // Your own apps: the key comes from the container's environment.
+    return process.env.JELLYFIN_API_KEY?.trim() || null
   }
 }
 
@@ -305,6 +308,41 @@ async function streaming(argv: string[]): Promise<number> {
   }
 }
 
+type Readiness = { id: string; title: string; ready: boolean; items: { label: string; state: 'ok' | 'missing' | 'unseen'; required: boolean; detail: string }[] }
+
+/** The emulator apps: what each needs (checked by file name), or new settings from a file. */
+async function emulators(argv: string[]): Promise<number> {
+  const json = argv.includes('--json')
+  const [action, file] = argv.filter((a) => a !== '--json')
+  const show = (list: Readiness[]) => {
+    for (const e of list) {
+      console.log(`${e.ready ? green('✔') : yellow('!')} ${bold(e.title)}`)
+      for (const i of e.items) console.log(`    ${i.state === 'ok' ? green('✔') : i.required ? red('✖') : dim('–')} ${i.label}: ${i.state === 'ok' ? dim(i.detail) : i.detail}`)
+    }
+  }
+  if (action === 'set') {
+    const doc = (await readDoc(file)) as { emulators?: unknown }
+    // A whole setup document, or just its "emulators" part.
+    const body = doc && typeof doc === 'object' && 'emulators' in doc ? doc.emulators : doc
+    const r = await api<{ ok?: boolean; error?: string; profiles?: string[]; readiness?: Readiness[] }>('PUT', '/api/streaming/emulators', body)
+    if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
+    if (json) console.log(JSON.stringify(r.data, null, 2))
+    else {
+      console.log(r.data.ok ? `${green('✔')} Saved. Wolf has the apps in: ${r.data.profiles?.join(', ') || 'no profiles (no apps chosen)'}\n` : `${yellow('!')} Saved, but Wolf didn’t take the apps: ${r.data.error}\n`)
+      show(r.data.readiness ?? [])
+    }
+    return r.data.ok ? 0 : 1
+  }
+  if (action) throw new Error('usage: finesse emulators [--json] | finesse emulators set <file|->')
+  const r = await api<{ settings: unknown; readiness: Readiness[]; profiles: { id: string; name: string }[]; error?: string }>('GET', '/api/streaming/emulators')
+  if (r.status === 404) throw new Error('Game streaming isn’t set up: turn it on (finesse streaming on), or set WOLF_SOCKET for your own Wolf.')
+  if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
+  if (json) console.log(JSON.stringify({ readiness: r.data.readiness, profiles: r.data.profiles }, null, 2))
+  else if (!r.data.settings) console.log(`No emulator apps yet. Wolf profiles: ${r.data.profiles.map((p) => `${p.name} (${p.id})`).join(', ') || 'none'}\nAdd them with: ${bold('finesse emulators set -')} (see docs/emulators.md)`)
+  else show(r.data.readiness)
+  return 0
+}
+
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv
   switch (cmd) {
@@ -328,6 +366,8 @@ async function main(argv: string[]): Promise<number> {
       return doctor(rest)
     case 'streaming':
       return streaming(rest)
+    case 'emulators':
+      return emulators(rest)
     case 'backup': {
       const all = rest.includes('--all')
       const withArg = rest[rest.indexOf('--with') + 1]
@@ -418,6 +458,7 @@ Usage:
   finesse backup [--with a,b|--all]  back up now; add watch, requests, games (or --all)
   finesse restore <backup> [--only a,b]  put a backup back (then restart Finesse)
   finesse streaming [on|off]         game streaming (Wolf): what this machine has, or turn it on/off
+  finesse emulators [set <file|->]   emulator apps in Wolf: what each needs, or save new settings
   finesse version                    print the version
 
 Setup documents: https://github.com/CoffeeCC/finesse/blob/master/setup.schema.json`)

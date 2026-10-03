@@ -1,0 +1,16 @@
+{
+  "$schema": "../../setup.schema.json",
+  "admin": { "username": "alex", "password": "change-me-please" },
+  "libraries": { "games": true },
+  "emulators": {
+    "apps": ["pcsx2", "dolphin", "rpcs3", "cemu", "switch", "esde"],
+    "switchEmulator": "ryujinx",
+    "paths": {
+      "roms": "/srv/finesse/data/media/games",
+      "emulators": "/srv/games/emulators",
+      "firmware": "/srv/games/firmware",
+      "keys": "/srv/games/keys",
+      "saves": "/srv/games/saves"
+    }
+  }
+}

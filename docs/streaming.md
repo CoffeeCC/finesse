@@ -102,6 +102,12 @@ setup), Moonlight shows only **Wolf UI**, and the games sit inside Wolf UI's pro
 shows the profiles' apps (Steam, RetroArch, EmulationStation…), and the steps say which to pick:
 **Wolf UI**, then your profile, then the app. Wolf's "Test ball" test pattern isn't listed.
 
+## Emulators
+
+Finesse can add emulators to Wolf as apps: PCSX2 (PS2), Dolphin (GameCube and Wii), RPCS3 (PS3),
+Cemu (Wii U), Ryujinx or Eden (Switch) and ES-DE. Consoles the browser can't play then show
+**Play on Moonlight** in **Games**. See [Emulators](emulators.md).
+
 ## Add a device
 
 1. **Get Moonlight** for the device from [moonlight-stream.org](https://moonlight-stream.org).
@@ -124,8 +130,9 @@ stream.
 - **Groups never shares game streaming.** Friends who watch your libraries can't stream your
   games.
 - **Keep Wolf's socket folder between Wolf and Finesse.** Wolf's API has no password, and it can
-  do much more than pair devices. Finesse only uses it to list apps and to pair and remove
-  devices, and only administrators can do the pairing. On a full install the socket stays inside
+  do much more than pair devices. Finesse only uses it to list apps, pair and remove
+  devices, add its own emulator apps to the profiles, and start a game in an open Moonlight
+  session. Only administrators can pair devices or change the apps. On a full install the socket stays inside
   Finesse's folder.
 
 ## Problems

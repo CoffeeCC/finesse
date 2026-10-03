@@ -58,7 +58,7 @@ you need to expose, and browsers never see Jellyfin's address or any API key.
 | `SAB_URL`, `SAB_API_KEY` | SABnzbd (Config → General → API Key). |
 | `QBIT_URL`, `QBIT_USERNAME`, `QBIT_PASSWORD` | qBittorrent Web UI. |
 | `ROMM_URL`, `ROMM_USERNAME`, `ROMM_PASSWORD`, `STEAMGRIDDB_API_KEY` | Games (RomM). |
-| `WOLF_SOCKET` | Game streaming: where Wolf's API socket is, e.g. `/var/run/wolf/wolf.sock`. Share its folder too. See [Game streaming](streaming.md). |
+| `WOLF_SOCKET` | Game streaming: where Wolf's API socket is, e.g. `/var/run/wolf/wolf.sock`. Share its folder too. See [Game streaming](streaming.md). Emulator apps (PS2, GameCube, PS3, Wii U, Switch): see [Emulators](emulators.md). |
 | `FINESSE_PUBLIC_URL` | Where people reach Finesse from outside, used in invite links. |
 | `FINESSE_REPO`, `FINESSE_GITHUB_TOKEN` | Update from a fork / a private repo. |
 

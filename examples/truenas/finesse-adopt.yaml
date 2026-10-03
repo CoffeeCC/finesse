@@ -11,6 +11,12 @@ services:
     volumes:
       - /mnt/POOL/apps/finesse:/config                # ← a dataset for Finesse's settings, invites and backups
       # - /var/run/wolf:/var/run/wolf                 # game streaming: Wolf's API folder (docs/streaming.md)
+      # Emulators in Wolf (docs/emulators.md): the same paths you give in Settings, so Finesse can check them
+      # - /mnt/POOL/games/emulators:/mnt/POOL/games/emulators:ro
+      # - /mnt/POOL/games/firmware:/mnt/POOL/games/firmware:ro
+      # - /mnt/POOL/games/keys:/mnt/POOL/games/keys:ro
+      # - /mnt/POOL/games/saves:/mnt/POOL/games/saves
+      # - /mnt/POOL/apps/romm/library:/mnt/POOL/apps/romm/library:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"           # this NAS, even when its LAN address changes
     environment:

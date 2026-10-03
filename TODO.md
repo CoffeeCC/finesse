@@ -38,6 +38,31 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## PS2, GameCube, PS3, Wii U and Switch on Moonlight — v2.4.0 (2026-10-03)
+
+- **Emulators as Wolf apps.** With game streaming on, Finesse can add **PCSX2** (PS2),
+  **Dolphin** (GameCube and Wii), **RPCS3** (PS3), **Cemu** (Wii U), **Ryujinx or Eden** (Switch)
+  and **ES-DE** (every console in one menu) to Wolf. They run on the server's graphics card and
+  stream to Moonlight like Steam, with no extra delay. They run on Games on Whales' ES-DE image,
+  pinned like the other apps, with the emulators' AppImages from your own folder.
+- **Your folders, by path.** RomM's library, the emulators, a firmware folder and a keys folder per
+  emulator (all read-only), and saves per Wolf profile (read-write). Set them in **Settings →
+  Server → Game streaming → Emulators**, in the setup document (`emulators`), or with
+  `finesse emulators set -`. Installs that connect to their own apps point at the folders they
+  already have.
+- **What each emulator still needs.** The emulators panel (and `finesse emulators`) shows, for each
+  emulator, whether its program, firmware (PS2 BIOS, PS3UPDAT.PUP, Switch firmware) and keys
+  (prod.keys, keys.txt) are there. It checks by file name only: Finesse never opens, copies or
+  shows them.
+- **Games: "Play on Moonlight".** Consoles the browser can't play no longer say "Browse only" when
+  an emulator app plays them. The game's page names the app and lists the steps (Moonlight → Wolf
+  UI → your profile → the app). With Moonlight already open on a TV, **Start it in Moonlight from
+  here** starts that game there.
+- **Smoother video on TVs that play in the browser.** The player's panels (Stats for nerds, the
+  menus) blurred the video behind them. On TV-class graphics that made the picture drop frames
+  while they were open. They're solid glass now. Stats for nerds shows dropped frames over the
+  last 10 seconds next to the total.
+
 ## Play on your TV from anywhere, foldables and tablets — v2.3.0 (2026-10-03)
 
 - **"Play on…" where you are.** Send what's on the home stage to your TV straight from the

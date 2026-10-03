@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useGamePlatforms, useGames } from '../api/queries'
 import { fetchSgdbCover, rommCoverUrl, isPlayable, cleanName, tileGradient, type RommRom } from '../api/romm'
 import { CardSkeleton } from '../components/Skeletons'
+import { useMoonlightApp } from '../components/MoonlightPlay'
 import StreamingSection from '../components/StreamingSection'
 import { useFinesse } from '../lib/finesseServer'
 
@@ -15,6 +16,7 @@ function GameCard({ rom }: { rom: RommRom }) {
   const [inView, setInView] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const playable = isPlayable(rom)
+  const moonlight = useMoonlightApp(playable ? undefined : rom.platform_slug).app
   const title = cleanName(rom.name)
   const cover = romCover ?? (sgdbFailed ? null : sgdbCover)
 
@@ -84,8 +86,8 @@ function GameCard({ rom }: { rom: RommRom }) {
           </div>
         </div>
       ) : (
-        <div className="absolute top-2 right-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-ink-300 backdrop-blur">
-          Browse only
+        <div className={`absolute top-2 right-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur ${moonlight ? 'text-accent-200' : 'text-ink-300'}`}>
+          {moonlight ? 'Moonlight' : 'Browse only'}
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@
 // and has no login of its own. It can do much more than Finesse needs (run
 // apps, pull images, change settings), so nothing is passed through: Finesse
 // makes its own few calls (read apps, profiles and devices; pair and unpair).
+// Finesse also adds its own emulator apps (emulators.ts) to Wolf's profiles.
 // Everyone at home sees the list of apps; only
 // administrators see devices waiting to pair, pair them with the PIN Moonlight
 // shows, and remove paired devices. Wolf's pairing secrets stay on the server:
@@ -17,6 +18,21 @@ import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
+import {
+  EMULATOR_IDS,
+  emulatorCatalog,
+  emulatorForConsole,
+  emulatorOf,
+  ensureSaveFolders,
+  isOurApp,
+  readiness,
+  validateEmulators,
+  wolfApp,
+  type EmulatorId,
+  type EmulatorSettings,
+  type WolfApp,
+  type WolfAppBase,
+} from './emulators.ts'
 
 const log = logger('streaming')
 
@@ -137,6 +153,87 @@ export function publicProfiles(raw: WolfProfileRaw[]): StreamProfile[] {
     .filter((p) => p.apps.length > 0)
 }
 
+// ---------- Emulators in Wolf ----------
+
+type RawApp = Record<string, unknown>
+type RawProfile = { id: string; name?: string; icon_png_path?: string; pin?: number[] | null; apps: RawApp[] }
+
+const BASE_KEYS = ['h264_gst_pipeline', 'hevc_gst_pipeline', 'av1_gst_pipeline', 'render_node', 'opus_gst_pipeline'] as const
+
+/** Wolf's encoder settings, from an app it already has (Finesse never makes its own up). */
+export function appBase(apps: RawApp[]): WolfAppBase | null {
+  const a = [...apps.filter((x) => !isOurApp(x)), ...apps].find((x) => BASE_KEYS.every((k) => typeof x[k] === 'string'))
+  return a ? (Object.fromEntries(BASE_KEYS.map((k) => [k, a[k] as string])) as unknown as WolfAppBase) : null
+}
+
+/** Our apps as Wolf holds them, ready to compare with what they should be (ids are Wolf's). */
+const ours = (apps: RawApp[]) => JSON.stringify(apps.filter(isOurApp).map(({ id: _id, ...rest }) => rest))
+
+export interface EmulatorSync {
+  /** Profiles (names) that have the apps now. */
+  profiles: string[]
+  changed: boolean
+}
+
+/** Puts Finesse's emulator apps in Wolf, as the settings say; takes them out when there are none. Idempotent. */
+export async function syncEmulators(socket: string, s: EmulatorSettings | undefined, owner: { uid: number; gid: number }): Promise<EmulatorSync> {
+  const settings: EmulatorSettings = s ?? { apps: [], paths: {} }
+  const [appsR, profR] = await Promise.all([
+    wolfJson<{ apps?: RawApp[] }>(socket, 'GET', '/api/v1/apps'),
+    wolfJson<{ profiles?: RawProfile[] }>(socket, 'GET', '/api/v1/profiles').catch(() => ({ profiles: [] as RawProfile[] })),
+  ])
+  const moonlight = Array.isArray(appsR.apps) ? appsR.apps : []
+  const profiles = (Array.isArray(profR.profiles) ? profR.profiles : []).filter((p) => typeof p.id === 'string' && Array.isArray(p.apps))
+  const base = appBase([...moonlight, ...profiles.flatMap((p) => p.apps)])
+  if (!base && settings.apps.length) throw new WolfError('Wolf has no app to copy its video settings from. Add any app in Wolf first.')
+  const want = (profile: string): WolfApp[] => settings.apps.map((id) => wolfApp(id, { settings, profile, base: base! }))
+  let changed = false
+
+  // Wolf UI: the apps go in its profiles (one per person), saves in each profile's folder.
+  if (profiles.length) {
+    const targets = profiles.filter((p) => !settings.profiles?.length || settings.profiles.includes(p.id))
+    for (const p of profiles) {
+      const wanted = targets.includes(p) ? want(p.id) : []
+      if (ours(p.apps) === ours(wanted as unknown as RawApp[])) continue
+      if (wanted.length) ensureSaveFolders(settings, p.id, owner)
+      const next = { ...p, apps: [...p.apps.filter((a) => !isOurApp(a)), ...wanted] }
+      // Wolf changes a profile by replacing it; put the old one back if the new one is refused.
+      await wolfJson(socket, 'POST', '/api/v1/profiles/remove', { id: p.id })
+      try {
+        await wolfJson(socket, 'POST', '/api/v1/profiles/add', next)
+      } catch (e) {
+        await wolfJson(socket, 'POST', '/api/v1/profiles/add', p).catch(() => log.error(`couldn’t restore Wolf profile ${p.name ?? p.id}`))
+        throw e
+      }
+      changed = true
+      log.info(`emulators: ${wanted.length ? `${wanted.length} apps in` : 'removed from'} Wolf profile ${p.name ?? p.id}`)
+    }
+    return { profiles: targets.filter(() => settings.apps.length > 0).map((p) => p.name || p.id), changed }
+  }
+
+  // Older Wolf, without profiles: Moonlight's own list.
+  const wanted = want('shared')
+  if (ours(moonlight) !== ours(wanted as unknown as RawApp[])) {
+    if (wanted.length) ensureSaveFolders(settings, 'shared', owner)
+    for (const a of moonlight.filter(isOurApp)) await wolfJson(socket, 'POST', '/api/v1/apps/delete', { id: a.id })
+    for (const a of wanted) await wolfJson(socket, 'POST', '/api/v1/apps/add', a)
+    changed = true
+  }
+  return { profiles: settings.apps.length ? ['Moonlight'] : [], changed }
+}
+
+/** A game in RomM, as a path inside the emulator app; null when RomM's path isn't one Finesse trusts. */
+export function gamePath(fsPath: unknown, fsName: unknown): string | null {
+  if (typeof fsPath !== 'string' || typeof fsName !== 'string' || !fsName) return null
+  const rel = fsPath.replace(/^\/?romm\/library\/?/, '').replace(/^\/+|\/+$/g, '')
+  const all = [...rel.split('/'), fsName]
+  if (all.some((x) => x === '..' || x === '.' || /[\0\n\r]/.test(x)) || fsName.includes('/')) return null
+  return ['/finesse/roms', rel, fsName].filter(Boolean).join('/')
+}
+
+/** The browser's stand-in for a Moonlight session (Wolf's session ids stay here, with its keys). */
+export const sessionId = (id: string) => createHash('sha256').update(`finesse-session:${id}`).digest('hex').slice(0, 16)
+
 /** The browser's stand-in for a pending pair request (Wolf's pair secret never leaves the server). */
 export const pendingId = (secret: string) => createHash('sha256').update(`finesse-pair:${secret}`).digest('hex').slice(0, 16)
 
@@ -168,6 +265,37 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     return [...raw, ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as WolfAppRaw[]) : []))]
   }
 
+  /** Our emulator apps Wolf has, the consoles they play, and where (only titles and names). */
+  const publicEmulators = (raw: WolfAppRaw[], profiles: WolfProfileRaw[]) => {
+    const e = settings.get().emulators
+    const cat = emulatorCatalog(e?.switchEmulator)
+    const where = new Map<EmulatorId, { title: string; profiles: string[] }>()
+    const add = (a: RawApp, profile: string | null) => {
+      const id = emulatorOf(a)
+      if (!id || typeof a.title !== 'string') return
+      const w = where.get(id) ?? { title: a.title, profiles: [] }
+      if (profile) w.profiles.push(profile)
+      where.set(id, w)
+    }
+    for (const a of raw as RawApp[]) add(a, null)
+    for (const p of profiles) for (const a of (Array.isArray(p.apps) ? p.apps : []) as RawApp[]) add(a, typeof p.name === 'string' && p.name ? p.name : String(p.id))
+    const canPlay = Boolean(e?.paths.roms && settings.get().services.romm?.url)
+    return EMULATOR_IDS.filter((id) => where.has(id)).map((id) => ({ id, title: where.get(id)!.title, consoles: cat[id].consoles, profiles: where.get(id)!.profiles, play: canPlay && cat[id].consoles.length > 0 }))
+  }
+  const owner = () => ({ uid: settings.get().stack?.puid ?? 1000, gid: settings.get().stack?.pgid ?? 1000 })
+
+  // At start: put the emulator apps back if Wolf lost them (a reset config, a new Wolf). Idempotent.
+  const startup = setTimeout(() => {
+    const socket = socketOf()
+    const e = settings.get().emulators
+    if (!socket || !e?.apps.length) return
+    syncEmulators(socket, e, owner()).then(
+      (r) => r.changed && log.info('emulators: Wolf’s apps brought up to date'),
+      (err) => log.warn(`emulators: ${err instanceof WolfError ? err.message : wolfProblem(err, socket)}`),
+    )
+  }, 5000)
+  startup.unref()
+
   const clientIds = async (socket: string) =>
     (await wolfJson<{ clients?: { client_id?: unknown }[] }>(socket, 'GET', '/api/v1/clients')).clients?.map((c) => String(c.client_id ?? '')).filter(Boolean) ?? []
 
@@ -182,7 +310,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     const socket = need()
     try {
       const { raw, profiles } = await wolfLists(socket)
-      sendJson(res, 200, { ok: true, apps: publicApps(raw), profiles: publicProfiles(profiles) })
+      sendJson(res, 200, { ok: true, apps: publicApps(raw), profiles: publicProfiles(profiles), emulators: publicEmulators(raw, profiles) })
     } catch (e) {
       log.warn(`apps: ${wolfProblem(e, socket)}`)
       sendJson(res, 200, { ok: false, apps: [], error: 'Game streaming isn’t answering right now. Try again in a minute.' })
@@ -280,4 +408,107 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     log.info(`removed ${name ?? 'a device'}`)
     sendJson(res, 200, { ok: true })
   })
+
+  // Administrators: the emulator apps, their folders, and what's in them (by file name).
+  router.get('/api/streaming/emulators', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const e = settings.get().emulators ?? null
+    const profiles = await wolfLists(socket)
+      .then((l) => l.profiles.filter((p) => typeof p.id === 'string').map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name ? p.name : (p.id as string) })))
+      .catch(() => [])
+    sendJson(res, 200, { settings: e, readiness: e ? readiness(e) : [], profiles })
+  })
+
+  async function applyEmulators(e: EmulatorSettings | undefined) {
+    const socket = need()
+    try {
+      const r = await syncEmulators(socket, e, owner())
+      appsCache = null
+      return { ok: true, ...r }
+    } catch (err) {
+      return { ok: false, error: err instanceof WolfError ? `Wolf didn’t take the apps: ${err.message}` : wolfProblem(err, socket) }
+    }
+  }
+
+  router.put('/api/streaming/emulators', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    need()
+    const body = await readJson<unknown>(req)
+    const problems = validateEmulators(body)
+    if (problems.length) throw new ApiError(400, problems.map((p) => `${p.path.replace(/^emulators\.?/, '') || 'emulators'}: ${p.message}`).join('\n'))
+    const e = body as EmulatorSettings
+    settings.update((x) => void (x.emulators = { ...e, apps: [...new Set(e.apps)] }))
+    const synced = await applyEmulators(settings.get().emulators)
+    log.info(`emulators saved: ${e.apps.join(', ') || 'none'}`)
+    sendJson(res, 200, { ...synced, readiness: readiness(settings.get().emulators!) })
+  })
+
+  router.post('/api/streaming/emulators/sync', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    sendJson(res, 200, await applyEmulators(settings.get().emulators))
+  })
+
+  // Everyone at home: Moonlight sessions open right now, to start a game in (never Wolf's ids or keys).
+  type WolfSession = { client_id?: unknown; client_ip?: unknown; app_id?: unknown }
+  const sessions = async (socket: string) => (await wolfJson<{ sessions?: WolfSession[] }>(socket, 'GET', '/api/v1/sessions')).sessions?.filter((x) => typeof x.client_id === 'string') ?? []
+
+  router.get('/api/streaming/sessions', async ({ req, res }) => {
+    await auth.requireUser(req)
+    const socket = need()
+    try {
+      const [list, apps] = await Promise.all([sessions(socket), allAppsRaw(socket).catch(() => [] as WolfAppRaw[])])
+      sendJson(res, 200, {
+        ok: true,
+        sessions: list.map((x) => ({ id: sessionId(x.client_id as string), ip: String(x.client_ip ?? ''), app: apps.find((a) => a.id === x.app_id)?.title ?? null })),
+      })
+    } catch (e) {
+      log.warn(`sessions: ${wolfProblem(e, socket)}`)
+      sendJson(res, 200, { ok: false, sessions: [], error: 'Game streaming isn’t answering right now. Try again in a minute.' })
+    }
+  })
+
+  // Everyone at home: start a RomM game in an open Moonlight session, with its emulator.
+  router.post('/api/streaming/play', async ({ req, res }) => {
+    await auth.requireUser(req)
+    const socket = need()
+    const body = await readJson<{ rom?: unknown; session?: unknown; profile?: unknown }>(req)
+    const e = settings.get().emulators
+    const romm = settings.get().services.romm
+    if (!e?.paths.roms || !romm?.url) throw new ApiError(404, 'Playing a game from here needs RomM and the emulators set up')
+    const romId = Number(body.rom)
+    if (!Number.isInteger(romId) || romId <= 0) throw new ApiError(400, 'Which game?')
+    const basic = romm.apiKey && !romm.username ? romm.apiKey : Buffer.from(`${romm.username ?? ''}:${romm.password ?? ''}`).toString('base64')
+    const r = await fetch(`${romm.url.replace(/\/+$/, '')}/api/roms/${romId}`, { headers: { authorization: `Basic ${basic}` }, signal: AbortSignal.timeout(10000) }).catch(() => null)
+    if (!r?.ok) throw new ApiError(r?.status === 404 ? 404 : 502, r?.status === 404 ? 'RomM doesn’t have that game' : 'Couldn’t reach RomM. Try again in a minute.')
+    const rom = (await r.json()) as { platform_slug?: unknown; fs_path?: unknown; fs_name?: unknown; name?: unknown }
+    const emu = emulatorForConsole(e, String(rom.platform_slug ?? ''))
+    if (!emu) throw new ApiError(400, 'None of the emulator apps plays this console')
+    const game = gamePath(rom.fs_path, rom.fs_name)
+    if (!game) throw new ApiError(400, 'RomM gave this game a path Finesse can’t use')
+    let list: WolfSession[]
+    let lists: { raw: WolfAppRaw[]; profiles: WolfProfileRaw[] }
+    try {
+      ;[list, lists] = await Promise.all([sessions(socket), wolfLists(socket)])
+    } catch (err) {
+      throw new ApiError(502, wolfProblem(err, socket))
+    }
+    const session = list.find((x) => sessionId(x.client_id as string) === String(body.session ?? ''))
+    if (!session) throw new ApiError(404, 'That Moonlight session ended. Open Moonlight on the device, then try again.')
+    const profiles = lists.profiles.filter((p) => typeof p.id === 'string').map((p) => p.id as string)
+    const profile = typeof body.profile === 'string' && profiles.includes(body.profile) ? body.profile : profiles.length === 1 ? profiles[0]! : profiles.length ? null : 'shared'
+    if (!profile) throw new ApiError(400, 'Whose saves? Pick a profile.')
+    const base = appBase([...(lists.raw as RawApp[]), ...lists.profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))])
+    if (!base) throw new ApiError(502, 'Wolf has no app to copy its video settings from')
+    const app = wolfApp(emu, { settings: e, profile, base, game })
+    const runner = { ...(app.runner as Record<string, unknown>), name: `Finesse-${emu}-play` }
+    // Wolf starts the runner and doesn't answer when it worked; a quiet socket means it's starting.
+    const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner, session_id: session.client_id }, { timeoutMs: 4000 })
+      .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
+      .catch((err: { code?: string }) => (err.code === 'ETIMEDOUT' ? null : wolfProblem(err, socket)))
+    if (sent) throw new ApiError(502, `Couldn’t start the game: ${sent}`)
+    log.info(`play: started a ${emulatorCatalog(e.switchEmulator)[emu].name} game in a Moonlight session`)
+    sendJson(res, 202, { ok: true, app: app.title })
+  })
+
 }

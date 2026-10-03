@@ -96,6 +96,13 @@ const bad: [string, (d: Record<string, any>) => unknown][] = [
   ['email secure not boolean', (d) => ((d.email.secure = 'yes'), d)],
   ['jellyfin port 80', (d) => ((d.options.jellyfinPort = 80), d)],
   ['exposeJellyfinPort not boolean', (d) => ((d.options.exposeJellyfinPort = 1), d)],
+  ['emulator app unknown', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, apps: ['n64'] }), d)],
+  ['emulator folder relative', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, paths: { roms: 'games' } }), d)],
+  ['emulator folder with ..', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, paths: { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }.paths, keys: '/srv/../etc' } }), d)],
+  ['emulator folder with a colon', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, paths: { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }.paths, saves: '/srv/a:b' } }), d)],
+  ['emulators without paths', (d) => ((d.emulators = { apps: ['pcsx2'] }), d)],
+  ['switch emulator unknown', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, switchEmulator: 'yuzu' }), d)],
+  ['misspelt emulator setting', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, profile: ['user'] }), d)],
 ]
 
 // Documents both must accept.
@@ -109,6 +116,9 @@ const good: [string, (d: Record<string, any>) => unknown][] = [
   ['cloudflare', (d) => ((d.remoteAccess = { method: 'cloudflare', cloudflare: { token: 'x'.repeat(40), publicUrl: 'https://media.example.com' } }), d)],
   ['own reverse proxy', (d) => ((d.remoteAccess = { method: 'none' }), (d.publicUrl = 'https://media.example.com/'), d)],
   ['Etc time zone', (d) => ((d.server.timezone = 'Etc/GMT+5'), d)],
+  ['emulators', (d) => ((d.emulators = { apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }), d)],
+  ['emulators: Eden, one profile, own keys folder', (d) => ((d.emulators = { ...{ apps: ['pcsx2', 'switch', 'esde'], paths: { roms: '/srv/media/games', emulators: '/srv/emu', firmware: '/srv/fw', keys: '/srv/keys', saves: '/srv/saves' } }, switchEmulator: 'eden', profiles: ['user'], folders: { switch: { keys: '/srv/switch-keys' } } }), d)],
+  ['emulators: none', (d) => ((d.emulators = { apps: [], paths: {} }), d)],
 ]
 
 describe('setup document', () => {

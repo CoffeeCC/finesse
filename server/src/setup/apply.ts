@@ -8,7 +8,7 @@ import type { Settings, SettingsStore } from '../config.ts'
 import { clearSetupCode } from '../auth.ts'
 import { logger } from '../log.ts'
 import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
-import { wolfCall, wolfProblem } from '../streaming.ts'
+import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
 import { Orchestrator, serviceUrl } from '../stack/orchestrator.ts'
 import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe } from '../stack/seed.ts'
@@ -536,10 +536,15 @@ export class SetupRunner {
         const publicUrl = doc.publicUrl?.replace(/\/+$/, '') || remoteUrl
         if (publicUrl) x.publicUrl = publicUrl
         if (doc.email) x.email = doc.email
+        if (doc.emulators) x.emulators = doc.emulators
         x.setup.state = 'ready'
         x.setup.completedAt = new Date().toISOString()
         delete x.setup.lastError
       })
+      // Emulators in the document: into Wolf now, if game streaming is on.
+      const socket = this.settings.get().streaming?.socket
+      if (doc.emulators && socket)
+        await syncEmulators(socket, doc.emulators, { uid: ctx.puid, gid: ctx.pgid }).catch((e) => this.status.warnings.push(`Emulators: ${(e as Error).message}`))
     })
   }
 
@@ -643,6 +648,11 @@ export class SetupRunner {
         x.stack!.services = [...new Set([...x.stack!.services, 'wolf' as const])]
         x.streaming = { ...x.streaming, socket }
       })
+      const emu = this.settings.get().emulators
+      if (emu?.apps.length) {
+        say('Adding the emulator apps…')
+        await syncEmulators(socket, emu, { uid: ctx.puid, gid: ctx.pgid }).catch((e) => this.say(`Emulators: ${(e as Error).message}`))
+      }
       say('Game streaming is on')
     })().then(
       () => (this.streamingJob = { state: 'done' }),

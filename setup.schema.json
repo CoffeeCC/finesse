@@ -359,6 +359,170 @@
           "description": "If taken, the next free port is used (reported as a warning)."
         }
       }
+    },
+    "emulators": {
+      "type": "object",
+      "description": "Emulators as Wolf apps, played with Moonlight (game streaming must be on, or WOLF_SOCKET set). Finesse adds them to every Wolf profile (or those in `profiles`) and hands them folders by path. Paths are on the server, as Wolf/Docker sees them; Finesse checks them by file name at the same path, so share them with Finesse read-only. Firmware, keys and games are never copied or read.",
+      "additionalProperties": false,
+      "required": [
+        "apps",
+        "paths"
+      ],
+      "properties": {
+        "apps": {
+          "type": "array",
+          "description": "The apps to add: pcsx2 (PS2), dolphin (GameCube/Wii), rpcs3 (PS3), cemu (Wii U), switch (Ryujinx or Eden), esde (ES-DE, a front end for everything).",
+          "items": {
+            "enum": [
+              "pcsx2",
+              "dolphin",
+              "rpcs3",
+              "cemu",
+              "switch",
+              "esde"
+            ]
+          }
+        },
+        "switchEmulator": {
+          "enum": [
+            "ryujinx",
+            "eden"
+          ],
+          "default": "ryujinx",
+          "description": "Which Switch emulator the switch app runs."
+        },
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Folders on the server.",
+          "properties": {
+            "roms": {
+              "type": "string",
+              "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$",
+              "description": "RomM's library folder (roms/<console> inside). Read-only."
+            },
+            "emulators": {
+              "type": "string",
+              "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$",
+              "description": "The emulators' AppImages (pcsx2…AppImage, rpcs3…AppImage, Cemu…AppImage, Ryujinx…/Eden…AppImage, Dolphin…AppImage). Read-only."
+            },
+            "firmware": {
+              "type": "string",
+              "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$",
+              "description": "Firmware/BIOS, one folder per app inside: pcsx2 (BIOS), rpcs3 (PS3UPDAT.PUP), cemu (otp.bin, seeprom.bin), switch (firmware). Read-only."
+            },
+            "keys": {
+              "type": "string",
+              "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$",
+              "description": "Keys, one folder per app inside: cemu (keys.txt), switch (prod.keys, title.keys), rpcs3 (.rap). Read-only."
+            },
+            "saves": {
+              "type": "string",
+              "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$",
+              "description": "Saves: Finesse makes <saves>/<Wolf profile>/<app> for each person. Read-write."
+            }
+          }
+        },
+        "folders": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A different firmware or keys folder for one app (instead of <firmware>/<app>, <keys>/<app>).",
+          "properties": {
+            "pcsx2": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "firmware": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                },
+                "keys": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                }
+              }
+            },
+            "dolphin": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "firmware": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                },
+                "keys": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                }
+              }
+            },
+            "rpcs3": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "firmware": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                },
+                "keys": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                }
+              }
+            },
+            "cemu": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "firmware": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                },
+                "keys": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                }
+              }
+            },
+            "switch": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "firmware": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                },
+                "keys": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                }
+              }
+            },
+            "esde": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "firmware": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                },
+                "keys": {
+                  "type": "string",
+                  "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$"
+                }
+              }
+            }
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "description": "Wolf profile ids to add the apps to. Leave out for every profile.",
+          "items": {
+            "type": "string",
+            "pattern": "^[\\w.@-]{1,64}$"
+          }
+        }
+      }
     }
   },
   "$defs": {

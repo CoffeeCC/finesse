@@ -150,6 +150,8 @@ const cfg = (ctx: StackContext, id: string) => `${ctx.hostRoot}/config/${id}`
 /** Wolf's sockets (its API, and the PulseAudio it runs) live here, inside Finesse's folder. */
 export const wolfRunDir = (ctx: { hostRoot: string }) => `${ctx.hostRoot}/config/wolf/run`
 export const wolfSocket = (ctx: { hostRoot: string }) => `${wolfRunDir(ctx)}/wolf.sock`
+/** The image Finesse's emulator apps run on in Wolf (Games on Whales' ES-DE: Sway, controllers, AppImage support). Pinned like the stack's images. */
+export const EMULATOR_IMAGE = 'ghcr.io/games-on-whales/es-de:sha-bc4bb67'
 const lsio = (ctx: StackContext) => ({ PUID: String(ctx.puid), PGID: String(ctx.pgid), TZ: ctx.timezone, UMASK: '002' })
 
 export const CATALOG: Record<StackServiceId, ServiceDef> = {

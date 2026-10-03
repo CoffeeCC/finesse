@@ -17,6 +17,7 @@ Key facts:
 - [Use an existing Jellyfin/*arr setup](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/adopt.md): adopt mode and migrating older installs
 - [TrueNAS SCALE](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/truenas.md): install from the Apps page (Install via YAML), adopt or full install
 - [Game streaming](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/streaming.md): Steam on the TV through Wolf + Moonlight; on full installs `finesse streaming on` sets Wolf up (after a readiness check), otherwise WOLF_SOCKET connects your own; pairing with the PIN
+- [Emulators](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/emulators.md): PCSX2, Dolphin, RPCS3, Cemu, Ryujinx/Eden and ES-DE as Wolf apps; folders by path (setup document `emulators`, `finesse emulators set -`); readiness by file name only
 - [Groups](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/groups.md): share films, shows and music between Finesse servers (watch- and listen-only), pairing codes, share back
 - [Watch on a TV](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/tv.md): installing the LG webOS app, other TVs' browsers, Jellyfin apps
 - [Games](https://raw.githubusercontent.com/CoffeeCC/finesse/master/docs/games.md): the optional retro-games library (RomM), folder layout, artwork keys

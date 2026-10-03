@@ -93,6 +93,8 @@ export interface Settings {
   groups?: GroupsState
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */
   streaming?: { socket?: string; devices?: Record<string, { name: string; pairedAt: string }> }
+  /** Emulators as Wolf apps: which ones, and the folders they get (host paths). */
+  emulators?: import('./emulators.ts').EmulatorSettings
   /** SMTP for emailing invites (optional). */
   email?: { host: string; port: number; secure?: boolean; username?: string; password?: string; from: string }
 }

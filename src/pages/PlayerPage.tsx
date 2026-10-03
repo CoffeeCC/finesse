@@ -173,6 +173,18 @@ function StatsOverlay({
   const vStream = stream?.mediaStreams.find((m) => m.Type === 'Video')
   const aStream = stream?.mediaStreams.find((m) => m.Type === 'Audio')
   const q = video?.getVideoPlaybackQuality?.()
+  // The total counts from when this stream started (seeks and menus included); the
+  // last 10 seconds say whether frames are being dropped now.
+  const samples = useRef<{ at: number; dropped: number; total: number }[]>([])
+  if (q) {
+    const now = performance.now()
+    const list = samples.current
+    if (list.length && q.totalVideoFrames < list[list.length - 1]!.total) list.length = 0
+    list.push({ at: now, dropped: q.droppedVideoFrames, total: q.totalVideoFrames })
+    while (list.length > 2 && now - list[0]!.at > 10_000) list.shift()
+  }
+  const first = samples.current[0]
+  const recent = q && first && q.totalVideoFrames > first.total ? { dropped: q.droppedVideoFrames - first.dropped, total: q.totalVideoFrames - first.total } : null
   const level = hls && hls.currentLevel >= 0 ? hls.levels?.[hls.currentLevel] : undefined
   const rows: [string, string][] = [
     ['Title', item?.Name ?? '—'],
@@ -192,7 +204,7 @@ function StatsOverlay({
     ['Buffered ahead', `${Math.max(0, bufferedAbs - absTime).toFixed(1)} s`],
     [
       'Dropped frames',
-      q ? `${q.droppedVideoFrames} / ${q.totalVideoFrames}` : 'n/a',
+      q ? `${q.droppedVideoFrames} / ${q.totalVideoFrames}${recent ? ` · last 10 s: ${recent.dropped} / ${recent.total}` : ''}` : 'n/a',
     ],
     ...(hls
       ? ([
@@ -206,7 +218,7 @@ function StatsOverlay({
   return (
     <div
       data-tick={tick}
-      className="absolute top-16 left-4 z-30 w-[22rem] max-w-[calc(var(--vw)*90)] rounded-xl bg-black/80 backdrop-blur-md border border-white/10 p-3 font-mono text-[11px] leading-relaxed text-ink-200 shadow-2xl"
+      className="absolute top-16 left-4 z-30 w-[22rem] max-w-[calc(var(--vw)*90)] rounded-xl bg-black/90 border border-white/10 p-3 font-mono text-[11px] leading-relaxed text-ink-200 shadow-2xl"
     >
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs font-semibold text-white">Stats for nerds</span>
@@ -1977,7 +1989,7 @@ export default function PlayerPage() {
           <button
             data-play-toggle
             onClick={togglePlay}
-            className={`h-[4.5rem] w-[4.5rem] rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition ${controlsVisible && !menu ? 'pointer-events-auto' : ''}`}
+            className={`h-[4.5rem] w-[4.5rem] rounded-full bg-black/55 flex items-center justify-center text-white active:scale-90 transition ${controlsVisible && !menu ? 'pointer-events-auto' : ''}`}
             aria-label={playing ? 'Pause' : 'Play'}
           >
             {buffering && !error ? (
@@ -2259,7 +2271,7 @@ export default function PlayerPage() {
             ref={panelRef}
             role="dialog"
             aria-label={menu === 'tracks' ? 'Audio and subtitles' : 'Playback settings'}
-            className={`z-40 overflow-y-auto overscroll-contain border border-white/10 bg-ink-900/95 backdrop-blur-xl shadow-2xl toast-in ${
+            className={`z-40 overflow-y-auto overscroll-contain border border-white/10 bg-ink-900/95 shadow-2xl toast-in ${
               TOUCH_UI
                 ? 'absolute inset-x-0 bottom-0 max-h-[75%] rounded-t-2xl p-4'
                 : 'absolute right-3 sm:right-6 bottom-24 max-h-[calc(var(--vh)*60)] w-[34rem] max-w-[calc(var(--vw)*100_-_1.5rem)] rounded-2xl p-4'
@@ -2479,7 +2491,7 @@ function UpNextCard({
   const still = api.episodeThumbUrl(ep, 640)
   const runtime = formatRuntime(ep.RunTimeTicks)
   return (
-    <div className="absolute bottom-28 sm:bottom-32 right-3 sm:right-8 z-30 w-[26rem] max-w-[calc(var(--vw)*100_-_1.5rem)] overflow-hidden rounded-2xl bg-ink-900/90 backdrop-blur-xl border border-white/10 shadow-2xl toast-in">
+    <div className="absolute bottom-28 sm:bottom-32 right-3 sm:right-8 z-30 w-[26rem] max-w-[calc(var(--vw)*100_-_1.5rem)] overflow-hidden rounded-2xl bg-ink-900/95 border border-white/10 shadow-2xl toast-in">
       {/* Media — skipped on short landscape phones so the card never covers the video */}
       <div className="relative aspect-video bg-ink-800 [@media(max-height:520px)]:hidden">
         {still && <img src={still} alt="" className="absolute inset-0 h-full w-full object-cover" />}

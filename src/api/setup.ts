@@ -316,12 +316,56 @@ export interface StreamingAdmin {
   devices: { id: string; name: string | null; pairedAt: string | null }[]
 }
 
+export type EmulatorId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'switch' | 'esde'
+
+/** One of Finesse's emulator apps in Wolf: the RomM consoles it plays, and the profiles that have it. */
+export interface StreamEmulator {
+  id: EmulatorId
+  title: string
+  consoles: string[]
+  profiles: string[]
+  /** A game can be started in an open Moonlight session from Finesse. */
+  play: boolean
+}
+
+/** The emulator apps' settings (host paths, as Wolf sees them). */
+export interface EmulatorSettings {
+  apps: EmulatorId[]
+  switchEmulator?: 'ryujinx' | 'eden'
+  paths: { roms?: string; emulators?: string; firmware?: string; keys?: string; saves?: string }
+  folders?: Partial<Record<EmulatorId, { firmware?: string; keys?: string }>>
+  profiles?: string[]
+}
+
+export interface EmulatorReadiness {
+  id: EmulatorId
+  title: string
+  name: string
+  consoles: string[]
+  ready: boolean
+  items: { label: string; state: 'ok' | 'missing' | 'unseen'; required: boolean; detail: string }[]
+}
+
+export interface StreamSession {
+  id: string
+  ip: string
+  app: string | null
+}
+
 export const streamingApi = {
   /** Everyone at home: what Wolf can stream. */
-  apps: () => call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; error?: string }>('GET', '/api/streaming'),
+  apps: () => call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; emulators?: StreamEmulator[]; error?: string }>('GET', '/api/streaming'),
   iconUrl: (id: string) => withToken(finesseApi(`/api/streaming/apps/${encodeURIComponent(id)}/icon`)),
   admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
   pair: (request: string, pin: string, name: string) =>
     call<{ ok: boolean; error?: string; device?: { id: string; name: string } }>('POST', '/api/streaming/pair', { request, pin, name }, { timeoutMs: 30000 }),
   remove: (id: string) => call<{ ok: boolean }>('DELETE', `/api/streaming/devices/${encodeURIComponent(id)}`),
+  /** Administrators: the emulator apps, their folders, and what each still needs. */
+  emulators: () => call<{ settings: EmulatorSettings | null; readiness: EmulatorReadiness[]; profiles: { id: string; name: string }[] }>('GET', '/api/streaming/emulators'),
+  saveEmulators: (s: EmulatorSettings) =>
+    call<{ ok: boolean; error?: string; profiles?: string[]; changed?: boolean; readiness: EmulatorReadiness[] }>('PUT', '/api/streaming/emulators', s, { timeoutMs: 60000 }),
+  /** Moonlight sessions open right now. */
+  sessions: () => call<{ ok: boolean; sessions: StreamSession[]; error?: string }>('GET', '/api/streaming/sessions'),
+  /** Start a RomM game in an open Moonlight session. */
+  play: (rom: number, session: string, profile?: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/play', { rom, session, profile }, { timeoutMs: 30000 }),
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useGame } from '../api/queries'
+import MoonlightPlay, { useMoonlightApp } from '../components/MoonlightPlay'
 import {
   cleanName,
   ejsCore,
@@ -32,6 +33,7 @@ export default function GameDetailPage() {
   const { romId } = useParams()
   const { data: rom, isLoading } = useGame(romId)
   const cover = useCover(rom)
+  const moonlight = useMoonlightApp(rom?.platform_slug)
 
   if (isLoading || !rom) return <div className="h-[calc(var(--vh)*60)] shimmer -mt-16" />
 
@@ -87,6 +89,8 @@ export default function GameDetailPage() {
                   Playable in browser
                   {beta && <span className="text-amber-300"> · Beta: needs a fast computer, may not run every game</span>}
                 </span>
+              ) : moonlight.app ? (
+                <span className="text-accent-300">Plays on Moonlight · {moonlight.app.title}</span>
               ) : (
                 <span className="text-ink-400">Browse only — this console needs a PC emulator, not a browser</span>
               )}
@@ -104,6 +108,8 @@ export default function GameDetailPage() {
                 </svg>
                 Play
               </Link>
+            ) : moonlight.app ? (
+              <MoonlightPlay rom={rom.id} console={rom.platform_display_name} app={moonlight.app} launcher={moonlight.launcher} />
             ) : (
               <p className="text-sm text-ink-400 max-w-md">
                 {rom.platform_display_name} games can’t run in a browser — this is here so you can browse the
