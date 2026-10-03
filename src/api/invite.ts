@@ -145,8 +145,9 @@ export interface ServerUpdateStatus {
   error?: string
 }
 
-export function getServerUpdate(): Promise<ServerUpdateStatus> {
-  return invFetch<ServerUpdateStatus>('/v1/update', { admin: true })
+/** `check`: the server asks GitHub now rather than answering from its cache. */
+export function getServerUpdate(check = false): Promise<ServerUpdateStatus> {
+  return invFetch<ServerUpdateStatus>(`/v1/update${check ? '?check=1' : ''}`, { admin: true })
 }
 
 export function startServerUpdate(): Promise<{ state: string }> {

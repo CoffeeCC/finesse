@@ -203,11 +203,12 @@ export class WebUpdater {
     this.serverVersion = serverVersion
   }
 
-  async status() {
+  /** `check`: ask GitHub now instead of answering from the 5-minute cache (an admin pressed Check). */
+  async status(check = false) {
     const current = this.web.current().version
     const out: Record<string, unknown> = { current, server: this.serverVersion, kind: 'web', ...this.job }
     try {
-      const rel = await this.gh.latest()
+      const rel = await this.gh.latest(check)
       out.latest = rel.version
       out.notes = rel.notes
       out.publishedAt = rel.publishedAt
@@ -267,9 +268,9 @@ export class WebUpdater {
 
 export function registerWebUpdate(router: Router, deps: { auth: Auth; updater: WebUpdater }) {
   const { auth, updater } = deps
-  router.get('/invite-api/v1/update', async ({ req, res }) => {
+  router.get('/invite-api/v1/update', async ({ req, res, url }) => {
     await auth.requireAdmin(req)
-    sendJson(res, 200, await updater.status())
+    sendJson(res, 200, await updater.status(url.searchParams.has('check')))
   })
   router.post('/invite-api/v1/update', async ({ req, res }) => {
     await auth.requireAdmin(req)

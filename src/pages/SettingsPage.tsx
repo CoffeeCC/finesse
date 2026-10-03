@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { SelectMenu } from '../components/Menu'
 import { IS_TV, TOUCH_UI } from '../lib/device'
 import { requestTiltPermission } from '../lib/depth'
@@ -20,6 +21,7 @@ import {
   createInvite,
   deleteInvite,
   emailInvite,
+  getServerUpdate,
   inviteShareUrls,
   listInviteLibraries,
   listInvites,
@@ -209,10 +211,19 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
   const running = __WEBOS__ ? currentVersion() : __APP_VERSION__
   const ready = client.data
 
+  const queryClient = useQueryClient()
   const check = async () => {
-    const r = await client.refetch()
+    // "This app" only compares this browser with what the server serves. An admin
+    // also needs to hear about a release the server hasn't installed yet.
+    const [r, s] = await Promise.all([
+      client.refetch(),
+      isAdmin && !__WEBOS__ ? getServerUpdate(true).catch(() => null) : Promise.resolve(null),
+    ])
+    if (s) queryClient.setQueryData(['serverUpdate'], s)
     if (r.error) toast(r.error instanceof Error ? r.error.message : 'Couldn’t check for updates', 'error')
-    else if (!r.data) toast('You’re on the latest version')
+    else if (r.data) return
+    else if (s?.available && s.latest) toast(`Finesse ${s.latest} is out — update the server just below`)
+    else toast('You’re on the latest version')
   }
   const install = async () => {
     if (!ready) return

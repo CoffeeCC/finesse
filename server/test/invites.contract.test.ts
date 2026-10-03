@@ -172,6 +172,14 @@ describe('web update contract', () => {
     assert.equal((await call('GET', '/v1/update', { token: USER_TOKEN })).status, 403)
   })
 
+  test('?check asks GitHub now instead of answering from the cache', async () => {
+    gh.release('1.2.0', makeTarball(webBuild('1.2.0')))
+    assert.equal((await call('GET', '/v1/update', { token: ADMIN_TOKEN })).json.latest, '1.1.0')
+    assert.equal((await call('GET', '/v1/update?check=1', { token: ADMIN_TOKEN })).json.latest, '1.2.0')
+    gh.release('1.1.0', makeTarball(webBuild('1.1.0')))
+    assert.equal((await call('GET', '/v1/update?check=1', { token: ADMIN_TOKEN })).json.latest, '1.1.0')
+  })
+
   test('install swaps in the new build', async () => {
     const start = await call('POST', '/v1/update', { token: ADMIN_TOKEN })
     assert.equal(start.status, 202)

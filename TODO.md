@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Check for updates that sees the server's update — v2.1.1 (2026-10-03)
+
+- **Check for updates tells admins about a new release.** In Settings → Updates, "Check for
+  updates" only compared this browser with what the server serves. On a server that hadn't
+  updated, both matched, so it said "You're on the latest version" while a new release was out.
+  For admins it now also asks GitHub right away, through the server, skipping its 5-minute
+  cache. When there's a release, it says so and points to **Update everyone** just below.
+
 ## Controllers, and 2.0 on the TV — v2.1.0 (2026-10-03)
 
 - **Game controllers drive the whole app.** Xbox, PlayStation, Switch Pro and most others,

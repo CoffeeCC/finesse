@@ -60,7 +60,7 @@ export function useServerUpdate() {
   const enabled = !__WEBOS__ && !!session?.isAdmin
   return useQuery({
     queryKey: ['serverUpdate'],
-    queryFn: getServerUpdate,
+    queryFn: () => getServerUpdate(),
     enabled,
     staleTime: 10 * 60_000,
     retry: false,
