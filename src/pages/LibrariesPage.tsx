@@ -34,7 +34,7 @@ export default function LibrariesPage() {
 
   return (
     <div className="pb-16 px-4 sm:px-6 lg:px-12 py-6">
-      <h1 className="text-3xl font-semibold text-white tracking-tight mb-5">Library</h1>
+      <h1 className="page-title mb-5">Library</h1>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
         {tiles.map((t) => (
           <Link

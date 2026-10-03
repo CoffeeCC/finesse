@@ -31,7 +31,7 @@ import CastMenu from '../components/CastMenu'
 import { peerOf } from '../lib/peers'
 import { useFriends } from '../api/queries'
 import { ActionMenu, type ActionItem } from '../components/Menu'
-import { ACTION_BTN, ActionButton, actionCircle } from '../components/ActionButton'
+import { ACTION_BTN, ActionButton, PLAY_BTN, actionCircle } from '../components/ActionButton'
 import WatchlistButton from '../components/WatchlistButton'
 import TrailerHero from '../components/TrailerHero'
 import VideoClipHero from '../components/VideoClipHero'
@@ -54,8 +54,6 @@ function firstTrailerId(item: JfItem): string | null {
   return null
 }
 
-const PLAY_BTN =
-  'inline-flex items-center justify-center gap-2 rounded-lg bg-white text-ink-950 h-11 px-6 text-[15px] font-semibold hover:bg-ink-200 active:scale-[0.98] transition-all w-full sm:w-auto'
 
 /** Under the Play button: how much is left (with a bar), or which episode is next. */
 function ResumeMeta({ item, episodeName }: { item: JfItem; episodeName?: string }) {

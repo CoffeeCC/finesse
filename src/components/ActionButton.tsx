@@ -3,6 +3,10 @@ import { forwardRef, type ReactNode } from 'react'
 // Detail-page actions: an icon over a visible label ("My List", "Favorite",
 // "Trailer", "Play on…", "More") — icon-only circles were guesswork.
 
+/** A detail page's main action (Play, Resume): white, the same everywhere. */
+export const PLAY_BTN =
+  'inline-flex items-center justify-center gap-2 rounded-lg bg-white text-ink-950 h-11 px-6 text-[15px] font-semibold hover:bg-ink-200 disabled:opacity-60 active:scale-[0.98] transition-all w-full sm:w-auto'
+
 export const ACTION_BTN =
   'group/act flex flex-col items-center gap-1.5 w-16 sm:w-[4.5rem] py-1 rounded-xl text-[12px] font-medium text-ink-200 hover:text-white disabled:opacity-50 transition-colors outline-none'
 export const ACTION_CIRCLE =

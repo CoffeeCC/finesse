@@ -391,7 +391,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-12 py-8">
-      <h1 className="text-3xl font-semibold text-white tracking-tight mb-6">Settings</h1>
+      <h1 className="page-title mb-6">Settings</h1>
 
       <div className="lg:grid lg:grid-cols-[13rem_1fr] lg:gap-10">
         {/* Section nav: a sticky sidebar on desktop, a chip row on phones */}
@@ -850,7 +850,7 @@ function InvitesAdmin() {
               onClick={() => setPreset(p)}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
                 preset === p
-                  ? 'bg-accent-fill text-white'
+                  ? 'bg-[#f5f3ee] text-ink-950'
                   : 'bg-ink-800 text-ink-300 border border-white/10 hover:border-accent-500/50'
               }`}
             >
@@ -979,7 +979,7 @@ function InvitesAdmin() {
                       type="button"
                       onClick={() => setEmailFor((q) => (q === inv.id ? null : inv.id))}
                       className={`rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
-                        emailFor === inv.id ? 'bg-accent-fill text-white' : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
+                        emailFor === inv.id ? 'bg-[#f5f3ee] text-ink-950' : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
                       }`}
                     >
                       Email
@@ -990,7 +990,7 @@ function InvitesAdmin() {
                     onClick={() => setQrFor((q) => (q === inv.id ? null : inv.id))}
                     className={`rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
                       qrFor === inv.id
-                        ? 'bg-accent-fill text-white'
+                        ? 'bg-[#f5f3ee] text-ink-950'
                         : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
                     }`}
                   >

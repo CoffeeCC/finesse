@@ -588,6 +588,19 @@ html[data-nav-mode='spatial'][data-nav-dir='up'] .group:focus-visible .tilt {
 }
 
 /* ---------- Editorial row headers (brand serif) ---------- */
+/* Every page's title (Movies, Music, Games, Settings…): the serif, like the rows. */
+.page-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 2.25rem;
+  line-height: 1.05;
+  color: #fff;
+}
+@media (min-width: 640px) {
+  .page-title {
+    font-size: 3rem;
+  }
+}
 .row-title {
   font-family: var(--font-display);
   font-style: italic;

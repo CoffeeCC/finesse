@@ -64,7 +64,7 @@ export default function StreamingSection() {
         {isAdmin && (
           <Link
             to="/settings#settings-streaming"
-            className="inline-flex h-9 items-center rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[13px] font-medium text-ink-200 hover:border-white/25 hover:text-white transition-colors"
+            className="inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.06] px-4 text-[13px] font-medium text-ink-100 hover:border-white/25 hover:text-white transition-colors"
           >
             Pair a device
           </Link>
@@ -98,9 +98,14 @@ export default function StreamingSection() {
         </div>
       )}
 
-      <div className="mt-4 max-w-2xl rounded-xl border border-white/5 bg-ink-900/50 px-4 py-3 text-[13px] leading-relaxed text-ink-300">
-        <p className="font-semibold text-white">How to play</p>
-        <ol className="mt-1 list-decimal space-y-1 pl-5">
+      <details className="group mt-4 max-w-2xl rounded-2xl border border-white/10 bg-ink-900/60 px-5 py-3 text-[14px] leading-relaxed text-ink-300">
+        <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-white [&::-webkit-details-marker]:hidden">
+          How to play with Moonlight
+          <svg className="h-4 w-4 text-ink-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+          </svg>
+        </summary>
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
           <li>
             Get Moonlight for your device from{' '}
             <a className={link} href="https://moonlight-stream.org" target="_blank" rel="noreferrer">
@@ -122,7 +127,7 @@ export default function StreamingSection() {
             <li>Choose a game in Moonlight and play.</li>
           )}
         </ol>
-      </div>
+      </details>
     </section>
   )
 }

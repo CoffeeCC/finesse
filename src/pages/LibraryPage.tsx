@@ -250,7 +250,7 @@ export default function LibraryPage() {
   return (
     <div className="px-4 sm:px-6 lg:px-12 pb-16">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-5 sm:pt-6 pb-3">
-        <h1 className="text-3xl font-semibold text-white tracking-tight">{view?.Name ?? 'Library'}</h1>
+        <h1 className="page-title">{view?.Name ?? 'Library'}</h1>
         {total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {filtersParam || genresParam ? 'match' : 'titles'}</span>}
         <div className="flex-1" />
         <div className="flex w-full sm:w-auto items-center gap-2">

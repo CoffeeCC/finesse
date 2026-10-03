@@ -185,7 +185,7 @@ export default function SearchPanel({
 
   return (
     <div className={mode === 'overlay' ? 'flex min-h-0 flex-col' : ''}>
-      <div className={`flex items-center gap-3 ${mode === 'overlay' ? 'h-16 px-5 border-b border-white/10 focus-within:border-accent-400/60' : 'h-12 px-4 rounded-xl bg-ink-900 border border-white/10 focus-within:border-accent-400 max-w-2xl'}`}>
+      <div className={`flex items-center gap-3 ${mode === 'overlay' ? 'h-16 px-5 border-b border-white/10 focus-within:border-accent-400/60' : 'h-12 px-5 rounded-full bg-white/[0.06] border border-white/10 focus-within:border-white/30 max-w-2xl'}`}>
         <svg className="h-5 w-5 shrink-0 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
         </svg>

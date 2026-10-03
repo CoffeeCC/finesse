@@ -9,7 +9,7 @@ export default function SearchPage() {
 
   return (
     <div className="pb-16 px-4 sm:px-6 lg:px-12 py-6 max-w-5xl">
-      <h1 className="text-3xl font-semibold text-white tracking-tight mb-4">Search</h1>
+      <h1 className="page-title mb-4">Search</h1>
       <SearchPanel
         mode="page"
         initialQuery={term}

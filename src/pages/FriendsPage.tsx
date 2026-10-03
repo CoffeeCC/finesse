@@ -55,7 +55,7 @@ export default function FriendsPage() {
   return (
     <div className="pb-16 py-6 space-y-10">
       <div className={PAD}>
-        <h1 className="text-3xl font-semibold text-white tracking-tight mb-1">Friends</h1>
+        <h1 className="page-title mb-1">Friends</h1>
         <p className="text-sm text-ink-400">Libraries friends share from their own Finesse. Watch and listen only: nothing is downloaded or requested there.</p>
       </div>
       {none ? (

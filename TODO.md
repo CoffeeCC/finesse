@@ -38,6 +38,20 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Games look like the rest of Finesse, and the console filter works — v2.5.5 (2026-10-03)
+
+- **Fixed: picking a console under Games showed every game.** RomM 4.1 and newer filter by
+  `platform_ids`; Finesse asked with the old `platform_id`, which RomM ignores. Now a console shows
+  only its games.
+- **A game's page is laid out like a movie's:** its art, the title in the serif, a line of
+  details (console, year, rating, genres), a white **Play**, and round buttons with labels:
+  **Moonlight** (the steps) and **Play on TV** (start it in an open Moonlight session). The file
+  name is gone, and a game whose files went missing says so instead of offering Play.
+- **One look across the app.** Every page's title is the serif (Movies, Music, Games, Settings,
+  My List, Friends…). The current choice in a row of chips or tabs is the white pill, like the
+  top bar (Games' consoles, Request's Movies/Shows/Music, Settings). Search boxes on pages are
+  rounded glass, like the top bar's. Games' "How to play" folds away until you open it.
+
 ## Games in folders — v2.5.4 (2026-10-03)
 
 - **A game that's a folder opens its disc image.** RomM lists some games as folders (a download

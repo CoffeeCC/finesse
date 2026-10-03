@@ -226,7 +226,7 @@ export default function QualityModal({
                   setConfirmGuid(null)
                 }}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  filter === id ? 'bg-accent-fill text-white' : 'text-ink-300 hover:text-white'
+                  filter === id ? 'bg-[#f5f3ee] text-ink-950' : 'text-ink-300 hover:text-white'
                 }`}
               >
                 {label}

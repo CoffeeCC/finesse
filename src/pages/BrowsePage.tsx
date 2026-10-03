@@ -33,7 +33,7 @@ export default function BrowsePage() {
   return (
     <div className="px-4 sm:px-6 lg:px-12 py-8">
       <div className="flex items-baseline gap-3 mb-6">
-        <h1 className="text-2xl font-bold text-white tracking-tight">{title}</h1>
+        <h1 className="page-title">{title}</h1>
         {data && <span className="text-sm text-ink-400">{data.TotalRecordCount} items</span>}
       </div>
 

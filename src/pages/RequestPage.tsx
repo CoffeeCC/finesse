@@ -108,7 +108,7 @@ export default function RequestPage() {
   return (
     <div className="pb-16">
       <div className="px-4 sm:px-6 lg:px-12 py-6">
-        <h1 className="text-2xl font-bold text-white tracking-tight mb-1">Request</h1>
+        <h1 className="page-title mb-1">Request</h1>
         <p className="text-sm text-ink-400 mb-4">
           Can’t find something? Search and add it — or open an in-library title to upgrade /
           downgrade quality.
@@ -121,7 +121,7 @@ export default function RequestPage() {
                 key={k.kind}
                 onClick={() => setKind(k.kind)}
                 className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  kind === k.kind ? 'bg-accent-fill text-white' : 'text-ink-300 hover:text-white'
+                  kind === k.kind ? 'bg-[#f5f3ee] text-ink-950' : 'text-ink-300 hover:text-white'
                 }`}
               >
                 {k.label}
@@ -145,7 +145,7 @@ export default function RequestPage() {
             onChange={(e) => setInput(e.target.value)}
             placeholder={KINDS.find((k) => k.kind === kind)!.placeholder}
             autoFocus={!term}
-            className="w-full rounded-full bg-ink-800/80 border border-white/10 pl-11 pr-4 py-2.5 text-sm outline-none focus:border-accent-500 placeholder:text-ink-400"
+            className="w-full rounded-full bg-white/[0.06] border border-white/10 pl-11 pr-4 py-2.5 text-sm text-white outline-none focus:border-white/30 placeholder:text-ink-400"
           />
         </div>
       </div>

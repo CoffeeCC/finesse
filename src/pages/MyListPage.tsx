@@ -14,7 +14,7 @@ export default function MyListPage() {
 
   return (
     <div className="pb-16 px-4 sm:px-6 lg:px-12 py-6">
-      <h1 className="text-3xl font-semibold text-white tracking-tight mb-1">My List</h1>
+      <h1 className="page-title mb-1">My List</h1>
       <p className="text-sm text-ink-400 mb-6">Saved to watch later, synced across your devices.</p>
 
       {empty ? (

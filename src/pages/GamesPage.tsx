@@ -114,7 +114,7 @@ export default function GamesPage() {
   if (library) return <GamesLibrary top={streaming ? <StreamingSection /> : null} />
   return (
     <div className="px-4 sm:px-6 lg:px-12 py-6">
-      <h1 className="mb-5 text-2xl font-bold text-white tracking-tight">Games</h1>
+      <h1 className="mb-5 page-title">Games</h1>
       {streaming && <StreamingSection />}
     </div>
   )
@@ -143,14 +143,21 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       .filter((x) => x.games.length > 0)
   }, [shelfMode, games, platforms])
 
+  // Shaped like the app's search in the top bar.
   const searchBox = (
-    <input
-      value={search}
-      onChange={(e) => setSearch(e.target.value)}
-      placeholder="Search games…"
-      aria-label="Search the games library"
-      className="w-full sm:w-72 rounded-lg bg-ink-800 border border-white/10 px-3 py-2 text-sm outline-none focus:border-accent-500 text-ink-200"
-    />
+    <label className="flex h-10 w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 text-ink-300 focus-within:border-white/30 sm:w-72">
+      <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+        <circle cx="11" cy="11" r="7" />
+        <path strokeLinecap="round" d="m20 20-3.5-3.5" />
+      </svg>
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search games"
+        aria-label="Search the games library"
+        className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-ink-400"
+      />
+    </label>
   )
 
   return (
@@ -158,7 +165,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       {top ? (
         // Streaming first; the search belongs to the library below it.
         <>
-          <h1 className="text-2xl font-bold text-white tracking-tight mb-5">Games</h1>
+          <h1 className="page-title mb-5">Games</h1>
           {top}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
             <h2 className="row-title text-white">Games library</h2>
@@ -167,7 +174,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         </>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
-          <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
+          <h1 className="page-title">Games</h1>
           {searchBox}
         </div>
       )}
@@ -179,7 +186,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         </Chip>
         {platforms?.map((p) => (
           <Chip key={p.id} active={platformId === p.id} onClick={() => setPlatformId(p.id)}>
-            {p.name} <span className="text-ink-400">{p.rom_count}</span>
+            {p.name} <span className={platformId === p.id ? 'text-ink-700' : 'text-ink-400'}>{p.rom_count}</span>
           </Chip>
         ))}
       </div>
@@ -243,8 +250,10 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-        active ? 'bg-accent-fill text-white' : 'bg-ink-800 text-ink-300 hover:text-white'
+      aria-pressed={active}
+      // The top bar's pills: the current one is white.
+      className={`shrink-0 h-9 px-4 rounded-full text-sm font-medium transition-colors ${
+        active ? 'bg-[#f5f3ee] text-ink-950' : 'border border-white/10 bg-white/[0.06] text-ink-200 hover:text-white'
       }`}
     >
       {children}

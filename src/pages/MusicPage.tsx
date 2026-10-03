@@ -77,7 +77,7 @@ export default function MusicPage() {
     <div className="py-8">
       <div className="px-4 sm:px-6 lg:px-12 flex flex-wrap items-end gap-x-4 gap-y-3 mb-8">
         <div className="flex items-baseline gap-3 mr-auto">
-          <h1 className="font-display text-4xl sm:text-5xl text-white">Music</h1>
+          <h1 className="page-title">Music</h1>
           {albums && <span className="text-sm text-ink-400">{albums.TotalRecordCount} albums</span>}
         </div>
         {ownMusic && (

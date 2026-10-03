@@ -34,6 +34,12 @@ export interface RommRom {
   summary?: string
   ra_id?: number | null
   siblings?: { id: number; name: string; fs_name?: string }[]
+  /** RomM's merged metadata (any field may be empty). */
+  metadatum?: { genres?: string[]; companies?: string[]; first_release_date?: number | null; average_rating?: number | null; player_count?: string | null }
+  regions?: string[]
+  merged_screenshots?: string[]
+  /** RomM couldn't find the file at its last scan. */
+  missing_from_fs?: boolean
 }
 
 /** Save states, battery files, and other sidecar blobs — not playable ROMs. */
@@ -99,11 +105,16 @@ export async function getRoms(
   q.set('offset', String(opts.offset ?? 0))
   q.set('order_by', 'name')
   q.set('order_dir', 'asc')
-  if (opts.platformId) q.set('platform_id', String(opts.platformId))
+  // RomM 4.1+ filters by platform_ids (it ignores platform_id, which older RomM used): send both.
+  if (opts.platformId) {
+    q.set('platform_ids', String(opts.platformId))
+    q.set('platform_id', String(opts.platformId))
+  }
   if (opts.search) q.set('search_term', opts.search)
   const d = await gget<RomsPage | RommRom[]>(`/roms?${q.toString()}`)
   const page = Array.isArray(d) ? { items: d, total: d.length } : d
-  const items = dedupeRoms(page.items)
+  // And never show another console's games under a console, whatever RomM sent.
+  const items = dedupeRoms(opts.platformId ? page.items.filter((r) => r.platform_id === opts.platformId) : page.items)
   return { items, total: items.length }
 }
 
