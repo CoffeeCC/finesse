@@ -7,7 +7,7 @@ the server's graphics card and stream to Moonlight like Steam does, with no extr
 | App in Wolf | Plays | RomM folder |
 |---|---|---|
 | **PCSX2 (PS2)** | PlayStation 2 | `ps2` |
-| **Dolphin (GameCube & Wii)** | GameCube, Wii | `ngc`, `wii` |
+| **Dolphin (GameCube & Wii)** | GameCube, Wii | `ngc` (or `gc`, `gamecube`), `wii` |
 | **RPCS3 (PS3)** | PlayStation 3 | `ps3` |
 | **Cemu (Wii U)** | Wii U | `wiiu` |
 | **Ryujinx (Switch)** or **Eden (Switch)** | Switch | `switch` |

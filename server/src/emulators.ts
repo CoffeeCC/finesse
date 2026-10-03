@@ -126,7 +126,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       id: 'dolphin',
       title: 'Dolphin (GameCube & Wii)',
       name: 'Dolphin',
-      consoles: ['ngc', 'gamecube', 'wii'],
+      consoles: ['ngc', 'gamecube', 'gc', 'wii'],
       program: ['dolphin*.appimage', 'dolphin*/dolphin-emu'],
       needs: [],
       saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii` },

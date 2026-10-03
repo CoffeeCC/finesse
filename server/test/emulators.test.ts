@@ -202,6 +202,7 @@ describe('emulator settings', () => {
     assert.equal(item('rpcs3', 'PS3UPDAT.PUP').state, 'missing')
     assert.equal(item('rpcs3', 'RPCS3').state, 'missing')
     assert.equal(item('dolphin', 'Games').state, 'ok', 'RomM’s ngc folder')
+    assert.ok(emulatorCatalog().dolphin.consoles.includes('gc'), 'GameCube games in a gc folder play too')
     assert.doesNotMatch(JSON.stringify(r), new RegExp(SECRET_KEY_TEXT), 'contents are never read')
     const unseen = readiness({ apps: ['pcsx2'], paths: { ...folders, emulators: '/nowhere/emulators' } })
     assert.match(unseen[0]!.items.find((i) => i.label === 'Emulators')!.detail, /can’t see \/nowhere\/emulators/)

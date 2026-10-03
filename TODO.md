@@ -38,6 +38,12 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## GameCube games in a gc folder — v2.5.6 (2026-10-03)
+
+- **GameCube games filed under `gc` play too.** RomM keeps a folder named `gc` as its own console;
+  Dolphin only matched `ngc` and `gamecube`, so those games showed "Browse only". Now all three
+  names play in Dolphin, in Moonlight and in the browser.
+
 ## Games look like the rest of Finesse, and the console filter works — v2.5.5 (2026-10-03)
 
 - **Fixed: picking a console under Games showed every game.** RomM 4.1 and newer filter by
