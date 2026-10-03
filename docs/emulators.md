@@ -97,6 +97,31 @@ emulator**, give that emulator its own folder (`folders` in the document).
 - **Saves are per person:** each Wolf profile gets its own folder (`<saves>/<profile>/<emulator>`).
   The emulator's app and ES-DE share them.
 
+## Play in the browser (Beta)
+
+No Moonlight on this screen? On the game's page, press **Play in the browser**. Finesse starts
+the emulator with that game in a player of its own and streams it into the page with
+[Selkies](https://github.com/selkies-project/selkies): picture and sound, controllers (plug one
+in and press a button), keyboard and mouse. Saves are the same as in Moonlight: pick whose, if
+there's more than one profile.
+
+- **It needs Docker.** Full installs have it already. If you run your own apps, share Docker's
+  socket with Finesse (`/var/run/docker.sock:/var/run/docker.sock`). That lets Finesse run
+  containers on the server; it only makes its own (labelled `finesse.managed`).
+- **One game per person, two at once for the whole house** (they share the graphics card). Set
+  `FINESSE_PLAY_MAX` for more.
+- **Leaving the page ends the game,** and a game no one's watching for five minutes is closed.
+- **The first time downloads the player** (about 1 GB, LinuxServer's Selkies image, pinned like
+  Finesse's other apps).
+- **Moonlight is still the low-latency way.** The browser has more delay, so use Moonlight on
+  the TV. Browser play isn't in the LG TV app.
+
+The player is a container on Finesse's own network, made from the same settings as the Wolf
+apps: games, emulators, firmware and keys read-only, the profile's saves read-write, and the
+emulator's settings in a Docker volume per profile and emulator (`finesse-play-<profile>-<emulator>`).
+Nothing reaches it except through Finesse, which checks the person's sign-in for the page and its
+video connection.
+
 ## How it's put together
 
 - Every app runs on Games on Whales' ES-DE image (Sway, controllers, audio, AppImage support),
@@ -119,4 +144,5 @@ emulator**, give that emulator its own folder (`folders` in the document).
 | **The game page still says "Browse only"** | Its console has no emulator app yet. Tick it and save. |
 | **A black screen when the app starts** | The first start downloads the image (about 1 GB). Give it a few minutes. |
 | **"Start it in Moonlight from here" finds no session** | Open Moonlight on the device first, and leave it on Wolf UI. |
+| **"Finesse can't reach Docker"** (browser play) | Share Docker's socket with Finesse (see [Play in the browser](#play-in-the-browser-beta)). |
 | **A PS3 game says the firmware is missing** | Put `PS3UPDAT.PUP` in `<firmware>/rpcs3` and start RPCS3 once. |

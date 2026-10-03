@@ -106,7 +106,8 @@ shows the profiles' apps (Steam, RetroArch, EmulationStation…), and the steps 
 
 Finesse can add emulators to Wolf as apps: PCSX2 (PS2), Dolphin (GameCube and Wii), RPCS3 (PS3),
 Cemu (Wii U), Ryujinx or Eden (Switch) and ES-DE. Consoles the browser can't play then show
-**Play on Moonlight** in **Games**. See [Emulators](emulators.md).
+**Play on Moonlight** in **Games**, and **Play in the browser** (Beta) streams them into Finesse
+itself. See [Emulators](emulators.md).
 
 ## Add a device
 

@@ -74,9 +74,10 @@ interface Emulator {
   before?: string
 }
 
-const H = '/home/retro'
+/** The app's home folder: Wolf's apps (Games on Whales) use /home/retro; browser play (Selkies) uses /config. */
+export const WOLF_HOME = '/home/retro'
 
-const SWITCH: Record<SwitchEmulator, Omit<Emulator, 'id' | 'consoles' | 'title'>> = {
+const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' | 'consoles' | 'title'>> => ({
   ryujinx: {
     name: 'Ryujinx',
     program: ['ryujinx*.appimage', 'ryujinx*/ryujinx', 'publish/ryujinx'],
@@ -104,11 +105,11 @@ const SWITCH: Record<SwitchEmulator, Omit<Emulator, 'id' | 'consoles' | 'title'>
     ],
     args: { game: '-f -g "$GAME"', none: '' },
   },
-}
+})
 
 /** The emulator apps, with the Switch app running the chosen Switch emulator. */
-export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx'): Record<EmulatorId, Emulator> {
-  const sw = SWITCH[switchEmulator]
+export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = WOLF_HOME): Record<EmulatorId, Emulator> {
+  const sw = switchEmulators(H)[switchEmulator]
   const list: Emulator[] = [
     {
       id: 'pcsx2',
@@ -285,11 +286,12 @@ function linkLines(e: Emulator): string[] {
 }
 
 /** The start script: runs as the app's user, inside Wolf's session. */
-export function launchScript(e: Emulator, all: Emulator[]): string {
+export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string; browser?: boolean } = {}): string {
+  const H = opts.home ?? WOLF_HOME
   const lines = [
     'set -e',
-    'source /opt/gow/bash-lib/utils.sh',
-    'source /opt/gow/launch-comp.sh',
+    // Wolf: Games on Whales' helpers start the app in Sway. Browser play: the desktop is already there.
+    ...(opts.browser ? ['gow_log() { echo "$*"; }', 'launcher() { exec "$@"; }'] : ['source /opt/gow/bash-lib/utils.sh', 'source /opt/gow/launch-comp.sh']),
     'shopt -s nullglob nocaseglob',
     // Files from a read-only folder, linked by name into where the emulator looks.
     'link() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] && ln -sfn "$f" "$dst/"; done; done; return 0; }',
@@ -338,10 +340,9 @@ export interface AppContext {
   game?: string
 }
 
-/** One emulator as a Wolf app. */
-export function wolfApp(id: EmulatorId, ctx: AppContext): WolfApp {
-  const s = ctx.settings
-  const cat = emulatorCatalog(s.switchEmulator)
+/** The folders one emulator app gets: games, emulators, its firmware and keys (read-only), the profile's saves (read-write). */
+export function appMounts(id: EmulatorId, s: EmulatorSettings, profile: string, home = WOLF_HOME): string[] {
+  const cat = emulatorCatalog(s.switchEmulator, home)
   const e = cat[id]
   const all = Object.values(cat).filter((o) => s.apps.includes(o.id) || id === 'esde')
   const mounts: string[] = []
@@ -353,8 +354,18 @@ export function wolfApp(id: EmulatorId, ctx: AppContext): WolfApp {
       const dir = folderFor(s, o.id, what)
       if (dir && (o.needs.some((n) => n.what === what) || o.links.some((l) => l.what === what))) mounts.push(`${dir}:/finesse/${what}/${o.id}:ro`)
     }
-    if (s.paths.saves) for (const [k, inside] of Object.entries(o.saves)) mounts.push(`${savesDir(s, ctx.profile, o.id, k)}:${inside}:rw`)
+    if (s.paths.saves) for (const [k, inside] of Object.entries(o.saves)) mounts.push(`${savesDir(s, profile, o.id, k)}:${inside}:rw`)
   }
+  return mounts
+}
+
+/** One emulator as a Wolf app. */
+export function wolfApp(id: EmulatorId, ctx: AppContext): WolfApp {
+  const s = ctx.settings
+  const cat = emulatorCatalog(s.switchEmulator)
+  const e = cat[id]
+  const all = Object.values(cat).filter((o) => s.apps.includes(o.id) || id === 'esde')
+  const mounts = appMounts(id, s, ctx.profile)
   const env = [
     'RUN_SWAY=1',
     'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*',

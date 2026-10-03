@@ -38,6 +38,19 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Play in the browser — v2.5.0 (2026-10-03)
+
+- **PS2, GameCube, Wii, PS3, Wii U and Switch games play in the browser, as Beta.** On a game's
+  page, **Play in the browser** starts its emulator on the server and streams it into Finesse
+  with Selkies: picture, sound, controllers, keyboard and mouse. No Moonlight needed. Saves are the
+  same ones Moonlight uses, per profile. Moonlight is still the low-latency way for the TV.
+- Each game runs in a player of its own (LinuxServer's Selkies image, pinned), on Finesse's
+  network, reached only through Finesse with your sign-in. Leaving the page ends it, and one
+  nobody's watching for five minutes closes. One game per person, two at once per house
+  (`FINESSE_PLAY_MAX`).
+- Installs that connect to their own apps share Docker's socket with Finesse for it
+  (`/var/run/docker.sock`).
+
 ## PS2, GameCube, PS3, Wii U and Switch on Moonlight — v2.4.0 (2026-10-03)
 
 - **Emulators as Wolf apps.** With game streaming on, Finesse can add **PCSX2** (PS2),

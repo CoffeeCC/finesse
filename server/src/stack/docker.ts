@@ -113,11 +113,12 @@ export class Docker {
 
   /** Pulls an image; `onProgress(fraction 0..1, status)` streams progress. */
   async pull(ref: string, onProgress?: (fraction: number, status: string) => void): Promise<void> {
+    // Pinned by digest (repo@sha256:…): Docker takes it whole.
     const lastColon = ref.lastIndexOf(':')
-    const hasTag = lastColon > ref.lastIndexOf('/')
+    const hasTag = !ref.includes('@') && lastColon > ref.lastIndexOf('/')
     const image = hasTag ? ref.slice(0, lastColon) : ref
-    const tag = hasTag ? ref.slice(lastColon + 1) : 'latest'
-    const res = await this.raw('POST', `/images/create?fromImage=${encodeURIComponent(image)}&tag=${encodeURIComponent(tag)}`)
+    const tag = ref.includes('@') ? '' : hasTag ? ref.slice(lastColon + 1) : 'latest'
+    const res = await this.raw('POST', `/images/create?fromImage=${encodeURIComponent(image)}${tag ? `&tag=${encodeURIComponent(tag)}` : ''}`)
     if ((res.statusCode ?? 0) >= 400) {
       const chunks: Buffer[] = []
       for await (const c of res) chunks.push(c as Buffer)
@@ -204,6 +205,21 @@ export class Docker {
 
   async remove(nameOrId: string, opts: { force?: boolean; volumes?: boolean } = {}) {
     await this.call('DELETE', `/containers/${encodeURIComponent(nameOrId)}?force=${opts.force ? 1 : 0}&v=${opts.volumes ? 1 : 0}`, undefined, { allow404: true })
+  }
+
+  /** Puts files into a container (a tar, unpacked at `path`), before it starts. */
+  async putArchive(nameOrId: string, path: string, tar: Buffer) {
+    const res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const req = request(
+        { socketPath: this.socketPath, method: 'PUT', path: `/containers/${encodeURIComponent(nameOrId)}/archive?path=${encodeURIComponent(path)}`, headers: { Host: 'docker', 'Content-Type': 'application/x-tar', 'Content-Length': String(tar.length) } },
+        resolve,
+      )
+      req.on('error', (e) => reject(new DockerError(0, `Docker isn't reachable (${(e as NodeJS.ErrnoException).code ?? e.message})`)))
+      req.end(tar)
+    })
+    const chunks: Buffer[] = []
+    for await (const c of res) chunks.push(c as Buffer)
+    if ((res.statusCode ?? 0) >= 400) throw new DockerError(res.statusCode ?? 0, Buffer.concat(chunks).toString('utf8').trim() || 'Docker refused the files')
   }
 
   async rename(nameOrId: string, newName: string) {

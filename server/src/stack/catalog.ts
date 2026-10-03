@@ -152,6 +152,8 @@ export const wolfRunDir = (ctx: { hostRoot: string }) => `${ctx.hostRoot}/config
 export const wolfSocket = (ctx: { hostRoot: string }) => `${wolfRunDir(ctx)}/wolf.sock`
 /** The image Finesse's emulator apps run on in Wolf (Games on Whales' ES-DE: Sway, controllers, AppImage support). Pinned like the stack's images. */
 export const EMULATOR_IMAGE = 'ghcr.io/games-on-whales/es-de:sha-bc4bb67'
+/** Browser play: LinuxServer's Selkies desktop (WebSocket video, gamepads, audio), pinned by digest. */
+export const PLAY_IMAGE = 'ghcr.io/linuxserver/baseimage-selkies@sha256:7cab02f9222937ad1e704cd904534d69a2300b2406af466241817be0ce1d0493'
 const lsio = (ctx: StackContext) => ({ PUID: String(ctx.puid), PGID: String(ctx.pgid), TZ: ctx.timezone, UMASK: '002' })
 
 export const CATALOG: Record<StackServiceId, ServiceDef> = {

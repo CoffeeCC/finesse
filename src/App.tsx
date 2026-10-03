@@ -23,6 +23,7 @@ import AlbumPage from './pages/AlbumPage'
 import GamesPage from './pages/GamesPage'
 import GameDetailPage from './pages/GameDetailPage'
 import PlayGamePage from './pages/PlayGamePage'
+import StreamPlayPage from './pages/StreamPlayPage'
 import FriendsPage from './pages/FriendsPage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
@@ -145,6 +146,7 @@ export default function App() {
         {/* Player + game player are full-bleed, no navbar */}
         <Route path="/play/:itemId" element={<PlayerPage />} />
         <Route path="/games/play/:romId" element={<PlayGamePage />} />
+        {!__WEBOS__ && <Route path="/games/stream/:sessionId" element={<StreamPlayPage />} />}
         <Route
           path="*"
           element={

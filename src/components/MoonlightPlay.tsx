@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { streamingApi, type StreamEmulator } from '../api/setup'
+import { Link, useNavigate } from 'react-router-dom'
+import { playApi, streamingApi, type StreamEmulator } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 import { useFinesse } from '../lib/finesseServer'
 
@@ -95,13 +95,64 @@ function StartHere({ rom, app }: { rom: number; app: StreamEmulator }) {
   )
 }
 
+/** Browser play (Beta): the emulator streams into Finesse itself, for screens without Moonlight. */
+function PlayInBrowser({ rom, app }: { rom: number; app: StreamEmulator }) {
+  const navigate = useNavigate()
+  const { data: list } = useQuery({ queryKey: ['streaming', 'apps'], queryFn: streamingApi.apps, staleTime: 60_000 })
+  const [profile, setProfile] = useState(app.profiles.length === 1 ? app.profiles[0]! : '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const profileId = list?.profiles?.find((p) => p.name === profile)?.id
+  const pick = app.profiles.length > 1
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy || (pick && !profileId)}
+          onClick={() => {
+            setBusy(true)
+            setErr('')
+            playApi
+              .start(rom, profileId)
+              .then((s) => navigate(`/games/stream/${s.id}`))
+              .catch((e: Error) => setErr(e.message))
+              .finally(() => setBusy(false))
+          }}
+          className="inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50 active:scale-[0.98] transition-all"
+        >
+          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          {busy ? 'Starting…' : 'Play in the browser'}
+        </button>
+        <span className="rounded-md bg-amber-300/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-200">Beta</span>
+        {pick && (
+          <select className="rounded-md border border-white/10 bg-ink-900 px-2 py-1.5 text-[13px] text-white" value={profile} onChange={(e) => setProfile(e.target.value)} aria-label="Whose saves">
+            <option value="">Whose saves?</option>
+            {app.profiles.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      <p className="text-[12px] leading-relaxed text-ink-400">Plays right here with a controller or keyboard. Moonlight has less delay, so use it on the TV.</p>
+      {err && <p className="text-[12.5px] text-red-300">{err}</p>}
+    </div>
+  )
+}
+
 /** Game page: a console the browser can't play, played through Wolf and Moonlight instead. */
 export default function MoonlightPlay({ rom, console: consoleName, app, launcher }: { rom: number; console: string; app: StreamEmulator; launcher: string | null }) {
   const { session } = useAuth()
+  const { info } = useFinesse()
   const isAdmin = Boolean(session?.isAdmin)
   const one = app.profiles.length === 1 ? app.profiles[0]! : null
   return (
     <div className="max-w-xl space-y-4 rounded-2xl border border-white/10 bg-ink-900/60 px-5 py-4">
+      {!__WEBOS__ && info?.features.play && <PlayInBrowser rom={rom} app={app} />}
       <div>
         <p className="text-[15px] font-semibold text-white">Play on Moonlight</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-300">

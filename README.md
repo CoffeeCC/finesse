@@ -59,7 +59,7 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.
 - **[Games](docs/games.md)**: turn on the optional retro-games library.
 - **[Game streaming](docs/streaming.md)**: Steam on the TV with Wolf and Moonlight. Finesse sets Wolf up, or works with yours.
-- **[Emulators](docs/emulators.md)**: PS2, GameCube, Wii, PS3, Wii U and Switch as Wolf apps, from your RomM library.
+- **[Emulators](docs/emulators.md)**: PS2, GameCube, Wii, PS3, Wii U and Switch as Wolf apps, from your RomM library, or in the browser (Beta).
 - **[Let an AI agent install it](docs/agents/INSTALL.md)**: a runbook written for coding agents,
   with a [setup document](setup.schema.json) they can fill in and apply without a browser.
 

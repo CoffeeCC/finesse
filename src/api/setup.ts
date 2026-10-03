@@ -369,3 +369,30 @@ export const streamingApi = {
   /** Start a RomM game in an open Moonlight session. */
   play: (rom: number, session: string, profile?: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/play', { rom, session, profile }, { timeoutMs: 30000 }),
 }
+
+// ---------- Browser play (Selkies) ----------
+
+export interface PlaySession {
+  id: string
+  title: string
+  emulator: EmulatorId
+  state: 'starting' | 'ready' | 'error'
+  detail: string | null
+  error: string | null
+  /** The player's page on the Finesse server (/play/<id>/). */
+  url: string
+}
+
+export const playApi = {
+  start: (rom: number, profile?: string) => call<PlaySession>('POST', '/api/play', { rom, profile }, { timeoutMs: 30000 }),
+  get: (id: string) => call<PlaySession>('GET', `/api/play/${encodeURIComponent(id)}`),
+  stop: (id: string) => call<{ ok: boolean }>('DELETE', `/api/play/${encodeURIComponent(id)}`),
+  /** Ends the game as the page goes away (a request that outlives the page). */
+  stopOnLeave: (id: string) => {
+    try {
+      void fetch(finesseApi(`/api/play/${encodeURIComponent(id)}`), { method: 'DELETE', keepalive: true, headers: { Authorization: mediaBrowserAuthHeader() } }).catch(() => {})
+    } catch {
+      /* signed out */
+    }
+  },
+}

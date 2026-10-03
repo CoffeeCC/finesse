@@ -231,6 +231,14 @@ export function gamePath(fsPath: unknown, fsName: unknown): string | null {
   return ['/finesse/roms', rel, fsName].filter(Boolean).join('/')
 }
 
+/** One game from RomM (Basic auth added here; the browser never sees it). */
+export async function fetchRom(romm: { url?: string; apiKey?: string; username?: string; password?: string }, id: number): Promise<{ platform_slug?: unknown; fs_path?: unknown; fs_name?: unknown; name?: unknown }> {
+  const basic = romm.apiKey && !romm.username ? romm.apiKey : Buffer.from(`${romm.username ?? ''}:${romm.password ?? ''}`).toString('base64')
+  const r = await fetch(`${String(romm.url).replace(/\/+$/, '')}/api/roms/${id}`, { headers: { authorization: `Basic ${basic}` }, signal: AbortSignal.timeout(10000) }).catch(() => null)
+  if (!r?.ok) throw new ApiError(r?.status === 404 ? 404 : 502, r?.status === 404 ? 'RomM doesn’t have that game' : 'Couldn’t reach RomM. Try again in a minute.')
+  return (await r.json()) as { platform_slug?: unknown; fs_path?: unknown; fs_name?: unknown; name?: unknown }
+}
+
 /** The browser's stand-in for a Moonlight session (Wolf's session ids stay here, with its keys). */
 export const sessionId = (id: string) => createHash('sha256').update(`finesse-session:${id}`).digest('hex').slice(0, 16)
 
@@ -478,10 +486,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     if (!e?.paths.roms || !romm?.url) throw new ApiError(404, 'Playing a game from here needs RomM and the emulators set up')
     const romId = Number(body.rom)
     if (!Number.isInteger(romId) || romId <= 0) throw new ApiError(400, 'Which game?')
-    const basic = romm.apiKey && !romm.username ? romm.apiKey : Buffer.from(`${romm.username ?? ''}:${romm.password ?? ''}`).toString('base64')
-    const r = await fetch(`${romm.url.replace(/\/+$/, '')}/api/roms/${romId}`, { headers: { authorization: `Basic ${basic}` }, signal: AbortSignal.timeout(10000) }).catch(() => null)
-    if (!r?.ok) throw new ApiError(r?.status === 404 ? 404 : 502, r?.status === 404 ? 'RomM doesn’t have that game' : 'Couldn’t reach RomM. Try again in a minute.')
-    const rom = (await r.json()) as { platform_slug?: unknown; fs_path?: unknown; fs_name?: unknown; name?: unknown }
+    const rom = await fetchRom(romm, romId)
     const emu = emulatorForConsole(e, String(rom.platform_slug ?? ''))
     if (!emu) throw new ApiError(400, 'None of the emulator apps plays this console')
     const game = gamePath(rom.fs_path, rom.fs_name)
