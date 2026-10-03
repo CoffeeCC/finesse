@@ -321,13 +321,18 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
   return lines.join('\n')
 }
 
-/** Runs as root before the app's user takes over: ES-DE's /ROMs, made from RomM's folders. */
+/** Docker makes the save folders' parents as root; the app's user needs to add folders beside them. Stays on the home folder's own disk (-xdev), so mounted folders are left alone. */
+export const ownHome = (home: string, user: string) => `find ${home} -xdev -type d -user root -exec chown ${user}:${user} {} + 2>/dev/null || true`
+
+/** Runs as root before the app's user takes over: the home folder's ownership, and ES-DE's /ROMs, made from RomM's folders. */
 function rootPrep(e: Emulator): string {
-  if (e.id !== 'esde') return ''
+  const own = ownHome(WOLF_HOME, '"${UNAME:-retro}"')
+  if (e.id !== 'esde') return own
   const map = Object.entries(ESDE_NAMES)
     .map(([k, v]) => `${k}) n=${v};;`)
     .join(' ')
   return [
+    own,
     'shopt -s nullglob; mkdir -p /ROMs',
     // RomM keeps roms/<console> (or <console>/roms).
     `for d in /finesse/roms/roms/*/ /finesse/roms/*/roms/; do s=$(basename "\${d%/roms/}"); [ "$s" = roms ] && s=$(basename "$d"); n=$s; case "$s" in ${map} esac; [ -e "/ROMs/$n" ] || ln -s "\${d%/}" "/ROMs/$n"; done`,
@@ -374,7 +379,7 @@ export function wolfApp(id: EmulatorId, ctx: AppContext): WolfApp {
     'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*',
     `FINESSE_LAUNCH=${launchScript(e, all)}`,
     ...(ctx.game ? [`FINESSE_GAME=${ctx.game}`] : []),
-    ...(rootPrep(e) ? [`FINESSE_PREP=${rootPrep(e)}`] : []),
+    `FINESSE_PREP=${rootPrep(e)}`,
   ]
   const create = {
     HostConfig: { IpcMode: 'host', Privileged: false, CapAdd: ['NET_RAW', 'MKNOD', 'NET_ADMIN'], DeviceCgroupRules: ['c 13:* rmw', 'c 244:* rmw'] },

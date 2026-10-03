@@ -38,6 +38,15 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Browser play starts with an Nvidia card — v2.5.2 (2026-10-03)
+
+- **Fixed: with an Nvidia card, browser play never showed a picture.** 2.5.1 asked the card to
+  draw the player's desktop too, which Nvidia's driver can't do there, so the desktop never
+  started. Now the card only encodes the video; Intel and AMD cards still do both.
+- **Fixed: emulators couldn't make their own folders** (BIOS, settings) next to your saves, in
+  the browser and in Wolf. The folders Docker made for the saves belonged to root; Finesse now
+  hands them to the player before the emulator starts.
+
 ## Browser play on the graphics card — v2.5.1 (2026-10-03)
 
 - **Browser play encodes on the graphics card.** The player streamed with the processor's

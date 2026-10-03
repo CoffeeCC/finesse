@@ -227,7 +227,8 @@ test('a game starts in its own container, made from the emulator settings', asyn
   assert.ok(!c.Env.some((e: string) => /^PASSWORD=/.test(e)), 'no password of its own: Finesse is the door')
   assert.doesNotMatch(JSON.stringify(c), new RegExp(`${ROMM_PASS}|${API_KEY}`), 'no secrets go into the container')
   const files = docker.archives.find((a) => a.name === `finesse-play-${id}`)!.files
-  assert.deepEqual(files.map((f) => f.path).sort(), ['defaults/autostart', 'finesse-launch.sh'])
+  assert.deepEqual(files.map((f) => f.path).sort(), ['custom-cont-init.d/50-finesse-home', 'defaults/autostart', 'finesse-launch.sh'])
+  assert.match(files.find((f) => f.path.startsWith('custom-cont-init.d/'))!.data.toString(), /find \/config -xdev -type d -user root -exec chown abc:abc/)
   const script = files.find((f) => f.path === 'finesse-launch.sh')!.data.toString()
   assert.match(script, /launcher\(\) \{ exec "\$@"; \}/)
   assert.doesNotMatch(script, /\/opt\/gow/)

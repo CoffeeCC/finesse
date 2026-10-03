@@ -17,7 +17,7 @@ import type { Duplex } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
-import { appMounts, emulatorCatalog, emulatorForConsole, launchScript, type EmulatorId } from './emulators.ts'
+import { appMounts, emulatorCatalog, emulatorForConsole, launchScript, ownHome, type EmulatorId } from './emulators.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import { logger } from './log.ts'
@@ -171,8 +171,9 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         'SELKIES_GAMEPAD_ENABLED=true',
         'APPIMAGE_EXTRACT_AND_RUN=1',
         ...(g.nvidia ? ['NVIDIA_DRIVER_CAPABILITIES=all', 'NVIDIA_VISIBLE_DEVICES=all'] : []),
-        // The graphics card draws the desktop and encodes the video (VA-API or NVENC); without one, the processor does.
-        ...(render ? [`DRINODE=${render}`, `DRI_NODE=${render}`] : []),
+        // The graphics card encodes the video (NVENC or VA-API). Intel and AMD also draw the desktop;
+        // Nvidia's driver can't back the virtual display, so there the desktop stays on the processor.
+        ...(render ? [`DRI_NODE=${render}`, ...(g.nvidia ? [] : [`DRINODE=${render}`])] : []),
         `FINESSE_GAME=${spec.game}`,
       ]
       await docker.remove(s.container, { force: true }).catch(() => {})
@@ -197,6 +198,8 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
       await docker.putArchive(s.container, '/', writeTar([
         { path: 'defaults/autostart', data: Buffer.from('bash /finesse-launch.sh\n'), mode: 0o755 },
         { path: 'finesse-launch.sh', data: Buffer.from(`${script}\n`), mode: 0o755 },
+        // Runs as root before the desktop starts (LinuxServer's custom init hook).
+        { path: 'custom-cont-init.d/50-finesse-home', data: Buffer.from(`#!/bin/bash\n${ownHome(HOME, 'abc')}\n`), mode: 0o755 },
       ]))
       await docker.start(s.container)
       const until = Date.now() + 90_000
