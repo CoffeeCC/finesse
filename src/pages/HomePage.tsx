@@ -4,9 +4,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useGenres, useHomeLayout, useLatest, useViews } from '../api/queries'
 import { saveHomeLayout, type HomeLayout } from '../api/client'
 import type { JfItem } from '../api/types'
-import HandoffBanner from '../components/HandoffBanner'
-import TvFocusHero from '../components/TvFocusHero'
-import { IS_TV } from '../lib/device'
 import {
   BecauseRow,
   ComingSoonRow,
@@ -14,7 +11,6 @@ import {
   QueryRow,
   RecentlyAddedRow,
   TopTenRow,
-  UpNextRow,
   WatchlistRow,
 } from '../components/HomeRows'
 import { RowControlsContext } from '../components/MediaRow'
@@ -26,25 +22,6 @@ import { useFinesse } from '../lib/finesseServer'
 import FriendRows from '../components/FriendRows'
 
 const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
-const HERO_COUNT = 5
-
-// Fixed at module load = once per app launch.
-const LAUNCH_SEED = Math.random()
-
-function seededShuffle<T>(arr: T[], seed: number): T[] {
-  const a = [...arr]
-  let s = Math.floor(seed * 2147483647) || 1
-  const rnd = () => {
-    s = (s * 1103515245 + 12345) % 2147483648
-    return s / 2147483648
-  }
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
-
 const PREFERRED_GENRES = [
   'Action', 'Animation', 'Comedy', 'Science Fiction', 'Horror',
   'Fantasy', 'Adventure', 'Drama', 'Thriller', 'Family',
@@ -69,8 +46,8 @@ function buildRows(
   // Curated by default: about eight rows, not twenty. Genre *shelves* are
   // opt-in from Customize; by default genres are one strip of tiles.
   const rows: RowDesc[] = [
-    // Phones and computers show it in the stage's Now row (components/os).
-    ...(IS_TV ? [{ key: 'upNext', title: 'Up next for you', render: (h: boolean) => <UpNextRow hideTitle={h} /> }] : []),
+    // "Up next" lives in the stage's Now row (components/os).
+
     { key: 'comingSoon', title: 'Coming Soon', render: (h) => <ComingSoonRow hideTitle={h} /> },
     { key: 'watchlist', title: 'My List', render: (h) => <WatchlistRow hideTitle={h} /> },
     { key: 'topTen', title: 'Top 10 at home', render: (h) => <TopTenRow hideTitle={h} /> },
@@ -233,12 +210,6 @@ export default function HomePage() {
 
   const { data: latestMovies, isLoading: moviesLoading } = useLatest(movieLib?.Id)
   const { data: latestShows, isLoading: showsLoading } = useLatest(showLib?.Id)
-  const heroItems = useMemo(() => {
-    const candidates = [...(latestMovies ?? []), ...(latestShows ?? [])]
-    // Shuffled with a per-launch seed: a fresh hero lineup every time the app
-    // starts, but stable while navigating around within a session.
-    return seededShuffle(candidates.filter((i) => i.BackdropImageTags?.length), LAUNCH_SEED).slice(0, HERO_COUNT)
-  }, [latestMovies, latestShows])
   const heroLoading = viewsLoading || (moviesLoading && showsLoading)
 
   const { data: genreList } = useGenres(movieLib?.Id)
@@ -306,13 +277,10 @@ export default function HomePage() {
     <div className="pb-16">
       <div className="aurora" aria-hidden><div /><div /><div /></div>
 
-      {/* TV: a focus-driven hero (describes whatever the remote rests on);
-          elsewhere the 2.0 stage, with everything that's "now" in the house. */}
-      {IS_TV ? <TvFocusHero initial={heroItems[0]} /> : <NowStage />}
+      {/* The 2.0 stage: everything that's "now" in the house (lighter on TVs). */}
+      <NowStage />
 
-      {IS_TV && <HandoffBanner />}
-
-      {!IS_TV && !customizing && !heroLoading && !moviesLoading && !showsLoading && !(latestMovies?.length ?? 0) && !(latestShows?.length ?? 0) && <EmptyLibrary />}
+      {!customizing && !heroLoading && !moviesLoading && !showsLoading && !(latestMovies?.length ?? 0) && !(latestShows?.length ?? 0) && <EmptyLibrary />}
 
       <div className={`mt-6 sm:mt-8 ${customizing ? `${PAD} space-y-2` : 'space-y-8 sm:space-y-10'}`}>
         {visibleRows.map((r, i) => (

@@ -101,9 +101,9 @@ export default function NavBar() {
   }, [])
 
   const libraries = views?.Items.filter((v) => NAV_COLLECTIONS.has(v.CollectionType ?? '')) ?? []
-  // 2.0 (phones and computers): Music, Games and Friends are spaces of their own
-  // in the pill; the rest stays under More. The TV keeps the classic bar.
-  const lux = !IS_TV
+  // 2.0: Music, Games and Friends are spaces of their own in the pill; the rest
+  // stays under More. (The TV's stylesheet drops the glass blur it can't draw.)
+  const lux = true
   const SPACES = new Set(['Music', 'Games', 'Friends'])
   const spaces = lux ? more.filter((d) => SPACES.has(d.label)) : []
   const rest = lux ? more.filter((d) => !SPACES.has(d.label)) : more

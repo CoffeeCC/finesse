@@ -38,6 +38,20 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Controllers, and 2.0 on the TV — v2.1.0 (2026-10-03)
+
+- **Game controllers drive the whole app.** Xbox, PlayStation, Switch Pro and most others,
+  in the browser and on the TV: the stick or D-pad moves (hold to keep going), **A** selects,
+  **B** goes back, **Y** searches, **Menu** opens the quick menu, **LB/RB** switch between
+  Home, Movies, Shows, Music, Games and Friends, and in the player the triggers skip back and
+  forward. Pick one up and a note shows its buttons, named the way your controller names
+  them (✕ ○ △ on PlayStation). The retro-games player still reads the controller itself.
+- **The TV gets the 2.0 home.** The Now row, the stage with the title's art, logo and
+  details, the live line, the new top bar and the quick menu, built for the remote and for
+  the LG CX's older browser: one screen, plain fades, no blur or glow it can't draw.
+- Moving the mouse is now the only way the mouse picks a title: scrolling the page under a
+  resting pointer no longer changes the stage while you use the keyboard or a controller.
+
 ## Finesse 2.0: a home that's alive — v2.0.0 (2026-10-03)
 
 A new look for phones and computers. The TV app keeps its own home for now.

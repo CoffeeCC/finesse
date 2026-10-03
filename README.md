@@ -72,6 +72,8 @@ about ten minutes, and nothing is installed until you press **Build my server**.
   takes on its colour. A live line underneath says what's happening in the house.
 - **The quick menu.** One button for the whole house: who's playing what and where, how the
   server is doing, downloads, game streaming and friends.
+- **Pick up a controller.** Xbox, PlayStation and Switch controllers drive everything, in the
+  browser and on the TV: move, select, back, search, the quick menu, tabs and the player.
 - **Rows that know you.** **My List**, the household's **Top 10**, *Because you watched*, recently
   added and genre rows. Hide, reorder or add rows with **Customize Home**.
 - **Previews everywhere.** Hover a poster, or open a title, and a short clip plays. Finesse

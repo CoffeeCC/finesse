@@ -51,7 +51,8 @@ runs the same, plus the TV build.
 | `src/lib/finesseServer.ts` | Discovery (`/api/finesse`): bundled Jellyfin, setup state, features, public URL |
 | `src/lib/contentOrigin.ts` | The Finesse server's base URL (web: `/finesse/`; TV: the address the person connected to) |
 | `src/lib/spatialNav.ts` | D-pad navigation for TVs |
-| `src/components/os/` | The 2.0 home on phones and computers: `NowStage` (the stage, the Now row, the live line), `now.ts` (what's "now": resume, next up, other rooms, games, friends, new), `QuickMenu`. The TV keeps `TvFocusHero`. |
+| `src/lib/gamepad.ts` | Game controllers: polled on a timer, turned into the same keys the TV remote sends (arrows, Enter, Escape), plus Y search, Menu quick menu, LB/RB tabs |
+| `src/components/os/` | The 2.0 home on phones and computers: `NowStage` (the stage, the Now row, the live line), `now.ts` (what's "now": resume, next up, other rooms, games, friends, new), `QuickMenu`. TVs get the same home through `html.tv` rules in `index.css` (fixed sizes, no blur). |
 | `src/pages/setup/` | The setup wizard |
 | `src/pages/settings/SystemPanel.tsx` | Settings → Server (health, backups, updates, email) |
 | `server/src/app.ts` | Assembles the HTTP server; `main.ts` starts it with the setup + system plugins |

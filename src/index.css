@@ -1,5 +1,10 @@
 @import "tailwindcss";
-@import "@fontsource-variable/geist";
+/* Geist in fixed weights, not the variable font: Chromium 68 (the LG TV)
+   spaces the variable one wrongly and every word runs together. */
+@import "@fontsource/geist/latin-400.css";
+@import "@fontsource/geist/latin-500.css";
+@import "@fontsource/geist/latin-600.css";
+@import "@fontsource/geist/latin-700.css";
 /* System labels (kickers, times, counts): the technical half of the 2.0 look. */
 @import "@fontsource-variable/geist-mono";
 /* Display face for hero and row titles (Latin only, keeps the TV bundle small). */
@@ -7,7 +12,7 @@
 @import "@fontsource/instrument-serif/latin-400-italic.css";
 
 @theme {
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
   --color-ink-950: #08090e;
@@ -1183,3 +1188,73 @@ html.tv .lv-line.leaving {
   }
   .os-tile { transition: none; }
 }
+
+/* ---- The TV (html.tv): the same home, lighter ----
+   Chromium 68 on the LG CX has no aspect-ratio, clamp() or flex gap, and its
+   SoC can't afford live blurs, glows, reflections or animated layouts. Same
+   art, type and layout; plain fades instead of the expensive effects. */
+html.tv .os-stage { min-height: calc(var(--vh) * 100); }
+html.tv .os-orb,
+html.tv .os-tile::after { display: none; }
+html.tv .os-bd { transition: opacity 0.6s ease; transform: none; }
+html.tv .os-bd.on { animation: none; transform: none; }
+html.tv .os-bd.soft { filter: brightness(0.45) saturate(1.2); transform: scale(1.1); }
+html.tv .os-gen .sun { width: 540px; height: 540px; animation: none; filter: none; }
+html.tv .os-gen .floor { animation: none; }
+html.tv .os-title { font-size: 120px; }
+html.tv .os-logo { max-width: 560px; max-height: 130px; animation: none; }
+html.tv .os-hero > * { animation: os-rise-tv 0.45s ease-out both; }
+@keyframes os-rise-tv { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+html.tv .os-btn { height: 60px; padding: 0 30px; font-size: 19px; }
+html.tv .os-btn.primary { animation: none; box-shadow: none; }
+html.tv .os-btn > * + * { margin-left: 10px; }
+html.tv .os-prog { width: 460px; }
+html.tv .os-kicker > * + * { margin-left: 12px; }
+html.tv .os-tile .cap small > * + * { margin-left: 6px; }
+html.tv .os-rail { padding-bottom: 30px; margin-bottom: 0; }
+html.tv .os-rail > * + * { margin-left: 24px; }
+html.tv .os-tile {
+  width: 330px;
+  height: 186px;
+  transition: none;
+  box-shadow: none;
+  -webkit-box-reflect: none;
+  opacity: 0.8;
+  filter: none;
+}
+html.tv .os-tile.on { width: 400px; height: 225px; opacity: 1; box-shadow: none; }
+html.tv .os-tile:focus,
+html.tv .os-tile.on { outline: 4px solid #f5f3ee !important; outline-offset: 4px !important; }
+html.tv .os-tile .art { transition: none; }
+html.tv .os-tile.on .art { transform: none; }
+html.tv .os-tile .art.soft { filter: brightness(0.45) saturate(1.2); }
+html.tv .os-tile .cover { width: 162px; height: 162px; }
+html.tv .os-tile.on .cover { width: 201px; height: 201px; }
+html.tv .os-tile .cap > * + * { margin-top: 6px; }
+html.tv .os-tile .tgen .tsun { width: 145px; height: 145px; }
+html.tv .os-tile.on .tgen .tsun { width: 176px; height: 176px; }
+html.tv .os-tile .tgen .tfloor { animation: none; }
+html.tv .os-tile .badge { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(8, 9, 14, 0.75); }
+html.tv .os-live > * + * { margin-left: 14px; }
+html.tv .os-live .run > * + * { margin-left: 44px; }
+html.tv .os-live .ev > * + * { margin-left: 9px; }
+html.tv .os-eq > * + * { margin-left: 2px; }
+/* No blur to frost it, so the TV's glass is solid (art showing through reads as noise). */
+html.tv .os-glass { background: #161925; }
+html.tv .os-qm-scrim { background: rgba(0, 0, 0, 0.72); }
+/* Ten-foot fit: at the TV's zoom the stage (hero, row, live line) has to sit
+   on one screen, with no scrolling to reach the row. */
+html.tv .os-top { padding-top: 80px; }
+html.tv .os-title { font-size: 96px; }
+html.tv .os-logo { max-height: 104px; }
+html.tv .os-chips { margin-top: 18px; }
+html.tv .os-line { margin-top: 16px; font-size: 20px; -webkit-line-clamp: 2; }
+html.tv .os-actions { margin-top: 24px; }
+html.tv .os-prog-at { margin-top: 20px; }
+html.tv .os-rail-at { margin-top: 28px; padding-top: 14px; }
+html.tv .os-tile { width: 300px; height: 169px; }
+html.tv .os-tile.on { width: 364px; height: 205px; }
+html.tv .os-tile .cover { width: 145px; height: 145px; }
+html.tv .os-tile.on .cover { width: 181px; height: 181px; }
+html.tv .os-tile .tgen .tsun { width: 132px; height: 132px; }
+html.tv .os-tile.on .tgen .tsun { width: 160px; height: 160px; }

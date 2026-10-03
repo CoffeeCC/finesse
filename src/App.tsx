@@ -42,6 +42,8 @@ import { ServerUpdateOverlay } from './components/Update'
 import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
 import { initUiSounds } from './lib/sound'
+import { initGamepad } from './lib/gamepad'
+import ControllerHint from './components/ControllerHint'
 import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
 import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
@@ -67,6 +69,8 @@ export default function App() {
 
   // Global select-confirm sound (opt-in via Settings). Idempotent.
   useEffect(() => initUiSounds(), [])
+  // Game controllers drive the app like a remote (lib/gamepad).
+  useEffect(() => initGamepad(), [])
 
   // Remote/keyboard Back everywhere (player included): close the topmost open
   // menu/sheet first, otherwise step back — see lib/back.ts for the webOS
@@ -135,6 +139,7 @@ export default function App() {
       <FocusBackdrop />
       <Marquee />
       <div className="grain" aria-hidden />
+      <ControllerHint />
       <Routes>
         {__WEBOS__ && <Route path="/connect" element={<TvConnectPage />} />}
         {/* Player + game player are full-bleed, no navbar */}
@@ -175,7 +180,7 @@ export default function App() {
               <NowPlaying />
               <BottomTabs />
               {!IS_TV && <SearchOverlay />}
-              {!IS_TV && <QuickMenu />}
+              <QuickMenu />
               <ServerUpdateOverlay />
             </>
           }

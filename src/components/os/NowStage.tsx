@@ -7,6 +7,7 @@ import { morphNavigate } from '../../lib/motion'
 import { claimPreview, previewClipUrl, releasePreview, EMPTY_MANIFEST } from '../../lib/preview'
 import { getPrefs } from '../../lib/settings'
 import { setMood } from '../../lib/mood'
+import { IS_TV } from '../../lib/device'
 import WatchlistButton from '../WatchlistButton'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
 
@@ -28,9 +29,12 @@ const PlayIcon = () => (
  *  null while it's being checked; remembered per logo. */
 const logoVerdicts = new Map<string, boolean>()
 function useLogoReadable(url: string | null): boolean | null {
+  // TVs load art from another origin (the app runs from file://), so it can't
+  // be read back from a canvas: trust the logo there.
   const [verdict, setVerdict] = useState<{ url: string | null; ok: boolean | null }>({ url, ok: url ? logoVerdicts.get(url) ?? null : false })
   useEffect(() => {
     if (!url) return setVerdict({ url, ok: false })
+    if (IS_TV) return setVerdict({ url, ok: true })
     const known = logoVerdicts.get(url)
     if (known !== undefined) return setVerdict({ url, ok: known })
     setVerdict({ url, ok: null })
@@ -109,7 +113,7 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
     <div key={entry.key} className="os-hero">
       <p className="os-kicker flex items-center gap-3 text-white/85 mb-4 sm:mb-5">
         <span className="os-dot" />
-        {entry.kicker}
+        <span>{entry.kicker}</span>
       </p>
       <div className="min-h-[64px] flex items-end">
         {logoOk ? (
@@ -118,13 +122,13 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
           <h1 className="os-title">{entry.title}</h1>
         ) : null}
       </div>
-      <div className="mt-5 sm:mt-6 flex flex-wrap gap-2">
+      <div className="os-chips mt-5 sm:mt-6 flex flex-wrap gap-2">
         {chips.map((c, i) => (
           <span key={`${c}-${i}`} className={`os-chip ${i === 0 ? 'hi' : ''}`}>{c}</span>
         ))}
       </div>
-      {line ? <p className="mt-4 sm:mt-5 max-w-[640px] text-[15px] sm:text-[19px] lg:text-[21px] leading-relaxed text-white/80 line-clamp-2 sm:line-clamp-3">{line}</p> : <div />}
-      <div className="mt-6 sm:mt-8 flex flex-wrap items-center gap-3">
+      {line ? <p className="os-line mt-4 sm:mt-5 max-w-[640px] text-[15px] sm:text-[19px] lg:text-[21px] leading-relaxed text-white/80 line-clamp-2 sm:line-clamp-3">{line}</p> : <div />}
+      <div className="os-actions mt-6 sm:mt-8 flex flex-wrap items-center gap-3">
         <Link
           to={entry.primary.to}
           className="os-btn primary"
@@ -132,7 +136,7 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
           onClick={(e) => onGo(entry, e, (e.currentTarget.closest('.os-stage') as HTMLElement | null)?.querySelector<HTMLElement>('.os-bd.on') ?? null)}
         >
           <PlayIcon />
-          {entry.primary.label}
+          <span>{entry.primary.label}</span>
         </Link>
         {entry.info && (
           <Link to={entry.info} className="os-btn os-glass">
@@ -142,7 +146,7 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
         {watchlistable && <WatchlistButton item={entry.item!} />}
       </div>
       {entry.pct !== undefined ? (
-        <div className="os-prog mt-6 sm:mt-7">
+        <div className="os-prog os-prog-at mt-6 sm:mt-7">
           <i style={{ width: `${entry.pct}%` }} />
         </div>
       ) : (
@@ -174,8 +178,10 @@ function Tile({
       aria-label={`${entry.title}: ${entry.sub}`}
       data-tile
       onFocus={onRest}
-      onPointerEnter={(e) => {
-        if (e.pointerType !== 'mouse') return
+      // A real move only: scrolling the page under a resting pointer also
+      // "enters" tiles, and must not steal the stage from the remote or controller.
+      onPointerMove={(e) => {
+        if (e.pointerType !== 'mouse' || (e.movementX === 0 && e.movementY === 0) || on) return
         window.clearTimeout(timer.current)
         timer.current = window.setTimeout(onRest, HOVER_DWELL_MS)
       }}
@@ -207,7 +213,7 @@ function Tile({
               <i />
             </span>
           )}
-          {entry.sub}
+          <span>{entry.sub}</span>
         </small>
       </span>
       {entry.badge && <span className="badge">{entry.badge}</span>}
@@ -223,7 +229,7 @@ function Tile({
 /** Finesse 2.0's home: the art of what you rest on fills the screen, over a row
  *  of everything that's "now" in the house, with a live line underneath. */
 export default function NowStage() {
-  const artWidth = typeof window !== 'undefined' && window.innerWidth > 1280 ? 1920 : 1280
+  const artWidth = !IS_TV && typeof window !== 'undefined' && window.innerWidth > 1280 ? 1920 : 1280
   const { entries } = useNowEntries(artWidth)
   // Follows the title, not its place: the row fills in as data arrives, and
   // the house changes (someone starts playing) while you rest on something.
@@ -253,7 +259,8 @@ export default function NowStage() {
   const stopClip = useCallback(() => setClip(null), [])
   useEffect(() => {
     setClip(null)
-    if (!entry?.item || reducedMotion()) return
+    // TVs: one video decoder is for the film itself, not a background loop.
+    if (!entry?.item || reducedMotion() || IS_TV) return
     const ids = [entry.item.Id, entry.item.SeriesId].filter(Boolean) as string[]
     const url = ids.map((id) => previewClipUrl(id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)).find(Boolean)
     if (!url) return
@@ -364,11 +371,11 @@ export default function NowStage() {
         <div className="os-vignette" />
       </div>
 
-      <div className="relative pt-24 sm:pt-28">
+      <div className="os-top relative pt-24 sm:pt-28">
         <Hero entry={entry} onGo={go} />
       </div>
 
-      <div ref={railRef} className="os-rail mt-8 sm:mt-10">
+      <div ref={railRef} className="os-rail os-rail-at mt-8 sm:mt-10">
         {entries.map((e, i) => (
           <Tile key={e.key} entry={e} on={i === f} onRest={() => setFocus(i)} onGo={go} />
         ))}
@@ -382,7 +389,8 @@ export default function NowStage() {
               {doubled.map((l, i) => (
                 <span key={i} className="ev" aria-hidden={i >= lines.length || undefined}>
                   <span style={{ color: `rgb(${l.rgb})` }}>●</span>
-                  {l.text} <em>{l.when}</em>
+                  <span>{l.text}</span>
+                  <em>{l.when}</em>
                 </span>
               ))}
             </div>

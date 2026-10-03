@@ -214,7 +214,7 @@ export default function QuickMenu() {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[70]">
-      <button type="button" aria-label="Close the quick menu" className="absolute inset-0 bg-black/45 backdrop-blur-md os-fade-in cursor-default" onClick={closeQuickMenu} />
+      <button type="button" aria-label="Close the quick menu" className="os-qm-scrim absolute inset-0 h-full w-full bg-black/45 backdrop-blur-md os-fade-in cursor-default" onClick={closeQuickMenu} />
       <section
         role="dialog"
         aria-modal="true"
