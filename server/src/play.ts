@@ -23,7 +23,7 @@ import { proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import { logger } from './log.ts'
 import { PLAY_IMAGE } from './stack/catalog.ts'
 import { Docker, DockerError } from './stack/docker.ts'
-import { fetchRom, gamePath } from './streaming.ts'
+import { fetchRom, pickGame } from './streaming.ts'
 import { writeTar } from './tar.ts'
 
 const log = logger('play')
@@ -245,8 +245,9 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     const rom = await fetchRom(s.services.romm!, romId)
     const emulator = emulatorForConsole(e, String(rom.platform_slug ?? ''))
     if (!emulator || emulator === 'esde') throw new ApiError(400, 'None of the emulators plays this console')
-    const game = gamePath(rom.fs_path, rom.fs_name)
-    if (!game) throw new ApiError(400, 'RomM gave this game a path Finesse can’t use')
+    const picked = pickGame(rom, emulator, emulatorCatalog(e.switchEmulator)[emulator].name)
+    if ('error' in picked) throw new ApiError(400, picked.error)
+    const game = picked.path
     const profile = typeof body.profile === 'string' && /^[\w.@-]{1,64}$/.test(body.profile) ? body.profile : 'shared'
     // One game per person at a time; a few at once for the whole house (they share the graphics card).
     for (const old of [...sessions.values()].filter((x) => x.user === user.Id)) await remove(old, 'a new game')

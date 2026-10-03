@@ -10,7 +10,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { emulatorCatalog, launchScript, readiness, validateEmulators, wolfApp, type EmulatorSettings } from '../src/emulators.ts'
-import { gamePath } from '../src/streaming.ts'
+import { gamePath, pickGame } from '../src/streaming.ts'
 import { ADMIN_TOKEN, API_KEY, USER_TOKEN, fakeJellyfin, listen, tmp, webBuild, type FakeJellyfin } from './helpers.ts'
 
 const BASE = { h264_gst_pipeline: 'h264 ! sink', hevc_gst_pipeline: 'h265 ! sink', av1_gst_pipeline: 'av1 ! sink', render_node: '/dev/dri/renderD128', opus_gst_pipeline: 'opus ! sink' }
@@ -205,6 +205,22 @@ describe('emulator settings', () => {
     assert.doesNotMatch(JSON.stringify(r), new RegExp(SECRET_KEY_TEXT), 'contents are never read')
     const unseen = readiness({ apps: ['pcsx2'], paths: { ...folders, emulators: '/nowhere/emulators' } })
     assert.match(unseen[0]!.items.find((i) => i.label === 'Emulators')!.detail, /can’t see \/nowhere\/emulators/)
+  })
+
+  test('a folder game opens the disc image inside it, or says there isn’t one', () => {
+    const f = (file_path: string, file_name: string) => ({ file_path, file_name })
+    assert.deepEqual(pickGame({ fs_path: 'roms/ps2', fs_name: 'Tekken 4 .iso', files: [f('roms/ps2', 'Tekken 4 .iso')] }, 'pcsx2'), { path: '/finesse/roms/roms/ps2/Tekken 4 .iso' })
+    const dbz = 'Dragon Ball Z - Budokai Tenkaichi 3 (USA) (En,Ja)'
+    assert.deepEqual(pickGame({ fs_path: 'roms/ps2', fs_name: dbz, files: [f(`roms/ps2/${dbz}`, `${dbz}.iso`), f(`roms/ps2/${dbz}`, "Vimm's Lair.txt")] }, 'pcsx2'), { path: `/finesse/roms/roms/ps2/${dbz}/${dbz}.iso` })
+    // A download's wrapper: index files without their image, covers and a Windows program.
+    const dc = 'Dark Cloud 1 & 2 (NTSC) PS2'
+    const wrapper = { fs_path: 'roms/ps2', fs_name: dc, files: [f(`roms/ps2/${dc}/Dark Cloud`, 'Dark Cloud PS2.MDS'), f(`roms/ps2/${dc}/Dark Cloud`, 'Back Cover.jpg'), f(`roms/ps2/${dc}/Dvd Decrypter (App)`, 'DVD Decrypter v3.5.4.0.exe')] }
+    const none = pickGame(wrapper, 'pcsx2', 'PCSX2')
+    assert.ok('error' in none)
+    assert.match(none.error, /no game file here that PCSX2 can open \(it has \.mds, \.jpg, \.exe\)\..*\.mdf/)
+    assert.deepEqual(pickGame({ fs_path: 'roms/ps3', fs_name: 'Demon’s Souls (USA).ps3', files: [f('roms/ps3/Demon’s Souls (USA).ps3/PS3_GAME/USRDIR', 'EBOOT.BIN')] }, 'rpcs3'), { path: '/finesse/roms/roms/ps3/Demon’s Souls (USA).ps3' }, 'RPCS3 opens the game folder')
+    assert.deepEqual(pickGame({ fs_path: 'roms/ps3', fs_name: 'Skate 3 (USA)', files: [f('roms/ps3/Skate 3 (USA)/PS3_GAME/USRDIR', 'EBOOT.BIN')] }, 'rpcs3'), { path: '/finesse/roms/roms/ps3/Skate 3 (USA)' })
+    assert.deepEqual(pickGame({ fs_path: 'roms/switch', fs_name: 'Game [XCI]', files: [f('roms/switch/Game [XCI]', 'game.xci'), f('roms/switch/Game [XCI]/bios', 'x.txt')] }, 'switch'), { path: '/finesse/roms/roms/switch/Game [XCI]/game.xci' })
   })
 
   test('RomM paths that climb out of the library are refused', () => {

@@ -231,12 +231,57 @@ export function gamePath(fsPath: unknown, fsName: unknown): string | null {
   return ['/finesse/roms', rel, fsName].filter(Boolean).join('/')
 }
 
+export interface RommGame {
+  platform_slug?: unknown
+  fs_path?: unknown
+  fs_name?: unknown
+  name?: unknown
+  /** Every file RomM found for the game (a folder game has several). */
+  files?: { file_path?: unknown; file_name?: unknown }[]
+}
+
+// What each emulator opens, best first. Anything else in a game's folder (covers, notes, programs) is passed over.
+const OPENS: Record<string, string[]> = {
+  pcsx2: ['iso', 'chd', 'cso', 'zso', 'gz', 'cue', 'bin', 'img', 'elf'],
+  dolphin: ['rvz', 'iso', 'gcm', 'gcz', 'wbfs', 'wia', 'ciso', 'dol', 'elf', 'wad'],
+  rpcs3: ['iso'],
+  cemu: ['wua', 'wud', 'wux', 'rpx'],
+  switch: ['xci', 'nsp', 'nca', 'nro', 'nso'],
+}
+const extOf = (n: string) => (/\.([a-z0-9]+)$/i.exec(n)?.[1] ?? '').toLowerCase()
+
+/** The file the emulator should open for a RomM game, as a path inside the app; or why there isn't one. */
+export function pickGame(rom: RommGame, emulator: string, emulatorName = emulator): { path: string } | { error: string } {
+  const want = OPENS[emulator] ?? []
+  const fsName = typeof rom.fs_name === 'string' ? rom.fs_name : ''
+  // A single file RomM knows as the game.
+  if (want.includes(extOf(fsName))) {
+    const path = gamePath(rom.fs_path, fsName)
+    return path ? { path } : { error: 'RomM gave this game a path Finesse can’t use' }
+  }
+  // A folder: the best file inside it.
+  const files = (rom.files ?? []).filter((f) => typeof f.file_name === 'string' && typeof f.file_path === 'string') as { file_path: string; file_name: string }[]
+  const best = files.filter((f) => want.includes(extOf(f.file_name))).sort((a, b) => want.indexOf(extOf(a.file_name)) - want.indexOf(extOf(b.file_name)))[0]
+  if (best) {
+    const path = gamePath(best.file_path, best.file_name)
+    return path ? { path } : { error: 'RomM gave this game a path Finesse can’t use' }
+  }
+  // RPCS3 opens a game's folder (PS3_GAME, EBOOT.BIN) as it is.
+  if (emulator === 'rpcs3' && fsName && (files.some((f) => /^eboot\.bin$/i.test(f.file_name)) || !extOf(fsName))) {
+    const path = gamePath(rom.fs_path, fsName)
+    if (path) return { path }
+  }
+  const has = [...new Set(files.map((f) => extOf(f.file_name)).filter(Boolean))].map((e) => `.${e}`)
+  const mds = has.includes('.mds') ? ' MDS files are only the index of a disc image: the .mdf beside them holds the game, or convert the disc to .iso.' : ''
+  return { error: `There’s no game file here that ${emulatorName} can open${has.length ? ` (it has ${has.slice(0, 6).join(', ')})` : ''}.${mds}` }
+}
+
 /** One game from RomM (Basic auth added here; the browser never sees it). */
-export async function fetchRom(romm: { url?: string; apiKey?: string; username?: string; password?: string }, id: number): Promise<{ platform_slug?: unknown; fs_path?: unknown; fs_name?: unknown; name?: unknown }> {
+export async function fetchRom(romm: { url?: string; apiKey?: string; username?: string; password?: string }, id: number): Promise<RommGame> {
   const basic = romm.apiKey && !romm.username ? romm.apiKey : Buffer.from(`${romm.username ?? ''}:${romm.password ?? ''}`).toString('base64')
   const r = await fetch(`${String(romm.url).replace(/\/+$/, '')}/api/roms/${id}`, { headers: { authorization: `Basic ${basic}` }, signal: AbortSignal.timeout(10000) }).catch(() => null)
   if (!r?.ok) throw new ApiError(r?.status === 404 ? 404 : 502, r?.status === 404 ? 'RomM doesn’t have that game' : 'Couldn’t reach RomM. Try again in a minute.')
-  return (await r.json()) as { platform_slug?: unknown; fs_path?: unknown; fs_name?: unknown; name?: unknown }
+  return (await r.json()) as RommGame
 }
 
 /** The browser's stand-in for a Moonlight session (Wolf's session ids stay here, with its keys). */
@@ -489,8 +534,9 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     const rom = await fetchRom(romm, romId)
     const emu = emulatorForConsole(e, String(rom.platform_slug ?? ''))
     if (!emu) throw new ApiError(400, 'None of the emulator apps plays this console')
-    const game = gamePath(rom.fs_path, rom.fs_name)
-    if (!game) throw new ApiError(400, 'RomM gave this game a path Finesse can’t use')
+    const picked = pickGame(rom, emu, emulatorCatalog(e.switchEmulator)[emu].name)
+    if ('error' in picked) throw new ApiError(400, picked.error)
+    const game = picked.path
     let list: WolfSession[]
     let lists: { raw: WolfAppRaw[]; profiles: WolfProfileRaw[] }
     try {

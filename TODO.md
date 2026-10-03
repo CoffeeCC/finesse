@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Games in folders — v2.5.4 (2026-10-03)
+
+- **A game that's a folder opens its disc image.** RomM lists some games as folders (a download
+  with notes beside the `.iso`). Finesse handed the emulator the folder, which it can't open. Now
+  it picks the file each emulator opens (PS2 `.iso`/`.chd`/`.cso`, GameCube and Wii `.rvz`/`.iso`,
+  Wii U `.wua`/`.wud`/`.rpx`, Switch `.xci`/`.nsp`), in Moonlight and in the browser. PS3 game
+  folders still open as folders.
+- **When there's no game in it, it says so** before starting anything: "There's no game file here
+  that PCSX2 can open (it has .mds, .jpg, .exe)", with a tip for MDS disc images.
+
 ## Browser play over https — v2.5.3 (2026-10-03)
 
 - **Finesse can serve https itself.** Browser play needs a secure page (browsers only decode the
