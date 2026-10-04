@@ -993,7 +993,8 @@ export function audioStreamUrl(itemId: string): string {
       AudioCodec: 'mp3',
       TranscodingContainer: 'mp3',
       TranscodingProtocol: 'http',
-      MaxStreamingBitrate: getPrefs().maxBitrate > 0 ? getPrefs().maxBitrate : 320_000,
+      // Auto: the file as it is (lossless FLAC included); a chosen cap converts to MP3.
+      MaxStreamingBitrate: getPrefs().maxBitrate > 0 ? getPrefs().maxBitrate : 140_000_000,
     })
   )
 }

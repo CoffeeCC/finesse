@@ -7,7 +7,7 @@
 // `<id>.mp4` (480p, always present); higher tiers are `<id>.720.mp4` /
 // `<id>.1080.mp4` and are advertised in previews/manifest-hd.json.
 
-import { withToken } from '../api/client'
+import { getSession } from '../api/client'
 import { CONTENT_BASE } from './contentOrigin'
 import { PREVIEW_QUALITY_HEIGHT, type PreviewQuality } from './settings'
 
@@ -35,7 +35,9 @@ export function previewClipUrl(
   for (const h of available) if (h <= target && h > pick) pick = h
   const file = pick === 480 ? `${id}.mp4` : `${id}.${pick}.mp4`
   // Clips are for signed-in viewers; a <video> can't send headers, so the token rides along.
-  return withToken(`${CONTENT_BASE}previews/${file}`)
+  // Finesse serves these (not Jellyfin), so one name for it is enough.
+  const token = getSession()?.token
+  return `${CONTENT_BASE}previews/${file}${token ? `?ApiKey=${encodeURIComponent(token)}` : ''}`
 }
 
 // ---------- Single-preview-at-a-time lock ----------

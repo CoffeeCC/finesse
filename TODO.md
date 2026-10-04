@@ -38,6 +38,31 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A steadier Home, a friendlier setup — v2.5.10 (2026-10-04)
+
+- **Play stays put.** The Home banner keeps the same height from title to title, so the Play
+  button doesn't jump when the story is longer or a title has no progress bar.
+- **Sweeping the mouse along the row doesn't flip the banner.** Rest on a tile for a moment to pick it.
+- **Customize Home explains empty rows.** Rows like Favorites, Anime or "Throwback: the '90s" hide
+  when there's nothing in them; Customize now says so and what makes them appear. The list is
+  narrower, so the controls sit next to the row names.
+- **Preview clips on new servers.** The clips folder is handed to the apps' user, so Jellyfin
+  can make clips (it couldn't write to a folder Finesse had made). A server with no clips yet
+  answers with an empty list instead of an error, and the clip list asks with a header, not your
+  sign-in in the address (twice).
+- **No download-queue errors when downloads are off.** Home no longer asks Radarr, Sonarr or
+  Lidarr when they aren't set up.
+- **Lossless music on Auto.** On Auto quality, music plays as the original file (FLAC included);
+  pick a cap in Settings → Playback to convert to MP3.
+- **Setup:**
+  - "Passwords don't match" waits until you've typed in the second box.
+  - The build time estimate depends on what you picked (streaming alone takes under a minute).
+  - Lo-Finessa: optional lo-fi music while you set up (original music, made for Finesse). It
+    starts on your first click, loops without a gap, fades out when you start watching, and
+    remembers if you turn it off. It only appears once its files are in place.
+- **Installer:** memory and disk space are in GB, like the setup wizard (they were GiB), and the
+  printed setup link uses this machine's home-network address, not a Docker or Tailscale one.
+
 ## FLAC songs play again — v2.5.9 (2026-10-04)
 
 - **Lossless songs play.** FLAC songs over the streaming limit were converted to an empty

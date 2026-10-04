@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
-import MediaRow, { RowHeader, ROW_SCROLLER, useRevealOnce } from './MediaRow'
+import MediaRow, { RowEmptyContext, RowHeader, ROW_SCROLLER, useRevealOnce } from './MediaRow'
 import DownloadsSection from './DownloadsSection'
 import {
   useBecauseYouWatched,
@@ -90,6 +90,11 @@ export function WatchlistRow({ hideTitle }: { hideTitle?: boolean }) {
 
 export function BecauseRow({ hideTitle }: { hideTitle?: boolean }) {
   const because = useBecauseYouWatched()
+  const reportEmpty = useContext(RowEmptyContext)
+  const noSeed = !because.loading && !because.seedName
+  useEffect(() => {
+    if (noSeed) reportEmpty?.(true)
+  }, [noSeed, reportEmpty])
   if (!because.seedName) return null
   return (
     <MediaRow

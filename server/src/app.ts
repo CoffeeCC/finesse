@@ -130,6 +130,9 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
           await auth.requireUser(req, { query: url.searchParams })
           const hit = safeFile(p.previews, path.slice('/previews'.length))
           if (hit) return void sendFile(req, res, hit.file, hit.stat, path)
+          // No clips made yet (a fresh server): an empty list, not an error.
+          if (path === '/previews/manifest.json') return void sendJson(res, 200, [])
+          if (path === '/previews/manifest-hd.json') return void sendJson(res, 200, {})
         }
         if (isApi || path.startsWith('/jellyfin')) throw new ApiError(404, 'Not found')
         if (!serveWeb(req, res, web, path)) sendJson(res, 404, { error: 'Not found' })

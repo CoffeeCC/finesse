@@ -117,7 +117,8 @@ case "$(uname -m)" in
   aarch64|arm64) ok "Linux on ARM64" ;;
   *) die "Finesse needs a 64-bit x86 or ARM computer (this is $(uname -m))." ;;
 esac
-mem_gb=$(awk '/MemTotal/ { printf "%d", $2/1024/1024 + 0.5 }' /proc/meminfo 2>/dev/null || echo 0)
+# Decimal GB everywhere (like the setup wizard and disk labels), not GiB.
+mem_gb=$(awk '/MemTotal/ { printf "%d", $2*1024/1e9 + 0.5 }' /proc/meminfo 2>/dev/null || echo 0)
 if [ "${mem_gb:-0}" -lt 2 ]; then warn "Only ${mem_gb} GB of memory — 4 GB or more is recommended."; else ok "${mem_gb} GB memory, $(nproc 2>/dev/null || echo '?') CPU cores"; fi
 
 if [ ! -e /dev/net/tun ]; then
@@ -174,7 +175,7 @@ else
   fi
   if [ -z "$DATA" ]; then
     say "  Movies, shows, music and downloads need space. Disks with the most room:"
-    df -P -BG -x tmpfs -x devtmpfs -x overlay -x squashfs -x efivarfs 2>/dev/null | awk 'NR>1 { gsub("G","",$4); print $4 " GB free  " $6 }' | sort -rn | head -4 | sed 's/^/    /'
+    df -P -k -x tmpfs -x devtmpfs -x overlay -x squashfs -x efivarfs 2>/dev/null | awk 'NR>1 { printf "%d GB free  %s\n", $4*1024/1e9, $6 }' | sort -rn | head -4 | sed 's/^/    /'
     DATA=$(ask "Media & downloads folder" "$ROOT/data")
   fi
   ROOT="${ROOT%/}"; DATA="${DATA%/}"
@@ -185,7 +186,7 @@ else
     done
   fi
   $SUDO mkdir -p "$ROOT/config" "$DATA" || die "Couldn't create $ROOT or $DATA"
-  free_gb=$(df -P -BG "$DATA" | awk 'NR==2 { gsub("G","",$4); print $4 }')
+  free_gb=$(df -P -k "$DATA" | awk 'NR==2 { printf "%d", $4*1024/1e9 }')
   ok "Settings in $ROOT, media in $DATA (${free_gb} GB free)"
   [ "${free_gb:-0}" -lt 50 ] && warn "That's not much room — a single 4K movie can be 50 GB."
 
@@ -234,8 +235,17 @@ for _ in $(seq 1 60); do
 done
 curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 || die "Finesse didn't answer on port $PORT. See: sudo docker logs $NAME"
 
-IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-[ -n "$IP" ] || IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="src") print $(i+1)}')
+# The address people at home reach this machine on: the one the default route
+# leaves from, unless that's a VPN; else the first real network card's.
+# (`hostname -I` lists Docker bridges and Tailscale too, in no useful order.)
+virtual_if='^(docker|br-|veth|virbr|cni|flannel|cali|tailscale|tun|tap|wg|zt|lo)'
+IP=""
+route_dev=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="dev") print $(i+1)}')
+if [ -n "$route_dev" ] && ! printf '%s' "$route_dev" | grep -Eq "$virtual_if"; then
+  IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="src") print $(i+1)}')
+fi
+[ -n "$IP" ] || IP=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $2, $4}' | grep -Ev "$virtual_if" | head -1 | awk '{sub("/.*","",$2); print $2}')
+[ -n "$IP" ] || IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 IP=${IP:-localhost}
 URL="http://$IP:$PORT"
 

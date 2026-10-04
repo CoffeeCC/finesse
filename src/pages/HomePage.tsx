@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useGenres, useHomeLayout, useLatest, useViews } from '../api/queries'
@@ -13,7 +13,7 @@ import {
   TopTenRow,
   WatchlistRow,
 } from '../components/HomeRows'
-import { RowControlsContext } from '../components/MediaRow'
+import { RowControlsContext, RowEmptyContext } from '../components/MediaRow'
 import NowStage from '../components/os/NowStage'
 import { useToast } from '../components/Toast'
 import { browseHref } from './BrowsePage'
@@ -33,6 +33,8 @@ interface RowDesc {
   key: string
   title: string
   render: (hideTitle: boolean) => ReactNode
+  /** Why it isn't on Home when it has nothing to show (Customize says so). */
+  whenEmpty?: string
 }
 
 function buildRows(
@@ -49,26 +51,26 @@ function buildRows(
     // "Up next" lives in the stage's Now row (components/os).
 
     { key: 'comingSoon', title: 'Coming Soon', render: (h) => <ComingSoonRow hideTitle={h} /> },
-    { key: 'watchlist', title: 'My List', render: (h) => <WatchlistRow hideTitle={h} /> },
-    { key: 'topTen', title: 'Top 10 at home', render: (h) => <TopTenRow hideTitle={h} /> },
-    { key: 'because', title: 'Because you watched…', render: (h) => <BecauseRow hideTitle={h} /> },
+    { key: 'watchlist', title: 'My List', whenEmpty: 'Shows up when you add something to My List.', render: (h) => <WatchlistRow hideTitle={h} /> },
+    { key: 'topTen', title: 'Top 10 at home', whenEmpty: 'Shows up once the house has watched a few titles.', render: (h) => <TopTenRow hideTitle={h} /> },
+    { key: 'because', title: 'Because you watched…', whenEmpty: 'Shows up after you watch something.', render: (h) => <BecauseRow hideTitle={h} /> },
     { key: 'genres', title: 'Browse by genre', render: (h) => <GenreTilesRow genres={tileGenres} hideTitle={h} /> },
   ]
   if (movieLib || showLib) {
     rows.push({ key: 'recent', title: 'Recently added', render: (h) => <RecentlyAddedRow movieLibId={movieLib?.Id} showLibId={showLib?.Id} hideTitle={h} /> })
   }
   if (movieLib) {
-    rows.push({ key: 'newToYou', title: 'New to You', render: (h) => <QueryRow label="newToYou" title="New to You" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'Random' }} seeAllHref={browseHref('New to You', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'SortName' })} hideTitle={h} /> })
+    rows.push({ key: 'newToYou', title: 'New to You', whenEmpty: 'Shows up when there are movies you haven’t watched.', render: (h) => <QueryRow label="newToYou" title="New to You" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'Random' }} seeAllHref={browseHref('New to You', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsUnplayed', sortBy: 'SortName' })} hideTitle={h} /> })
   }
-  rows.push({ key: 'favorites', title: 'Favorites', render: (h) => <QueryRow label="favorites" title="Favorites" query={{ includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' }} seeAllHref={browseHref('Favorites', { includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' })} hideTitle={h} /> })
-  rows.push({ key: 'anime', title: 'Anime', render: (h) => <QueryRow label="anime" title="Anime" query={{ tags: 'anime', includeItemTypes: allTypes, sortBy: 'Random' }} seeAllHref={browseHref('Anime', { tags: 'anime', includeItemTypes: allTypes, sortBy: 'SortName' })} hideTitle={h} /> })
+  rows.push({ key: 'favorites', title: 'Favorites', whenEmpty: 'Shows up when you favorite a movie or show.', render: (h) => <QueryRow label="favorites" title="Favorites" query={{ includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' }} seeAllHref={browseHref('Favorites', { includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' })} hideTitle={h} /> })
+  rows.push({ key: 'anime', title: 'Anime', whenEmpty: 'Shows up when titles in your library are tagged “anime”.', render: (h) => <QueryRow label="anime" title="Anime" query={{ tags: 'anime', includeItemTypes: allTypes, sortBy: 'Random' }} seeAllHref={browseHref('Anime', { tags: 'anime', includeItemTypes: allTypes, sortBy: 'SortName' })} hideTitle={h} /> })
   for (const g of addedGenres) {
     if (!movieLib) break
     rows.push({ key: `genre-${g}`, title: g, render: (h) => <QueryRow label={`genre-${g}`} title={g} query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, genres: g, sortBy: 'Random' }} seeAllHref={browseHref(g, { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: g, sortBy: 'SortName' })} hideTitle={h} /> })
   }
   if (movieLib) {
-    rows.push({ key: 'nineties', title: 'Throwback: the ’90s', render: (h) => <QueryRow label="nineties" title="Throwback: the ’90s" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'Random' }} seeAllHref={browseHref('Throwback: the ’90s', { parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'ProductionYear,SortName' })} hideTitle={h} /> })
-    rows.push({ key: 'watchAgain', title: 'Watch It Again', render: (h) => <QueryRow label="watchAgain" title="Watch It Again" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'Random' }} seeAllHref={browseHref('Watch It Again', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'SortName' })} hideTitle={h} /> })
+    rows.push({ key: 'nineties', title: 'Throwback: the ’90s', whenEmpty: 'Shows up when you have a few movies from the ’90s.', render: (h) => <QueryRow label="nineties" title="Throwback: the ’90s" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'Random' }} seeAllHref={browseHref('Throwback: the ’90s', { parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'ProductionYear,SortName' })} hideTitle={h} /> })
+    rows.push({ key: 'watchAgain', title: 'Watch It Again', whenEmpty: 'Shows up after you’ve watched a few movies.', render: (h) => <QueryRow label="watchAgain" title="Watch It Again" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'Random' }} seeAllHref={browseHref('Watch It Again', { parentId: movieLib.Id, includeItemTypes: movieTypes, filters: 'IsPlayed', sortBy: 'SortName' })} hideTitle={h} /> })
   }
   return rows
 }
@@ -76,10 +78,12 @@ function buildRows(
 const PAD = 'px-4 sm:px-6 lg:px-12'
 
 function RowFrame({
-  desc, customizing, collapsed, hidden, first, last, onMove, onToggleCollapse, onToggleHide, onCustomize,
+  desc, customizing, collapsed, hidden, empty, first, last, onMove, onToggleCollapse, onToggleHide, onCustomize, onEmpty,
 }: {
   desc: RowDesc
   customizing: boolean
+  empty: boolean
+  onEmpty: (key: string, empty: boolean) => void
   collapsed: boolean
   hidden: boolean
   first: boolean
@@ -99,13 +103,19 @@ function RowFrame({
     [onToggleHide, onMove, onCustomize, first, last],
   )
   const [expanded, setExpanded] = useState(false)
+  const onEmptyRef = useRef(onEmpty)
+  onEmptyRef.current = onEmpty
+  const reportEmpty = useCallback((e: boolean) => onEmptyRef.current(desc.key, e), [desc.key])
 
   if (customizing) {
     const ctrl = 'h-7 px-2 rounded-md bg-white/5 hover:bg-white/15 text-xs font-medium text-ink-200 disabled:opacity-30 transition-colors'
     return (
       <div className={`rounded-xl border border-dashed border-white/10 overflow-hidden ${hidden ? 'opacity-50' : ''}`}>
-        <div className={`flex items-center gap-1.5 py-2 ${PAD} bg-white/[0.03]`}>
-          <span className="flex-1 text-sm font-semibold text-ink-200 truncate">{desc.title}</span>
+        <div className="flex items-center gap-1.5 bg-white/[0.03] px-4 py-2">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-ink-200">{desc.title}</span>
+            {empty && !hidden && <span className="block text-xs text-ink-400">Not on Home right now. {desc.whenEmpty ?? 'Shows up when there’s something to show.'}</span>}
+          </span>
           <button className={ctrl} onClick={() => onMove(-1)} disabled={first} aria-label="Move up">↑</button>
           <button className={ctrl} onClick={() => onMove(1)} disabled={last} aria-label="Move down">↓</button>
           <button className={ctrl} onClick={onToggleCollapse}>{collapsed ? 'Collapsed' : 'Collapse'}</button>
@@ -126,13 +136,17 @@ function RowFrame({
             <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
           </svg>
         </button>
-        {expanded && desc.render(true)}
+        {expanded && <RowEmptyContext.Provider value={reportEmpty}>{desc.render(true)}</RowEmptyContext.Provider>}
       </section>
     )
   }
 
   // Each row's own header shows a ⋯ with these (hide / move / customize).
-  return <RowControlsContext.Provider value={controls}>{desc.render(false)}</RowControlsContext.Provider>
+  return (
+    <RowControlsContext.Provider value={controls}>
+      <RowEmptyContext.Provider value={reportEmpty}>{desc.render(false)}</RowEmptyContext.Provider>
+    </RowControlsContext.Provider>
+  )
 }
 
 /** Server unreachable: say so plainly, keep trying, and offer a retry — rather
@@ -226,6 +240,17 @@ export default function HomePage() {
   const layout = draft ?? serverLayout ?? { hidden: [], collapsed: [], order: [], added: [] }
   const [customizing, setCustomizing] = useState(false)
   const toast = useToast()
+  // Rows that came up empty last time Home showed them (they hide themselves).
+  const [emptyRows, setEmptyRows] = useState<Set<string>>(() => new Set())
+  const onRowEmpty = useCallback((key: string, empty: boolean) => {
+    setEmptyRows((s) => {
+      if (s.has(key) === empty) return s
+      const n = new Set(s)
+      if (empty) n.add(key)
+      else n.delete(key)
+      return n
+    })
+  }, [])
 
   // Persist edits (debounced), and keep the cache in sync.
   useEffect(() => {
@@ -282,7 +307,7 @@ export default function HomePage() {
 
       {!customizing && !heroLoading && !moviesLoading && !showsLoading && !(latestMovies?.length ?? 0) && !(latestShows?.length ?? 0) && <EmptyLibrary />}
 
-      <div className={`mt-6 sm:mt-8 ${customizing ? `${PAD} space-y-2` : 'space-y-8 sm:space-y-10'}`}>
+      <div className={`mt-6 sm:mt-8 ${customizing ? `${PAD} mx-auto max-w-3xl space-y-2` : 'space-y-8 sm:space-y-10'}`}>
         {visibleRows.map((r, i) => (
           <RowFrame
             key={r.key}
@@ -290,6 +315,8 @@ export default function HomePage() {
             customizing={customizing}
             collapsed={layout.collapsed.includes(r.key)}
             hidden={layout.hidden.includes(r.key)}
+            empty={emptyRows.has(r.key)}
+            onEmpty={onRowEmpty}
             first={i === 0}
             last={i === visibleRows.length - 1}
             onMove={(dir) => move(r.key, dir)}

@@ -14,8 +14,8 @@ import { useLiveLines, useNowEntries, type NowEntry } from './now'
 
 /** Resting this long on a title starts its preview clip behind the stage. */
 const CLIP_DWELL_MS = 2200
-/** Sweeping the mouse along the row doesn't strobe the stage. */
-const HOVER_DWELL_MS = 110
+/** Resting the mouse on a tile picks it; sweeping past tiles doesn't strobe the stage. */
+const HOVER_DWELL_MS = 380
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 const canHover = () => typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches
@@ -118,19 +118,21 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
         <span className="os-dot" />
         <span>{entry.kicker}</span>
       </p>
-      <div className="min-h-[64px] flex items-end">
+      {/* Every part of the hero keeps its height from title to title, so Play
+          stays where it was (a long story or a missing progress bar moved it). */}
+      <div className="os-name">
         {logoOk ? (
           <img className="os-logo" src={entry.logo!} alt={entry.title} />
         ) : logoOk === false ? (
-          <h1 className="os-title">{entry.title}</h1>
+          <h1 className={`os-title ${entry.title.length > 14 ? 'long' : ''}`}>{entry.title}</h1>
         ) : null}
       </div>
-      <div className="os-chips mt-5 sm:mt-6 flex flex-wrap gap-2">
+      <div className="os-chips mt-5 sm:mt-6 flex flex-nowrap gap-2 overflow-hidden">
         {chips.map((c, i) => (
           <span key={`${c}-${i}`} className={`os-chip ${i === 0 ? 'hi' : ''}`}>{c}</span>
         ))}
       </div>
-      {line ? <p className="os-line mt-4 sm:mt-5 max-w-[640px] text-[15px] sm:text-[19px] lg:text-[21px] leading-relaxed text-white/80 line-clamp-2 sm:line-clamp-3">{line}</p> : <div />}
+      <p className="os-line mt-4 sm:mt-5 max-w-[640px] text-[15px] sm:text-[19px] lg:text-[21px] leading-relaxed text-white/80 line-clamp-2 sm:line-clamp-3">{line}</p>
       <div className="os-actions mt-6 sm:mt-8 flex flex-wrap items-center gap-3">
         <Link
           to={entry.primary.to}
@@ -149,13 +151,9 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
         {castable && <CastMenu item={entry.item!} variant="os" />}
         {watchlistable && <WatchlistButton item={entry.item!} />}
       </div>
-      {entry.pct !== undefined ? (
-        <div className="os-prog os-prog-at mt-6 sm:mt-7">
-          <i style={{ width: `${entry.pct}%` }} />
-        </div>
-      ) : (
-        <div />
-      )}
+      <div className={`os-prog os-prog-at mt-6 sm:mt-7 ${entry.pct === undefined ? 'invisible' : ''}`} aria-hidden={entry.pct === undefined || undefined}>
+        <i style={{ width: `${entry.pct ?? 0}%` }} />
+      </div>
     </div>
   )
 }

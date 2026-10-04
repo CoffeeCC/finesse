@@ -76,6 +76,8 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
       const u = d.admin.username.trim()
       if (!/^[A-Za-z0-9._@-]{2,64}$/.test(u)) return 'Choose a username (letters, numbers, . _ @ -)'
       if (d.admin.password.length < 8) return 'Choose a password with at least 8 characters'
+      // Not a mismatch until they've typed something in the second box.
+      if (!d.admin.confirm) return 'Type the password again to confirm it'
       if (d.admin.password !== d.admin.confirm) return 'The passwords don’t match'
       return null
     }

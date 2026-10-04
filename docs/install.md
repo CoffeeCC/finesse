@@ -98,7 +98,7 @@ answer before you press **Build**.
 | **Invite emails** | Optional. Any email account that allows SMTP: Gmail with an app password, iCloud, Fastmail, Resend… |
 | **Review** | Check it all, then **Build my server**. |
 
-Building takes 5–15 minutes, mostly downloading about 3 GB of apps. You can close the page and
+Building is mostly downloading about 3 GB of apps: under a minute when they're already on the machine, up to about 15 minutes on a slow connection. You can close the page and
 come back. When it's done, press **Start watching** and you're signed in.
 
 ## 3. After setup

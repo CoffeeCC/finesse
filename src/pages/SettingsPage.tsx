@@ -422,7 +422,7 @@ export default function SettingsPage() {
             <div className={SECTION_CARD}>
               <Field
                 label="Maximum streaming quality"
-                hint="Caps what the server transcodes to. Lower it when you're watching away from home."
+                hint="Caps what the server transcodes to. Lower it when you're watching away from home. On Auto, music plays in its original quality (lossless included)."
                 scope="device"
               >
                 <SelectMenu

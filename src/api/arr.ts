@@ -1,5 +1,6 @@
 import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
+import { knownFinesse } from '../lib/finesseServer'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
 // (music) through the Finesse server, which proxies /arr/{app}/* to the *arr APIs
@@ -91,12 +92,17 @@ export interface ArrRelease {
   raw: Record<string, unknown>
 }
 
+const FEATURE_OF: Record<ArrKind, string> = { movie: 'movies', series: 'shows', artist: 'music' }
+
 async function arrFetch<T>(
   kind: ArrKind,
   path: string,
   opts: { method?: string; body?: unknown } = {},
 ): Promise<T> {
   const app = APP_OF[kind]
+  // Not set up on this server: don't ask (it only answers with an error).
+  const feats = knownFinesse()?.features
+  if (feats && feats[FEATURE_OF[kind]] === false) throw new Error(`${app} isn’t set up on this server`)
   const res = await fetch(`${arrBase()}/${app}${path}`, {
     method: opts.method ?? 'GET',
     headers: {

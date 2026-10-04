@@ -6,7 +6,7 @@
 // of anyone watching. Incremental: finished clips are skipped, so a big
 // library fills in over a few quiet hours. Manifests match deploy/genclips.sh.
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chownSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Paths, SettingsStore } from '../config.ts'
 import { logger } from '../log.ts'
@@ -80,6 +80,15 @@ export class ClipMaker {
     try {
       mkdirSync(this.paths.previews, { recursive: true })
       mkdirSync(stage, { recursive: true })
+      // Made by Finesse (root): hand them to the stack's user, or Jellyfin
+      // (running as PUID) can't write its clips there and none get made.
+      for (const dir of [this.paths.previews, stage]) {
+        try {
+          chownSync(dir, Number(process.env.PUID ?? 1000), Number(process.env.PGID ?? 1000))
+        } catch {
+          /* not root (dev): the folders are already ours */
+        }
+      }
       const items = await this.items()
       const have = new Set(readdirSync(this.paths.previews).filter((n) => n.endsWith('.mp4')))
       const todo = items.filter((i) => !have.has(`${i.Id}.mp4`) && (this.failed.get(i.Id) ?? 0) < 2)

@@ -104,10 +104,12 @@ export function useClipManifest() {
     enabled: Boolean(userId),
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<ClipManifest> => {
-      const base = await fetch(api.withToken(`${CONTENT_BASE}previews/manifest.json`), { cache: 'no-cache' })
+      // The sign-in rides in a header, not the address.
+      const init: RequestInit = { cache: 'no-cache', headers: { Authorization: api.mediaBrowserAuthHeader() } }
+      const base = await fetch(`${CONTENT_BASE}previews/manifest.json`, init)
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => [])
-      const hdRaw = await fetch(api.withToken(`${CONTENT_BASE}previews/manifest-hd.json`), { cache: 'no-cache' })
+      const hdRaw = await fetch(`${CONTENT_BASE}previews/manifest-hd.json`, init)
         .then((r) => (r.ok ? r.json() : {}))
         .catch(() => ({}))
       const has = new Set<string>(Array.isArray(base) ? base : [])

@@ -14,6 +14,8 @@ export interface RowControls {
   onCustomize: () => void
 }
 export const RowControlsContext = createContext<RowControls | null>(null)
+/** Home rows say when they have nothing to show (and so don't), for Customize Home. */
+export const RowEmptyContext = createContext<((empty: boolean) => void) | null>(null)
 
 interface Props {
   title: ReactNode
@@ -149,8 +151,13 @@ export default function MediaRow({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [sectionRef, visible] = useRevealOnce<HTMLElement>()
+  const reportEmpty = useContext(RowEmptyContext)
+  const empty = !loading && (!items || items.length === 0 || items.length < minItems)
+  useEffect(() => {
+    if (!loading) reportEmpty?.(empty)
+  }, [empty, loading, reportEmpty])
 
-  if (!loading && (!items || items.length === 0 || items.length < minItems)) return null
+  if (empty) return null
 
   const scrollBy = (dir: number) => {
     scrollRef.current?.scrollBy({ left: dir * scrollRef.current.clientWidth * 0.8, behavior: 'smooth' })

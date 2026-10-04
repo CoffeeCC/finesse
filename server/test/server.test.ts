@@ -143,6 +143,17 @@ describe('web app', () => {
     const again = await rawGet(`/finesse/previews/clip.mp4?ApiKey=${USER_TOKEN}`, { 'If-None-Match': String(full.headers.etag) })
     assert.equal(again.status, 304)
   })
+
+  test('no clips yet: the manifests are empty lists, not errors (sign-in in a header)', async () => {
+    const auth = { Authorization: `MediaBrowser Client="t", Token="${USER_TOKEN}"` }
+    const base = await rawGet('/finesse/previews/manifest.json', auth)
+    assert.equal(base.status, 200)
+    assert.deepEqual(JSON.parse(base.body.toString()), [])
+    const hd = await rawGet('/finesse/previews/manifest-hd.json', auth)
+    assert.equal(hd.status, 200)
+    assert.deepEqual(JSON.parse(hd.body.toString()), {})
+    assert.equal((await rawGet('/finesse/previews/manifest.json')).status, 401)
+  })
 })
 
 describe('discovery', () => {

@@ -29,6 +29,8 @@ import {
 } from './steps'
 import { Callout, GhostButton, PrimaryButton, Spinner, StatusDot } from './ui'
 import { QUALITY_PRESETS } from './presets'
+import { LoFinessaCard, LoFinessaToggle, useLofiWizard } from './LoFinessa'
+import { finishLofi } from './lofi'
 
 type Phase = 'loading' | 'wizard' | 'building' | 'done' | 'already'
 
@@ -54,6 +56,7 @@ export default function SetupPage() {
   const [run, setRun] = useState<RunStatus | null>(null)
   const [applyError, setApplyError] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
+  useLofiWizard(phase === 'wizard' || phase === 'building' || phase === 'done')
 
   const set = useCallback((fn: (x: Draft) => void) => {
     setDraft((prev) => {
@@ -222,6 +225,8 @@ export default function SetupPage() {
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState('')
   const signIn = async () => {
+    // The music fades out (2 s) while Home loads.
+    finishLofi(2)
     setSigningIn(true)
     setSignInError('')
     const info2 = await discover({ force: true })
@@ -408,6 +413,18 @@ export default function SetupPage() {
   )
 }
 
+/** How long building takes depends on what's being installed: streaming alone
+ *  (Jellyfin and Finesse) is one small download; requests, downloaders, games
+ *  and a VPN add a few GB. */
+const HEAVY = ['sonarr', 'radarr', 'lidarr', 'prowlarr', 'sabnzbd', 'qbittorrent', 'gluetun', 'romm', 'wolf']
+function buildEstimate(services: string[]): string {
+  if (!services.length) return 'It takes from under a minute to about 15 minutes, depending on what you picked and your connection.'
+  const heavy = services.filter((s) => HEAVY.includes(s)).length
+  if (heavy === 0) return 'Streaming on its own is a small download: this usually takes under a minute.'
+  if (heavy <= 3) return 'This usually takes a few minutes, mostly downloading the apps (up to about 10 on a slow connection).'
+  return 'This usually takes 5–15 minutes, mostly downloading about 3 GB of apps (much less if they’re already on this machine).'
+}
+
 function Backdrop({ children }: { children: ReactNode }) {
   return (
     <div className="relative min-h-[calc(var(--vh)*100)] bg-ink-950 text-white">
@@ -418,6 +435,7 @@ function Backdrop({ children }: { children: ReactNode }) {
       </div>
       <div className="grain" aria-hidden />
       {children}
+      <LoFinessaToggle />
     </div>
   )
 }
@@ -670,11 +688,12 @@ function BuildScreen({
         <p className="mt-4 text-[15.5px] leading-relaxed text-ink-300">
           {failed
             ? 'Nothing is lost — fix the problem below and try again. Finished steps are skipped.'
-            : 'Downloading and connecting your apps. This usually takes 5–15 minutes, most of it downloads. You can leave this page open or come back later.'}
+            : `Downloading and connecting your apps. ${buildEstimate(services)} You can leave this page open or come back later.`}
         </p>
         <div className="mt-8 h-1.5 overflow-hidden rounded-full bg-white/10">
           <div className={`h-full rounded-full transition-all duration-700 ${failed ? 'bg-red-400' : 'bg-accent-400'}`} style={{ width: `${Math.max(pct, 3)}%` }} />
         </div>
+        {!failed && <LoFinessaCard />}
         <ol className="mt-8 space-y-1">
           {steps.map((s) => (
             <li key={s.id} className={`flex items-start gap-3 rounded-xl px-3 py-2.5 ${s.state === 'running' ? 'bg-white/[0.05]' : ''}`}>
