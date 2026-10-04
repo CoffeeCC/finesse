@@ -17,6 +17,10 @@ const CLIP_DWELL_MS = 2200
 /** Resting the mouse on a tile picks it; sweeping past tiles doesn't strobe the stage. */
 const HOVER_DWELL_MS = 380
 
+/** The tile you were on, kept while the app is open: Back to Home lands on it
+ *  again rather than on the first tile. */
+let rememberedFocus: string | null = null
+
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 const canHover = () => typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches
 
@@ -235,7 +239,10 @@ export default function NowStage() {
   const { entries } = useNowEntries(artWidth)
   // Follows the title, not its place: the row fills in as data arrives, and
   // the house changes (someone starts playing) while you rest on something.
-  const [focusKey, setFocusKey] = useState<string | null>(null)
+  const [focusKey, setFocusKey] = useState<string | null>(() => rememberedFocus)
+  useEffect(() => {
+    if (focusKey) rememberedFocus = focusKey
+  }, [focusKey])
   const f = Math.max(0, entries.findIndex((e) => e.key === focusKey))
   const entry = entries[f]
   const setFocus = useCallback((i: number) => setFocusKey(entries[i]?.key ?? null), [entries])
@@ -278,8 +285,23 @@ export default function NowStage() {
   // The row is scroll-snapped, and a browser stays snapped to the same tile when
   // titles arrive in front of it. Until you've touched the row, keep it at the start.
   const touched = useRef(false)
+  // Back to Home: bring the remembered tile into view once it's in the row.
+  const restored = useRef(!rememberedFocus)
   useLayoutEffect(() => {
-    if (!focusKey && !touched.current && railRef.current) railRef.current.scrollLeft = 0
+    const rail = railRef.current
+    if (!rail) return
+    if (!restored.current && focusKey) {
+      const i = entries.findIndex((e) => e.key === focusKey)
+      const tile = i >= 0 ? rail.querySelectorAll<HTMLElement>('[data-tile]')[i] : undefined
+      if (tile) {
+        restored.current = true
+        touched.current = true
+        const pad = parseFloat(getComputedStyle(rail).paddingLeft || '0')
+        rail.scrollLeft = Math.max(0, tile.getBoundingClientRect().left - rail.getBoundingClientRect().left + rail.scrollLeft - pad)
+      }
+      return
+    }
+    if (!focusKey && !touched.current) rail.scrollLeft = 0
   }, [entries, focusKey])
 
   // Phones: the stage follows whichever tile the row is resting on.

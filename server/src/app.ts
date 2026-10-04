@@ -127,7 +127,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
         // Preview clips: the config dir first, then whatever the web root carries.
         // They're clips of your library, so for signed-in viewers only.
         if (isPreview) {
-          await auth.requireUser(req, { query: url.searchParams })
+          // A <video> can't send a header: the app's cookie (same origin) or, from another origin, ApiKey.
+          await auth.requireUser(req, { cookie: 'finesse_media_token', query: url.searchParams })
           const hit = safeFile(p.previews, path.slice('/previews'.length))
           if (hit) return void sendFile(req, res, hit.file, hit.stat, path)
           // No clips made yet (a fresh server): an empty list, not an error.

@@ -511,11 +511,18 @@ export default function PlayerPage() {
   useEffect(() => (itemId ? setReturnMorph(itemId, 'vt-hero') : undefined), [itemId])
 
   // ---------- Stream lifecycle ----------
+  // The last position we saw. Leaving the player detaches the <video> before the
+  // cleanup reports "stopped", so that report used to read 0 and wipe the resume
+  // point (the title fell out of Continue Watching).
+  const lastTicks = useRef(0)
   const positionTicks = useCallback(() => {
     const v = videoRef.current
     const s = streamRef.current
-    if (!v || !s) return 0
-    return secondsToTicks(s.offsetSec + v.currentTime)
+    if (!v || !s) return lastTicks.current
+    const t = secondsToTicks(s.offsetSec + v.currentTime)
+    // A stream that's (re)loading reads 0 for a moment: keep what we had.
+    if (t > 0) lastTicks.current = t
+    return t > 0 ? t : lastTicks.current
   }, [])
 
   const report = useCallback(
@@ -559,6 +566,7 @@ export default function PlayerPage() {
       const gen = ++loadGenRef.current
       // Capture resume BEFORE teardown so subtitle toggles don't lose place.
       const resumeSec = Math.max(0, ticksToSeconds(atTicks))
+      if (atTicks > 0) lastTicks.current = atTicks
       const prevMediaSourceId = streamRef.current?.mediaSourceId || itemId
       setAbsTime(resumeSec)
       setBuffering(true)
@@ -726,6 +734,7 @@ export default function PlayerPage() {
     burnedInSubRef.current = false
     subVttRawRef.current = null
     revokeSubBlob()
+    lastTicks.current = startTicks ?? 0
     loadStream(startTicks)
 
     const progressTimer = setInterval(
@@ -823,6 +832,7 @@ export default function PlayerPage() {
       const s = streamRef.current
       if (!s) return
       setAbsTime(s.offsetSec + v.currentTime)
+      if (v.currentTime > 0) lastTicks.current = secondsToTicks(s.offsetSec + v.currentTime)
       // A firing 'timeupdate' means the media time actually advanced, i.e. we're
       // playing — the reliable "not buffering" signal. webOS Chromium 68 doesn't
       // fire 'playing'/'canplay' dependably after a mid-stream stall, so the

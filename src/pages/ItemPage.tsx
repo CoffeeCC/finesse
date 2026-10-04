@@ -23,7 +23,7 @@ import { previewClipUrl, EMPTY_MANIFEST } from '../lib/preview'
 import { morphNavigate, posterMorphName, setReturnMorph } from '../lib/motion'
 import { useDepthParallax } from '../lib/depth'
 import { goBack } from '../lib/back'
-import { TOUCH_UI } from '../lib/device'
+import { IS_TV } from '../lib/device'
 import { setMood } from '../lib/mood'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
@@ -491,14 +491,16 @@ export default function ItemPage() {
       )}
 
       <div ref={heroRef} className="relative -mt-16">
-        {/* Phones (and the installed PWA, which has no browser Back) get an
-            in-app Back — it plays the reverse morph into the card you came from. */}
-        {TOUCH_UI && (
+        {/* An in-app Back everywhere but TVs (their remote has one): phones and the
+            installed app have no browser Back, and on a computer it's easier to
+            find than the browser's. It plays the reverse morph into the card you came from. */}
+        {!IS_TV && (
           <button
             type="button"
             onClick={() => goBack(navigate)}
             aria-label="Back"
-            className="vt-detail-back absolute left-3 top-[4.75rem] z-20 h-10 w-10 rounded-full bg-black/45 backdrop-blur-md ring-1 ring-white/10 flex items-center justify-center text-white active:scale-95 transition-transform"
+            title="Back"
+            className="vt-detail-back absolute left-3 top-[4.75rem] sm:left-6 lg:left-12 sm:top-[5.25rem] z-20 h-10 w-10 rounded-full bg-black/45 backdrop-blur-md ring-1 ring-white/10 flex items-center justify-center text-white active:scale-95 transition-transform"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />

@@ -144,6 +144,11 @@ describe('web app', () => {
     assert.equal(again.status, 304)
   })
 
+  test('preview clips accept the app’s cookie, so the sign-in stays out of the address', async () => {
+    assert.equal((await rawGet('/finesse/previews/clip.mp4', { Cookie: `finesse_media_token=${USER_TOKEN}` })).status, 200)
+    assert.equal((await rawGet('/finesse/previews/clip.mp4', { Cookie: 'finesse_media_token=bogus' })).status, 401)
+  })
+
   test('no clips yet: the manifests are empty lists, not errors (sign-in in a header)', async () => {
     const auth = { Authorization: `MediaBrowser Client="t", Token="${USER_TOKEN}"` }
     const base = await rawGet('/finesse/previews/manifest.json', auth)

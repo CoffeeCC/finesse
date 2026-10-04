@@ -9,6 +9,9 @@
 
 import { getSession } from '../api/client'
 import { CONTENT_BASE } from './contentOrigin'
+
+/** The sign-in the clips cookie was last set for. */
+let cookieFor = ''
 import { PREVIEW_QUALITY_HEIGHT, type PreviewQuality } from './settings'
 
 export interface ClipManifest {
@@ -35,9 +38,23 @@ export function previewClipUrl(
   for (const h of available) if (h <= target && h > pick) pick = h
   const file = pick === 480 ? `${id}.mp4` : `${id}.${pick}.mp4`
   // Clips are for signed-in viewers; a <video> can't send headers, so the token rides along.
-  // Finesse serves these (not Jellyfin), so one name for it is enough.
+  const url = `${CONTENT_BASE}previews/${file}`
   const token = getSession()?.token
-  return `${CONTENT_BASE}previews/${file}${token ? `?ApiKey=${encodeURIComponent(token)}` : ''}`
+  if (!token) return url
+  // A <video> can't send a header. Same origin: the sign-in rides in a cookie
+  // scoped to the clips, so it's never in an address. Another origin (the TV
+  // app, a remote server): only the address can carry it (once; Finesse serves these, not Jellyfin).
+  const at = new URL(url, window.location.href)
+  if (at.origin === window.location.origin) {
+    const path = at.pathname.slice(0, at.pathname.lastIndexOf('/') + 1)
+    if (cookieFor !== token + path) {
+      cookieFor = token + path
+      const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+      document.cookie = `finesse_media_token=${encodeURIComponent(token)}; path=${path}; SameSite=Strict${secure}`
+    }
+    return url
+  }
+  return `${url}?ApiKey=${encodeURIComponent(token)}`
 }
 
 // ---------- Single-preview-at-a-time lock ----------

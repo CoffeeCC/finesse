@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Keeps your place — v2.5.12 (2026-10-04)
+
+- **Leaving the player keeps your resume point.** Pressing Back saved the position as 0 (the
+  player had already let go of the video when it reported), so the title fell out of Continue
+  Watching. It now reports the last position it saw.
+- **Back to Home lands on the tile you were on**, not the first one, and scrolls the row to it.
+- **The item page has a Back button on computers too** (it was only on phones and tablets).
+- **Preview clips keep your sign-in out of the address.** In the browser it rides in a cookie
+  scoped to the clips; only apps on another address (the TV app) still put it in the link.
+
 ## Lo-Finessa — v2.5.11 (2026-10-04)
 
 - **Lo-Finessa is in.** The setup wizard now plays a cozy lo-fi loop (original music, made for
