@@ -38,6 +38,15 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Lo-Finessa — v2.5.11 (2026-10-04)
+
+- **Lo-Finessa is in.** The setup wizard now plays a cozy lo-fi loop (original music, made for
+  Finesse) from your first click: about 100 seconds cut on the beat, so the loop never clicks or
+  gaps, at 30% volume. "Building your server" shows Nessa at her desk with rain outside (a still
+  picture if your device asks for less motion). The ♪ toggle in the corner turns it off, and
+  Finesse remembers. Everything stays small (under 1 MB of music, about 1 MB of video) and
+  loads after the wizard does.
+
 ## A steadier Home, a friendlier setup — v2.5.10 (2026-10-04)
 
 - **Play stays put.** The Home banner keeps the same height from title to title, so the Play

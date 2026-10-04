@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LOFI_VIDEOS, loadLofi, lofiUserGesture, setLofiMuted, useLofi } from './lofi'
+import { LOFI_STILL, LOFI_VIDEOS, loadLofi, lofiUserGesture, setLofiMuted, useLofi } from './lofi'
 
 /** Starts loading the loop once the wizard is up, and starts it on the first click. */
 export function useLofiWizard(enabled: boolean) {
@@ -58,6 +58,22 @@ export function LoFinessaCard() {
     void v.play().catch(() => {})
   }, [still])
   if (shown === 'no') return null
+  const caption = status === 'ready' && (
+    <figcaption className="absolute bottom-3 left-4 text-[12px] font-medium text-white/85">
+      {playing && !muted ? '♪ Now playing: Lo-Finessa' : 'Lo-Finessa'}
+      <span className="text-white/50"> · original music, made for Finesse</span>
+    </figcaption>
+  )
+  // Reduced motion: the still frame, no video at all.
+  if (still) {
+    return (
+      <figure className={`relative mt-8 overflow-hidden rounded-2xl border border-white/10 bg-ink-900/60 ${shown === 'wait' ? 'hidden' : ''}`}>
+        <img src={LOFI_STILL} alt="" className="aspect-video w-full object-cover opacity-80" onLoad={() => setOk(true)} onError={() => setOk(false)} />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink-950/80 via-transparent to-transparent" />
+        {caption}
+      </figure>
+    )
+  }
   return (
     <figure className={`relative mt-8 overflow-hidden rounded-2xl border border-white/10 bg-ink-900/60 ${shown === 'wait' ? 'hidden' : ''}`}>
       <video
@@ -65,9 +81,10 @@ export function LoFinessaCard() {
         className="aspect-video w-full object-cover opacity-80"
         muted
         playsInline
-        loop={!still}
-        autoPlay={!still}
-        preload={still ? 'metadata' : 'auto'}
+        poster={LOFI_STILL}
+        loop
+        autoPlay
+        preload="auto"
         aria-hidden
         onLoadedData={() => setOk(true)}
         onError={() => setOk(false)}
@@ -80,12 +97,7 @@ export function LoFinessaCard() {
         ))}
       </video>
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink-950/80 via-transparent to-transparent" />
-      {status === 'ready' && (
-        <figcaption className="absolute bottom-3 left-4 text-[12px] font-medium text-white/85">
-          {playing && !muted ? '♪ Now playing: Lo-Finessa' : 'Lo-Finessa'}
-          <span className="text-white/50"> · original music, made for Finesse</span>
-        </figcaption>
-      )}
+      {caption}
     </figure>
   )
 }

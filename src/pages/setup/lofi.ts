@@ -15,6 +15,13 @@ const VOLUME = 0.3
 const FADE_IN_S = 1.5
 const SOURCES = ['setup/lo-finessa-loop.opus', 'setup/lo-finessa-loop.mp3']
 export const LOFI_VIDEOS = ['setup/lo-finessa-loop.webm', 'setup/lo-finessa-loop.mp4'].map((f) => `${CONTENT_BASE}${f}`)
+export const LOFI_STILL = `${CONTENT_BASE}setup/lo-finessa-still.jpg`
+/** The loop: 32 bars at 78 bpm, cut on the beat. The file carries one extra
+ *  second either side (the loop's own end before it, its start after it) so
+ *  the encoder sees the seam in context; we loop only the middle, which is
+ *  sample-exact and click-free whatever padding the encoder added. */
+const LOOP_START = 1
+const LOOP_SECONDS = 98.381
 
 type Status = 'idle' | 'loading' | 'ready' | 'failed'
 interface State {
@@ -90,8 +97,10 @@ function start() {
   source = ac.createBufferSource()
   source.buffer = buffer
   source.loop = true
+  source.loopStart = LOOP_START
+  source.loopEnd = LOOP_START + LOOP_SECONDS
   source.connect(gain)
-  source.start()
+  source.start(0, LOOP_START)
   update({ playing: true })
 }
 
@@ -149,6 +158,8 @@ export function finishLofi(fadeS = 2) {
     ctx = null
   }, fadeS * 1000 + 200)
 }
+
+export const lofiState = (): State => state
 
 export function useLofi(): State {
   const [, force] = useState(0)
