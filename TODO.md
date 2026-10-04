@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A tidier installer — v2.5.13 (2026-10-04)
+
+- **Installing Docker is quiet now.** When the installer has to install Docker, get.docker.com's
+  dozens of lines go to a log file instead of the screen: one line while it works, one ✔ when it's
+  done (and the last lines of the log if it fails).
+- A blank line after the installer's last message, so your prompt doesn't sit right under it.
+
 ## Keeps your place — v2.5.12 (2026-10-04)
 
 - **Leaving the player keeps your resume point.** Pressing Back saved the position as 0 (the

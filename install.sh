@@ -145,7 +145,15 @@ if ! command -v docker >/dev/null 2>&1; then
   say "  Finesse runs every app in Docker, which isn't installed."
   if confirm "Install Docker now (from get.docker.com)?"; then
     command -v curl >/dev/null 2>&1 || die "curl is needed to install Docker."
-    curl -fsSL https://get.docker.com | $SUDO sh || die "Docker didn't install. Install it yourself (docs.docker.com/engine/install) and run this again."
+    # Quietly, into a log: get.docker.com prints dozens of lines of its own.
+    DOCKER_LOG=$(mktemp /tmp/finesse-docker-install.XXXXXX)
+    say "  Installing Docker (a minute or two; details in $DOCKER_LOG)…"
+    if curl -fsSL https://get.docker.com | $SUDO sh >"$DOCKER_LOG" 2>&1; then
+      ok "Docker installed"
+    else
+      tail -n 15 "$DOCKER_LOG" >&2
+      die "Docker didn't install (the last lines are above; full log: $DOCKER_LOG). Install it yourself (docs.docker.com/engine/install) and run this again."
+    fi
   else
     die "Install Docker (docs.docker.com/engine/install), then run this again."
   fi
@@ -273,3 +281,4 @@ else
 fi
 say ""
 say "  ${D}Health check any time: sudo docker exec $NAME finesse doctor${N}"
+say ""
