@@ -146,6 +146,8 @@ export default function App() {
         {/* Player + game player are full-bleed, no navbar */}
         <Route path="/play/:itemId" element={<PlayerPage />} />
         <Route path="/games/play/:romId" element={<PlayGamePage />} />
+        {/* Administrators changing downloads / away-from-home access: the wizard, full-bleed */}
+        {!__WEBOS__ && <Route path="/setup" element={<SetupPage />} />}
         {!__WEBOS__ && <Route path="/games/stream/:sessionId" element={<StreamPlayPage />} />}
         <Route
           path="*"

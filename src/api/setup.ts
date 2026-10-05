@@ -171,6 +171,8 @@ export const setupApi = {
   checkCode: () => call<{ ok: boolean }>('POST', '/api/setup/code', undefined, { admin: false }),
   info: () => call<SetupInfo>('GET', '/api/setup/info'),
   checkSystem: () => call<{ ok: boolean; items: SystemItem[] }>('POST', '/api/setup/check/system', undefined, { timeoutMs: 60000 }),
+  /** A finished server: its last setup, with every secret masked (KEEP). null on older installs. */
+  current: () => call<{ doc: SetupDoc | null }>('GET', '/api/setup/current'),
   checkUsenet: (s: UsenetServer) => call<Verdict>('POST', '/api/setup/check/usenet', s, { timeoutMs: 45000 }),
   checkIndexer: (ix: Indexer) => call<Verdict>('POST', '/api/setup/check/indexer', ix, { timeoutMs: 45000 }),
   checkVpn: (v: VpnDoc) => call<Verdict & { problems?: Problem[] }>('POST', '/api/setup/check/vpn', v, { timeoutMs: 150000 }),

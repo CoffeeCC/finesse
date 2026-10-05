@@ -38,6 +38,23 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Easier downloads, any time — v2.5.16 (2026-10-05)
+
+- **Add downloads or away-from-home access later, from Settings.** Settings → Server → Downloads &
+  away from home opens the setup wizard again, just for those parts, then applies only what you
+  changed. Passwords and keys you don't touch stay on the server (the page never sees them).
+  Servers set up before this release go through the whole wizard once more (it says so).
+- **Groups helps you get reachable.** If your server has no public address yet, Groups links straight
+  to setting up away-from-home access (free with Tailscale).
+- **Plainer setup.** No more Prowlarr / SABnzbd / qBittorrent / "indexer" in the wizard's words:
+  "search sites", "your Usenet provider", "your VPN". The search-sites page says what each kind
+  needs and where to find an API key; "about ten minutes" became the honest "a few minutes".
+- **Fewer fields.** Known Usenet providers only ask for your username and password (download speed
+  is under More options). Your VPN's WireGuard file can be dropped onto the page, or chosen, and
+  fills everything in.
+- **A quiet tip jar.** Settings → About has a crypto address (with a QR code if you want it), and the
+  installer prints one line at the end. No pop-ups, no reminders.
+
 ## Previews only where you're looking — v2.5.15 (2026-10-04)
 
 - **The Home banner's preview stops when you scroll down** (or switch tabs), instead of playing on

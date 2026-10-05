@@ -281,4 +281,5 @@ else
 fi
 say ""
 say "  ${D}Health check any time: sudo docker exec $NAME finesse doctor${N}"
+say "  ${D}Finesse is free. Tips welcome (ETH): 0xfe70da78fd755baae45389662f3c71825dfc55f7${N}"
 say ""

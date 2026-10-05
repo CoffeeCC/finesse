@@ -226,3 +226,25 @@ describe('setup document', () => {
     assert.equal(d.admin.password, 'change-me-please', 'the original is untouched')
   })
 })
+
+test('changing a finished setup: secrets go out masked and come back filled in, matched by address', async () => {
+  const { maskSecrets, fillSecrets, KEEP } = await import('../src/setup/doc.ts')
+  const stored = {
+    admin: { username: 'alex', password: 'hunter2hunter2' },
+    downloads: { usenet: { servers: [{ host: 'a.example', password: 'pa' }, { host: 'b.example', password: 'pb' }] }, indexers: [{ url: 'https://ix.example', apiKey: 'k1' }] },
+    remoteAccess: { method: 'tailscale', tailscale: { authKey: 'tskey-auth-xyz', hostname: 'finesse' } },
+  }
+  const out = maskSecrets(stored) as typeof stored
+  assert.equal(out.admin.password, KEEP)
+  assert.equal(out.downloads.usenet.servers[1]!.password, KEEP)
+  assert.equal(out.remoteAccess.tailscale.authKey, KEEP)
+  assert.ok(!JSON.stringify(out).includes('hunter2') && !JSON.stringify(out).includes('tskey-auth-xyz'))
+  // The admin drops the first server, keeps the second, adds a torrent indexer with a new key.
+  const back = { ...out, downloads: { ...out.downloads, usenet: { servers: [out.downloads.usenet.servers[1]] }, indexers: [...out.downloads.indexers, { url: 'https://t.example', apiKey: 'new' }] } }
+  const filled = fillSecrets(back, stored) as typeof stored
+  assert.equal(filled.downloads.usenet.servers[0]!.password, 'pb')
+  assert.equal(filled.downloads.indexers[0]!.apiKey, 'k1')
+  assert.equal(filled.downloads.indexers[1]!.apiKey, 'new')
+  assert.equal(filled.admin.password, 'hunter2hunter2')
+  assert.equal(filled.remoteAccess.tailscale.authKey, 'tskey-auth-xyz')
+})

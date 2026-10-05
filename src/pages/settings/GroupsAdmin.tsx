@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { groupsApi, type GroupsOverview } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { Spinner } from '../setup/ui'
@@ -139,7 +140,10 @@ export default function GroupsAdmin() {
                 It works once, within 7 days.
               </p>
               {!o.publicUrl && (
-                <p className="mt-2 text-[12.5px] text-amber-200">Their server has to reach yours: set a public address (Tailscale Funnel, Cloudflare Tunnel or your own domain) under Invites &amp; sharing.</p>
+                <p className="mt-2 text-[12.5px] text-amber-200">
+                  Their server has to reach yours over the internet.{' '}
+                  <Link to="/setup?change=1" className="font-semibold underline underline-offset-2 hover:text-white">Set up away-from-home access</Link> (free with Tailscale), or enter your own address under Invites &amp; sharing.
+                </p>
               )}
             </div>
           )}

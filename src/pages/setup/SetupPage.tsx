@@ -10,7 +10,7 @@ import { ApiError, getSetupCode, setSetupCode, setupApi, type Problem, type RunS
 import { bundledJellyfin, discover, type FinesseInfo } from '../../lib/finesseServer'
 import { DOCS_URL } from '../../lib/project'
 import { FinesseWordmark } from '../../components/AuthShell'
-import { clearDraft, loadDraft, newDraft, saveDraft, toDoc, type Draft } from './draft'
+import { clearDraft, fromDoc, loadDraft, newDraft, saveDraft, toDoc, type Draft } from './draft'
 import {
   AccountStep,
   DownloadsStep,
@@ -39,7 +39,10 @@ const DOCS = `${DOCS_URL}/install.md`
 export default function SetupPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const { login } = useAuth()
+  const { login, session } = useAuth()
+  /** Changing a finished server from Settings: 'kept' = its last setup is stored (secrets stay on the server);
+   *  'redo' = an older install with none, so everything is picked again. */
+  const [change, setChange] = useState<null | 'kept' | 'redo'>(null)
 
   const [finesse, setFinesse] = useState<FinesseInfo | null>(null)
   const [phase, setPhase] = useState<Phase>('loading')
@@ -56,25 +59,26 @@ export default function SetupPage() {
   const [run, setRun] = useState<RunStatus | null>(null)
   const [applyError, setApplyError] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
+  const changeRef = useRef(false)
   useLofiWizard(phase === 'wizard' || phase === 'building' || phase === 'done')
 
   const set = useCallback((fn: (x: Draft) => void) => {
     setDraft((prev) => {
       const next = JSON.parse(JSON.stringify(prev)) as Draft
       fn(next)
-      saveDraft(next)
+      if (!changeRef.current) saveDraft(next)
       return next
     })
   }, [])
 
   const steps = useMemo(() => {
-    const s: StepId[] = ['welcome', 'machine', 'account', 'libraries', 'downloads']
+    const s: StepId[] = change === 'kept' ? ['libraries', 'downloads'] : change === 'redo' ? ['account', 'libraries', 'downloads'] : ['welcome', 'machine', 'account', 'libraries', 'downloads']
     if (d.usenet) s.push('usenet')
     if (d.torrents) s.push('vpn')
     if (d.usenet || d.torrents) s.push('indexers', 'quality')
     s.push('remote', 'email', 'review')
     return s
-  }, [d.usenet, d.torrents])
+  }, [d.usenet, d.torrents, change])
   const step = steps[Math.min(stepIdx, steps.length - 1)]!
 
   // ---------- boot: what state is the server in? ----------
@@ -89,6 +93,7 @@ export default function SetupPage() {
         return
       }
       if (f.setup.state === 'ready' && !getSetupCode()) {
+        if (params.get('change') && session?.isAdmin) return void enterChange()
         setPhase('already')
         return
       }
@@ -108,6 +113,23 @@ export default function SetupPage() {
       live = false
     }
   }, [])
+
+  // Settings → "Change downloads or away-from-home access": the wizard again, signed in as the admin.
+  const enterChange = async () => {
+    setPhase('loading')
+    try {
+      const [cur, i] = await Promise.all([setupApi.current(), setupApi.info()])
+      changeRef.current = true
+      setInfo(i)
+      setDraft(cur.doc ? fromDoc(cur.doc) : { ...newDraft(), admin: { username: session?.userName ?? '', password: '', confirm: '' } })
+      setChange(cur.doc ? 'kept' : 'redo')
+      setCodeOk(true)
+      setStepIdx(0)
+      setPhase('wizard')
+    } catch {
+      setPhase('already')
+    }
+  }
 
   const runSystemCheck = useCallback(async () => {
     setChecking(true)
@@ -268,9 +290,18 @@ export default function SetupPage() {
                 ? 'This Finesse server is already running. Sign in to use it — administrators can look after it from Settings → Server.'
                 : 'This address isn’t a Finesse server that can install apps (it may be an older install). Sign in to continue.'}
             </p>
-            <PrimaryButton className="mt-8" onClick={() => navigate('/login', { replace: true })}>
-              Go to sign in
-            </PrimaryButton>
+            {finesse && session?.isAdmin ? (
+              <div className="mt-8 flex flex-col items-center gap-3">
+                <PrimaryButton onClick={() => void enterChange()}>Change downloads or away-from-home access</PrimaryButton>
+                <button type="button" className="text-[13.5px] text-ink-400 hover:text-white" onClick={() => navigate('/', { replace: true })}>
+                  Back to Finesse
+                </button>
+              </div>
+            ) : (
+              <PrimaryButton className="mt-8" onClick={() => navigate('/login', { replace: true })}>
+                Go to sign in
+              </PrimaryButton>
+            )}
           </div>
         </div>
       </Backdrop>
@@ -289,8 +320,8 @@ export default function SetupPage() {
             setStepIdx(steps.indexOf('review'))
           }}
           applyError={applyError}
-          canRetry={Boolean(d.admin.password)}
-          onSignIn={signIn}
+          canRetry={Boolean(d.admin.password) || Boolean(change)}
+          onSignIn={change ? () => navigate('/settings#settings-server', { replace: true }) : signIn}
           signingIn={signingIn}
           signInError={signInError}
           dataPath={info?.defaults.data}
@@ -370,12 +401,18 @@ export default function SetupPage() {
           <div ref={contentRef} className="flex-1 px-5 pb-12 pt-8 sm:px-10 lg:pt-16">
             <div key={step} className="card-in mx-auto max-w-2xl">
               <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-accent-300">
-                {step === 'welcome' ? 'Welcome' : step === 'review' ? 'Last step' : `Step ${stepIdx} of ${steps.length - 1}`}
+                {step === 'welcome' ? 'Welcome' : step === 'review' ? 'Last step' : change ? `Step ${stepIdx + 1} of ${steps.length}` : `Step ${stepIdx} of ${steps.length - 1}`}
               </p>
               <h1 tabIndex={-1} className="mt-2 font-display text-[2.6rem] leading-[1.05] text-white outline-none sm:text-6xl">
-                {meta.title}
+                {change && step === 'account' ? 'Confirm your account' : change && step === 'review' ? 'Ready to apply' : meta.title}
               </h1>
-              <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-300">{meta.lead}</p>
+              <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-300">
+                {change && step === 'account'
+                  ? 'Your administrator username and password, so Finesse can apply the changes.'
+                  : change && step === 'review'
+                    ? 'Here’s your server as it will be. Nothing changes until you press Apply changes.'
+                    : meta.lead}
+              </p>
               <div className="mt-9">
                 {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} />}
                 {step === 'machine' && <MachineStep {...props} recheck={runSystemCheck} checking={checking} />}
@@ -388,6 +425,15 @@ export default function SetupPage() {
                 {step === 'quality' && <QualityStep {...props} />}
                 {step === 'remote' && <RemoteStep {...props} />}
                 {step === 'email' && <EmailStep {...props} />}
+                {step === 'review' && change && (
+                  <div className="mb-5">
+                    <Callout tone="warn" title="Changing your server">
+                      {change === 'kept'
+                        ? 'Only what you changed is applied; passwords and keys you didn’t touch stay as they are. Anything you switched off is turned off (its settings are kept for next time).'
+                        : 'This server was set up before Finesse remembered its setup, so pick everything you want to keep. Anything left out is turned off (its settings are kept for next time).'}
+                    </Callout>
+                  </div>
+                )}
                 {step === 'review' && <ReviewStep d={d} info={info} jumpTo={(s) => setStepIdx(steps.indexOf(s))} problems={problems} applyError={applyError} />}
               </div>
             </div>
@@ -402,7 +448,7 @@ export default function SetupPage() {
               <div className="flex items-center gap-4">
                 {blocker && step !== 'welcome' && <span className="hidden text-right text-[12.5px] text-ink-400 sm:block">{blocker}</span>}
                 <PrimaryButton onClick={next} disabled={Boolean(blocker) && !(step === 'welcome' && code.trim())} busy={codeBusy}>
-                  {step === 'welcome' ? 'Start' : step === 'review' ? 'Build my server' : 'Continue'}
+                  {step === 'welcome' ? 'Start' : step === 'review' ? (change ? 'Apply changes' : 'Build my server') : 'Continue'}
                 </PrimaryButton>
               </div>
             </div>

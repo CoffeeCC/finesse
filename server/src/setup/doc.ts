@@ -269,3 +269,43 @@ export function redact(d: SetupDoc): SetupDoc {
   if (c.games?.screenscraper) c.games.screenscraper.password = hide(c.games.screenscraper.password) as string
   return c
 }
+
+// ---- Changing a finished setup (Settings → "Change downloads or away-from-home access") ----
+// The last applied document is kept in Finesse's own settings; the wizard gets it with every secret
+// replaced by KEEP, and sends KEEP back for anything left unchanged, which is filled in from the stored copy.
+// So passwords and keys never travel to the browser and back.
+
+export const KEEP = '__finesse_keep__'
+const SECRET = new Set(['password', 'authKey', 'token', 'apiKey', 'privateKey', 'presharedKey', 'steamGridDbKey', 'clientSecret'])
+
+export function maskSecrets<T>(v: T): T {
+  if (Array.isArray(v)) return v.map((x) => maskSecrets(x)) as T
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, x] of Object.entries(v)) out[k] = SECRET.has(k) && typeof x === 'string' && x ? KEEP : maskSecrets(x)
+    return out as T
+  }
+  return v
+}
+
+/** Puts the stored secrets back wherever the incoming document says KEEP. List items are matched by
+ *  their address (host / url) first, then name, so reordering or removing one can't move a password. */
+export function fillSecrets(incoming: unknown, stored: unknown): unknown {
+  if (incoming === KEEP) return typeof stored === 'string' ? stored : ''
+  if (Array.isArray(incoming)) {
+    const old = Array.isArray(stored) ? stored : []
+    const keyOf = (x: unknown) => (x && typeof x === 'object' ? String((x as Record<string, unknown>).host ?? (x as Record<string, unknown>).url ?? (x as Record<string, unknown>).name ?? '') : '')
+    return incoming.map((x, i) => {
+      const k = keyOf(x)
+      const match = (k && old.find((o) => keyOf(o) === k)) || (k ? undefined : old[i])
+      return fillSecrets(x, match)
+    })
+  }
+  if (incoming && typeof incoming === 'object') {
+    const old = stored && typeof stored === 'object' && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {}
+    const out: Record<string, unknown> = {}
+    for (const [k, x] of Object.entries(incoming)) out[k] = fillSecrets(x, old[k])
+    return out
+  }
+  return incoming
+}

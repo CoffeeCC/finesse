@@ -539,6 +539,7 @@ export class SetupRunner {
         if (doc.emulators) x.emulators = doc.emulators
         x.setup.state = 'ready'
         x.setup.completedAt = new Date().toISOString()
+        x.setup.lastDoc = structuredClone(doc)   // for "Change downloads or away-from-home access" later
         delete x.setup.lastError
       })
       // Emulators in the document: into Wolf now, if game streaming is on.

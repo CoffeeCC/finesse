@@ -55,6 +55,8 @@ export interface Settings {
     startedAt?: string
     completedAt?: string
     lastError?: string
+    /** The last setup document applied (secrets included; it never leaves the server unmasked). */
+    lastDoc?: unknown
   }
   updates: {
     repo: string

@@ -2,7 +2,7 @@
   "name": "finesse",
   "private": true,
   "license": "MIT",
-  "version": "2.5.15",
+  "version": "2.5.16",
   "type": "module",
   "scripts": {
     "dev": "vite",

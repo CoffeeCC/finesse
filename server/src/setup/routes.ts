@@ -12,7 +12,7 @@ import schema from '../../../setup.schema.json' with { type: 'json' }
 import { CATALOG } from '../stack/catalog.ts'
 import { SetupRunner, stackBase } from './apply.ts'
 import { checkIndexer, checkSystem, checkUsenet, checkVpn } from './checks.ts'
-import { validateSetup, VPN_PROVIDERS, type VpnDoc } from './doc.ts'
+import { fillSecrets, KEEP, maskSecrets, validateSetup, type SetupDoc, VPN_PROVIDERS, type VpnDoc } from './doc.ts'
 import type { IndexerInput, UsenetServer } from '../stack/wire.ts'
 
 /** Well-known Usenet indexers (suggestions only — you still need your own account). */
@@ -39,6 +39,8 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       })
     }
 
+    /** The last applied setup, when the server is finished (for filling in masked secrets). */
+    const storedDoc = () => { const s = settings.get(); return s.setup.state === 'ready' ? (s.setup.lastDoc as SetupDoc | undefined) : undefined }
     const guard = async (req: IncomingMessage, opts: { status?: boolean } = {}) => {
       const s = settings.get()
       if (s.setup.state === 'ready') {
@@ -90,7 +92,8 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
 
     router.post('/api/setup/check/usenet', async ({ req, res }) => {
       await guard(req)
-      const s = await readJson<UsenetServer>(req)
+      const s = (await readJson<UsenetServer>(req)) as UsenetServer
+      if (s.password === KEEP) s.password = String(storedDoc()?.downloads?.usenet?.servers?.find((x) => x.host === s.host)?.password ?? '')
       if (!s.host || !s.port) throw new ApiError(400, 'host and port are required')
       sendJson(res, 200, await checkUsenet({ ...s, name: s.name || 'test', connections: s.connections || 1, port: Number(s.port), ssl: s.ssl !== false }))
     })
@@ -98,6 +101,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
     router.post('/api/setup/check/indexer', async ({ req, res }) => {
       await guard(req)
       const ix = await readJson<IndexerInput>(req)
+      if (ix.apiKey === KEEP) ix.apiKey = storedDoc()?.downloads?.indexers?.find((x) => x.url === ix.url)?.apiKey
       try {
         new URL(ix.url)
       } catch {
@@ -108,7 +112,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
 
     router.post('/api/setup/check/vpn', async ({ req, res }) => {
       await guard(req)
-      const vpn = await readJson<VpnDoc>(req)
+      const vpn = fillSecrets(await readJson<VpnDoc>(req), storedDoc()?.downloads?.torrents?.vpn) as VpnDoc
       const { problems } = validateSetup({ admin: { username: 'check', password: 'placeholder' }, downloads: { torrents: { vpn } } })
       if (problems.length) return sendJson(res, 200, { ok: false, message: problems[0]!.message, problems })
       const base = stackBase()
@@ -118,13 +122,25 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
 
     router.post('/api/setup/validate', async ({ req, res }) => {
       await guard(req)
-      const { problems } = validateSetup(await readJson(req, 1 << 20))
+      let body = await readJson(req, 1 << 20)
+      if (storedDoc()) body = fillSecrets(body, storedDoc()) as typeof body
+      const { problems } = validateSetup(body)
       sendJson(res, 200, { ok: problems.length === 0, problems })
+    })
+
+    // A finished server, changed from Settings: the last setup, secrets masked (admins only, via guard).
+    router.get('/api/setup/current', async ({ req, res }) => {
+      await guard(req)
+      const s = settings.get()
+      sendJson(res, 200, { doc: s.setup.state === 'ready' && s.setup.lastDoc ? maskSecrets(s.setup.lastDoc) : null })
     })
 
     router.post('/api/setup/apply', async ({ req, res }) => {
       await guard(req)
-      const { doc, problems } = validateSetup(await readJson(req, 1 << 20))
+      let body = await readJson(req, 1 << 20)
+      const stored = settings.get().setup.lastDoc
+      if (settings.get().setup.state === 'ready' && stored) body = fillSecrets(body, stored) as typeof body
+      const { doc, problems } = validateSetup(body)
       if (!doc) throw new ApiError(422, 'The setup has problems', problems)
       if (runner.status.state === 'running') throw new ApiError(409, 'Setup is already running')
       sendJson(res, 202, runner.start(doc))

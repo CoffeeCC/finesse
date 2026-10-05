@@ -67,6 +67,10 @@ export const indexerKey = () => `ix${Date.now().toString(36)}${seq++}`
 
 const clean = (s: string) => s.trim()
 
+/** A secret the server already has (changing a finished setup): sent back as-is, the server fills it in. */
+export const KEEP = '__finesse_keep__'
+export const kept = (s: string | undefined) => s === KEEP
+
 export function vpnDoc(d: Draft): NonNullable<NonNullable<SetupDoc['downloads']>['torrents']>['vpn'] {
   const v = d.vpn
   const countries = v.countries
@@ -170,4 +174,45 @@ export function clearDraft() {
   } catch {
     /* ignore */
   }
+}
+
+/** The wizard's draft for a finished server's last setup (secrets arrive masked as KEEP and go back that way). */
+export function fromDoc(doc: SetupDoc): Draft {
+  const d = newDraft()
+  d.admin = { username: doc.admin?.username ?? '', password: doc.admin?.password ?? '', confirm: doc.admin?.password ?? '' }
+  if (doc.server) d.server = { ...d.server, ...doc.server, name: doc.server.name || 'Finesse' } as Draft['server']
+  d.libraries = { ...d.libraries, ...doc.libraries, games: Boolean(doc.libraries?.games) }
+  d.games = { steamGridDbKey: doc.games?.steamGridDbKey ?? '', igdbClientId: doc.games?.igdb?.clientId ?? '', igdbClientSecret: doc.games?.igdb?.clientSecret ?? '' }
+  const dl = doc.downloads
+  d.usenet = Boolean(dl?.usenet)
+  d.torrents = Boolean(dl?.torrents)
+  d.servers = (dl?.usenet?.servers ?? []).map((s) => ({ ...s, preset: '', port: String(s.port ?? 563), connections: String(s.connections ?? 20) }))
+  d.indexers = (dl?.indexers ?? []).map((ix) => ({ ...ix, key: indexerKey() }))
+  const v = dl?.torrents?.vpn
+  if (v) {
+    d.vpn = {
+      ...d.vpn,
+      provider: v.provider,
+      type: v.type,
+      privateKey: v.wireguard?.privateKey ?? '',
+      addresses: v.wireguard?.addresses ?? '',
+      presharedKey: v.wireguard?.presharedKey ?? '',
+      endpointIp: v.wireguard?.endpointIp ?? '',
+      endpointPort: String(v.wireguard?.endpointPort ?? 51820),
+      publicKey: v.wireguard?.publicKey ?? '',
+      username: v.openvpn?.username ?? '',
+      password: v.openvpn?.password ?? '',
+      countries: (v.countries ?? []).join(', '),
+    }
+  }
+  if (doc.quality?.preset) d.quality = doc.quality.preset as Draft['quality']
+  const ra = doc.remoteAccess
+  if (ra?.method === 'tailscale') { d.remote = 'tailscale'; d.tailscale = { authKey: ra.tailscale?.authKey ?? '', hostname: ra.tailscale?.hostname ?? 'finesse' } }
+  else if (ra?.method === 'cloudflare') { d.remote = 'cloudflare'; d.cloudflare = { token: ra.cloudflare?.token ?? '', publicUrl: ra.cloudflare?.publicUrl ?? '' } }
+  else if (doc.publicUrl) { d.remote = 'own'; d.publicUrl = doc.publicUrl }
+  if (doc.email) {
+    d.emailOn = true
+    d.email = { ...d.email, preset: '', host: doc.email.host, port: String(doc.email.port ?? 587), secure: Boolean(doc.email.secure), username: doc.email.username ?? '', password: doc.email.password ?? '', from: doc.email.from ?? '' }
+  }
+  return d
 }

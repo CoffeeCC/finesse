@@ -3,7 +3,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { setupApi, type SetupInfo, type SystemItem } from '../../api/setup'
-import { indexerKey, newServer, vpnDoc, type Draft } from './draft'
+import { indexerKey, kept, newServer, vpnDoc, type Draft } from './draft'
 import { countries, LANGUAGES, parseWireGuard, QUALITY_PRESETS, SMTP_PRESETS, timeZones, USENET_PRESETS } from './presets'
 import { Callout, CheckButton, ChoiceCard, ExternalLink, gb, SectionTitle, SelectField, StatusDot, TextField, Toggle } from './ui'
 
@@ -19,16 +19,16 @@ export interface StepProps {
 }
 
 export const STEP_META: Record<StepId, { nav: string; title: string; lead: ReactNode }> = {
-  welcome: { nav: 'Welcome', title: 'Let’s build your media server', lead: 'A few questions, then Finesse installs and connects everything for you — streaming, downloads and a VPN for torrents. It takes about ten minutes.' },
+  welcome: { nav: 'Welcome', title: 'Let’s build your media server', lead: 'A few questions, then Finesse installs and connects everything for you — streaming, and downloads if you want them. It takes a few minutes.' },
   machine: { nav: 'This machine', title: 'Checking this machine', lead: 'Finesse runs every app in its own container on this computer. Here’s what it found.' },
   account: { nav: 'Your account', title: 'Create your account', lead: 'You’ll be the administrator: you sign in with this, invite people and approve requests.' },
   libraries: { nav: 'Libraries', title: 'What will you collect?', lead: 'Each library gets its own folder, and its own manager to find new additions if you set up downloads.' },
   downloads: { nav: 'Downloads', title: 'How should new things arrive?', lead: 'Finesse can find and download what you request automatically. Pick one, both, or neither.' },
-  usenet: { nav: 'Usenet', title: 'Your Usenet provider', lead: 'The account you pay for that stores the files. Finesse sets up SABnzbd with it.' },
-  vpn: { nav: 'VPN', title: 'Your VPN', lead: 'qBittorrent only ever connects through this VPN. If it drops, torrents stop — nothing leaks.' },
-  indexers: { nav: 'Indexers', title: 'Where to search', lead: 'Indexers are search engines for downloads. Finesse adds them to Prowlarr, which shares them with every app.' },
+  usenet: { nav: 'Usenet', title: 'Your Usenet provider', lead: 'The service that stores the files (usually $3–10 a month). Sign up with any provider, then copy its address, username and password here — Finesse does the rest.' },
+  vpn: { nav: 'VPN', title: 'Your VPN', lead: 'Torrents only ever connect through your VPN: if it drops, they stop, and nothing leaks. Use the VPN account you already have.' },
+  indexers: { nav: 'Search sites', title: 'Where to search', lead: 'Search sites find what you ask for. Sign up with at least one, then paste its address and API key (it’s in your account settings on their site). Two find more than one.' },
   quality: { nav: 'Quality', title: 'How good should it look?', lead: 'The default for new requests. You can pick a different quality for any single request.' },
-  remote: { nav: 'Away from home', title: 'Watching away from home', lead: 'Optional. Reach Finesse from anywhere without opening ports on your router.' },
+  remote: { nav: 'Away from home', title: 'Watching away from home', lead: 'Optional. Reach Finesse from anywhere — and share with friends’ servers — without opening ports on your router.' },
   email: { nav: 'Invite emails', title: 'Emailing invites', lead: 'Optional. Send invites straight to people’s inboxes. You can always share an invite link instead.' },
   review: { nav: 'Review', title: 'Ready to build', lead: 'Here’s everything Finesse will set up. Nothing is installed until you press Build.' },
 }
@@ -102,7 +102,7 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
       const v = d.vpn
       if (!v.provider) return 'Choose your VPN provider'
       if (v.type === 'wireguard') {
-        if (!B64KEY.test(v.privateKey.trim())) return 'Paste your WireGuard private key'
+        if (!kept(v.privateKey) && !B64KEY.test(v.privateKey.trim())) return 'Paste your WireGuard private key'
         if (v.provider !== 'nordvpn' && !v.addresses.trim()) return 'Paste your WireGuard address'
         if (v.provider === 'custom' && (!v.endpointIp.trim() || !v.publicKey.trim())) return 'Add the server’s endpoint and public key'
       } else if (!v.username.trim() || !v.password) return 'Enter your OpenVPN username and password'
@@ -118,7 +118,7 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
     case 'quality':
       return null
     case 'remote':
-      if (d.remote === 'tailscale' && !d.tailscale.authKey.trim().startsWith('tskey-')) return 'Paste a Tailscale auth key (tskey-…)'
+      if (d.remote === 'tailscale' && !kept(d.tailscale.authKey) && !d.tailscale.authKey.trim().startsWith('tskey-')) return 'Paste a Tailscale auth key (tskey-…)'
       if (d.remote === 'tailscale' && !/^[a-z0-9-]{1,63}$/.test(d.tailscale.hostname.trim().toLowerCase())) return 'Use lowercase letters, numbers and dashes for the name'
       if (d.remote === 'cloudflare' && d.cloudflare.token.trim().length < 20) return 'Paste the tunnel token'
       if (d.remote === 'cloudflare' && !/^https:\/\/\S+$/.test(d.cloudflare.publicUrl.trim())) return 'Enter the public address (https://…)'
@@ -333,10 +333,13 @@ export function UsenetStep({ d, set }: StepProps) {
                 <TextField label="Username" value={s.username} onChange={(v) => upd(i, (x) => void (x.username = v))} autoComplete="off" />
                 <TextField label="Password" type="password" value={s.password} onChange={(v) => upd(i, (x) => void (x.password = v))} autoComplete="off" />
               </div>
-              <div className="grid gap-4 sm:grid-cols-[7rem_1fr] sm:items-end">
-                <TextField label="Connections" value={s.connections} onChange={(v) => upd(i, (x) => void (x.connections = v.replace(/\D/g, '')))} inputMode="numeric" />
-                <p className="pb-2 text-[12.5px] leading-relaxed text-ink-400">Your plan’s limit (often 20–100). More connections = faster downloads.</p>
-              </div>
+              <details className="group" open={s.preset === 'other'}>
+                <summary className="cursor-pointer text-[12.5px] font-medium text-ink-400 hover:text-white">More options (download speed)</summary>
+                <div className="mt-3 grid gap-4 sm:grid-cols-[7rem_1fr] sm:items-end">
+                  <TextField label="Connections" value={s.connections} onChange={(v) => upd(i, (x) => void (x.connections = v.replace(/\D/g, '')))} inputMode="numeric" />
+                  <p className="pb-2 text-[12.5px] leading-relaxed text-ink-400">Your plan’s limit (often 20–100). More connections = faster downloads. The default suits most plans.</p>
+                </div>
+              </details>
               {s.preset !== 'other' && (
                 <p className="text-[12.5px] text-ink-400">
                   {s.host}:{s.port} · SSL
@@ -367,6 +370,21 @@ export function VpnStep({ d, set, info }: StepProps) {
   const providers = info?.vpnProviders ?? []
   const p = providers.find((x) => x.id === d.vpn.provider)
   const [paste, setPaste] = useState('')
+  // A WireGuard config (pasted, dropped or chosen as a file) fills in the fields.
+  const applyConf = (text: string) => {
+    setPaste(text)
+    const w = parseWireGuard(text)
+    setV((vpn) => {
+      if (w.privateKey) vpn.privateKey = w.privateKey
+      if (w.addresses) vpn.addresses = w.addresses
+      if (w.presharedKey) vpn.presharedKey = w.presharedKey
+      if (vpn.provider === 'custom') {
+        if (w.publicKey) vpn.publicKey = w.publicKey
+        if (w.endpointIp) vpn.endpointIp = w.endpointIp
+        if (w.endpointPort) vpn.endpointPort = String(w.endpointPort)
+      }
+    })
+  }
   const v = d.vpn
   const setV = (fn: (vpn: Draft['vpn']) => void) => set((x) => fn(x.vpn))
   return (
@@ -408,27 +426,25 @@ export function VpnStep({ d, set, info }: StepProps) {
           <Callout title={`Where to find this at ${p.name}`}>{p.help}</Callout>
           {v.type === 'wireguard' ? (
             <div className="space-y-4">
-              <Field2 label="Paste your WireGuard config (optional shortcut)">
+              <Field2 label="Your VPN’s WireGuard file: drop it here, or paste its text (fills everything in)">
                 <textarea
                   className="h-24 w-full resize-y rounded-xl border border-white/10 bg-ink-900/80 px-3.5 py-2.5 font-mono text-[12.5px] text-white outline-none placeholder:text-ink-400/60 focus:border-accent-400"
-                  placeholder={'[Interface]\nPrivateKey = …\nAddress = 10.64.…/32'}
+                  placeholder={'Drop the .conf file from your VPN’s website or app here\n[Interface]\nPrivateKey = …'}
                   value={paste}
-                  onChange={(e) => {
-                    setPaste(e.target.value)
-                    const w = parseWireGuard(e.target.value)
-                    setV((vpn) => {
-                      if (w.privateKey) vpn.privateKey = w.privateKey
-                      if (w.addresses) vpn.addresses = w.addresses
-                      if (w.presharedKey) vpn.presharedKey = w.presharedKey
-                      if (vpn.provider === 'custom') {
-                        if (w.publicKey) vpn.publicKey = w.publicKey
-                        if (w.endpointIp) vpn.endpointIp = w.endpointIp
-                        if (w.endpointPort) vpn.endpointPort = String(w.endpointPort)
-                      }
-                    })
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    const f = e.dataTransfer.files?.[0]
+                    if (!f) return
+                    e.preventDefault()
+                    void f.text().then((t) => applyConf(t))
                   }}
+                  onChange={(e) => applyConf(e.target.value)}
                 />
               </Field2>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] font-semibold text-accent-300 hover:text-accent-200">
+                <input type="file" accept=".conf,text/plain" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void f.text().then((t) => applyConf(t)) }} />
+                Choose the .conf file…
+              </label>
               <TextField label="Private key" type="password" mono value={v.privateKey} onChange={(x) => setV((vpn) => void (vpn.privateKey = x.trim()))} placeholder="44 characters ending in =" />
               {v.provider !== 'nordvpn' && <TextField label="Address" mono value={v.addresses} onChange={(x) => setV((vpn) => void (vpn.addresses = x))} placeholder="10.64.222.21/32" />}
               {(v.provider === 'airvpn' || v.provider === 'windscribe' || v.provider === 'custom') && (
@@ -476,9 +492,14 @@ export function IndexersStep({ d, set, info }: StepProps) {
   const upd = (key: string, fn: (ix: Draft['indexers'][number]) => void) => set((x) => fn(x.indexers.find((i) => i.key === key)!))
   return (
     <div className="space-y-6">
+      <p className="text-[13.5px] leading-relaxed text-ink-300">
+        {d.usenet && <>For <b className="text-white">Usenet</b>, add a Usenet search site (many have a free tier). </>}
+        {d.torrents && <>For <b className="text-white">torrents</b>, add a torrent search site (its address often ends in “torznab”) — your VPN is already set up for them. </>}
+        In your account on their site, copy the <b className="text-white">API key</b>, and paste it with the site’s address below. Press <b className="text-white">Test</b> to check it before you build.
+      </p>
       {shown.length === 0 && (
-        <Callout tone="warn" title="No indexers yet">
-          Without at least one, requests can’t find anything to download. You can skip this and add indexers later in Prowlarr.
+        <Callout tone="warn" title="No search sites yet">
+          Without at least one, requests can’t find anything to download. You can skip this and add them later from Settings → Server → Downloads &amp; away from home.
         </Callout>
       )}
       {shown.map((ix) => (

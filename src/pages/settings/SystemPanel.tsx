@@ -3,6 +3,7 @@
 // email used for invites. Administrators only.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { systemApi, type BackupFile, type BackupPart, type BackupPartInfo, type SystemStatus } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { pushBackHandler } from '../../lib/back'
@@ -412,6 +413,18 @@ export default function SystemPanel() {
           </div>
         </Block>
       </div>
+
+      {/* Downloads and away-from-home access, any time after setup: the wizard again, only those parts. */}
+      {finesse?.mode === 'bundle' && (
+        <Block title="Downloads & away from home">
+          <div className={`${CARD} flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between`}>
+            <p className="text-[13.5px] leading-relaxed text-ink-300">Add or change Usenet, torrents and the VPN, or let people (and friends’ servers) reach this server from outside your home.</p>
+            <Link to="/setup?change=1" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-white px-4 text-[13.5px] font-semibold text-ink-950 hover:bg-ink-200">
+              Change
+            </Link>
+          </div>
+        </Block>
+      )}
 
       {/* Updates */}
       <Block title="App updates">

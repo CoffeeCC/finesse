@@ -635,6 +635,7 @@ export default function SettingsPage() {
           <section id="settings-about" aria-labelledby="settings-about-title" className="scroll-mt-24">
             {heading('about', 'About')}
             <AboutSection />
+            <TipJar />
           </section>
 
           {session?.isAdmin && (
@@ -1030,6 +1031,44 @@ function InvitesAdmin() {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+const TIP_ADDRESS = '0xfe70da78fd755baae45389662f3c71825dfc55f7'
+
+/** A quiet tip jar in About: no pop-ups, no reminders, just there if someone wants it. */
+function TipJar() {
+  const [copied, setCopied] = useState(false)
+  const [qr, setQr] = useState(false)
+  const copy = () => {
+    void navigator.clipboard?.writeText(TIP_ADDRESS).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className={`${SECTION_CARD} mt-4`}>
+      <div className="py-4">
+        <p className="text-[14px] font-medium text-white">Support Finesse</p>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-400">Finesse is free and always will be. If it’s earned a spot in your home, a tip in crypto (ETH or any Ethereum-network token) is appreciated, never expected.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <code className="select-all break-all rounded-lg bg-white/[0.06] px-2.5 py-1.5 font-mono text-[12px] text-ink-200">{TIP_ADDRESS}</code>
+          <button type="button" onClick={copy} className="h-8 rounded-lg bg-white/[0.08] px-3 text-[12.5px] font-medium text-ink-100 hover:bg-white/[0.14]">
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          {!IS_TV && (
+            <button type="button" onClick={() => setQr((v) => !v)} className="h-8 rounded-lg px-3 text-[12.5px] font-medium text-ink-400 hover:text-white">
+              {qr ? 'Hide QR code' : 'Show QR code'}
+            </button>
+          )}
+        </div>
+        {qr && (
+          <div className="mt-3 inline-block rounded-xl bg-white p-2">
+            <img src={`${import.meta.env.BASE_URL}donate-eth.svg`} alt="QR code of the tip address" className="h-36 w-36" />
+          </div>
+        )}
       </div>
     </div>
   )
