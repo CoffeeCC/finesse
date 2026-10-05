@@ -428,9 +428,14 @@ function gluetunEnv(ctx: StackContext): Record<string, string> {
     if (v.openvpnUser) env.OPENVPN_USER = v.openvpnUser
     if (v.openvpnPassword) env.OPENVPN_PASSWORD = v.openvpnPassword
   }
-  if (v.countries?.length) env.SERVER_COUNTRIES = v.countries.join(',')
+  // Gluetun filters PIA, Windscribe and VyprVPN by region (their regions are mostly country names);
+  // a country filter there stops the tunnel. A custom WireGuard server has nothing to filter.
+  if (v.countries?.length && v.provider !== 'custom') env[REGION_PROVIDERS.includes(v.provider) ? 'SERVER_REGIONS' : 'SERVER_COUNTRIES'] = v.countries.join(',')
   return env
 }
+
+/** VPN providers Gluetun filters by region rather than by country. */
+export const REGION_PROVIDERS = ['private internet access', 'windscribe', 'vyprvpn']
 
 /** Install order: dependencies first. */
 export function orderServices(ids: StackServiceId[]): StackServiceId[] {

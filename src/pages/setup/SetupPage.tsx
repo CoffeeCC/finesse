@@ -48,6 +48,9 @@ export default function SetupPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [d, setDraft] = useState<Draft>(() => loadDraft() ?? newDraft())
   const [stepIdx, setStepIdx] = useState(0)
+  // The last result of each test on the page (Usenet accounts, the VPN, search sites).
+  const [tests, setTests] = useState<Record<string, { label: string; ok: boolean; message: string }>>({})
+  const [warnSkip, setWarnSkip] = useState<{ label: string; message: string }[] | null>(null)
   const [code, setCode] = useState(() => (params.get('code') ?? getSetupCode()).toUpperCase())
   const [codeOk, setCodeOk] = useState(false)
   const [codeError, setCodeError] = useState('')
@@ -182,12 +185,24 @@ export default function SetupPage() {
     })
   }
 
-  const next = async () => {
+  const next = async (force = false) => {
     if (step === 'welcome') return void submitCode()
     if (blocker) return
     if (step === 'review') return void build()
+    // Something here failed its test: fine to carry on, but say what won't work yet and where to fix it.
+    const failed = Object.entries(tests).filter(([k, t]) => !t.ok && k.split(':')[0] === step).map(([, t]) => t)
+    if (failed.length && !force) return setWarnSkip(failed)
+    setWarnSkip(null)
     go(1)
   }
+  const report = useCallback((key: string, label: string, v: { ok: boolean; message: string } | null) => {
+    setTests((t) => {
+      const n = { ...t }
+      if (v) n[key] = { label, ok: v.ok, message: v.message }
+      else delete n[key]
+      return n
+    })
+  }, [])
 
   // ---------- build ----------
   const build = async () => {
@@ -332,7 +347,7 @@ export default function SetupPage() {
   }
 
   const meta = STEP_META[step]
-  const props = { d, set, info, system }
+  const props = { d, set, info, system, report }
   const visible = steps.filter((s) => s !== 'welcome')
 
   return (
@@ -447,7 +462,7 @@ export default function SetupPage() {
               </GhostButton>
               <div className="flex items-center gap-4">
                 {blocker && step !== 'welcome' && <span className="hidden text-right text-[12.5px] text-ink-400 sm:block">{blocker}</span>}
-                <PrimaryButton onClick={next} disabled={Boolean(blocker) && !(step === 'welcome' && code.trim())} busy={codeBusy}>
+                <PrimaryButton onClick={() => void next()} disabled={Boolean(blocker) && !(step === 'welcome' && code.trim())} busy={codeBusy}>
                   {step === 'welcome' ? 'Start' : step === 'review' ? (change ? 'Apply changes' : 'Build my server') : 'Continue'}
                 </PrimaryButton>
               </div>
@@ -455,7 +470,47 @@ export default function SetupPage() {
           </div>
         </main>
       </div>
+      {warnSkip && <SkipWarning step={step} failed={warnSkip} onBack={() => setWarnSkip(null)} onContinue={() => void next(true)} />}
     </Backdrop>
+  )
+}
+
+const SKIP_EFFECT: Partial<Record<StepId, string>> = {
+  usenet: 'Usenet downloads won’t start until it signs in.',
+  vpn: 'Torrents won’t start until the VPN connects (nothing leaks in the meantime).',
+  indexers: 'Finesse won’t search there until it works.',
+}
+
+/** Continue after a failed test: allowed, with what that means and where to fix it later. */
+function SkipWarning({ step, failed, onBack, onContinue }: { step: StepId; failed: { label: string; message: string }[]; onBack: () => void; onContinue: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onBack()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onBack])
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="skip-title" onClick={onBack}>
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h2 id="skip-title" className="font-display text-[28px] leading-tight text-white">
+          {failed.length === 1 ? `${failed[0]!.label} didn’t pass its test` : 'Some of these didn’t pass their test'}
+        </h2>
+        <ul className="mt-3 space-y-1.5 text-[13.5px] leading-relaxed text-red-200">
+          {failed.map((f, i) => (
+            <li key={i}>
+              {failed.length > 1 && <b className="text-white">{f.label}: </b>}
+              {f.message}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-4 text-[14px] leading-relaxed text-ink-200">
+          You can carry on: everything else gets set up. {SKIP_EFFECT[step] ?? ''} Fix it any time in <b className="text-white">Settings → Server → Downloads &amp; away from home → Change</b>.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+          <GhostButton onClick={onBack}>Go back and fix it</GhostButton>
+          <PrimaryButton onClick={onContinue}>Continue anyway</PrimaryButton>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -750,6 +805,9 @@ function BuildScreen({
                 <span className={`block text-[15px] ${s.state === 'pending' ? 'text-ink-400' : 'text-white'} ${s.state === 'running' ? 'font-semibold' : ''}`}>{s.title}</span>
                 {s.detail && s.state !== 'done' && !(s.state === 'error' && s.detail === run?.error) && (
                   <span className={`mt-0.5 block text-[13px] leading-relaxed ${s.state === 'error' ? 'text-red-300' : 'text-ink-400'}`}>{s.detail}</span>
+                )}
+                {s.id === 'games' && (s.state === 'pending' || s.state === 'running') && (
+                  <span className="mt-0.5 block text-[12.5px] leading-relaxed text-ink-400/80">This one can take several minutes: it sets up the game library and its database.</span>
                 )}
                 {s.state === 'running' && typeof s.progress === 'number' && (
                   <span className="mt-2 block h-1 overflow-hidden rounded-full bg-white/10">

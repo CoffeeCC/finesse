@@ -68,20 +68,30 @@ export function loadLofi() {
   el.preload = 'auto'
   el.loop = true
   el.crossOrigin = 'anonymous'
-  el.addEventListener(
-    'canplay',
-    () => {
-      if (state.status !== 'loading') return
-      audio = el
-      update({ status: 'ready' })
-      if (wantPlay && !state.muted) start()
-    },
-    { once: true },
-  )
   // A missing file comes back as the app's own page, which fails to decode: same as a 404.
-  el.addEventListener('error', () => update({ status: 'failed' }), { once: true })
+  el.addEventListener('error', () => {
+    if (audio === el) update({ status: 'failed', playing: false })
+  }, { once: true })
   el.src = `${CONTENT_BASE}${pick[0]}`
   el.load()
+  // Ready to try right away: phones only fetch audio once a tap asks for it, and the tap has to
+  // be the thing that starts it (play() later, outside the tap, gets blocked).
+  audio = el
+  update({ status: 'ready' })
+  if (wantPlay && !state.muted) start()
+}
+
+/** Setup finished earlier in this visit and the music was let go; the wizard is open again. */
+export function reviveLofi() {
+  if (!finished) return
+  finished = false
+  wantPlay = false
+  audio = null
+  source = null
+  gain = null
+  void ctx?.close().catch(() => {})
+  ctx = null
+  update({ status: 'idle', playing: false })
 }
 
 function start() {

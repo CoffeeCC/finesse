@@ -10,6 +10,7 @@ import { registerGroups } from './groups.ts'
 import { registerStreaming } from './streaming.ts'
 import { playState, registerPlay } from './play.ts'
 import { InviteStore, registerInvites } from './invites.ts'
+import { registerUploads, Uploads } from './uploads.ts'
 import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
@@ -54,6 +55,8 @@ function features(s: Settings) {
     email: Boolean(s.email?.host),
     webUpdates: true,
     system: s.mode === 'bundle',
+    /** Drop files on the app and they land in the libraries (servers Finesse set up). */
+    addMedia: s.mode === 'bundle' && Boolean(s.stack) && s.setup.state === 'ready',
   }
 }
 
@@ -92,6 +95,9 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerInvites(router, { store: invites, jf, auth, settings })
   registerGroups(router, { settings, jf, auth })
   registerStreaming(router, { settings, auth })
+  const uploads = new Uploads(settings)
+  registerUploads(router, { uploads, auth })
+  setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)
   deps.updater = updater

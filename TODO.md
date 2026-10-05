@@ -38,6 +38,30 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Windows, and your own media — v2.6.0 (2026-10-05)
+
+- **Finesse on Windows.** [Download Finesse Setup](https://github.com/CoffeeCC/finesse/releases/latest/download/FinesseSetup.exe)
+  and Nessa walks you through it: it checks the PC, installs Docker Desktop if needed (and picks up
+  by itself after the restart), asks where your media should live, installs Finesse, lets phones
+  and TVs in, and adds it to the Start menu. Lo-Finessa plays while it works. See
+  [Finesse on Windows](docs/windows.md).
+- **Add your own media, by dragging it in.** Account menu → **Add media**, or drop files on any
+  page: single files or whole folders, from your computer, a USB drive or a network share. Finesse
+  sorts them into Movies, TV shows, Music and Games (with the right console), keeps subtitles with
+  their videos, reuses the folder of a show or artist you already have, and sends big files in
+  pieces that resume if the connection drops. Jellyfin picks them up a minute later.
+- **A failed test no longer lets you sail past.** Continuing after a Usenet, VPN or search-site test
+  failed now says what won't work yet and where to fix it later (you can still carry on).
+- **Clearer Usenet sign-in errors.** Providers like Newshosting answer a wrong password with the
+  same code as a blocked account; Finesse now says which it is, and that many want the account
+  username rather than your email.
+- **PIA, Windscribe and VyprVPN countries work.** Their servers are picked by region, which is what
+  the field now sets. The VPN test also allows for downloading the VPN app the first time.
+- **Lo-Finessa comes back** when you change your setup later, starts from your first tap on phones,
+  and fades out when you leave setup.
+- **Games setup** says it can take several minutes while it builds its library.
+- **The installers don't ask for tips.** The tip jar lives in Settings → About.
+
 ## The whole song — v2.5.18 (2026-10-05)
 
 - **Lo-Finessa plays the full song** while you set up, from start to finish and round again,

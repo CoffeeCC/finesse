@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Finesse Setup</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="stage" id="stage" aria-hidden="true"></div>
+  <div class="grain"></div>
+
+  <header class="bar" id="bar">
+    <div class="brand"><img src="logo.svg" alt="" /> Finesse Setup <span class="v" id="ver"></span></div>
+    <div class="grow" data-drag></div>
+    <button class="music" id="music" title="Lo-Finessa: original lo-fi, made for Finesse" hidden>
+      <span class="eq"><i></i><i></i><i></i></span><span id="musicLabel">Lo-Finessa</span>
+    </button>
+    <button class="win" id="min" title="Minimize" aria-label="Minimize"><svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1.2" /></svg></button>
+    <button class="win close" id="close" title="Close" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.2" /></svg></button>
+  </header>
+
+  <main class="panel">
+    <div class="rail" id="rail"></div>
+    <section id="view" aria-live="polite"></section>
+  </main>
+
+  <div class="nessa" id="nessa"><span class="who">NESSA</span><div class="say" id="say"></div></div>
+  <canvas id="confetti"></canvas>
+  <div class="modal" id="modal" hidden></div>
+
+  <audio id="song" src="media/lo-finessa-song.opus" loop preload="auto"></audio>
+  <script src="qr.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

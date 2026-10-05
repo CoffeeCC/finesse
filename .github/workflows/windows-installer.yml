@@ -1,0 +1,45 @@
+name: Windows installer
+
+# Builds FinesseSetup.exe on Windows and runs its self-test: the real window (WebView2), the real
+# checks of the machine, and a picture of each screen, uploaded with the exe as an artifact.
+on:
+  push:
+    paths: ['windows/**', '.github/workflows/windows-installer.yml']
+  pull_request:
+    paths: ['windows/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version=$v -o out
+          Get-Item out/FinesseSetup.exe | Select-Object Name, Length
+
+      - name: Self-test
+        shell: pwsh
+        run: |
+          $p = Start-Process out/FinesseSetup.exe -ArgumentList '--selftest', "$PWD\selftest" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(240000)) { Stop-Process $p -Force; Write-Host 'self-test timed out' }
+          Get-Content "$env:LOCALAPPDATA\Finesse\setup.log" -ErrorAction SilentlyContinue
+          Get-ChildItem selftest -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "self-test exited with $($p.ExitCode)" }
+          if (@(Get-ChildItem selftest\*.png).Count -lt 5) { throw 'some screens are missing' }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: finesse-setup
+          path: |
+            out/FinesseSetup.exe
+            selftest/

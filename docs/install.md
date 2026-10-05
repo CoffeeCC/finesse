@@ -36,7 +36,8 @@ Finesse watches them, repairs them, backs them up and updates them.
     $10–20/year).
   - **Torrents**: a VPN subscription. Finesse never runs torrents without one.
 
-Windows and macOS aren't supported yet. Linux comes first; Windows is on the [roadmap](../ROADMAP.md).
+On **Windows**, use [Finesse Setup](windows.md) instead: a download that installs Docker Desktop and
+Finesse for you. macOS isn't supported yet.
 
 ## 1. Run the installer
 
@@ -109,9 +110,12 @@ come back. When it's done, press **Start watching** and you're signed in.
 
 ## 3. After setup
 
-- **Add what you already have.** Copy files into `…/media/movies`, `…/media/tv` and
-  `…/media/music` inside your media folder. Jellyfin picks them up within a minute or two. Name
-  movies `Title (Year)`, and put shows in `Show Name/Season 01/`.
+- **Add what you already have.** In Finesse, open the account menu → **Add media**, or just drag
+  files onto any page. Single files or whole folders, from your computer, a USB drive or a network
+  share: Finesse sorts them into Movies, TV shows, Music and Games, sends them to the server (big
+  files resume if the connection drops), and Jellyfin picks them up within a minute or two. On the
+  server itself you can also copy files into `…/media/movies`, `…/media/tv` and `…/media/music`
+  inside your media folder (name movies `Title (Year)`, and put shows in `Show Name/Season 01/`).
 - **Request something.** Search for any title and press **Request**. It downloads, is renamed,
   and appears in your library on its own.
 - **Watch on the TV.** See [Watch on your TV](tv.md).

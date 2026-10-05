@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { LOFI_STILL, LOFI_VIDEOS, loadLofi, lofiUserGesture, setLofiMuted, useLofi } from './lofi'
+import { finishLofi, LOFI_STILL, LOFI_VIDEOS, loadLofi, lofiUserGesture, reviveLofi, setLofiMuted, useLofi } from './lofi'
 
 /** Starts loading the song once the wizard is up, and starts it on the first click. */
 export function useLofiWizard(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return
+    // Changing settings after setup opens the wizard again: the music comes back with it.
+    reviveLofi()
     // Lazily: after the page has settled, so it never competes with the wizard.
     const t = window.setTimeout(loadLofi, 1500)
     const onClick = () => lofiUserGesture()
@@ -14,6 +16,8 @@ export function useLofiWizard(enabled: boolean) {
       window.clearTimeout(t)
       document.removeEventListener('pointerdown', onClick, true)
       document.removeEventListener('keydown', onClick, true)
+      // Leaving setup (Settings after a change, Home, Back): the music fades out with it.
+      finishLofi(1.2)
     }
   }, [enabled])
 }

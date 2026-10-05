@@ -2,7 +2,7 @@
 // says what (if anything) still stops the person moving on.
 
 import { useState, type ReactNode } from 'react'
-import { setupApi, type SetupInfo, type SystemItem } from '../../api/setup'
+import { setupApi, type SetupInfo, type SystemItem, type Verdict } from '../../api/setup'
 import { indexerKey, kept, newServer, vpnDoc, type Draft } from './draft'
 import { countries, LANGUAGES, parseWireGuard, QUALITY_PRESETS, SMTP_PRESETS, timeZones, USENET_PRESETS } from './presets'
 import { Callout, CheckButton, ChoiceCard, ExternalLink, gb, SectionTitle, SelectField, StatusDot, TextField, Toggle } from './ui'
@@ -16,6 +16,8 @@ export interface StepProps {
   set: Update
   info: SetupInfo | null
   system: { items: SystemItem[]; ok: boolean } | null
+  /** A test's result, so Continue can warn when something didn't pass (key: what was tested). */
+  report?: (key: string, label: string, v: Verdict | null) => void
 }
 
 export const STEP_META: Record<StepId, { nav: string; title: string; lead: ReactNode }> = {
@@ -286,7 +288,7 @@ export function DownloadsStep({ d, set, system }: StepProps) {
   )
 }
 
-export function UsenetStep({ d, set }: StepProps) {
+export function UsenetStep({ d, set, report }: StepProps) {
   const upd = (i: number, fn: (s: Draft['servers'][number]) => void) => set((x) => fn(x.servers[i]!))
   return (
     <div className="space-y-6">
@@ -350,6 +352,7 @@ export function UsenetStep({ d, set }: StepProps) {
               )}
               <CheckButton
                 label="Test connection"
+                onResult={(v) => report?.(`usenet:${i}`, s.name || s.host || 'Your Usenet account', v)}
                 disabled={!s.host || !s.username || !s.password}
                 run={() => setupApi.checkUsenet({ name: s.name || s.host, host: s.host.trim(), port: Number(s.port) || 563, ssl: s.ssl, username: s.username.trim(), password: s.password, connections: 1 })}
               />
@@ -366,7 +369,7 @@ export function UsenetStep({ d, set }: StepProps) {
   )
 }
 
-export function VpnStep({ d, set, info }: StepProps) {
+export function VpnStep({ d, set, info, report }: StepProps) {
   const providers = info?.vpnProviders ?? []
   const p = providers.find((x) => x.id === d.vpn.provider)
   const [paste, setPaste] = useState('')
@@ -467,9 +470,16 @@ export function VpnStep({ d, set, info }: StepProps) {
             </div>
           )}
           {v.provider !== 'custom' && (
-            <TextField label="Countries" optional value={v.countries} onChange={(x) => setV((vpn) => void (vpn.countries = x))} placeholder="Netherlands, Switzerland" hint="Comma-separated. Leave empty to let the VPN choose." />
+              <TextField
+                label={['private internet access', 'windscribe', 'vyprvpn'].includes(v.provider) ? 'Regions' : 'Countries'}
+                optional
+                value={v.countries}
+                onChange={(x) => setV((vpn) => void (vpn.countries = x))}
+                placeholder={v.provider === 'private internet access' ? 'Netherlands, US East' : 'Netherlands, Switzerland'}
+                hint="Comma-separated. Leave empty to let the VPN choose."
+              />
           )}
-          <CheckButton label="Test the VPN" busyLabel="Connecting a test tunnel… (up to a minute)" disabled={stepBlocker('vpn', d, { codeOk: true, system: null }) !== null} run={() => setupApi.checkVpn(vpnDoc(d))} />
+          <CheckButton label="Test the VPN" onResult={(r) => report?.('vpn', 'Your VPN', r)} busyLabel="Connecting a test tunnel… (the first test also downloads the VPN app: a minute or two)" disabled={stepBlocker('vpn', d, { codeOk: true, system: null }) !== null} run={() => setupApi.checkVpn(vpnDoc(d))} />
         </>
       )}
     </div>
@@ -485,7 +495,7 @@ function Field2({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-export function IndexersStep({ d, set, info }: StepProps) {
+export function IndexersStep({ d, set, info, report }: StepProps) {
   const suggestions = info?.indexerSuggestions ?? []
   const add = (ix: { name: string; url: string; kind: 'newznab' | 'torznab' }) => set((x) => void x.indexers.push({ ...ix, apiKey: '', key: indexerKey() }))
   const shown = d.indexers.filter((ix) => (ix.kind === 'newznab' ? d.usenet : d.torrents))
@@ -518,7 +528,7 @@ export function IndexersStep({ d, set, info }: StepProps) {
             <TextField label="Address" mono value={ix.url} onChange={(v) => upd(ix.key, (i) => void (i.url = v))} placeholder={ix.kind === 'newznab' ? 'https://api.example.com' : 'https://…/torznab/api'} />
           </div>
           <TextField label="API key" type="password" mono value={ix.apiKey ?? ''} onChange={(v) => upd(ix.key, (i) => void (i.apiKey = v.trim()))} hint="On your indexer’s profile or API page." optional={ix.kind === 'torznab'} />
-          <CheckButton label="Test" disabled={!/^https?:\/\//.test(ix.url)} run={() => setupApi.checkIndexer({ name: ix.name, kind: ix.kind, url: ix.url.trim(), apiKey: ix.apiKey })} />
+          <CheckButton label="Test" onResult={(r) => report?.(`indexers:${ix.url}`, ix.name || 'A search site', r)} disabled={!/^https?:\/\//.test(ix.url)} run={() => setupApi.checkIndexer({ name: ix.name, kind: ix.kind, url: ix.url.trim(), apiKey: ix.apiKey })} />
         </div>
       ))}
       <div className="space-y-2">

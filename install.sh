@@ -40,7 +40,6 @@ NAME="finesse"
 NETWORK="finesse"
 DOCS="https://github.com/CoffeeCC/finesse/blob/master/docs/install.md"
 TRUENAS_DOCS="https://github.com/CoffeeCC/finesse/blob/master/docs/truenas.md"
-TIP="0xfe70da78fd755baae45389662f3c71825dfc55f7"
 
 # Plain until the terminal is checked (option errors print before that).
 B=""; D=""; G=""; Y=""; R=""; N=""; ACC=""; HAIR=""; PINK=""
@@ -603,7 +602,6 @@ else
 fi
 say ""
 say "    ${D}Health check any time: sudo docker exec $NAME finesse doctor${N}"
-say "    ${D}Finesse is free. Tips welcome (ETH): $TIP${N}"
 say ""
 if [ -n "$LOG" ]; then rm -f "$LOG"; fi
 exit 0

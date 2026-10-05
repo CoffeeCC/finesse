@@ -110,6 +110,16 @@ function nntpLines(sock: Socket) {
     })
 }
 
+/** Why a Usenet server said 502 to the password, in plain words (the server's own reason stays in brackets). */
+export function refusal(reason: string): string {
+  const why = reason ? ` (the server said: ${reason})` : ''
+  if (/connection|too many|max(imum)?\b|limit|simultaneous/i.test(reason))
+    return `The server refused: too many connections${why}. Close other downloaders using this account, or lower Connections.`
+  if (/expire|inactive|suspend|disabled|subscription|no (active )?plan|renew|block/i.test(reason))
+    return `The server refused: the account isn’t active${why}. Check the subscription on the provider’s site.`
+  return `The server refused the sign-in${why}. Check the username and password (many providers want the account username, not your email), that no other downloader is using this account, and that the subscription is active.`
+}
+
 export async function checkUsenet(s: UsenetServer, timeoutMs = 20000): Promise<Verdict> {
   return new Promise<Verdict>((resolve) => {
     let done = false
@@ -152,7 +162,8 @@ export async function checkUsenet(s: UsenetServer, timeoutMs = 20000): Promise<V
       const pw = await next()
       if (/^281/.test(pw)) return finish({ ok: true, message: `Connected to ${s.host} — signed in`, detail: { greeting: greet.slice(4, 120) } })
       if (/^48[12]/.test(pw)) return finish({ ok: false, message: 'Wrong username or password for this Usenet server' })
-      if (/^502/.test(pw)) return finish({ ok: false, message: `Signed in, but the account isn’t allowed to download (${pw.slice(4, 100)}) — is the subscription active?` })
+      // 502 means "no", for more reasons than one: many providers (Newshosting, Eweka…) send it for a wrong password too.
+      if (/^502/.test(pw)) return finish({ ok: false, message: refusal(pw.slice(4, 120).trim()) })
       finish({ ok: false, message: `Sign-in failed: ${pw.slice(0, 120)}` })
     }
     sock.once(s.ssl ? 'secureConnect' : 'connect', () => void run().catch((e) => finish({ ok: false, message: String(e) })))

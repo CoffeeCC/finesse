@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Finesse Setup for Windows: one .exe. WinForms (.NET Framework 4.8, part of Windows 10 and 11) hosting
+       WebView2; the interface is the ui/ folder, zipped into the exe along with the WebView2 libraries. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>FinesseSetup</AssemblyName>
+    <RootNamespace>Finesse.Setup</RootNamespace>
+    <ApplicationIcon>finesse.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Prefer32Bit>false</Prefer32Bit>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Version Condition="'$(Version)' == ''">0.0.0</Version>
+    <Product>Finesse Setup</Product>
+    <Company>Finesse</Company>
+    <Copyright>MIT License</Copyright>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <WebView2Version>1.0.3351.48</WebView2Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="$(WebView2Version)" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Management" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Remove="ui\**" />
+    <EmbeddedResource Include="finesse.ico" LogicalName="finesse.ico" />
+  </ItemGroup>
+  <!-- The interface, zipped fresh on every build. -->
+  <Target Name="ZipUi" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <UiZip>$(MSBuildProjectDirectory)\obj\ui.zip</UiZip>
+    </PropertyGroup>
+    <MakeDir Directories="$(MSBuildProjectDirectory)\obj" />
+    <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\ui" DestinationFile="$(UiZip)" Overwrite="true" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(UiZip)" LogicalName="ui.zip" />
+    </ItemGroup>
+  </Target>
+  <!-- The WebView2 libraries go inside the exe too, so there is nothing to unzip. -->
+  <Target Name="EmbedWebView2" AfterTargets="ResolvePackageAssets">
+    <PropertyGroup>
+      <Wv2>$(NuGetPackageRoot)microsoft.web.webview2\$(WebView2Version)\</Wv2>
+    </PropertyGroup>
+    <ItemGroup>
+      <EmbeddedResource Include="$(Wv2)lib\net462\Microsoft.Web.WebView2.Core.dll" LogicalName="lib.Microsoft.Web.WebView2.Core.dll" />
+      <EmbeddedResource Include="$(Wv2)lib\net462\Microsoft.Web.WebView2.WinForms.dll" LogicalName="lib.Microsoft.Web.WebView2.WinForms.dll" />
+      <EmbeddedResource Include="$(Wv2)runtimes\win-x64\native\WebView2Loader.dll" LogicalName="native.x64.WebView2Loader.dll" />
+      <EmbeddedResource Include="$(Wv2)runtimes\win-arm64\native\WebView2Loader.dll" LogicalName="native.arm64.WebView2Loader.dll" />
+    </ItemGroup>
+  </Target>
+</Project>

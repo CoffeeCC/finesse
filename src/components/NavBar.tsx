@@ -67,6 +67,8 @@ export default function NavBar() {
   // Admins: the NAS is behind the latest release — offer to update it.
   const { data: server } = useServerUpdate()
   const serverUpdate = server?.available && server.latest ? server.latest : null
+  const { info: finesse } = useFinesse()
+  const canAddMedia = !__WEBOS__ && Boolean(session?.isAdmin && finesse?.features?.addMedia)
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -293,6 +295,17 @@ export default function NavBar() {
                   }}
                 >
                   Update Finesse to {shortVersion(serverUpdate)}
+                </MenuItem>
+              )}
+              {canAddMedia && (
+                <MenuItem
+                  icon={<Icon d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14" />}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/add-media')
+                  }}
+                >
+                  Add media
                 </MenuItem>
               )}
               <MenuItem

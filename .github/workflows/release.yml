@@ -7,7 +7,8 @@ name: Release
 #   finesse-webos-<v>.json   the TV bundle — the webOS app's OTA updater
 #   com.finesse.tv_<v>_all.ipk  the LG TV app to install (docs/tv.md)
 # and pushes the multi-arch server image ghcr.io/<owner>/finesse:<v> (+ :latest),
-# which installs and self-updates use.
+# which installs and self-updates use, and attaches FinesseSetup.exe (the Windows installer;
+# releases/latest/download/FinesseSetup.exe always points at the newest).
 # Bump "version" to ship; pushes that don't are no-ops. A release made by hand
 # with only one asset gets the missing one uploaded.
 on:
@@ -158,3 +159,37 @@ jobs:
             org.opencontainers.image.description=Your own streaming service — Jellyfin, the *arrs, Usenet and a VPN, set up for you
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  windows:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Already attached?
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.release.outputs.version }}
+        run: |
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx FinesseSetup.exe; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.check.outputs.needed == 'true'
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build and attach FinesseSetup.exe
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version="$VERSION" -o out
+          gh release upload "v$VERSION" out/FinesseSetup.exe --clobber

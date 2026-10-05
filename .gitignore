@@ -6,3 +6,5 @@ webos/release
 *.local
 .DS_Store
 previews/
+windows/installer/bin/
+windows/installer/obj/

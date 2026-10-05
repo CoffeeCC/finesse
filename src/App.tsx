@@ -15,6 +15,8 @@ import SearchPage from './pages/SearchPage'
 import RequestPage from './pages/RequestPage'
 import MyListPage from './pages/MyListPage'
 import LibrariesPage from './pages/LibrariesPage'
+import AddMediaPage from './pages/AddMediaPage'
+import DropToAdd from './components/DropToAdd'
 import SettingsPage from './pages/SettingsPage'
 import PersonPage from './pages/PersonPage'
 import BrowsePage from './pages/BrowsePage'
@@ -173,6 +175,7 @@ export default function App() {
                     <Route path="/friends" element={<FriendsPage />} />
                     <Route path="/watchlist" element={<Navigate to="/mylist" replace />} />
                     <Route path="/libraries" element={<LibrariesPage />} />
+                    {!__WEBOS__ && <Route path="/add-media" element={<AddMediaPage />} />}
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
@@ -186,6 +189,7 @@ export default function App() {
               {!IS_TV && <SearchOverlay />}
               <QuickMenu />
               <ServerUpdateOverlay />
+              {!__WEBOS__ && <DropToAdd />}
             </>
           }
         />

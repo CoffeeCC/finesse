@@ -41,7 +41,10 @@ The demo library is made of freely licensed and public-domain films and music. S
 
 ## Install
 
-On a 64-bit Linux machine (x86-64 or ARM64) that stays on:
+**Windows:** [download Finesse Setup](https://github.com/CoffeeCC/finesse/releases/latest/download/FinesseSetup.exe)
+and run it. It installs Docker Desktop if needed and walks you through the rest ([guide](docs/windows.md)).
+
+**Linux**, on a 64-bit machine (x86-64 or ARM64) that stays on:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CoffeeCC/finesse/master/install.sh | bash

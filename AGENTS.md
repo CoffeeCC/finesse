@@ -68,6 +68,7 @@ runs the same, plus the TV build.
 | `server/cli/finesse.ts` | The `finesse` CLI inside the container |
 | `setup.schema.json` | Public schema of the setup document. **Keep it in sync with `server/src/setup/doc.ts`.** `server/test/setup.test.ts` enforces this. |
 | `webos/` | TV packaging and the CSS down-leveller for Chromium 68 |
+| `windows/installer/` | Finesse Setup for Windows: a WinForms + WebView2 exe (.NET Framework 4.8) whose interface is `ui/` (plain HTML/JS; opened in a browser it runs a pretend install, `?mock=fresh`). `Engine.cs` does the work: Docker Desktop, the `finesse` volume (settings) and a Windows media folder (`/run/desktop/mnt/host/…`). CI builds it and screenshots each screen (`.github/workflows/windows-installer.yml`); releases attach `FinesseSetup.exe`. |
 | `deploy/` | Pre-1.0 nginx + Python invite-service deployment (legacy; kept for existing installs) |
 | `tools/tour/` | The video tour: a demo server, scene scripts, narration, and the film + episodes. Adding a feature? Add its scene ([tools/tour/README.md](tools/tour/README.md)). |
 

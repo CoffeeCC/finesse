@@ -256,3 +256,19 @@ describe('jellyfin proxy', () => {
     assert.match(got, /Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK\+xOo=/)
   })
 })
+
+describe('add media', () => {
+  test('administrators only, and only on servers Finesse set up', async () => {
+    const begin = (headers: Record<string, string>) =>
+      fetch(`${base}/finesse/api/media/uploads`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ kind: 'movies', path: 'a.mkv', size: 1 }) })
+    assert.equal((await begin({})).status, 401)
+    assert.equal((await begin(auth(USER_TOKEN))).status, 403)
+    const r = await begin(auth(ADMIN_TOKEN))
+    assert.equal(r.status, 409)
+    assert.match(((await r.json()) as { error: string }).error, /servers Finesse set up/)
+    const info = await fetch(`${base}/finesse/api/media/info`, { headers: auth(ADMIN_TOKEN) })
+    assert.deepEqual(await info.json(), { available: false })
+    const finesse = (await (await fetch(`${base}/api/finesse`)).json()) as { features: { addMedia: boolean } }
+    assert.equal(finesse.features.addMedia, false)
+  })
+})
