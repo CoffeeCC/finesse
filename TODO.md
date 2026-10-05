@@ -38,6 +38,15 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## The whole song — v2.5.18 (2026-10-05)
+
+- **Lo-Finessa plays the full song** while you set up, from start to finish and round again,
+  instead of a 100-second loop. It streams rather than loading all at once, so it's light on
+  phones too.
+- **A tidier installer.** The big picture of Nessa at the top and bottom is gone; the colours,
+  numbered steps, spinners and every Docker fix from 2.5.17 stay. New pictures can be dropped in
+  later without touching the script (see `tools/installer/README.md`).
+
 ## Nessa installs it — v2.5.17 (2026-10-05)
 
 - **A friendlier installer.** Nessa says hi in pixel art (on terminals with 256 colours or more),

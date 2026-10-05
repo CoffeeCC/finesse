@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { LOFI_STILL, LOFI_VIDEOS, loadLofi, lofiUserGesture, setLofiMuted, useLofi } from './lofi'
 
-/** Starts loading the loop once the wizard is up, and starts it on the first click. */
+/** Starts loading the song once the wizard is up, and starts it on the first click. */
 export function useLofiWizard(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return
