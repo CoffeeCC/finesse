@@ -38,6 +38,12 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Previews only where you're looking — v2.5.15 (2026-10-04)
+
+- **The Home banner's preview stops when you scroll down** (or switch tabs), instead of playing on
+  out of sight, and starts again when you come back up. A title's page pauses its preview the same
+  way and picks up where it left off.
+
 ## Thumbnail previews — v2.5.14 (2026-10-04)
 
 - **Cards preview on any server.** Hovering a movie or episode with no preview clip now flips

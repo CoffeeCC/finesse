@@ -11,6 +11,7 @@ import { IS_TV } from '../../lib/device'
 import WatchlistButton from '../WatchlistButton'
 import CastMenu from '../CastMenu'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
+import { useInView } from '../../lib/inView'
 
 /** Resting this long on a title starts its preview clip behind the stage. */
 const CLIP_DWELL_MS = 2200
@@ -262,20 +263,22 @@ export default function NowStage() {
     if (entry) setMood(entry.tint)
   }, [entry])
 
-  // Rest on a title for a moment and its preview clip plays behind the stage.
+  // Rest on a title for a moment and its preview clip plays behind the stage —
+  // only while the stage is on screen: scrolled down the page, it pauses and starts nothing new.
+  const [stageRef, stageInView] = useInView<HTMLElement>()
   const { data: manifest } = useClipManifest()
   const [clip, setClip] = useState<{ key: string; url: string; on: boolean } | null>(null)
   const stopClip = useCallback(() => setClip(null), [])
   useEffect(() => {
     setClip(null)
     // TVs: one video decoder is for the film itself, not a background loop.
-    if (!entry?.item || reducedMotion() || IS_TV) return
+    if (!entry?.item || reducedMotion() || IS_TV || !stageInView) return
     const ids = [entry.item.Id, entry.item.SeriesId].filter(Boolean) as string[]
     const url = ids.map((id) => previewClipUrl(id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)).find(Boolean)
     if (!url) return
     const t = window.setTimeout(() => setClip({ key: entry.key, url, on: false }), CLIP_DWELL_MS)
     return () => window.clearTimeout(t)
-  }, [entry, manifest])
+  }, [entry, manifest, stageInView])
   useEffect(() => {
     if (!clip) return
     claimPreview(stopClip)
@@ -359,7 +362,7 @@ export default function NowStage() {
 
   const doubled = lines.length > 1 ? [...lines, ...lines] : []
   return (
-    <section className="os-stage" aria-label="Now" style={{ '--tint-rgb': entry.tint } as CSSProperties}>
+    <section ref={stageRef} className="os-stage" aria-label="Now" style={{ '--tint-rgb': entry.tint } as CSSProperties}>
       <div className="os-scene" aria-hidden>
         {entries.map((e, i) => {
           if (!seen.has(e.key)) return null

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { claimPreview, releasePreview } from '../lib/preview'
+import { useInView } from '../lib/inView'
 
 /**
  * Plays a locally-generated preview clip (a short snippet of the actual file,
@@ -21,6 +22,14 @@ export default function VideoClipHero({
   const [muted, setMuted] = useState(true)
   // Fades in over the artwork once it has a moving picture.
   const [playing, setPlaying] = useState(false)
+  // Scrolled past the hero (or another tab): pause, and pick up where it was on the way back.
+  const [boxRef, inView] = useInView<HTMLDivElement>()
+  useEffect(() => {
+    const v = ref.current
+    if (!v) return
+    if (inView) void v.play().catch(() => {})
+    else v.pause()
+  }, [inView])
 
   // The hero owns the one preview slot while it's up — claiming stops any card
   // preview that was playing, and the closer runs if something else claims it.
@@ -61,7 +70,7 @@ export default function VideoClipHero({
   }
 
   return (
-    <div className="absolute inset-0 overflow-hidden" onMouseEnter={enter} onMouseLeave={leave}>
+    <div ref={boxRef} className="absolute inset-0 overflow-hidden" onMouseEnter={enter} onMouseLeave={leave}>
       <video
         ref={ref}
         src={clipUrl}
