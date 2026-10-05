@@ -6,11 +6,12 @@
 //   POST   /api/media/uploads        {kind, path, size}  → {id, offset}   (same file again → same id, its offset)
 //   PUT    /api/media/uploads/:id?offset=N  raw bytes    → {offset, done, path}
 //   DELETE /api/media/uploads/:id                         → cancel
+//   DELETE /api/media/files/:receipt                      → take back a file it added (for a day)
 // Parts wait in <media>/.finesse-uploads (same disk as the libraries, outside every library) and
 // are renamed into place when complete, so Jellyfin never sees half a file.
 
-import { createHash } from 'node:crypto'
-import { chownSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { chownSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -32,6 +33,8 @@ export const CHUNK_MAX = 64 << 20
 const HEADROOM = 512 << 20
 /** Unfinished uploads are forgotten after a week. */
 const STALE_MS = 7 * 24 * 3600e3
+/** How long "Remove" works on a file that was just added. */
+const UNDO_MS = 24 * 3600e3
 
 interface Meta {
   kind: Kind
@@ -53,31 +56,44 @@ export function cleanPath(rel: unknown): string | null {
   return parts.join('/')
 }
 
-/** "The Office (US) (2005)" and "the office us" are the same folder; returns the year too. */
+/** "The Office (US) (2005)" and "the office us" are the same folder, and so are "Season 1" and
+ *  "Season 01"; returns the year too. */
 function folderKey(name: string): { key: string; year?: string } {
+  const season = /^(season|series|staffel|saison|temporada)[ ._-]*0*(\d+)$/i.exec(name.trim())
+  if (season) return { key: `season${season[2]}` }
   const year = /\((\d{4})\)\s*$/.exec(name)?.[1]
   return { key: name.replace(/\(\d{4}\)\s*$/, '').toLowerCase().replace(/[^a-z0-9]+/g, ''), year }
 }
 
-/** A show, artist or movie that's already on disk under a slightly different name: use its folder,
- *  so Jellyfin doesn't list it twice ("Pioneer One" next to "Pioneer One (2010)"). */
+/** Folders already on disk under a slightly different name (a show, its seasons, an artist and their
+ *  albums, a movie): use them, so Jellyfin doesn't list things twice ("Pioneer One" next to
+ *  "Pioneer One (2010)", "Season 1" next to "Season 01"). */
 export function sameFolder(libraryDir: string, rel: string): string {
-  const [first, ...rest] = rel.split('/')
-  if (!rest.length || !first) return rel
-  let names: string[]
-  try {
-    names = readdirSync(libraryDir, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name)
-  } catch {
-    return rel
+  const parts = rel.split('/')
+  const out: string[] = []
+  let here = libraryDir
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i]!
+    let names: string[] = []
+    try {
+      names = readdirSync(here, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name)
+    } catch {
+      /* new folder from here down: nothing to match */
+    }
+    const want = folderKey(part)
+    const hit = names.includes(part)
+      ? part
+      : want.key
+        ? names.find((n) => {
+            const k = folderKey(n)
+            return k.key === want.key && !(k.year && want.year && k.year !== want.year)
+          })
+        : undefined
+    if (!hit) return [...out, ...parts.slice(i)].join('/')
+    out.push(hit)
+    here = join(here, hit)
   }
-  if (names.includes(first)) return rel
-  const want = folderKey(first)
-  if (!want.key) return rel
-  const hit = names.find((n) => {
-    const k = folderKey(n)
-    return k.key === want.key && !(k.year && want.year && k.year !== want.year)
-  })
-  return hit ? [hit, ...rest].join('/') : rel
+  return [...out, parts[parts.length - 1]].join('/')
 }
 
 /** "Film.mkv" → "Film (2).mkv", until the name is free. */
@@ -98,6 +114,8 @@ export class Uploads {
   private scanTimer: NodeJS.Timeout | null = null
   /** One write at a time per upload (a retried chunk can arrive while the first is still flowing). */
   private readonly writing = new Set<string>()
+  /** Files added recently, by the receipt handed back with them: only these can be taken back. */
+  private readonly receipts = new Map<string, { file: string; library: string; kind: Kind; at: number }>()
 
   constructor(settings: SettingsStore, api: JellyfinLibraries = jellyfinLibraries) {
     this.settings = settings
@@ -226,7 +244,7 @@ export class Uploads {
   }
 
   /** Appends one chunk at `offset` (must be where the file ends now). */
-  async write(id: string, offset: number, length: number, body: NodeJS.ReadableStream) {
+  async write(id: string, offset: number, length: number, body: NodeJS.ReadableStream): Promise<{ offset: number; done: boolean; path: string; receipt?: string }> {
     const root = this.need()
     const meta = this.readMeta(root, id)
     const part = this.partFile(root, id)
@@ -259,17 +277,41 @@ export class Uploads {
     return this.finish(root, id, meta)
   }
 
-  private finish(root: string, id: string, meta: Meta) {
+  private finish(root: string, id: string, meta: Meta): { offset: number; done: boolean; path: string; receipt: string } {
     const want = join(root, KINDS[meta.kind], meta.path)
     mkdirSync(dirname(want), { recursive: true })
     const target = freeName(want)
     renameSync(this.partFile(root, id), target)
     rmSync(this.metaFile(root, id), { force: true })
     this.own(join(root, KINDS[meta.kind]), target)
-    const placed = target.slice(join(root, KINDS[meta.kind]).length + 1)
+    const library = join(root, KINDS[meta.kind])
+    const placed = target.slice(library.length + 1)
     log.info(`added ${meta.kind}: ${placed} (${Math.round(meta.size / 1e6)} MB)`)
     if (meta.kind !== 'games') this.scanSoon() // RomM: the games nudger registers new console folders by itself
-    return { offset: meta.size, done: true, path: placed }
+    const receipt = randomBytes(18).toString('base64url')
+    for (const [k, r] of this.receipts) if (Date.now() - r.at > UNDO_MS) this.receipts.delete(k)
+    this.receipts.set(receipt, { file: target, library, kind: meta.kind, at: Date.now() })
+    return { offset: meta.size, done: true, path: placed, receipt }
+  }
+
+  /** "Remove" on a file just added (wrong file, wrong library): deletes it, and folders it leaves empty. */
+  remove(receipt: string) {
+    this.need()
+    const r = this.receipts.get(receipt)
+    if (!r || Date.now() - r.at > UNDO_MS) throw new ApiError(404, 'That file can’t be removed from here any more. Delete it on the server instead.')
+    this.receipts.delete(receipt)
+    rmSync(r.file, { force: true })
+    let dir = dirname(r.file)
+    while (dir.startsWith(r.library + '/')) {
+      try {
+        rmdirSync(dir) // only when empty
+      } catch {
+        break
+      }
+      dir = dirname(dir)
+    }
+    log.info(`removed ${r.kind}: ${r.file.slice(r.library.length + 1)}`)
+    if (r.kind !== 'games') this.scanSoon()
   }
 
   cancel(id: string) {
@@ -326,6 +368,11 @@ export function registerUploads(router: Router, deps: { uploads: Uploads; auth: 
     const length = Number(req.headers['content-length'])
     if (!Number.isSafeInteger(offset) || offset < 0) throw new ApiError(400, 'Missing offset')
     sendJson(res, 200, await uploads.write(params.id!, offset, length, req))
+  })
+  router.delete('/api/media/files/:receipt', async ({ req, res, params }) => {
+    await auth.requireAdmin(req)
+    uploads.remove(params.receipt!)
+    sendJson(res, 200, { ok: true })
   })
   router.delete('/api/media/uploads/:id', async ({ req, res, params }) => {
     await auth.requireAdmin(req)

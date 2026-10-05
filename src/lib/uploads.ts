@@ -1,6 +1,8 @@
 // The Add media upload queue: lives outside any page, so uploads carry on while you browse.
-// Two files at a time, 16 MB chunks; a dropped connection retries, and the server says where to
-// pick up (the same file dropped again later continues too).
+// Dropped files wait in review until someone presses Add (wrong folder? nothing has moved yet).
+// Then two files at a time, 16 MB chunks; a dropped connection retries, and the server says where
+// to pick up (the same file dropped again later continues too). A file just added can be taken
+// back with Remove for a day (the server's receipt for it).
 
 import { useEffect, useState } from 'react'
 import { mediaBrowserAuthHeader } from '../api/client'
@@ -10,7 +12,7 @@ import type { Kind, Planned } from './mediaSort'
 const CHUNK = 16 << 20
 const PARALLEL = 2
 
-export type Status = 'waiting' | 'sending' | 'done' | 'skipped' | 'failed' | 'cancelled'
+export type Status = 'review' | 'waiting' | 'sending' | 'done' | 'skipped' | 'failed' | 'cancelled' | 'removing' | 'removed'
 
 export interface Job extends Planned {
   /** The server's id for this upload, once it's started. */
@@ -20,6 +22,8 @@ export interface Job extends Planned {
   error?: string
   /** Where it ended up, inside its library. */
   placed?: string
+  /** The server's receipt for a file it added: what Remove needs. */
+  receipt?: string
 }
 
 interface State {
@@ -62,21 +66,47 @@ export interface MediaInfo {
 }
 export const mediaInfo = () => api<MediaInfo>('GET', '/api/media/info')
 
-/** Adds files to the queue (ones already queued are left alone) and starts sending. */
+/** Puts dropped files up for review (ones already in the list are left alone). Nothing is sent yet. */
 export function enqueue(items: Planned[]) {
-  const have = new Set(state.jobs.filter((j) => j.status !== 'cancelled' && j.status !== 'failed').map((j) => j.key))
-  const fresh = items.filter((i) => !have.has(i.key)).map((i): Job => ({ ...i, status: i.kind === 'skip' ? 'skipped' : 'waiting', sent: 0 }))
+  const have = new Set(state.jobs.filter((j) => j.status !== 'cancelled' && j.status !== 'failed' && j.status !== 'removed').map((j) => j.key))
+  const fresh = items.filter((i) => !have.has(i.key)).map((i): Job => ({ ...i, status: 'review', sent: 0 }))
   state.jobs = [...state.jobs.filter((j) => !fresh.some((f) => f.key === j.key)), ...fresh]
   emit()
+}
+
+/** Add: everything in review goes (files marked "not added" stay behind). */
+export function confirmReview() {
+  state.jobs = state.jobs.map((j) => (j.status !== 'review' ? j : { ...j, status: j.kind === 'skip' ? 'skipped' : 'waiting' }))
+  emit()
   pump()
+}
+
+/** Changed your mind about the whole drop. */
+export function discardReview() {
+  state.jobs = state.jobs.filter((j) => j.status !== 'review')
+  emit()
+}
+
+/** Takes back a file that was just added: deleted on the server, gone from the library. */
+export async function remove(key: string) {
+  const j = state.jobs.find((x) => x.key === key)
+  if (!j?.receipt) return
+  patch(key, { status: 'removing' })
+  try {
+    await api('DELETE', `/api/media/files/${encodeURIComponent(j.receipt)}`)
+    patch(key, { status: 'removed', receipt: undefined })
+  } catch (e) {
+    patch(key, { status: 'done', error: (e as Error).message })
+  }
 }
 
 /** Changes where a waiting file goes (and the subtitles or posters that follow it). */
 export function move(key: string, kind: Kind, path: string, system?: string) {
   const j = state.jobs.find((x) => x.key === key)
-  if (!j || (j.status !== 'waiting' && j.status !== 'skipped' && j.status !== 'failed')) return
-  patch(key, { kind, path, system, status: kind === 'skip' ? 'skipped' : 'waiting', note: kind === 'games' && !system ? 'Pick the console' : undefined, error: undefined })
-  for (const f of state.jobs.filter((x) => x.follows === key && x.status === 'waiting')) {
+  if (!j || (j.status !== 'review' && j.status !== 'waiting' && j.status !== 'skipped' && j.status !== 'failed')) return
+  const status: Status = j.status === 'review' ? 'review' : kind === 'skip' ? 'skipped' : 'waiting'
+  patch(key, { kind, path, system, status, note: kind === 'games' && !system ? 'Pick the console' : kind === 'skip' ? 'Won’t be added' : undefined, error: undefined })
+  for (const f of state.jobs.filter((x) => x.follows === key && (x.status === 'waiting' || x.status === 'review'))) {
     const name = f.path.slice(f.path.lastIndexOf('/') + 1)
     patch(f.key, { kind, path: `${path.includes('/') ? path.slice(0, path.lastIndexOf('/')) + '/' : ''}${name}` })
   }
@@ -97,7 +127,7 @@ export function retry(key: string) {
 
 /** Clears finished, skipped and cancelled rows from the list. */
 export function tidy() {
-  state.jobs = state.jobs.filter((j) => j.status === 'waiting' || j.status === 'sending' || j.status === 'failed')
+  state.jobs = state.jobs.filter((j) => j.status === 'review' || j.status === 'waiting' || j.status === 'sending' || j.status === 'failed' || j.status === 'removing')
   emit()
 }
 
@@ -121,20 +151,20 @@ async function send(key: string) {
   let tries = 0
   try {
     const j = job()
-    const begun = await api<{ id: string | null; offset: number; done: boolean; skipped?: boolean; path: string }>('POST', '/api/media/uploads', JSON.stringify({ kind: j.kind, path: j.path, size: j.file.size }))
-    if (begun.done) return patch(key, { status: 'done', sent: j.file.size, placed: begun.path, note: begun.skipped ? 'Already in your library' : undefined })
+    const begun = await api<{ id: string | null; offset: number; done: boolean; skipped?: boolean; path: string; receipt?: string }>('POST', '/api/media/uploads', JSON.stringify({ kind: j.kind, path: j.path, size: j.file.size }))
+    if (begun.done) return patch(key, { status: 'done', sent: j.file.size, placed: begun.path, receipt: begun.receipt, note: begun.skipped ? 'Already in your library' : undefined })
     patch(key, { id: begun.id!, sent: begun.offset })
     let offset = begun.offset
     while (offset < j.file.size) {
       if (job().status === 'cancelled') return
       const end = Math.min(offset + CHUNK, j.file.size)
       try {
-        const r = await api<{ offset: number; done: boolean; path: string }>('PUT', `/api/media/uploads/${begun.id}?offset=${offset}`, j.file.slice(offset, end), false)
+        const r = await api<{ offset: number; done: boolean; path: string; receipt?: string }>('PUT', `/api/media/uploads/${begun.id}?offset=${offset}`, j.file.slice(offset, end), false)
         sample(r.offset - offset)
         offset = r.offset
         tries = 0
         patch(key, { sent: offset })
-        if (r.done) return patch(key, { status: 'done', placed: r.path })
+        if (r.done) return patch(key, { status: 'done', placed: r.path, receipt: r.receipt })
       } catch (e) {
         const err = e as Error & { status?: number; offset?: number }
         // Out of step (a chunk half-arrived before the connection dropped): carry on from the server's count.

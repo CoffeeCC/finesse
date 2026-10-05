@@ -112,8 +112,9 @@ come back. When it's done, press **Start watching** and you're signed in.
 
 - **Add what you already have.** In Finesse, open the account menu → **Add media**, or just drag
   files onto any page. Single files or whole folders, from your computer, a USB drive or a network
-  share: Finesse sorts them into Movies, TV shows, Music and Games, sends them to the server (big
-  files resume if the connection drops), and Jellyfin picks them up within a minute or two. On the
+  share: Finesse sorts them into Movies, TV shows, Music and Games and lists where each will go;
+  fix any that are wrong, then press **Add**. Big files resume if the connection drops, Jellyfin
+  picks them up within a minute or two, and **Remove** takes a file back for a day. On the
   server itself you can also copy files into `…/media/movies`, `…/media/tv` and `…/media/music`
   inside your media folder (name movies `Title (Year)`, and put shows in `Show Name/Season 01/`).
 - **Request something.** Search for any title and press **Request**. It downloads, is renamed,

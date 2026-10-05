@@ -38,6 +38,18 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Look before you add — v2.6.1 (2026-10-05)
+
+- **Add media shows you first.** Dropped files are sorted and listed with where each one will go;
+  nothing is sent until you press **Add**. Change any that landed in the wrong library (or pick
+  “Not added”), or **Clear** the whole drop.
+- **Remove a file you just added.** For a day, **Remove** deletes it from the server (and any
+  folder it leaves empty) and the library catches up.
+- **A heads-up for big drops**: over 200 files or 500 GB, Finesse names the folder it came from
+  and asks you to make sure. More than the server has room for can't be added at all.
+- Uploads use the folders you already have: a show's existing season folder (“Season 01”), an
+  artist's album. Each row shows where the file really went.
+
 ## Windows, and your own media — v2.6.0 (2026-10-05)
 
 - **Finesse on Windows.** [Download Finesse Setup](https://github.com/CoffeeCC/finesse/releases/latest/download/FinesseSetup.exe)
