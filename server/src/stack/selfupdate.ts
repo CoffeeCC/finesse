@@ -44,7 +44,7 @@ export async function startSelfUpdate(docker: Docker, image: string, onStep: (st
     Entrypoint: [],
     Cmd: ['node', '--disable-warning=ExperimentalWarning', '/app/server/finesse.mjs', 'swap', me.Id, image],
     Labels: { [LABEL_MANAGED]: 'true', [LABEL_SERVICE]: 'updater' },
-    HostConfig: { Binds: ['/var/run/docker.sock:/var/run/docker.sock'], AutoRemove: true, NetworkMode: 'none' },
+    HostConfig: { Binds: ['/var/run/docker.sock:/var/run/docker.sock'], AutoRemove: true, NetworkMode: 'none', SecurityOpt: ['label=disable'] },
   })
   await docker.start(name)
   log.info(`handed over to ${name} to switch to ${image}`)

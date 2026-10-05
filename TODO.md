@@ -38,6 +38,24 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Nessa installs it — v2.5.17 (2026-10-05)
+
+- **A friendlier installer.** Nessa says hi in pixel art (on terminals with 256 colours or more),
+  each step has a clear heading, slow parts get a spinner instead of pages of output, and the
+  address you open at the end stands out. `--plain` or `NO_COLOR=1` turns the pictures and colours
+  off; logs and piped output stay plain.
+- **Docker on more systems.** Bazzite, Bluefin, Aurora and Fedora Silverblue/Kinoite (image-based
+  systems) get Docker layered in with rpm-ostree, then one restart, instead of "unsupported
+  distribution". Linux Mint, Pop!_OS, Zorin, Kali and other Ubuntu/Debian relatives use their own
+  docker.io package; Arch and its relatives, openSUSE, Alpine, Nobara, AlmaLinux and Oracle Linux
+  use theirs. NixOS and SteamOS get plain instructions.
+- **SELinux systems work** (Fedora, Bazzite, RHEL…): Finesse's apps are allowed into their folders.
+  Hosts without SELinux don't change, so nothing gets recreated on them.
+- **Clear answers for common snags:** a Podman stand-in for docker, Docker from the Snap Store,
+  Proxmox containers without Nesting, WSL without systemd, a 32-bit Raspberry Pi OS, Raspberry Pi
+  5's 16K memory pages, firewalld blocking the port (opened for you), Unraid and Synology folders
+  (defaults on the array or volume, not the system drive).
+
 ## Easier downloads, any time — v2.5.16 (2026-10-05)
 
 - **Add downloads or away-from-home access later, from Settings.** Settings → Server → Downloads &

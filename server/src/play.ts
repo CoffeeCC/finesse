@@ -198,7 +198,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
           Devices: g.devices.map((d) => ({ PathOnHost: d, PathInContainer: d, CgroupPermissions: 'rwm' })),
           ...(g.nvidia ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu', 'video', 'compute', 'utility', 'graphics']] }] } : {}),
           ...(me.networks[0] ? { NetworkMode: me.networks[0] } : {}),
-          SecurityOpt: ['seccomp=unconfined'],
+          SecurityOpt: ['seccomp=unconfined', 'label=disable'],
           RestartPolicy: { Name: 'no' },
         },
       })

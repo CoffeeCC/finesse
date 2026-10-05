@@ -242,6 +242,7 @@ export class Maintainer {
 
   private async inspect(ctx: StackContext, ids: StackServiceId[], s: Settings): Promise<ServiceHealth[]> {
     const docker = this.orch.docker
+    ctx.selinux ??= await this.orch.hostSelinux()
     const paused = new Set(s.stack?.paused ?? [])
     return Promise.all(
       ids.map(async (id): Promise<ServiceHealth> => {

@@ -66,6 +66,8 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
       LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '3' } },
       // Only for apps that ask, so no other app's spec (and hash) changes.
       ...(def.deviceCgroupRules ? { DeviceCgroupRules: def.deviceCgroupRules } : {}),
+      // Without it, SELinux hosts deny every app its folders. Only there, so no other host's hashes change.
+      ...(ctx.selinux ? { SecurityOpt: ['label=disable'] } : {}),
       ...(def.nvidia?.(ctx) ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] } : {}),
     },
   }
@@ -122,6 +124,20 @@ export class Orchestrator {
   }
 
   /** The host's group numbers for its graphics devices (for apps that use the GPU). */
+  private selinux: Promise<boolean> | null = null
+
+  /** Whether Docker applies SELinux labels on this host (doesn't change while the daemon runs). */
+  hostSelinux(): Promise<boolean> {
+    this.selinux ??= this.docker.info().then(
+      (i) => ((i as { SecurityOptions?: string[] }).SecurityOptions ?? []).some((o) => o.includes('name=selinux')),
+      () => {
+        this.selinux = null
+        return false
+      },
+    )
+    return this.selinux
+  }
+
   async hostGpuGroups(): Promise<string[]> {
     await this.hostDevices()
     return this.hostProbe?.gpuGroups ?? []
@@ -231,6 +247,7 @@ export class Orchestrator {
     const name = containerName(id)
     await this.ensureImage(def, onProgress)
     if (ctx.gpu && !ctx.gpuGroups) ctx.gpuGroups = await this.hostGpuGroups().catch(() => [])
+    ctx.selinux ??= await this.hostSelinux()
     const spec = containerSpec(def, ctx)
     const hash = specHash(spec)
     ;(spec.Labels as Record<string, string>)[LABEL_SPEC] = hash

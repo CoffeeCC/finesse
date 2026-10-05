@@ -24,8 +24,9 @@ Finesse watches them, repairs them, backs them up and updates them.
 ## What you need
 
 - **A 64-bit Linux computer** (x86-64 or ARM64) that stays on: a mini PC, an old laptop, a NAS
-  that runs Docker, or a Raspberry Pi 4/5 with 4 GB+. Ubuntu, Debian, Fedora, Arch and Raspberry
-  Pi OS all work. On **TrueNAS SCALE**, install it from the Apps page instead: see
+  that runs Docker, or a Raspberry Pi 4/5 with 4 GB+. Ubuntu, Debian, Linux Mint, Pop!_OS,
+  Fedora, Arch, openSUSE, Raspberry Pi OS (64-bit), Bazzite and the other Fedora Atomic systems,
+  Unraid and Synology all work. On **TrueNAS SCALE**, install it from the Apps page instead: see
   [Finesse on TrueNAS](truenas.md).
 - **4 GB of memory** or more, and **disk space for your media**. Movies are 2–60 GB each, so
   plan for a big disk.
@@ -45,19 +46,23 @@ On the Linux computer:
 curl -fsSL https://raw.githubusercontent.com/CoffeeCC/finesse/master/install.sh | bash
 ```
 
-It asks two things:
+Nessa, the Finesse mascot, says hi and walks you through it. It asks two things:
 
-1. **May it install Docker**, if Docker is missing.
+1. **May it install Docker**, if Docker is missing. It uses get.docker.com where that works and
+   your system's own Docker package elsewhere (Linux Mint, Arch, openSUSE…). On Bazzite and other
+   image-based systems, Docker is added as a layer: restart when it asks, then run the same
+   command again.
 2. **Where your media should live.** It lists your disks with the most free space. Pick the big one.
 
 Then it starts Finesse and prints something like:
 
 ```
-  Finesse is running. Finish setting it up in your browser:
+  All set!  Finesse is running. Open the link below on any phone or computer at home to finish setting up.
 
-      http://192.168.1.50:8080/finesse/setup?code=K7QM-3XPD
-
-  Setup code: K7QM-3XPD
+  ──────────────────────────────────────────────────────────
+     http://192.168.1.50:8080/finesse/setup?code=K7QM-3XPD
+  ──────────────────────────────────────────────────────────
+    Setup code K7QM-3XPD
 ```
 
 Open that address from any computer or phone on the same network.
@@ -73,6 +78,7 @@ Open that address from any computer or phone on the same network.
 | `--version 1.0.0` | Install a specific version |
 | `--setup setup.json` | Build everything from a setup file, with no browser. See [For AI agents](agents/INSTALL.md) |
 | `--yes` | Accept every default (installs Docker if missing) |
+| `--plain` | No colours or pictures, for logs and screen readers (`NO_COLOR=1` does the same) |
 | `--uninstall` | Remove Finesse and its apps. **Your files are kept.** |
 
 To pass options through the pipe: `curl -fsSL …/install.sh | bash -s -- --data /mnt/media`.
@@ -208,6 +214,16 @@ Start with `sudo docker exec finesse finesse doctor`. It names what's wrong.
 
 | Problem | Fix |
 |---|---|
+| **Bazzite, Bluefin, Silverblue…: "image-based system"** | Docker is layered in with `rpm-ostree install moby-engine`. Restart, then run the installer again. It carries on from there. |
+| **"This computer's docker command is Podman"** | Finesse needs Docker itself. Fedora: `sudo dnf swap podman-docker moby-engine`. Image-based systems: `sudo rpm-ostree override remove podman-docker --install moby-engine`, then restart. |
+| **"This Docker comes from the Snap Store"** | Snap's Docker can't reach folders outside your home. `sudo snap remove docker`, then run the installer again and it installs the regular Docker. |
+| **"Docker can't start inside this container"** (Proxmox) | In the container's **Options → Features**, turn on **Nesting** (and **keyctl** for unprivileged containers), then restart it. For torrents, also pass `/dev/net/tun` through. |
+| **Windows (WSL)** | Turn on systemd (`[boot]` `systemd=true` in `/etc/wsl.conf`, then `wsl --shutdown`). For phones and TVs to reach it, set `networkingMode=mirrored` under `[wsl2]` in `%UserProfile%\.wslconfig`. |
+| **Raspberry Pi: "32-bit system"** | Install the 64-bit Raspberry Pi OS. Finesse's apps are 64-bit only. |
+| **Raspberry Pi 5: an app won't start** | Pi 5 kernels use 16K memory pages, which a few apps don't support. Add `kernel=kernel8.img` to `/boot/firmware/config.txt` and restart. |
+| **Fedora/RHEL: apps can't open their folders** | That's SELinux. Finesse turns labels off for its own apps on SELinux systems. If you installed by hand, add `--security-opt label=disable` to the Finesse container. |
+| **Other devices can't open the address** | Check the computer's firewall lets the port through (the installer does this for firewalld), and that the device is on the same network. |
+| **Alpine: "bash: not found"** | `apk add bash curl`, then run the installer again. |
 | **"Finesse can't reach Docker"** | Finesse needs `/var/run/docker.sock`. Reinstall with the installer, or add `-v /var/run/docker.sock:/var/run/docker.sock` to your `docker run`. |
 | **"No /dev/net/tun"** | The VPN needs the TUN device. Run `sudo modprobe tun`, and add `tun` to `/etc/modules` so it loads at boot. On Proxmox LXC, allow `/dev/net/tun` in the container config. |
 | **The media folder "isn't writable"** | Finesse runs its apps as the user who ran the installer. `sudo chown -R $(id -u):$(id -g) /your/media/folder`. |

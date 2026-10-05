@@ -207,7 +207,7 @@ export async function checkVpn(docker: Docker, vpn: VpnDoc, ctx: { hostRoot: str
       Image: def.image,
       Env: Object.entries(env).map(([k, v]) => `${k}=${v}`),
       Labels: { 'finesse.managed': 'true', 'finesse.service': 'vpn-check' },
-      HostConfig: { Binds: [`${dir}:/gluetun`], CapAdd: ['NET_ADMIN'], Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }], NetworkMode: ctx.network, AutoRemove: false },
+      HostConfig: { Binds: [`${dir}:/gluetun`], CapAdd: ['NET_ADMIN'], Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }], NetworkMode: ctx.network, AutoRemove: false, SecurityOpt: ['label=disable'] },
       NetworkingConfig: { EndpointsConfig: { [ctx.network]: { Aliases: ['vpn-check'] } } },
     })
     await docker.start(name)

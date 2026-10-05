@@ -47,6 +47,8 @@ export interface StackContext {
   games?: GamesConfig
   /** Game streaming (Wolf): whether Docker can hand it an Nvidia card. */
   streaming?: { nvidia: boolean }
+  /** Docker labels containers for SELinux (Fedora, Bazzite…): bind mounts then need label=disable (filled in by the orchestrator). */
+  selinux?: boolean
 }
 
 export interface GamesConfig {

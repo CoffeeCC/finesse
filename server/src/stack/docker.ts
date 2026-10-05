@@ -249,7 +249,7 @@ export class Docker {
   /** Runs a one-off container to completion; returns its exit code and output. */
   async runOnce(image: string, cmd: string[], binds: string[] = [], network = 'none'): Promise<{ code: number; output: string }> {
     const name = `finesse-probe-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-    const id = await this.create(name, { Image: image, Cmd: cmd, Entrypoint: [], Labels: { 'finesse.managed': 'true', 'finesse.service': 'probe' }, HostConfig: { Binds: binds, NetworkMode: network } })
+    const id = await this.create(name, { Image: image, Cmd: cmd, Entrypoint: [], Labels: { 'finesse.managed': 'true', 'finesse.service': 'probe' }, HostConfig: { Binds: binds, NetworkMode: network, SecurityOpt: ['label=disable'] } })
     try {
       await this.start(id)
       const waited = await this.call<{ StatusCode: number }>('POST', `/containers/${id}/wait`)

@@ -67,6 +67,14 @@ test('no other app’s container changes (their spec hash stays the same)', () =
   assert.equal(specHash(containerSpec(CATALOG.jellyfin, ctx())), specHash(containerSpec(CATALOG.jellyfin, ctx({ streaming: { nvidia: true } }))))
 })
 
+test('SELinux hosts: every app gets label=disable, and other hosts keep their hashes', () => {
+  for (const def of Object.values(CATALOG)) {
+    assert.deepEqual((containerSpec(def, ctx({ selinux: true })) as Spec).HostConfig.SecurityOpt, ['label=disable'], def.id)
+    assert.equal('SecurityOpt' in (containerSpec(def, ctx({ selinux: false })) as Spec).HostConfig, false, def.id)
+  }
+  assert.equal(specHash(containerSpec(CATALOG.jellyfin, ctx())), specHash(containerSpec(CATALOG.jellyfin, ctx({ selinux: false }))))
+})
+
 test('readiness: an Intel/AMD box with everything is all good', () => {
   const c = streamingCheck({ devices: ['/dev/dri', '/dev/uinput', '/dev/uhid'], nvidiaRuntime: false, nvidiaModeset: null }, RUN)
   assert.equal(c.gpu, 'intel-amd')
