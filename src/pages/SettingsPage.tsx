@@ -588,6 +588,13 @@ export default function SettingsPage() {
                 scope="device"
               />
               <Toggle
+                label="Thumbnail previews"
+                hint="When a title has no preview clip, hovering its card flips through its scrub thumbnails instead."
+                checked={prefs.thumbPreviews}
+                onChange={(v) => update({ thumbPreviews: v })}
+                scope="device"
+              />
+              <Toggle
                 label="Find lyrics online"
                 hint="When a song in your library has no lyrics, look up synced ones on LRCLIB (sends only the song, artist, album and length)."
                 checked={prefs.onlineLyrics}

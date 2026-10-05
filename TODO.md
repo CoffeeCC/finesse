@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Thumbnail previews — v2.5.14 (2026-10-04)
+
+- **Cards preview on any server.** Hovering a movie or episode with no preview clip now flips
+  through its scrub (trickplay) thumbnails, the ones Jellyfin already makes for the player's seek
+  bar. Clips are only made where Finesse installed the apps; thumbnails work everywhere, need no
+  extra space, and show up as soon as Jellyfin has made them. Settings → Appearance → Thumbnail
+  previews turns it off.
+
 ## A tidier installer — v2.5.13 (2026-10-04)
 
 - **Installing Docker is quiet now.** When the installer has to install Docker, get.docker.com's

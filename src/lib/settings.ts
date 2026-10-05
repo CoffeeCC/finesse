@@ -42,6 +42,8 @@ export interface Prefs {
   previewQuality: PreviewQuality
   /** Play audio on card hover-previews (they start muted for autoplay, then unmute). */
   previewSound: boolean
+  /** Hovering a card with no preview clip flips through its scrub (trickplay) thumbnails. */
+  thumbPreviews: boolean
   /** Idle "marquee" screensaver — library backdrops + logos drift by when idle. */
   screensaver: boolean
   /** Player: glow of the current scene fills the letterbox bars. */
@@ -65,6 +67,7 @@ const DEFAULTS: Prefs = {
   uiSoundsHover: false,
   previewQuality: 'high',
   previewSound: true,
+  thumbPreviews: true,
   screensaver: true,
   ambient: true,
   tiltParallax: false,

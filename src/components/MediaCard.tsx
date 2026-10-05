@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { backdropUrl, episodeThumbUrl, imageUrl, posterUrl } from '../api/client'
+import { backdropUrl, episodeThumbUrl, getItem, imageUrl, posterUrl, trickplayTileUrl } from '../api/client'
+import { useQueryClient } from '@tanstack/react-query'
 import { useClipManifest } from '../api/queries'
 import { blurhashAverageColor, blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import { vividRgb } from '../lib/accent'
@@ -79,6 +80,8 @@ export default function MediaCard({
   const canHoverPreview = !__WEBOS__ && !REDUCED_MOTION
   const canFocusPreview = __WEBOS__ && !REDUCED_MOTION
 
+  // No clip for this title? Its scrub (trickplay) thumbnails flip by instead — Jellyfin makes those on any server.
+  const thumbsOk = canHoverPreview && getPrefs().thumbPreviews && /^(Movie|Episode|Video|MusicVideo)$/.test(item.Type) && !item.Id.startsWith('f-')
   const { data: manifest } = useClipManifest()
   const clipUrl =
     canHoverPreview || canFocusPreview
@@ -108,14 +111,14 @@ export default function MediaCard({
   }, [canHoverPreview, clipUrl])
 
   const startPreview = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!canHoverPreview || e.pointerType !== 'mouse' || !clipUrl) return
+    if (!canHoverPreview || e.pointerType !== 'mouse' || !(clipUrl || thumbsOk)) return
     // Short intent guard so a pointer just passing over doesn't fire.
     window.clearTimeout(hoverTimer.current)
     hoverTimer.current = window.setTimeout(() => {
       claimPreview(stopPreview) // stops any other card/hero preview
       setPreview(true)
     }, 200)
-  }, [canHoverPreview, clipUrl, stopPreview])
+  }, [canHoverPreview, clipUrl, thumbsOk, stopPreview])
 
   // TV: D-pad dwell → preview. Focus starts a longer intent timer (browsing
   // steps through cards quickly; only a pause means "show me"), blur cancels.
@@ -219,6 +222,8 @@ export default function MediaCard({
               }`}
             />
           )}
+
+          {preview && !clipUrl && thumbsOk && <ThumbFlip itemId={item.Id} onReady={() => setPlaying(true)} />}
 
           {rank != null && (
             <>
@@ -402,6 +407,64 @@ export function WideCard({
           </svg>
         </button>
       )}
+    </div>
+  )
+}
+
+/** A flip-book of the title's scrub (trickplay) thumbnails, for cards with no preview clip.
+ *  Steps evenly through the film (skipping the opening), cropped to fill the card. */
+function ThumbFlip({ itemId, onReady }: { itemId: string; onReady: () => void }) {
+  const qc = useQueryClient()
+  const [f, setF] = useState<{ url: string; size: string; pos: string; aspect: number } | null>(null)
+  const readyRef = useRef(onReady)
+  readyRef.current = onReady
+  useEffect(() => {
+    let alive = true
+    let timer = 0
+    qc.fetchQuery({ queryKey: ['item', itemId], queryFn: () => getItem(itemId), staleTime: 5 * 60_000 })
+      .then((it) => {
+        const first = it?.Trickplay ? Object.entries(it.Trickplay)[0] : undefined
+        if (!alive || !first) return
+        const [mediaSourceId, byWidth] = first
+        const widths = Object.keys(byWidth).map(Number).sort((a, b) => a - b)
+        const w = widths.find((x) => x >= 280) ?? widths[widths.length - 1]
+        const info = byWidth[w]
+        if (!info || !info.ThumbnailCount) return
+        const per = info.TileWidth * info.TileHeight
+        const start = Math.floor(info.ThumbnailCount * 0.05)
+        const steps = Math.max(1, Math.min(32, info.ThumbnailCount - start))
+        let k = 0
+        const show = () => {
+          const idx = Math.min(info.ThumbnailCount - 1, start + Math.floor(((info.ThumbnailCount - start) * (k % steps)) / steps))
+          const tile = Math.floor(idx / per)
+          const pos = idx % per
+          const col = pos % info.TileWidth
+          const row = Math.floor(pos / info.TileWidth)
+          setF({
+            url: trickplayTileUrl(itemId, w, tile, mediaSourceId),
+            size: `${info.TileWidth * 100}% ${info.TileHeight * 100}%`,
+            pos: `${info.TileWidth > 1 ? (col / (info.TileWidth - 1)) * 100 : 0}% ${info.TileHeight > 1 ? (row / (info.TileHeight - 1)) * 100 : 0}%`,
+            aspect: info.Width / Math.max(1, info.Height),
+          })
+          k++
+        }
+        show()
+        readyRef.current()
+        timer = window.setInterval(show, 420)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [itemId, qc])
+  if (!f) return null
+  return (
+    <div aria-hidden className="absolute inset-0 overflow-hidden">
+      <div
+        className="absolute left-1/2 top-0 h-full -translate-x-1/2"
+        style={{ aspectRatio: String(f.aspect), backgroundImage: `url("${f.url}")`, backgroundSize: f.size, backgroundPosition: f.pos, backgroundRepeat: 'no-repeat' }}
+      />
     </div>
   )
 }
