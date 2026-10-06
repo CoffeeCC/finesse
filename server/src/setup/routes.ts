@@ -2,11 +2,10 @@
 // Before setup: every call needs the one-time setup code. After: a Jellyfin
 // administrator (re-running setup repairs or changes the stack).
 
-import { scryptSync, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { SettingsStore } from '../config.ts'
 import type { AppDeps, Plugin } from '../app.ts'
-import { requireSetupCode } from '../auth.ts'
+import { checkSetupCode, requireSetupCode } from '../auth.ts'
 import { ApiError, readJson, sendJson } from '../http/core.ts'
 import schema from '../../../setup.schema.json' with { type: 'json' }
 import { CATALOG } from '../stack/catalog.ts'
@@ -158,7 +157,5 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
 function requireSetupCodeAllowReady(settings: SettingsStore, req: IncomingMessage) {
   const s = settings.get().setup
   if (!s.codeHash || !s.codeSalt) throw new ApiError(401, 'Setup code expired')
-  const given = String(req.headers['x-finesse-setup-code'] ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-  const digest = scryptSync(given, s.codeSalt, 32)
-  if (given.length !== 8 || !timingSafeEqual(digest, Buffer.from(s.codeHash, 'hex'))) throw new ApiError(401, 'That setup code isn’t right')
+  checkSetupCode(s.codeSalt, s.codeHash, req)
 }

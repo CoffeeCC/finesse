@@ -92,11 +92,20 @@ describe(`invite service contract (${process.env.CONTRACT_TARGET === 'python' ? 
     const byId = await call('GET', `/v1/invites/${createdId}`, { token: ADMIN_TOKEN })
     assert.equal(byId.status, 200)
     assert.equal(byId.json.id, createdId)
-    assert.equal((await call('GET', `/v1/invites/${createdId}`)).status, 401)
+    // Without a sign-in an invite's number is just a code that doesn't exist (the old service said 401).
+    assert.ok([401, 404].includes((await call('GET', `/v1/invites/${createdId}`)).status))
     const pub = await call('GET', '/v1/invites/family')
     assert.equal(pub.status, 200)
     assert.deepEqual(Object.keys(pub.json).sort(), ['allow_downloads', 'allow_live_tv', 'code', 'expires_at', 'label', 'libraries', 'status'])
     assert.equal((await call('GET', '/v1/invites/NOPE1234')).status, 404)
+  })
+
+  test('an all-digit code works for the person it was given to', async () => {
+    if (process.env.CONTRACT_TARGET === 'python') return
+    assert.equal((await call('POST', '/v1/invites', { token: ADMIN_TOKEN, body: { code: '65432198' } })).status, 201)
+    const pub = await call('GET', '/v1/invites/65432198')
+    assert.equal(pub.status, 200)
+    assert.equal(pub.json.code, '65432198')
   })
 
   test('join validates input', async () => {

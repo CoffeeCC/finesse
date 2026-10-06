@@ -53,7 +53,7 @@ const normCode = (c: unknown) => String(c ?? '').toUpperCase().replace(/[^A-Z0-9
 
 export function groupsOf(s: Settings): GroupsState {
   const g = s.groups
-  return { links: g?.links ?? [], friends: g?.friends ?? [], codes: g?.codes ?? [], offers: g?.offers ?? [] }
+  return { links: g?.links ?? [], friends: g?.friends ?? [], codes: g?.codes ?? [], offers: g?.offers ?? [], orphans: g?.orphans ?? [] }
 }
 
 /** "sam.example.com", "https://x.ts.net/finesse/" → "https://sam.example.com", "https://x.ts.net". */
@@ -67,8 +67,21 @@ export function normalizeServerUrl(input: unknown): string {
   } catch {
     throw new ApiError(400, 'That doesn’t look like a web address')
   }
+  // Plain http sends the link's secret as it is: fine at home, not across the internet.
+  if (u.protocol === 'http:' && !privateHost(u.hostname)) throw new ApiError(400, 'Use the https:// address (or the Tailscale one), so the link between your servers is encrypted')
   const path = u.pathname.replace(/\/finesse(\/.*)?$/i, '').replace(/\/+$/, '')
   return `${u.protocol}//${u.host}${path}`
+}
+
+/** A host that's only reachable at home (or on Tailscale): this machine, a LAN address or name. */
+export function privateHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.lan') || h.endsWith('.home.arpa') || !h.includes('.') && !h.includes(':')) return true
+  if (h === '::1' || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h)) return true
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h)
+  if (!m) return false
+  const [a, b] = [Number(m[1]), Number(m[2])]
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
 }
 
 // ---------- which friend calls get through (after the user id is pinned) ----------
@@ -201,6 +214,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     const a = Buffer.from(hash(m[2]!))
     const b = Buffer.from(link.secretHash)
     if (a.length !== b.length || !timingSafeEqual(a, b)) throw new ApiError(401, 'This server isn’t shared with you (any more)')
+    if (link.paused) throw new ApiError(503, 'Your friend is changing what they share. Try again in a few minutes.')
     if (!link.lastSeen || Date.now() - Date.parse(link.lastSeen) > SEEN_EVERY_MS) {
       update((g) => {
         const l = g.links.find((x) => x.id === link.id)
@@ -299,12 +313,33 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     return p
   }
 
+  /** Deletes viewer accounts; ones Jellyfin couldn't delete right now are kept for retrying. */
+  async function deleteViewers(userIds: string[]) {
+    const failed: string[] = []
+    for (const id of userIds) await jf.request(`/Users/${id}`, { method: 'DELETE' }).catch((e: Error) => (/404/.test(e.message) ? undefined : void failed.push(id)))
+    update((g) => {
+      g.orphans = [...new Set([...(g.orphans ?? []).filter((o) => !userIds.includes(o)), ...failed])]
+    })
+    if (failed.length) log.warn(`couldn’t delete ${failed.length} friend viewer account(s) yet; trying again later`)
+    return failed
+  }
+
+  /** Leftover viewer accounts: tried again whenever sharing changes (and every ten minutes). */
+  const retryOrphans = async () => {
+    const left = groupsOf(settings.get()).orphans ?? []
+    if (left.length) await deleteViewers(left).catch(() => {})
+  }
+
   async function removeLink(link: GroupLink) {
-    for (const v of Object.values(link.viewers)) await jf.request(`/Users/${v.userId}`, { method: 'DELETE' }).catch(() => {})
+    await retryOrphans()
     update((g) => {
       g.links = g.links.filter((l) => l.id !== link.id)
     })
+    await deleteViewers(Object.values(link.viewers).map((v) => v.userId))
   }
+
+  // Leftover viewer accounts (Jellyfin was down when a friend left): every ten minutes until gone.
+  setInterval(() => void retryOrphans(), 10 * 60000).unref()
 
   async function callFriend<T>(f: { url: string; linkId?: string; secret?: string }, path: string, body?: unknown): Promise<T> {
     let res: Response
@@ -387,11 +422,36 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     if (!libs) throw new ApiError(400, 'libraries must be a list')
     const link = groupsOf(settings.get()).links.find((l) => l.id === params.id)
     if (!link) throw new ApiError(404, 'No such server')
+    await retryOrphans()
+    const narrowing = link.libraries.some((id) => !libs.includes(id))
+    // Narrowing: nothing of theirs gets through until every viewer account is updated.
     update((g) => {
       const l = g.links.find((x) => x.id === link.id)
-      if (l) l.libraries = libs
+      if (l) Object.assign(l, { libraries: libs, paused: narrowing ? true : l.paused })
     })
-    for (const v of Object.values(link.viewers)) await setLibraries(v.userId, libs).catch((e) => log.warn(`couldn’t update ${v.name}: ${(e as Error).message}`))
+    const stuck: string[] = []
+    for (const [key, v] of Object.entries(link.viewers)) {
+      try {
+        await setLibraries(v.userId, libs)
+      } catch (e) {
+        log.warn(`couldn’t update ${v.name}: ${(e as Error).message}`)
+        // Can't change what it sees: delete it instead (it's made again, with today's list, next time).
+        const failed = await deleteViewers([v.userId])
+        update((g) => {
+          const l = g.links.find((x) => x.id === link.id)
+          if (l) delete l.viewers[key]
+        })
+        if (failed.length) stuck.push(v.name)
+      }
+    }
+    if (stuck.length) {
+      // Their viewer accounts are pending deletion and the link stays paused until then; say so.
+      throw new ApiError(502, `Jellyfin didn’t accept the change for ${stuck.join(', ')}. ${link.name} can’t watch anything until it does; Finesse keeps trying.`)
+    }
+    update((g) => {
+      const l = g.links.find((x) => x.id === link.id)
+      if (l) delete l.paused
+    })
     sendJson(res, 200, { ok: true, libraries: libs })
   })
 
@@ -556,6 +616,8 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     } catch {
       /* keep empty */
     }
+    // Allowed at all? Checked before anything is created for this viewer.
+    if (!peerRequest(req.method ?? 'GET', params.rest ?? '', url.searchParams, '0'.repeat(32))) throw new ApiError(403, 'Not available through a friend’s server')
     const v = await viewerFor(link, viewerId, viewerName)
     const call = peerRequest(req.method ?? 'GET', params.rest ?? '', url.searchParams, v.userId)
     if (!call) throw new ApiError(403, 'Not available through a friend’s server')

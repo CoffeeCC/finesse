@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib'
 // Groups: two Finesse servers, each with its own Jellyfin, pair with a code and
 // one watches the other's shared libraries. Checks what gets through, that the
 // sharing server's Jellyfin tokens never leave it, and that unpairing sticks.
@@ -40,9 +41,16 @@ async function fakeJellyfin(serverName: string, people: { name: string; token: s
   }
   // Like Jellyfin 12: the Authorization header or ApiKey in the URL, nothing legacy (X-Emby-Token, api_key).
   const tokenOf = (req: IncomingMessage, url: URL) => /Token="([^"]+)"/.exec(String(req.headers.authorization ?? ''))?.[1] || url.searchParams.get('ApiKey') || ''
+  /** Calls that fail with 503 ("METHOD /path" patterns), to play out a Jellyfin outage. */
+  const failing: RegExp[] = []
+  const opts = { gzip: false }
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://x')
     const p = url.pathname
+    if (failing.some((f) => f.test(`${req.method} ${p}`))) {
+      res.writeHead(503)
+      return void res.end()
+    }
     const send = (status: number, data?: unknown, type = 'application/json') => {
       res.writeHead(status, { 'Content-Type': type })
       res.end(data === undefined ? '' : typeof data === 'string' && type !== 'application/json' ? data : JSON.stringify(data))
@@ -92,6 +100,11 @@ async function fakeJellyfin(serverName: string, people: { name: string; token: s
       if (!m[2]) return send(200, u)
       return send(403)
     }
+    if (p === `/Items/${movie}/PlaybackInfo` && req.method === 'POST' && opts.gzip) {
+      // A server that compresses anyway, whatever Finesse asked for.
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' })
+      return void res.end(gzipSync(JSON.stringify({ MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${movie}/master.m3u8?ApiKey=${tok}` }] })))
+    }
     if (p === `/Items/${movie}/PlaybackInfo` && req.method === 'POST') {
       return send(200, { MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${movie}/master.m3u8?MediaSourceId=${movie}&ApiKey=${tok}` }], PlaySessionId: 'ps1' })
     }
@@ -100,7 +113,7 @@ async function fakeJellyfin(serverName: string, people: { name: string; token: s
     send(404)
   })
   const url = await listen(server)
-  return { url, server, users, calls, libs, movie }
+  return { url, server, users, calls, libs, movie, failing, opts }
 }
 
 async function finesse(name: string, jf: { url: string }, serviceKey: string, publicUrl?: string) {
@@ -249,6 +262,18 @@ test('playing: Sam’s Jellyfin token never reaches Robin; her own sign-in stand
   assert.equal(await video.text(), 'binary-video')
 })
 
+test('a compressed reply still has the token swapped out, never passed on', async () => {
+  const f = ((await call(A.url, 'GET', '/api/groups/friends', 'a-robin')).data.friends as { id: string }[])[0]!
+  jfB.opts.gzip = true
+  try {
+    const info = await call(A.url, 'POST', `/api/groups/friends/${f.id}/jellyfin/Items/${jfB.movie}/PlaybackInfo?UserId=x`, 'a-robin', {})
+    assert.doesNotMatch(info.text, /tok-/)
+    if (info.status === 200) assert.match(info.text, /ApiKey=a-robin/)
+  } finally {
+    jfB.opts.gzip = false
+  }
+})
+
 test('a friend’s viewer can’t sign in to Sam’s own server as a household member', async () => {
   const viewer = [...jfB.users.values()].find((u) => u.Name.startsWith('robin @'))!
   // Even if its token were known, Sam's Finesse refuses it.
@@ -282,6 +307,42 @@ test('Sam changes what’s shared, then Alex offers to share back and Sam accept
   const bf = ((await call(B.url, 'GET', '/api/groups/friends', 'b-kim')).data.friends as { id: string }[])[0]!
   const views = await call(B.url, 'GET', `/api/groups/friends/${bf.id}/jellyfin/Users/x/Views`, 'b-kim')
   assert.deepEqual((views.data.Items as { Name: string }[]).map((v) => v.Name), ['Shows'])
+})
+
+test('narrowing during a Jellyfin outage never leaves the old access in place', async () => {
+  const links = (await call(B.url, 'GET', '/api/groups', 'b-admin')).data.links as { id: string }[]
+  const f = ((await call(A.url, 'GET', '/api/groups/friends', 'a-robin')).data.friends as { id: string }[])[0]!
+  // Robin has a viewer on Sam's server that sees Movies + Shows (the test above).
+  const before = [...jfB.users.values()].find((u) => u.Name.startsWith('robin @'))!
+  // Policy changes fail, but deleting works: the viewer is deleted instead; made again with today's list.
+  jfB.failing.push(/^POST \/Users\/[^/]+\/Policy$/)
+  const upd = await call(B.url, 'PUT', `/api/groups/links/${links[0]!.id}`, 'b-admin', { libraries: [jfB.libs[0]!.Id] })
+  assert.equal(upd.status, 200, upd.text)
+  assert.equal(jfB.users.has(before.Id), false)
+  // Both fail: Sam is told, and Robin gets nothing until it's sorted.
+  jfB.failing.length = 0
+  await call(A.url, 'GET', `/api/groups/friends/${f.id}/jellyfin/Users/x/Views`, 'a-robin') // a fresh viewer
+  jfB.failing.push(/^POST \/Users\/[^/]+\/Policy$/, /^DELETE \/Users\//)
+  const bad = await call(B.url, 'PUT', `/api/groups/links/${links[0]!.id}`, 'b-admin', { libraries: [] })
+  assert.equal(bad.status, 502)
+  assert.match(String(bad.data.error), /can’t watch anything until it does/)
+  const blocked = await call(A.url, 'GET', `/api/groups/friends/${f.id}/jellyfin/Users/x/Views`, 'a-robin')
+  assert.notEqual(blocked.status, 200)
+  // Jellyfin back: sharing Movies again un-pauses, and the leftover account is cleaned up.
+  jfB.failing.length = 0
+  assert.equal((await call(B.url, 'PUT', `/api/groups/links/${links[0]!.id}`, 'b-admin', { libraries: [jfB.libs[0]!.Id] })).status, 200)
+  const views = await call(A.url, 'GET', `/api/groups/friends/${f.id}/jellyfin/Users/x/Views`, 'a-robin')
+  assert.deepEqual((views.data.Items as { Name: string }[]).map((v) => v.Name), ['Movies'])
+})
+
+test('a request the allow-list refuses creates nothing on the friend’s server', async () => {
+  const f = ((await call(A.url, 'GET', '/api/groups/friends', 'a-robin')).data.friends as { id: string }[])[0]!
+  const count = jfB.users.size
+  const r = await call(A.url, 'GET', `/api/groups/friends/${f.id}/jellyfin/System/Configuration`, 'a-kim-nobody')
+  assert.notEqual(r.status, 200)
+  const denied = await call(A.url, 'GET', `/api/groups/friends/${f.id}/jellyfin/System/Configuration`, 'a-robin')
+  assert.equal(denied.status, 403)
+  assert.equal(jfB.users.size, count)
 })
 
 test('unpairing: Sam stops sharing, Robin’s viewer is gone and access stops at once', async () => {
@@ -336,4 +397,14 @@ test('the allow-list: what the player needs, with every user id pinned', async (
   assert.equal(r.query.get('userId'), me)
   assert.equal(r.query.get('ApiKey'), null)
   assert.equal(r.query.get('api_key'), null)
+})
+
+test('a friend’s address over plain http only at home; across the internet it must be https', async () => {
+  const { normalizeServerUrl } = await import('../src/groups.ts')
+  assert.equal(normalizeServerUrl('sam.example.com'), 'https://sam.example.com')
+  assert.equal(normalizeServerUrl('http://192.168.1.50:8080/finesse/'), 'http://192.168.1.50:8080')
+  assert.equal(normalizeServerUrl('http://100.101.102.103:8080'), 'http://100.101.102.103:8080')
+  assert.equal(normalizeServerUrl('http://nas.local:8080'), 'http://nas.local:8080')
+  assert.throws(() => normalizeServerUrl('http://sam.example.com'), /https/)
+  assert.throws(() => normalizeServerUrl('http://203.0.113.9:8080'), /https/)
 })

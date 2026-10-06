@@ -43,7 +43,7 @@ before(async () => {
   const work = tmp()
   write(join(work, 'baked'), webBuild('1.0.0'))
   write(join(work, 'config', 'web'), webBuild('1.2.0'))
-  write(join(work, 'config', 'previews'), { 'clip.mp4': Buffer.from('0123456789abcdefghij') })
+  write(join(work, 'config', 'previews'), { 'clip.mp4': Buffer.from('0123456789abcdefghij'), [`${'a'.repeat(32)}.mp4`]: Buffer.from('open'), [`${'b'.repeat(32)}.720.mp4`]: Buffer.from('private') })
   write(join(work, 'config', 'web'), { 'assets/big.js': 'x'.repeat(5000) })
   Object.assign(process.env, {
     FINESSE_CONFIG_DIR: join(work, 'config'),
@@ -270,5 +270,15 @@ describe('add media', () => {
     assert.deepEqual(await info.json(), { available: false })
     const finesse = (await (await fetch(`${base}/api/finesse`)).json()) as { features: { addMedia: boolean } }
     assert.equal(finesse.features.addMedia, false)
+  })
+})
+
+describe('preview clips', () => {
+  test('only of things the viewer can see, and never kept by a shared cache', async () => {
+    const open = await rawGet(`/finesse/previews/${'a'.repeat(32)}.mp4?ApiKey=${USER_TOKEN}`)
+    assert.equal(open.status, 200)
+    assert.equal(open.headers['cache-control'], 'private, no-store')
+    assert.equal((await rawGet(`/finesse/previews/${'b'.repeat(32)}.720.mp4?ApiKey=${USER_TOKEN}`)).status, 404)
+    assert.equal((await rawGet(`/finesse/previews/${'b'.repeat(32)}.720.mp4?ApiKey=${ADMIN_TOKEN}`)).status, 200)
   })
 })

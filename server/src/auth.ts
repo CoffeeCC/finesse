@@ -169,6 +169,12 @@ export function requireSetupCode(settings: SettingsStore, req: IncomingMessage) 
   const s = settings.get()
   if (s.setup.state === 'ready') throw new ApiError(409, 'Finesse is already set up — sign in as an administrator instead')
   if (!s.setup.codeHash || !s.setup.codeSalt) throw new ApiError(503, 'No setup code yet — restart Finesse')
+  checkSetupCode(s.setup.codeSalt, s.setup.codeHash, req)
+}
+
+/** The code check itself, with its limits: a few wrong tries per client a minute, and a cap overall.
+ *  A code of the wrong shape is turned away before the (deliberately slow) hash. */
+export function checkSetupCode(salt: string, codeHash: string, req: IncomingMessage) {
   const ip = req.socket.remoteAddress ?? '?'
   const now = Date.now()
   const a = attempts.get(ip)
@@ -177,8 +183,7 @@ export function requireSetupCode(settings: SettingsStore, req: IncomingMessage) 
   const given = String(req.headers['x-finesse-setup-code'] ?? '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
-  const digest = scryptSync(given, s.setup.codeSalt, 32)
-  const ok = given.length === 8 && timingSafeEqual(digest, Buffer.from(s.setup.codeHash, 'hex'))
+  const ok = given.length === 8 && timingSafeEqual(scryptSync(given, salt, 32), Buffer.from(codeHash, 'hex'))
   if (!ok) {
     totalFailures++
     const cur = a && now - a.since < 60000 ? a : { n: 0, since: now }

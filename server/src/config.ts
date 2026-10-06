@@ -115,6 +115,8 @@ export interface GroupLink {
   lastSeen?: string
   /** One hidden Jellyfin user per person on that server who opened something. */
   viewers: Record<string, { userId: string; name: string; password: string; token?: string }>
+  /** Narrowing what's shared didn't reach every viewer account: nothing passes until it does. */
+  paused?: boolean
 }
 
 /** A server whose shared libraries our household watches. */
@@ -134,6 +136,8 @@ export interface GroupsState {
   codes: { hash: string; libraries: string[]; expires: string }[]
   /** A friend server offering to share back with us. */
   offers: { id: string; name: string; url: string; code: string; at: string }[]
+  /** Viewer accounts that couldn't be deleted yet (Jellyfin was down): retried until they are. */
+  orphans?: string[]
 }
 
 export interface Paths {

@@ -117,6 +117,9 @@ come back. When it's done, press **Start watching** and you're signed in.
   picks them up within a minute or two, and **Remove** takes a file back for a day. On the
   server itself you can also copy files into `…/media/movies`, `…/media/tv` and `…/media/music`
   inside your media folder (name movies `Title (Year)`, and put shows in `Show Name/Season 01/`).
+- **Delete something.** On a movie, show, season or episode, **More → Delete from library…**; on
+  an album, **Delete album…**. Finesse says how much space comes back, tells Radarr, Sonarr or
+  Lidarr not to download it again, deletes the files and takes it out of the library.
 - **Request something.** Search for any title and press **Request**. It downloads, is renamed,
   and appears in your library on its own.
 - **Watch on the TV.** See [Watch on your TV](tv.md).
@@ -257,3 +260,17 @@ Start with `sudo docker exec finesse finesse doctor`. It names what's wrong.
   adds the keys itself.
 - Torrents only run inside the VPN container's network (Gluetun's kill switch). If the VPN drops,
   torrents stop; they never fall back to your normal connection.
+- **Household members** (people you invite) can browse, play, request and steer downloads. Deleting
+  files, settings and API keys need an administrator: what the apps receive on their behalf is
+  written by Finesse, not passed on from the browser.
+- **If Jellyfin is briefly unreachable** (restarting, updating), a sign-in it confirmed in the last
+  six hours keeps working, so admins can watch it come back. Signing someone out, or removing an
+  account, takes full effect once Jellyfin answers again.
+- **Open invite links** make at most a few accounts an hour from any one address. Prefer single-use
+  invites for people you don't know well.
+- **Groups:** a friend's server only reaches what you share, through a short allow-list. Narrowing
+  what you share takes effect on their accounts before Finesse says it's saved (if Jellyfin can't
+  be reached, their access pauses until it can). Friends' addresses must be `https://` unless
+  they're on your home network or Tailscale.
+- **Preview clips** are for signed-in people who can see that title, and are never cacheable by a
+  shared proxy.

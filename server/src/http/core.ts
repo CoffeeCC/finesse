@@ -105,11 +105,17 @@ export function sendError(res: ServerResponse, e: unknown) {
   }
 }
 
-/** Reads a request body (bounded) as a Buffer. */
-export function readBody(req: IncomingMessage, limit = 1 << 20): Promise<Buffer> {
+/** Reads a request body (bounded in size, and in time: 30 s) as a Buffer. */
+export function readBody(req: IncomingMessage, limit = 1 << 20, timeoutMs = 30000): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
+    const timer = setTimeout(() => {
+      reject(new ApiError(408, 'The request took too long to arrive'))
+      req.destroy()
+    }, timeoutMs)
+    timer.unref?.()
+    req.on('close', () => clearTimeout(timer))
     req.on('data', (c: Buffer) => {
       size += c.length
       if (size > limit) {

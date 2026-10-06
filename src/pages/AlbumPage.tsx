@@ -1,4 +1,7 @@
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useState } from 'react'
+import { DeleteFromLibrary, useCanDelete } from '../components/DeleteFromLibrary'
+import { goBack } from '../lib/back'
 import { useQuery } from '@tanstack/react-query'
 import { useAlbums, useFriends, useItem, useTracks, useViews } from '../api/queries'
 import { posterUrl } from '../api/client'
@@ -42,6 +45,9 @@ export default function AlbumPage() {
   const friendName = friendId ? friends?.find((f) => f.id === friendId)?.name ?? 'a friend’s server' : null
   const musicView = (friendId ? friendViews : views)?.Items.find(isMusicView)
   const { data: albums } = useAlbums(musicView?.Id)
+  const navigate = useNavigate()
+  const [deleting, setDeleting] = useState(false)
+  const canDelete = useCanDelete() && !friendId
 
   if (isLoading || !album) return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
 
@@ -108,7 +114,16 @@ export default function AlbumPage() {
               </svg>
               Shuffle
             </button>
+            {canDelete && (
+              <button
+                onClick={() => setDeleting(true)}
+                className="inline-flex h-12 items-center rounded-full px-5 text-[14px] font-medium text-ink-400 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                Delete album…
+              </button>
+            )}
           </div>
+          {deleting && <DeleteFromLibrary itemId={album.Id} onClose={() => setDeleting(false)} onDeleted={() => goBack(navigate)} />}
         </div>
       </div>
 

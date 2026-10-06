@@ -146,7 +146,14 @@ export default function LoginPage() {
     setBusy(true)
     setError('')
     try {
-      await login(server, name.trim(), pw.trim())
+      // The password exactly as typed (spaces can be part of it); a stray space someone hit by
+      // accident is forgiven only if that fails.
+      try {
+        await login(server, name.trim(), pw)
+      } catch (first) {
+        if (pw === pw.trim() || !(first instanceof Error && first.message.includes('401'))) throw first
+        await login(server, name.trim(), pw.trim())
+      }
       localStorage.setItem('finesse.lastServer', server)
       localStorage.setItem(LAST_USER, name.trim())
       navigate('/', { replace: true })

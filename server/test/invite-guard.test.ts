@@ -44,6 +44,14 @@ test('a single-use invite lets exactly one of two simultaneous joiners in', asyn
   assert.equal([...jf.users.values()].filter((u) => u.Name === 'first' || u.Name === 'second').length, 1)
 })
 
+test('an open invite makes a handful of accounts an hour from one address, not hundreds', async () => {
+  assert.equal((await post('/v1/invites', { code: 'OPEN2026', unlimited: true, libraries: ['lib-movies'] }, auth(ADMIN_TOKEN))).status, 201)
+  const statuses: number[] = []
+  // The race test above already made one account from here.
+  for (let i = 0; i < 5; i++) statuses.push((await post('/v1/join', { code: 'OPEN2026', username: `fan${i}`, password: 'Passw0rd!' })).status)
+  assert.deepEqual(statuses, [201, 201, 201, 201, 429])
+})
+
 test('guessing invite codes is slowed down', async () => {
   let last = 0
   for (let i = 0; i < 21; i++) last = (await fetch(`${base}/invite-api/v1/invites/GUESS${i}`)).status

@@ -11,13 +11,14 @@
 // are renamed into place when complete, so Jellyfin never sees half a file.
 
 import { createHash, randomBytes } from 'node:crypto'
-import { chownSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
+import { chownSync, createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
+import { fingerprintFile } from './fingerprint.ts'
 import { logger } from './log.ts'
 import { jellyfinLibraries, type JellyfinLibraries } from './stack/libraries.ts'
 
@@ -40,7 +41,39 @@ interface Meta {
   kind: Kind
   path: string
   size: number
+  /** The browser's fingerprint of the file (see fingerprint.ts): checked again once it's all here. */
+  fp: string
   at: number
+}
+
+/** No shortcuts (symlinks) between a library and where a file goes, and nowhere outside it, so a
+ *  link someone left in a library can't send a file (or a delete) elsewhere. */
+export function insideLibrary(library: string, path: string): boolean {
+  let real: string
+  try {
+    real = realpathSync(library)
+  } catch {
+    return false
+  }
+  const rel = path.slice(library.length).split('/').filter(Boolean)
+  if (!path.startsWith(library + '/') && path !== library) return false
+  let here = library
+  for (const part of rel) {
+    here = join(here, part)
+    let st
+    try {
+      st = lstatSync(here)
+    } catch {
+      return true // the rest doesn't exist yet: it'll be made as real folders
+    }
+    if (st.isSymbolicLink()) return false
+  }
+  try {
+    const r = realpathSync(path)
+    return r === real || r.startsWith(real + '/')
+  } catch {
+    return true
+  }
 }
 
 /** A relative path made safe: no "..", no hidden parts, no characters Windows or SMB shares refuse. */
@@ -115,7 +148,7 @@ export class Uploads {
   /** One write at a time per upload (a retried chunk can arrive while the first is still flowing). */
   private readonly writing = new Set<string>()
   /** Files added recently, by the receipt handed back with them: only these can be taken back. */
-  private readonly receipts = new Map<string, { file: string; library: string; kind: Kind; at: number }>()
+  private readonly receipts = new Map<string, { file: string; library: string; kind: Kind; at: number; dev: number; ino: number; size: number; mtime: number }>()
 
   constructor(settings: SettingsStore, api: JellyfinLibraries = jellyfinLibraries) {
     this.settings = settings
@@ -151,6 +184,7 @@ export class Uploads {
     let p = file
     while (p.length > root.length) {
       try {
+        if (lstatSync(p).isSymbolicLink()) break
         chownSync(p, uid, gid)
       } catch {
         /* not root, or a disk that doesn't do owners (Windows drives) */
@@ -180,8 +214,8 @@ export class Uploads {
     }
   }
 
-  private id(kind: Kind, path: string, size: number) {
-    return createHash('sha256').update(`${kind}\0${path}\0${size}`).digest('hex').slice(0, 24)
+  private id(kind: Kind, path: string, size: number, fp: string) {
+    return createHash('sha256').update(`${kind}\0${path}\0${size}\0${fp}`).digest('hex').slice(0, 24)
   }
 
   private metaFile(root: string, id: string) {
@@ -210,7 +244,7 @@ export class Uploads {
   }
 
   /** Starts an upload, or finds the one already under way for the same file. */
-  begin(body: { kind?: unknown; path?: unknown; size?: unknown }) {
+  begin(body: { kind?: unknown; path?: unknown; size?: unknown; fingerprint?: unknown }) {
     const root = this.need()
     const kind = body.kind as Kind
     if (!(kind in KINDS)) throw new ApiError(400, 'Choose Movies, TV shows, Music or Games for this file')
@@ -221,12 +255,17 @@ export class Uploads {
     if (kind === 'games' && !path.includes('/')) throw new ApiError(400, 'Choose which console this game is for')
     const size = Number(body.size)
     if (!Number.isSafeInteger(size) || size < 0) throw new ApiError(400, 'Unknown file size')
+    const fp = typeof body.fingerprint === 'string' && /^[0-9a-z]+-[0-9a-z]+$/.test(body.fingerprint) ? body.fingerprint : null
+    if (!fp) throw new ApiError(400, 'Reload the page and add the file again (this page is out of date)')
 
-    const target = join(root, KINDS[kind], path)
-    // Already in the library (same name, same size): nothing to send.
-    if (existsSync(target) && this.sizeOf(target) === size) return { id: null, offset: size, done: true, skipped: true, path }
+    const library = join(root, KINDS[kind])
+    mkdirSync(library, { recursive: true })
+    const target = join(library, path)
+    if (!insideLibrary(library, dirname(target))) throw new ApiError(400, 'That folder is a shortcut to somewhere outside the library, so Finesse won’t put files there')
+    // Already in the library: the same file (not just the same name and size), so nothing to send.
+    if (existsSync(target) && this.sizeOf(target) === size && fingerprintFile(target) === fp) return { id: null, offset: size, done: true, skipped: true, path }
 
-    const id = this.id(kind, path, size)
+    const id = this.id(kind, path, size, fp)
     const part = this.partFile(root, id)
     const offset = existsSync(this.metaFile(root, id)) ? this.sizeOf(part) : 0
     if (!existsSync(this.metaFile(root, id))) {
@@ -236,7 +275,7 @@ export class Uploads {
       } catch (e) {
         if (e instanceof ApiError) throw e
       }
-      writeFileSync(this.metaFile(root, id), JSON.stringify({ kind, path, size, at: Date.now() } satisfies Meta))
+      writeFileSync(this.metaFile(root, id), JSON.stringify({ kind, path, size, fp, at: Date.now() } satisfies Meta))
       writeFileSync(part, '')
     }
     if (size === 0) return { id, ...this.finish(root, id, this.readMeta(root, id)) }
@@ -278,7 +317,16 @@ export class Uploads {
   }
 
   private finish(root: string, id: string, meta: Meta): { offset: number; done: boolean; path: string; receipt: string } {
+    // What arrived is the file the browser fingerprinted (not a mix of two same-size files).
+    if (fingerprintFile(this.partFile(root, id)) !== meta.fp) {
+      this.cancel(id)
+      throw new ApiError(409, 'The file changed while it was being sent. Add it again.')
+    }
     const want = join(root, KINDS[meta.kind], meta.path)
+    if (!insideLibrary(join(root, KINDS[meta.kind]), dirname(want))) {
+      this.cancel(id)
+      throw new ApiError(400, 'That folder is a shortcut to somewhere outside the library, so Finesse won’t put files there')
+    }
     mkdirSync(dirname(want), { recursive: true })
     const target = freeName(want)
     renameSync(this.partFile(root, id), target)
@@ -290,7 +338,8 @@ export class Uploads {
     if (meta.kind !== 'games') this.scanSoon() // RomM: the games nudger registers new console folders by itself
     const receipt = randomBytes(18).toString('base64url')
     for (const [k, r] of this.receipts) if (Date.now() - r.at > UNDO_MS) this.receipts.delete(k)
-    this.receipts.set(receipt, { file: target, library, kind: meta.kind, at: Date.now() })
+    const st = statSync(target)
+    this.receipts.set(receipt, { file: target, library, kind: meta.kind, at: Date.now(), dev: st.dev, ino: st.ino, size: st.size, mtime: st.mtimeMs })
     return { offset: meta.size, done: true, path: placed, receipt }
   }
 
@@ -299,6 +348,17 @@ export class Uploads {
     this.need()
     const r = this.receipts.get(receipt)
     if (!r || Date.now() - r.at > UNDO_MS) throw new ApiError(404, 'That file can’t be removed from here any more. Delete it on the server instead.')
+    // Only the very file that was added: not something put in its place since.
+    let st
+    try {
+      st = lstatSync(r.file)
+    } catch {
+      this.receipts.delete(receipt)
+      return
+    }
+    if (st.isSymbolicLink() || st.dev !== r.dev || st.ino !== r.ino || st.size !== r.size || st.mtimeMs !== r.mtime || !insideLibrary(r.library, dirname(r.file))) {
+      throw new ApiError(409, 'That file has changed since it was added, so Finesse won’t remove it. Delete it from its page instead.')
+    }
     this.receipts.delete(receipt)
     rmSync(r.file, { force: true })
     let dir = dirname(r.file)

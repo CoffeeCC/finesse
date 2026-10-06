@@ -1,12 +1,14 @@
 // Add media: resumable uploads into the library folders.
 
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { test } from 'node:test'
 import type { SettingsStore } from '../src/config.ts'
 import { cleanPath, sameFolder, Uploads } from '../src/uploads.ts'
+import { fingerprintOf } from '../src/fingerprint.ts'
+import { symlinkSync } from 'node:fs'
 import { tmp } from './helpers.ts'
 
 function setup(extra: Record<string, unknown> = {}) {
@@ -18,6 +20,11 @@ function setup(extra: Record<string, unknown> = {}) {
   return { data, scans, up: new Uploads(settings, api) }
 }
 const chunk = (b: Buffer) => Readable.from([b])
+/** The browser's fingerprint of some bytes. */
+const fp = (b: Buffer | string) => {
+  const buf = Buffer.from(b)
+  return fingerprintOf(buf.subarray(0, 1 << 20), buf.subarray(Math.max(0, buf.length - (1 << 20))), buf.length)
+}
 
 test('paths are cleaned: no climbing out, no hidden parts, no characters shares refuse', () => {
   assert.equal(cleanPath('Show/Season 1/ep.mkv'), 'Show/Season 1/ep.mkv')
@@ -33,13 +40,13 @@ test('a file arrives in chunks, lands in its library, and Jellyfin is asked to s
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const { data, scans, up } = setup()
   const bytes = Buffer.from('0123456789abcdefghij')
-  const b = up.begin({ kind: 'movies', path: 'Big Buck Bunny (2008)/Big Buck Bunny.mkv', size: bytes.length })
+  const b = up.begin({ kind: 'movies', path: 'Big Buck Bunny (2008)/Big Buck Bunny.mkv', size: bytes.length, fingerprint: fp(bytes) })
   assert.equal(b.offset, 0)
   assert.equal(b.done, false)
   const r1 = await up.write(b.id!, 0, 8, chunk(bytes.subarray(0, 8)))
   assert.deepEqual([r1.offset, r1.done], [8, false])
   // Coming back later (page reloaded): the same file finds its place.
-  assert.equal(up.begin({ kind: 'movies', path: 'Big Buck Bunny (2008)/Big Buck Bunny.mkv', size: bytes.length }).offset, 8)
+  assert.equal(up.begin({ kind: 'movies', path: 'Big Buck Bunny (2008)/Big Buck Bunny.mkv', size: bytes.length, fingerprint: fp(bytes) }).offset, 8)
   // A chunk out of step says where to carry on.
   await assert.rejects(up.write(b.id!, 0, 8, chunk(bytes.subarray(0, 8))), (e: { status: number; details: { offset: number } }) => e.status === 409 && e.details.offset === 8)
   const r2 = await up.write(b.id!, 8, 12, chunk(bytes.subarray(8)))
@@ -54,8 +61,8 @@ test('the same file again is skipped; a different one with that name gets " (2)"
   const { data, up } = setup()
   mkdirSync(join(data, 'media/music/Artist'), { recursive: true })
   writeFileSync(join(data, 'media/music/Artist/song.flac'), 'abc')
-  assert.equal(up.begin({ kind: 'music', path: 'Artist/song.flac', size: 3 }).skipped, true)
-  const b = up.begin({ kind: 'music', path: 'Artist/song.flac', size: 5 })
+  assert.equal(up.begin({ kind: 'music', path: 'Artist/song.flac', size: 3, fingerprint: fp('abc') }).skipped, true)
+  const b = up.begin({ kind: 'music', path: 'Artist/song.flac', size: 5, fingerprint: fp('hello') })
   const r = await up.write(b.id!, 0, 5, chunk(Buffer.from('hello')))
   assert.equal(r.path, 'Artist/song (2).flac')
   assert.ok(existsSync(join(data, 'media/music/Artist/song (2).flac')))
@@ -63,17 +70,17 @@ test('the same file again is skipped; a different one with that name gets " (2)"
 
 test('chunks must say their size truthfully and fit the file', async () => {
   const { up } = setup()
-  const b = up.begin({ kind: 'tv', path: 'Show/S01E01.mkv', size: 4 })
+  const b = up.begin({ kind: 'tv', path: 'Show/S01E01.mkv', size: 4, fingerprint: fp('1234') })
   await assert.rejects(up.write(b.id!, 0, 9, chunk(Buffer.from('123456789'))), /more than the file/)
   await assert.rejects(up.write(b.id!, 0, 2, chunk(Buffer.from('1234'))), /bigger than it said/)
 })
 
 test('games need a console folder and Games switched on; cancelling forgets the upload', () => {
   const off = setup()
-  assert.throws(() => off.up.begin({ kind: 'games', path: 'snes/game.sfc', size: 1 }), /Games isn’t switched on/)
+  assert.throws(() => off.up.begin({ kind: 'games', path: 'snes/game.sfc', size: 1, fingerprint: fp('g') }), /Games isn’t switched on/)
   const on = setup({ services: { romm: { url: 'http://romm' } } })
-  assert.throws(() => on.up.begin({ kind: 'games', path: 'game.sfc', size: 1 }), /which console/)
-  const b = on.up.begin({ kind: 'games', path: 'snes/game.sfc', size: 1 })
+  assert.throws(() => on.up.begin({ kind: 'games', path: 'game.sfc', size: 1, fingerprint: fp('g') }), /which console/)
+  const b = on.up.begin({ kind: 'games', path: 'snes/game.sfc', size: 1, fingerprint: fp('g') })
   on.up.cancel(b.id!)
   assert.deepEqual(readdirSync(join(on.data, 'media/.finesse-uploads')), [])
 })
@@ -81,7 +88,7 @@ test('games need a console folder and Games switched on; cancelling forgets the 
 test('only on servers Finesse set up', () => {
   const { up } = setup({ mode: 'adopt' })
   assert.equal(up.info().available, false)
-  assert.throws(() => up.begin({ kind: 'movies', path: 'a.mkv', size: 1 }), /servers Finesse set up/)
+  assert.throws(() => up.begin({ kind: 'movies', path: 'a.mkv', size: 1, fingerprint: fp('a') }), /servers Finesse set up/)
 })
 
 test('a show, artist or movie already on disk keeps its folder, whatever the drop called it', () => {
@@ -104,7 +111,7 @@ test('a file just added can be taken back, with its now-empty folders; nothing e
   const { data, scans, up } = setup()
   mkdirSync(join(data, 'media/movies/Keep Me (2001)'), { recursive: true })
   writeFileSync(join(data, 'media/movies/Keep Me (2001)/keep.mkv'), 'k')
-  const b = up.begin({ kind: 'movies', path: 'Oops (2020)/oops.mkv', size: 3 })
+  const b = up.begin({ kind: 'movies', path: 'Oops (2020)/oops.mkv', size: 3, fingerprint: fp('abc') })
   const r = await up.write(b.id!, 0, 3, chunk(Buffer.from('abc')))
   assert.ok(r.receipt)
   up.remove(r.receipt!)
@@ -114,9 +121,50 @@ test('a file just added can be taken back, with its now-empty folders; nothing e
   assert.throws(() => up.remove(r.receipt!), /can’t be removed/)
   assert.throws(() => up.remove('made-up'), /can’t be removed/)
   // A day later, "Remove" is gone.
-  const b2 = up.begin({ kind: 'movies', path: 'Late (2021)/late.mkv', size: 1 })
+  const b2 = up.begin({ kind: 'movies', path: 'Late (2021)/late.mkv', size: 1, fingerprint: fp('x') })
   const r2 = await up.write(b2.id!, 0, 1, chunk(Buffer.from('x')))
   t.mock.timers.tick(25 * 3600e3)
   assert.throws(() => up.remove(r2.receipt!), /can’t be removed/)
   assert.ok(scans.length >= 1)
+})
+
+test('a different file with the same name and size is neither skipped nor mixed into another upload', async () => {
+  const { data, up } = setup()
+  mkdirSync(join(data, 'media/music/A'), { recursive: true })
+  writeFileSync(join(data, 'media/music/A/t.flac'), 'AAA')
+  const b = up.begin({ kind: 'music', path: 'A/t.flac', size: 3, fingerprint: fp('BBB') })
+  assert.equal(b.skipped, undefined)
+  const r = await up.write(b.id!, 0, 3, chunk(Buffer.from('BBB')))
+  assert.equal(r.path, 'A/t (2).flac')
+  assert.equal(readFileSync(join(data, 'media/music/A/t.flac'), 'utf8'), 'AAA')
+  // Two same-size files halfway: each its own upload, never resuming the other's.
+  const one = up.begin({ kind: 'tv', path: 'S/e.mkv', size: 4, fingerprint: fp('1111') })
+  await up.write(one.id!, 0, 2, chunk(Buffer.from('11')))
+  const two = up.begin({ kind: 'tv', path: 'S/e.mkv', size: 4, fingerprint: fp('2222') })
+  assert.notEqual(two.id, one.id)
+  assert.equal(two.offset, 0)
+  // Bytes that don't match the fingerprint are thrown away, not placed.
+  const lie = up.begin({ kind: 'tv', path: 'S/x.mkv', size: 4, fingerprint: fp('real') })
+  await assert.rejects(up.write(lie.id!, 0, 4, chunk(Buffer.from('fake'))), /changed while it was being sent/)
+  assert.equal(existsSync(join(data, 'media/tv/S/x.mkv')), false)
+})
+
+test('Remove only takes the very file that was added, not one put in its place', async () => {
+  const { data, up } = setup()
+  const b = up.begin({ kind: 'movies', path: 'M (2020)/m.mkv', size: 3, fingerprint: fp('abc') })
+  const r = await up.write(b.id!, 0, 3, chunk(Buffer.from('abc')))
+  const placed = join(data, 'media/movies/M (2020)/m.mkv')
+  rmSync(placed)
+  writeFileSync(placed, 'other file')
+  assert.throws(() => up.remove(r.receipt!), /has changed since it was added/)
+  assert.equal(readFileSync(placed, 'utf8'), 'other file')
+})
+
+test('a shortcut (symlink) in a library never sends a file outside it', async () => {
+  const { data, up } = setup()
+  const outside = tmp('finesse-outside-')
+  mkdirSync(join(data, 'media/movies'), { recursive: true })
+  symlinkSync(outside, join(data, 'media/movies/Shortcut'))
+  assert.throws(() => up.begin({ kind: 'movies', path: 'Shortcut/probe.mkv', size: 1, fingerprint: fp('p') }), /shortcut/)
+  assert.deepEqual(readdirSync(outside), [])
 })

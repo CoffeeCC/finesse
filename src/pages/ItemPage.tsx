@@ -31,6 +31,7 @@ import CastMenu from '../components/CastMenu'
 import { peerOf } from '../lib/peers'
 import { useFriends } from '../api/queries'
 import { ActionMenu, type ActionItem } from '../components/Menu'
+import { DELETABLE, DeleteFromLibrary, useCanDelete } from '../components/DeleteFromLibrary'
 import { ACTION_BTN, ActionButton, PLAY_BTN, actionCircle } from '../components/ActionButton'
 import WatchlistButton from '../components/WatchlistButton'
 import TrailerHero from '../components/TrailerHero'
@@ -352,6 +353,8 @@ export default function ItemPage() {
   const friendName = friendId ? friends?.find((f) => f.id === friendId)?.name ?? 'a friend’s server' : null
   const [favBusy, setFavBusy] = useState(false)
   const [fixOpen, setFixOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const canDeleteHere = useCanDelete()
   const [refreshing, setRefreshing] = useState(false)
   const [previewOn, setPreviewOn] = useState(false)
   // The artwork stays up until the preview is actually playing.
@@ -465,6 +468,7 @@ export default function ItemPage() {
   // Everyday actions first; library management (admins only) tucked under a
   // labelled group instead of sitting under the synopsis for everyone.
   const isAdmin = session?.isAdmin !== false && !friendId
+  const canDelete = canDeleteHere && !friendId && DELETABLE.includes(item.Type ?? '')
   const moreItems: ActionItem[] = [
     ...(isPlayable || isSeries ? [{ label: played ? 'Mark as unwatched' : 'Mark as watched', onSelect: togglePlayed }] : []),
     ...(tabs.includes('details') ? [{ label: 'Cast and details', onSelect: () => setTabSel('details') }] : []),
@@ -473,12 +477,14 @@ export default function ItemPage() {
           { section: 'Admin', label: 'Fix match…', onSelect: () => setFixOpen(true) },
           { label: refreshing ? 'Refreshing metadata…' : 'Refresh metadata', onSelect: refreshMetadata, disabled: refreshing },
           ...(item.Path && tabs.includes('details') ? [{ label: 'File info', onSelect: () => setTabSel('details') }] : []),
+          ...(canDelete ? [{ label: 'Delete from library…', onSelect: () => setDeleting(true) }] : []),
         ]
       : []),
   ]
 
   return (
     <div className="pb-16" style={gradeStyle}>
+      {deleting && <DeleteFromLibrary itemId={item.Id} onClose={() => setDeleting(false)} onDeleted={() => goBack(navigate)} />}
       {/* Ambilight: the backdrop, blown out and breathing, washes the whole page */}
       {backdrop && (
         <div className="ambilight fixed inset-0 -z-10 overflow-hidden" aria-hidden>

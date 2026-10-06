@@ -29,7 +29,7 @@ const SEARCHES = new Set(['MoviesSearch', 'SeriesSearch', 'ArtistSearch'])
 
 export type ArrVerdict =
   | { ok: true; body?: 'command' | 'add' }
-  | { ok: true; needsNoFiles: { kind: 'movie' | 'series' | 'artist'; id: number } }
+  | { ok: true; needsNoFiles: { kind: 'movie' | 'series' | 'artist'; id: number }; /** Sent instead of what the browser asked: never deletes files. */ query: string }
   | { ok: false }
 
 /**
@@ -59,9 +59,12 @@ export function arrVerdict(method: string, path: string, query: URLSearchParams)
   if (m === 'DELETE') {
     if (path === 'queue/bulk') return { ok: true } // cancel or retry a download
     const item = new RegExp(`^${ITEM}/(\\d+)$`).exec(path)
-    // Taking back a request never deletes files.
-    if (item && query.get('deleteFiles') !== 'true') return { ok: true, needsNoFiles: { kind: item[1] as 'movie' | 'series' | 'artist', id: Number(item[2]) } }
-    return { ok: false }
+    if (!item) return { ok: false }
+    // Taking back a request never deletes files: any "delete files" flag, in any spelling, that isn't
+    // plainly false is refused, and what's sent on is a query Finesse writes itself.
+    for (const [k, v] of query) if (/^delete.?files$/i.test(k.trim()) && v.trim().toLowerCase() !== 'false') return { ok: false }
+    const kind = item[1] as 'movie' | 'series' | 'artist'
+    return { ok: true, needsNoFiles: { kind, id: Number(item[2]) }, query: kind === 'movie' ? '?deleteFiles=false&addImportExclusion=false' : '?deleteFiles=false' }
   }
   return { ok: false }
 }

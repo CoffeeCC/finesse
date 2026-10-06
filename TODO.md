@@ -38,6 +38,31 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Delete from the library, and a security pass — v2.6.2 (2026-10-06)
+
+- **Delete from the library.** Admins: **More → Delete from library…** on a movie, show, season or
+  episode, and **Delete album…** on an album. Finesse says how much space comes back, tells Radarr,
+  Sonarr or Lidarr not to fetch it again (if one can't be reached, nothing is deleted), deletes the
+  files and the folders they leave empty, and it's gone from every screen at once.
+- **Security fixes from an outside review:**
+  - Household members can no longer slip a "delete the files" request to Radarr, Sonarr or Lidarr
+    past Finesse by changing its capitals: what those apps receive is written by Finesse.
+  - Narrowing what a friend's server can see is applied to their accounts before Finesse says it's
+    saved; if Jellyfin can't be reached, their access pauses until it can.
+  - Friend accounts that couldn't be removed during an outage are cleaned up later; a request a
+    friend isn't allowed to make no longer creates an account first.
+  - A friend's server never sees your Jellyfin token, even in compressed replies.
+  - Friends' addresses must be https:// unless they're on your home network or Tailscale.
+  - Preview clips are only for people who can see that title, and are never kept by a shared cache.
+  - Game profiles with a PIN can't be opened from the browser by someone else.
+  - The setup code check after setup is rate-limited; slow requests are cut off.
+  - Open invite links make at most a few accounts an hour from one address.
+  - Updated the web app's router library (security fixes).
+- **Add media:** files are told apart by a fingerprint, not just name and size; Remove only takes the
+  very file that was added; shortcuts (symlinks) in a library can't send files elsewhere.
+- **Sign-in** keeps spaces in passwords; all-digit invite codes work; on phones the connection badge
+  no longer covers "Who's watching?".
+
 ## Look before you add — v2.6.1 (2026-10-05)
 
 - **Add media shows you first.** Dropped files are sorted and listed with where each one will go;

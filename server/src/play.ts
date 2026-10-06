@@ -23,7 +23,7 @@ import { proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import { logger } from './log.ts'
 import { PLAY_IMAGE } from './stack/catalog.ts'
 import { Docker, DockerError } from './stack/docker.ts'
-import { fetchRom, pickGame } from './streaming.ts'
+import { fetchRom, pickGame, wolfProfileLocks } from './streaming.ts'
 import { writeTar } from './tar.ts'
 
 const log = logger('play')
@@ -258,6 +258,13 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     if ('error' in picked) throw new ApiError(400, picked.error)
     const game = picked.path
     const profile = typeof body.profile === 'string' && /^[\w.@-]{1,64}$/.test(body.profile) ? body.profile : 'shared'
+    // A profile's saves are its owner's: the household one is everyone's, and so is a Wolf profile
+    // without a PIN; one with a PIN (or one Wolf doesn't know) only an administrator opens from here.
+    if (profile !== 'shared' && !user.Policy?.IsAdministrator) {
+      const socket = s.streaming?.socket
+      const locks = socket ? await wolfProfileLocks(socket).catch(() => new Map<string, boolean>()) : new Map<string, boolean>()
+      if (locks.get(profile) !== false) throw new ApiError(403, 'That profile has a PIN. Pick it in Moonlight (which asks for the PIN), or play as the household here.')
+    }
     // One game per person at a time; a few at once for the whole house (they share the graphics card).
     for (const old of [...sessions.values()].filter((x) => x.user === user.Id)) await remove(old, 'a new game')
     if ([...sessions.values()].filter((x) => x.state !== 'error').length >= MAX) throw new ApiError(429, `${MAX} games are already playing in browsers. Try again when one ends.`)

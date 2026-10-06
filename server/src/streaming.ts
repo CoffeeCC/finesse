@@ -169,6 +169,12 @@ export function appBase(apps: RawApp[]): WolfAppBase | null {
 /** Our apps as Wolf holds them, ready to compare with what they should be (ids are Wolf's). */
 const ours = (apps: RawApp[]) => JSON.stringify(apps.filter(isOurApp).map(({ id: _id, ...rest }) => rest))
 
+/** Wolf's profiles: which exist, and which have a PIN (who may use them is Wolf's say; PINs stay here). */
+export async function wolfProfileLocks(socket: string): Promise<Map<string, boolean>> {
+  const r = await wolfJson<{ profiles?: RawProfile[] }>(socket, 'GET', '/api/v1/profiles')
+  return new Map((Array.isArray(r.profiles) ? r.profiles : []).filter((p) => typeof p.id === 'string').map((p) => [p.id, Array.isArray(p.pin) && p.pin.length > 0]))
+}
+
 export interface EmulatorSync {
   /** Profiles (names) that have the apps now. */
   profiles: string[]

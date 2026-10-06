@@ -75,6 +75,9 @@ export async function fakeJellyfin(): Promise<FakeJellyfin> {
       users.set(u.Id, u)
       return send(res, 200, u)
     }
+    // Items: ids starting with "a" are in a library everyone sees; "b…" only administrators.
+    const item = /^\/Items\/([0-9a-f]{32})$/.exec(p)
+    if (item) return item[1]!.startsWith('a') || me.Policy.IsAdministrator ? send(res, 200, { Id: item[1] }) : send(res, 404)
     let m = /^\/Users\/([^/]+)\/Password$/.exec(p)
     if (m && req.method === 'POST') {
       const u = users.get(m[1]!)

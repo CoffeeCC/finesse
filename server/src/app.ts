@@ -2,7 +2,7 @@
 // `createApp()` returns an unstarted http.Server so tests can run it in-process.
 
 import { createServer, type Server } from 'node:http'
-import { Auth, ensureSetupCode } from './auth.ts'
+import { Auth, ensureSetupCode, tokenFrom } from './auth.ts'
 import { SettingsStore, type Paths, type Settings } from './config.ts'
 import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
@@ -11,6 +11,7 @@ import { registerStreaming } from './streaming.ts'
 import { playState, registerPlay } from './play.ts'
 import { InviteStore, registerInvites } from './invites.ts'
 import { registerUploads, Uploads } from './uploads.ts'
+import { Deleter, registerDeletions } from './deletions.ts'
 import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
@@ -97,6 +98,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
+  registerDeletions(router, { deleter: new Deleter(settings), auth })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)
@@ -104,6 +106,18 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerWebUpdate(router, { auth, updater })
   for (const plugin of opts.plugins ?? []) plugin(deps)
   registerServiceProxies(router, { settings, auth })
+
+  // Whether a viewer may see an item, asked of Jellyfin with their own sign-in (its library rules apply).
+  const seen = new Map<string, { ok: boolean; at: number }>()
+  const canSee = async (token: string, userId: string, itemId: string) => {
+    const key = `${userId}:${itemId}`
+    const hit = seen.get(key)
+    if (hit && Date.now() - hit.at < 10 * 60000) return hit.ok
+    const ok = await jf.request(`/Items/${itemId}?userId=${userId}`, { token }).then(() => true, () => false)
+    if (seen.size > 20000) seen.clear()
+    seen.set(key, { ok, at: Date.now() })
+    return ok
+  }
 
   const server = createServer(async (req, res) => {
     const started = Date.now()
@@ -134,9 +148,15 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
         // They're clips of your library, so for signed-in viewers only.
         if (isPreview) {
           // A <video> can't send a header: the app's cookie (same origin) or, from another origin, ApiKey.
-          await auth.requireUser(req, { cookie: 'finesse_media_token', query: url.searchParams })
+          const who = await auth.requireUser(req, { cookie: 'finesse_media_token', query: url.searchParams })
+          const clip = /^\/previews\/([0-9a-f]{32})(?:\.(?:720|1080))?\.mp4$/.exec(path)
+          // A clip is of one item: someone who can't see that item (a library they're not in) can't see its clip.
+          if (clip && !who.Policy?.IsAdministrator && !(await canSee(tokenFrom(req, { cookie: 'finesse_media_token', query: url.searchParams })!, who.Id, clip[1]!))) {
+            throw new ApiError(404, 'Not found')
+          }
           const hit = safeFile(p.previews, path.slice('/previews'.length))
-          if (hit) return void sendFile(req, res, hit.file, hit.stat, path)
+          // Signed-in only: no shared cache (a proxy or CDN) may keep it and hand it to someone else.
+          if (hit) return void sendFile(req, res, hit.file, hit.stat, path, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' })
           // No clips made yet (a fresh server): an empty list, not an error.
           if (path === '/previews/manifest.json') return void sendJson(res, 200, [])
           if (path === '/previews/manifest-hd.json') return void sendJson(res, 200, {})
@@ -160,7 +180,9 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   // Keep-alive sockets shouldn't hold shutdown open for long.
   server.keepAliveTimeout = 65000
   server.headersTimeout = 66000
-  server.requestTimeout = 0
+  // Receiving a request (not answering it: a film can stream for hours) has a limit, so a client
+  // that dribbles bytes can't hold a connection forever. Generous: a 16 MB upload chunk on a slow line.
+  server.requestTimeout = 15 * 60000
 
   return { server, deps }
 }

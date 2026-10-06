@@ -102,6 +102,7 @@ let jf: FakeJellyfin
 let selkies: Awaited<ReturnType<typeof fakeSelkies>>
 let docker: Awaited<ReturnType<typeof fakeDocker>>
 let romm: Server
+let wolf: Server
 let finesse: { url: string; app: Server }
 let folders: Record<string, string>
 
@@ -110,6 +111,12 @@ before(async () => {
   selkies = await fakeSelkies()
   const dir = tmp('finesse-play-')
   docker = await fakeDocker(join(dir, 'docker.sock'))
+  // Wolf's profiles: "user" without a PIN (anyone may play as it), "admin" with one.
+  wolf = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(req.url === '/api/v1/profiles' ? JSON.stringify({ success: true, profiles: [{ id: 'user', apps: [], pin: null }, { id: 'admin', apps: [], pin: [1, 2, 3, 4] }] }) : '{}')
+  })
+  await new Promise<void>((r) => wolf.listen(join(dir, 'wolf.sock'), r))
   romm = createServer((req, res) => {
     const roms: Record<string, unknown> = {
       '7': { id: 7, name: 'A PS2 Game', platform_slug: 'ps2', fs_path: 'roms/ps2', fs_name: 'A PS2 Game (USA).iso' },
@@ -139,6 +146,7 @@ before(async () => {
       jellyfin: { url: jf.url, apiKey: API_KEY, basePath: '' },
       services: { romm: { url: rommUrl, username: 'finesse', password: ROMM_PASS } },
       emulators: { apps: ['pcsx2', 'switch'], switchEmulator: 'eden', paths: folders },
+      streaming: { socket: join(dir, 'wolf.sock') },
     }),
   )
   process.env.DOCKER_SOCKET = join(dir, 'docker.sock')
@@ -153,7 +161,7 @@ before(async () => {
 after(async () => {
   delete process.env.DOCKER_SOCKET
   delete process.env.FINESSE_PLAY_PORT
-  for (const s of [finesse.app, selkies.server, docker.server, romm]) {
+  for (const s of [finesse.app, selkies.server, docker.server, romm, wolf]) {
     s.closeAllConnections()
     await new Promise((r) => s.close(r))
   }
@@ -263,6 +271,14 @@ test('the session is its owner’s: page and WebSocket need their sign-in', asyn
   assert.equal(await ws(`/game-stream/${id}/websocket`), null, 'no sign-in, no stream')
   assert.equal(await ws(`/game-stream/${id}/websocket`, `finesse_play_token=${USER_TOKEN}`), 'ping')
   assert.ok(selkies.upgrades.every((u) => !u.includes(USER_TOKEN)), 'the sign-in stays with Finesse')
+})
+
+test('a profile with a PIN (or one Wolf doesn’t know) isn’t anyone’s to open from the browser', async () => {
+  for (const profile of ['admin', 'nobody']) {
+    const r = await call('POST', '/api/play', USER_TOKEN, { rom: 7, profile })
+    assert.equal(r.status, 403, profile)
+  }
+  assert.ok(!docker.created.some((c) => JSON.stringify(c).includes('/saves/admin/')), 'no container was made with those saves')
 })
 
 test('someone else can’t see or reach another person’s game', async () => {

@@ -129,6 +129,20 @@ function guessLimit(req: IncomingMessage) {
   const g = guesses.get(clientIp(req))
   if (g && Date.now() - g.since < 10 * 60e3 && g.n >= 20) throw new ApiError(429, 'Too many wrong invite codes — wait a few minutes and check the link you were sent')
 }
+/** Accounts made from one address: an open invite link that gets around isn't a way to fill Jellyfin with users. */
+const joins = new Map<string, number[]>()
+const JOINS_PER_HOUR = 5
+function joinLimit(req: IncomingMessage) {
+  const ip = clientIp(req)
+  const recent = (joins.get(ip) ?? []).filter((t) => Date.now() - t < 3600e3)
+  if (recent.length >= JOINS_PER_HOUR) throw new ApiError(429, 'Lots of accounts have been made from here just now. Try again in an hour, or ask whoever invited you.')
+  joins.set(ip, recent)
+}
+function joined(req: IncomingMessage) {
+  const ip = clientIp(req)
+  joins.set(ip, [...(joins.get(ip) ?? []), Date.now()])
+  if (joins.size > 10000) joins.clear()
+}
 function wrongCode(req: IncomingMessage): ApiError {
   const ip = clientIp(req)
   const now = Date.now()
@@ -239,8 +253,8 @@ export function registerInvites(router: Router, deps: { store: InviteStore; jf: 
 
   router.get(`${P}/v1/invites/:code`, async ({ req, res, params }) => {
     const code = params.code!
-    if (/^\d+$/.test(code)) {
-      await auth.requireAdmin(req)
+    // All digits: an invite's number, for an administrator; for anyone else it's a code (codes can be all digits too).
+    if (/^\d+$/.test(code) && (await auth.requireAdmin(req).then(() => true, () => false))) {
       const row = store.byId(Number(code))
       if (!row) throw new ApiError(404, 'Invite not found')
       return sendJson(res, 200, rowAdmin(row, store.libs(row.id)))
@@ -260,6 +274,7 @@ export function registerInvites(router: Router, deps: { store: InviteStore; jf: 
     if (!USERNAME_RE.test(username)) throw new ApiError(400, 'Username must be 2–32 characters (letters, numbers, . _ -)')
     if (!PASSWORD_RE.test(password)) throw new ApiError(400, 'Password must be 8+ characters with upper, lower, and a number')
     guessLimit(req)
+    joinLimit(req)
     const row = store.byCode(code)
     if (!row) throw wrongCode(req)
     const st = status(row)
@@ -291,6 +306,7 @@ export function registerInvites(router: Router, deps: { store: InviteStore; jf: 
     const now = new Date().toISOString()
     if (!row.unlimited) store.db.prepare('UPDATE invites SET used=1, used_at=?, used_by_username=? WHERE id=?').run(now, username, row.id)
     else store.db.prepare('UPDATE invites SET used_at=?, used_by_username=? WHERE id=?').run(now, username, row.id)
+    joined(req)
     sendJson(res, 201, { ok: true, username, user_id: uid, message: 'Account created' })
   })
 

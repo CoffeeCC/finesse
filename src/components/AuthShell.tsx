@@ -10,7 +10,8 @@ export default function AuthShell({
   server?: string
 }) {
   return (
-    <div className="relative min-h-[calc(var(--vh)*100)] flex items-center justify-center overflow-hidden">
+    // Phones: room at the top for the connection badge (a tall page starts right at the top edge).
+    <div className="relative min-h-[calc(var(--vh)*100)] flex items-center justify-center overflow-hidden pt-20 pb-10 sm:py-0">
       {server && (
         <img
           src={splashscreenUrl(server)}

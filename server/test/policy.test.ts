@@ -39,8 +39,10 @@ describe('the rules', () => {
   })
 
   test('taking back a request never deletes files, and needs the item to have none', () => {
-    assert.deepEqual(arrVerdict('DELETE', 'movie/7', q('deleteFiles=false')), { ok: true, needsNoFiles: { kind: 'movie', id: 7 } })
+    assert.deepEqual(arrVerdict('DELETE', 'movie/7', q('deleteFiles=false')), { ok: true, needsNoFiles: { kind: 'movie', id: 7 }, query: '?deleteFiles=false&addImportExclusion=false' })
     assert.equal(arrVerdict('DELETE', 'movie/7', q('deleteFiles=true')).ok, false)
+    for (const trick of ['deleteFiles=True', 'deleteFiles=TRUE', 'DeleteFiles=true', 'deletefiles=1', 'delete_files=yes', 'deleteFiles=false&deleteFiles=true', 'deleteFiles= true'])
+      assert.equal(arrVerdict('DELETE', 'movie/7', q(trick)).ok, false, trick)
     assert.equal(hasFiles({ hasFile: true }), true)
     assert.equal(hasFiles({ statistics: { episodeFileCount: 3 } }), true)
     assert.equal(hasFiles({ statistics: { trackFileCount: 0, sizeOnDisk: 0 } }), false)
@@ -188,9 +190,12 @@ describe('through the server', () => {
 
   test('taking back: only while nothing is on disk', async () => {
     assert.equal((await call('DELETE', '/arr/radarr/movie/1?deleteFiles=false', USER_TOKEN)).status, 403)
-    const ok = await call('DELETE', '/arr/radarr/movie/2?deleteFiles=false', USER_TOKEN)
+    const ok = await call('DELETE', '/arr/radarr/movie/2?deleteFiles=false&extra=1', USER_TOKEN)
     assert.equal(ok.status, 200)
-    assert.ok(ok.upstream.some((l) => l.startsWith('radarr DELETE /api/v3/movie/2')))
+    // What reaches Radarr is Finesse's own query, not the browser's.
+    assert.ok(ok.upstream.includes('radarr DELETE /api/v3/movie/2?deleteFiles=false&addImportExclusion=false'), ok.upstream.join(' | '))
+    const sneaky = await call('DELETE', '/arr/radarr/movie/2?deleteFiles=True', USER_TOKEN)
+    assert.equal(sneaky.status, 403)
   })
 
   test('an administrator still has the whole API', async () => {

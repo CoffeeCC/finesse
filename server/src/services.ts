@@ -84,6 +84,7 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
         if ('needsNoFiles' in v) {
           const item = await arrGet<Record<string, unknown>>(svc, def.api, `${v.needsNoFiles.kind}/${v.needsNoFiles.id}`)
           if (hasFiles(item)) throw new ApiError(403, 'It’s already downloaded, so only an administrator can remove it')
+          search = v.query
         }
       }
       await proxyHttp(req, res, {

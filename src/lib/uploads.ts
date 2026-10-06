@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { mediaBrowserAuthHeader } from '../api/client'
 import { finesseApi } from './finesseServer'
+import { fingerprint } from './fingerprint'
 import type { Kind, Planned } from './mediaSort'
 
 const CHUNK = 16 << 20
@@ -151,7 +152,7 @@ async function send(key: string) {
   let tries = 0
   try {
     const j = job()
-    const begun = await api<{ id: string | null; offset: number; done: boolean; skipped?: boolean; path: string; receipt?: string }>('POST', '/api/media/uploads', JSON.stringify({ kind: j.kind, path: j.path, size: j.file.size }))
+    const begun = await api<{ id: string | null; offset: number; done: boolean; skipped?: boolean; path: string; receipt?: string }>('POST', '/api/media/uploads', JSON.stringify({ kind: j.kind, path: j.path, size: j.file.size, fingerprint: await fingerprint(j.file) }))
     if (begun.done) return patch(key, { status: 'done', sent: j.file.size, placed: begun.path, receipt: begun.receipt, note: begun.skipped ? 'Already in your library' : undefined })
     patch(key, { id: begun.id!, sent: begun.offset })
     let offset = begun.offset

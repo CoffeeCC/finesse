@@ -8,6 +8,7 @@ import { request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
 import type { Duplex } from 'node:stream'
+import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib'
 import { logger } from '../log.ts'
 
 const log = logger('proxy')
@@ -111,7 +112,19 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
         up.socket.setTimeout(0)
         const headers = downstreamHeaders(up.headers, opts)
         const len = Number(up.headers['content-length'] ?? 0)
-        if (opts.rewriteText && REWRITABLE.test(String(up.headers['content-type'] ?? '')) && !up.headers['content-encoding'] && len <= REWRITE_MAX) {
+        // Text that must be rewritten (a token swapped out) is never passed on as it came: compressed
+        // replies are unpacked first, and anything that can't be read or is too big is refused.
+        if (opts.rewriteText && REWRITABLE.test(String(up.headers['content-type'] ?? ''))) {
+          const encoding = String(up.headers['content-encoding'] ?? 'identity').toLowerCase().trim()
+          const cap = { maxOutputLength: REWRITE_MAX }
+          const unpack: ((b: Buffer) => Buffer) | null =
+            encoding === 'identity' || encoding === '' ? (b) => b : encoding === 'gzip' || encoding === 'x-gzip' ? (b) => gunzipSync(b, cap) : encoding === 'deflate' ? (b) => inflateSync(b, cap) : encoding === 'br' ? (b) => brotliDecompressSync(b, cap) : null
+          if (!unpack || len > REWRITE_MAX) {
+            up.resume()
+            res.writeHead(502, { 'Content-Type': 'application/json' })
+            res.end('{"error":"The friend’s server sent a reply Finesse can’t check"}')
+            return resolve()
+          }
           const chunks: Buffer[] = []
           let size = 0
           up.on('data', (c: Buffer) => {
@@ -123,8 +136,18 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
               res.destroy()
               return resolve()
             }
-            const out = Buffer.from(opts.rewriteText!(Buffer.concat(chunks).toString('utf8')), 'utf8')
+            let text: string
+            try {
+              const plain = unpack(Buffer.concat(chunks))
+              text = plain.toString('utf8')
+            } catch {
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end('{"error":"The friend’s server sent a reply Finesse can’t check"}')
+              return resolve()
+            }
+            const out = Buffer.from(opts.rewriteText!(text), 'utf8')
             delete headers['transfer-encoding']
+            delete headers['content-encoding']
             headers['content-length'] = String(out.length)
             res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
             res.end(out)
