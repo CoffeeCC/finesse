@@ -51,10 +51,11 @@ Nessa, the Finesse mascot, says hi and walks you through it. It asks two things:
 
 1. **May it install Docker**, if Docker is missing. It uses get.docker.com where that works and
    your system's own Docker package elsewhere (Linux Mint, Arch, openSUSE…). On Bazzite and other
-   image-based systems, Docker is added as a layer: restart when it asks, then run the same
-   command again.
+   image-based systems, Docker is added as a layer and the computer restarts once; on a desktop, a
+   window opens by itself when you sign in again and carries on.
 2. **Where your media should live.** It lists your disks with the most free space. Pick the big one.
 
+On a desktop it also offers to play Lo-Finessa (original lo-fi made for Finesse) while it works.
 Then it starts Finesse and prints something like:
 
 ```
@@ -66,7 +67,8 @@ Then it starts Finesse and prints something like:
     Setup code K7QM-3XPD
 ```
 
-Open that address from any computer or phone on the same network.
+Open that address from any computer or phone on the same network: there's a QR code under it for
+your phone, and on a desktop it offers to open the page in your browser.
 
 <details>
 <summary>Installer options</summary>

@@ -12,6 +12,7 @@
 //   finesse streaming [on|off] [--json]  game streaming (Wolf): what this machine has, or turn it on/off
 //   finesse emulators [--json]         the emulator apps in Wolf, and what each still needs (by file name)
 //   finesse emulators set <file|->     save the emulator settings (the setup document's "emulators") and add the apps to Wolf
+//   finesse qr <text>                  a QR code for the terminal (the installer's "scan with your phone")
 //   finesse version                    server version
 //   finesse swap <id> <image>          (internal) replace a Finesse container with a new image
 //
@@ -23,6 +24,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { VERSION } from '../src/jellyfin.ts'
 import { Docker } from '../src/stack/docker.ts'
 import { swap } from '../src/stack/selfupdate.ts'
+import { qrTerminal } from '../src/qr.ts'
 import { BACKUP_PARTS, isPart, restoreBackup, type BackupPart } from '../src/stack/backup.ts'
 
 const configDir = resolve(process.env.FINESSE_CONFIG_DIR || '/config')
@@ -351,6 +353,15 @@ async function main(argv: string[]): Promise<number> {
     case '-v':
       console.log(VERSION)
       return 0
+    case 'qr': {
+      const text = rest.join(' ').trim()
+      if (!text) {
+        console.error('Usage: finesse qr <text>')
+        return 1
+      }
+      console.log(qrTerminal(text))
+      return 0
+    }
     case 'setup-code': {
       const code = setupCode()
       if (!code) {

@@ -38,6 +38,15 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A friendlier Linux install — v2.6.3 (2026-10-06)
+
+- **A QR code for your phone** at the end of the install, always: Finesse draws it itself now
+  (`finesse qr`), so the computer doesn't need any extra tool.
+- **On a desktop** (Bazzite, Mint, Fedora…): it offers to open the setup page in your browser, and to
+  play Lo-Finessa while it works (off unless you say yes).
+- **Bazzite and other image-based systems:** after the one restart Docker needs, a window opens by
+  itself when you sign in and carries on. No command to remember.
+
 ## Delete from the library, and a security pass — v2.6.2 (2026-10-06)
 
 - **Delete from the library.** Admins: **More → Delete from library…** on a movie, show, season or

@@ -90,6 +90,7 @@ usage() {
   exit 0
 }
 
+ORIG_ARGS=("$@")
 while [ $# -gt 0 ]; do
   case "$1" in
     --data) DATA="$2"; shift 2 ;;
@@ -135,8 +136,10 @@ fi
 if [ "$I_OK" = "✔" ]; then SPIN=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'); else SPIN=('|' '/' '-' '\'); fi
 
 SPIN_PID=""
+MUSIC_PID=""
 cleanup() {
   if [ -n "$SPIN_PID" ]; then kill "$SPIN_PID" 2>/dev/null || true; fi
+  if [ -n "$MUSIC_PID" ]; then kill "$MUSIC_PID" 2>/dev/null || true; fi
   if [ "$ANIM" = 1 ]; then printf '\e[?25h'; fi
   return 0
 }
@@ -277,6 +280,57 @@ if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
   sudo -v </dev/tty 2>/dev/null || sudo -v || die "Couldn't get admin rights. Run this as a user who can use sudo."
 fi
 
+# ---------- on a desktop (Bazzite, Mint, Fedora…) ----------
+INSTALL_URL="https://raw.githubusercontent.com/CoffeeCC/finesse/master/install.sh"
+SONG_URL="https://raw.githubusercontent.com/CoffeeCC/finesse/master/public/setup/lo-finessa-song.opus"
+# Someone at this computer's own screen (not over SSH, not as root).
+desktop() { [ "$(id -u)" != 0 ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; }
+
+# Lo-Finessa while it works: original lo-fi made for Finesse, if wanted (asked; off unless you say yes).
+start_music() {
+  local player
+  if command -v pw-play >/dev/null 2>&1; then player="pw-play --volume 0.35"
+  elif command -v paplay >/dev/null 2>&1; then player="paplay --volume=22000"
+  else return 0; fi
+  local song="${TMPDIR:-/tmp}/lo-finessa-song.opus"
+  (
+    trap 'kill "$p" 2>/dev/null; exit 0' TERM
+    [ -s "$song" ] || curl -fsSL "$SONG_URL" -o "$song" 2>/dev/null || wget -qO "$song" "$SONG_URL" 2>/dev/null || exit 0
+    while :; do $player "$song" >/dev/null 2>&1 & p=$!; wait "$p" || exit 0; done
+  ) &
+  MUSIC_PID=$!
+}
+if [ "$UNINSTALL" = 0 ] && [ "$ANIM" = 1 ] && [ "$YES" = 0 ] && [ -r /dev/tty ] && desktop && { command -v pw-play || command -v paplay; } >/dev/null 2>&1; then
+  say ""
+  case "$(ask "Play Lo-Finessa (lo-fi made for Finesse) while it works?" "n" "(y/N)")" in [yY]*) start_music; nessa "Good choice." ;; esac
+fi
+
+# After the restart image-based systems need: a terminal opens by itself at sign-in and carries on.
+resume_after_restart() {
+  desktop || return 1
+  local term="" t again a dir="$HOME/.local/share/finesse" auto="$HOME/.config/autostart"
+  for t in ptyxis konsole gnome-terminal kgx xfce4-terminal xterm; do command -v "$t" >/dev/null 2>&1 && { term=$t; break; }; done
+  [ -n "$term" ] || return 1
+  mkdir -p "$dir" "$auto" || return 1
+  if [ -f "$0" ] && head -1 "$0" 2>/dev/null | grep -q bash; then again="bash $(printf '%q' "$(readlink -f "$0")")"
+  else again="curl -fsSL $INSTALL_URL | bash -s --"; fi
+  for a in ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}; do again="$again $(printf '%q' "$a")"; done
+  cat >"$dir/resume.sh" <<RESUME
+#!/usr/bin/env bash
+rm -f "$auto/finesse-resume.desktop"
+echo "Finesse: carrying on after the restart…"
+$again
+echo
+read -r -p "Press Enter to close this window. " _
+RESUME
+  case "$term" in
+    ptyxis|gnome-terminal|kgx) t="$term -- bash $dir/resume.sh" ;;
+    xfce4-terminal) t="$term -x bash $dir/resume.sh" ;;
+    *) t="$term -e bash $dir/resume.sh" ;;
+  esac
+  printf '[Desktop Entry]\nType=Application\nName=Finesse setup (after the restart)\nExec=%s\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' "$t" >"$auto/finesse-resume.desktop"
+}
+
 # ---------- uninstall ----------
 if [ "$UNINSTALL" = 1 ]; then
   step "Removing Finesse"
@@ -402,7 +456,11 @@ install_docker() {
       confirm "Add Docker now (rpm-ostree install moby-engine)?" || die "Add Docker yourself (sudo rpm-ostree install moby-engine), restart, and run this again."
       spin "Adding Docker to the system (a few minutes)" $SUDO rpm-ostree install --idempotent moby-engine \
         || { log_tail; die "Docker couldn't be added. Try it yourself: sudo rpm-ostree install moby-engine"; }
-      finale "Docker is in." "One restart to go: restart the computer, then run the same install command again. It picks up from here."
+      if resume_after_restart; then
+        finale "Docker is in." "One restart to go. When you sign in again, a window opens by itself and carries on from here."
+      else
+        finale "Docker is in." "One restart to go: restart the computer, then run the same install command again. It picks up from here."
+      fi
       say ""
       if [ "$YES" = 0 ] && [ -r /dev/tty ]; then
         case "$(ask "Restart now?" "n" "(y/N)")" in [yY]*) $SUDO systemctl reboot ;; esac
@@ -595,10 +653,28 @@ if [ -n "$CODE" ]; then
   finale "All set!" "Finesse is running. Open the link below on any phone or computer at home to finish setting up."
   show_url "$URL/finesse/setup?code=$CODE"
   say "    Setup code ${B}$CODE${N}   ${D}show it again: sudo docker exec $NAME finesse setup-code${N}"
-  if command -v qrencode >/dev/null 2>&1; then say ""; qrencode -t ANSIUTF8 -m 2 "$URL/finesse/setup?code=$CODE" | sed 's/^/  /'; fi
+  LINK="$URL/finesse/setup?code=$CODE"
+  LOCAL_LINK="http://localhost:$PORT/finesse/setup?code=$CODE"
 else
   finale "Finesse is running." "Open it on any phone, TV or computer at home."
   show_url "$URL"
+  LINK="$URL/finesse/"
+  LOCAL_LINK="http://localhost:$PORT/finesse/"
+fi
+# For a phone: a QR code (Finesse draws it; older images fall back to qrencode if the machine has it).
+if [ "$ART" != 0 ]; then
+  QR=$(docker_ exec "$NAME" finesse qr "$LINK" 2>/dev/null || true)
+  [ -n "$QR" ] || ! command -v qrencode >/dev/null 2>&1 || QR=$(qrencode -t ANSIUTF8 -m 2 "$LINK")
+  if [ -n "$QR" ]; then
+    say ""
+    say "    ${D}On your phone (same Wi-Fi): point the camera here${N}"
+    printf '%s\n' "$QR" | sed 's/^/    /'
+  fi
+fi
+# At the computer itself: open it in the browser.
+if desktop && command -v xdg-open >/dev/null 2>&1 && [ -r /dev/tty ]; then
+  say ""
+  if confirm "Open it in your browser now?"; then xdg-open "$LOCAL_LINK" >/dev/null 2>&1 & fi
 fi
 say ""
 say "    ${D}Health check any time: sudo docker exec $NAME finesse doctor${N}"
