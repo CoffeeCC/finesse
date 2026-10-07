@@ -226,6 +226,16 @@ export function LibrariesStep({ d, set }: StepProps) {
       <ChoiceCard multi selected={d.libraries.music} onClick={() => toggle('music')} icon={<Icon name="music" />} title="Music">
         Albums and artists, with synced lyrics and a lyric-video mode. Managed by Lidarr.
       </ChoiceCard>
+      {d.libraries.music && (
+        <div className="-mt-1 mb-1 pl-1">
+          <Toggle
+            checked={d.libraries.samples}
+            onChange={(v) => set((x) => void (x.libraries.samples = v))}
+            label="Start with a sample album"
+            description="Lo-Finessa, four tracks by Nessa (made for Finesse), so there's something to play the moment it's ready. Delete it any time."
+          />
+        </div>
+      )}
       <ChoiceCard multi selected={d.libraries.games} onClick={() => toggle('games')} icon={<Icon name="games" />} title="Games">
         Retro games you play right in the browser: NES, SNES, Game Boy, Genesis, PlayStation and more. Managed by RomM. You add the games yourself.
       </ChoiceCard>

@@ -11,7 +11,7 @@ export interface SetupDoc {
   version?: 1
   admin: { username: string; password: string }
   server?: { name?: string; language?: string; country?: string; timezone?: string }
-  libraries?: { movies?: boolean; shows?: boolean; music?: boolean; games?: boolean }
+  libraries?: { movies?: boolean; shows?: boolean; music?: boolean; games?: boolean; samples?: boolean }
   /** Games (RomM): optional artwork/metadata accounts. Box art works without them. */
   games?: { igdb?: { clientId: string; clientSecret: string }; steamGridDbKey?: string; screenscraper?: { username: string; password: string } }
   downloads?: {
@@ -92,8 +92,8 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
   if (d.version !== undefined && d.version !== 1) p.push({ path: 'version', message: 'Only version 1 exists' })
   known(p, d.admin, 'admin', ['username', 'password'])
   known(p, d.server, 'server', ['name', 'language', 'country', 'timezone'])
-  known(p, d.libraries, 'libraries', ['movies', 'shows', 'music', 'games'])
-  for (const k of ['movies', 'shows', 'music', 'games'] as const) bool(p, d.libraries?.[k], `libraries.${k}`)
+  known(p, d.libraries, 'libraries', ['movies', 'shows', 'music', 'games', 'samples'])
+  for (const k of ['movies', 'shows', 'music', 'games', 'samples'] as const) bool(p, d.libraries?.[k], `libraries.${k}`)
   known(p, d.games, 'games', ['igdb', 'steamGridDbKey', 'screenscraper'])
   known(p, d.games?.igdb, 'games.igdb', ['clientId', 'clientSecret'])
   known(p, d.games?.screenscraper, 'games.screenscraper', ['username', 'password'])

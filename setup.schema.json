@@ -100,6 +100,11 @@
           "type": "boolean",
           "default": false,
           "description": "Install RomM for a Games library. Put games in <data>/media/games/roms/<system> (e.g. roms/snes)."
+        },
+        "samples": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add samples to the libraries that are on, so there's something to try right away: a four-track album (Lo-Finessa, by Nessa) in Music. Delete them any time."
         }
       }
     },

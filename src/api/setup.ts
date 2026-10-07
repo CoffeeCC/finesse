@@ -137,7 +137,7 @@ export interface EmailDoc {
 export interface SetupDoc {
   admin: { username: string; password: string }
   server?: { name?: string; language?: string; country?: string; timezone?: string }
-  libraries?: { movies?: boolean; shows?: boolean; music?: boolean; games?: boolean }
+  libraries?: { movies?: boolean; shows?: boolean; music?: boolean; games?: boolean; samples?: boolean }
   games?: { igdb?: { clientId: string; clientSecret: string }; steamGridDbKey?: string; screenscraper?: { username: string; password: string } }
   downloads?: { usenet?: { servers: UsenetServer[] } | null; torrents?: { vpn: VpnDoc } | null; indexers?: Indexer[] }
   quality?: { preset?: '720p' | '1080p' | '4k' | 'any' }

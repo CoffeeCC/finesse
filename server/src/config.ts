@@ -99,6 +99,8 @@ export interface Settings {
   emulators?: import('./emulators.ts').EmulatorSettings
   /** SMTP for emailing invites (optional). */
   email?: { host: string; port: number; secure?: boolean; username?: string; password?: string; from: string }
+  /** The setup samples (libraries.samples) were added once; never again. */
+  samplesAdded?: boolean
 }
 
 /** A server that watches libraries we share (we're the sharing side). */

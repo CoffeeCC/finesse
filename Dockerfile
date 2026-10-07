@@ -29,6 +29,8 @@ WORKDIR /app
 # `finesse` CLI (setup-code, setup apply/status, doctor) on the PATH.
 RUN printf '#!/bin/sh\nexec node --disable-warning=ExperimentalWarning /app/server/finesse.mjs "$@"\n' > /usr/local/bin/finesse \
  && chmod +x /usr/local/bin/finesse
+# Samples a new server can start with (setup's "Add samples"; see samples/LICENSE.md).
+COPY samples /app/samples
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1

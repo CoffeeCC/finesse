@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs'
 import type { Settings, SettingsStore } from '../config.ts'
 import { clearSetupCode } from '../auth.ts'
 import { logger } from '../log.ts'
+import { addSamples } from '../stack/samples.ts'
 import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
 import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
@@ -390,6 +391,12 @@ export class SetupRunner {
         x.mode = 'bundle'
         x.jellyfin = { url: serviceUrl('jellyfin'), apiKey: jf.apiKey, basePath: jf.basePath }
       })
+      // Something to play right away (once only: a deleted sample stays deleted).
+      if (doc.libraries?.samples && !this.settings.get().samplesAdded) {
+        const added = addSamples(ctx.hostData, { music: doc.libraries.music }, { uid: ctx.puid, gid: ctx.pgid })
+        if (added.length) this.say(`Added samples: ${added.join(', ')}`)
+        this.settings.update((x) => void (x.samplesAdded = true))
+      }
     })
 
     await this.run('downloaders', async (s) => {

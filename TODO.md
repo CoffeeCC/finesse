@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A sample album to start with — v2.6.4 (2026-10-07)
+
+- **Lo-Finessa, four tracks by Nessa, made for Finesse.** A new server can start with them in Music,
+  so there's something to play the moment setup finishes: the Nessa Main Theme, Lo-Finessa,
+  Nessa 16-bit and Nessa PS1. It's on by default in setup (**Start with a sample album**, under
+  Music); turn it off if you'd rather start empty.
+- Added once and never again: delete the album (**Delete album…**) and it stays gone, and a Nessa
+  folder of your own is never touched. Servers that are already set up don't get it.
+- The tracks are free to play in Finesse; see `samples/LICENSE.md`.
+
 ## A friendlier Linux install — v2.6.3 (2026-10-06)
 
 - **A QR code for your phone** at the end of the install, always: Finesse draws it itself now

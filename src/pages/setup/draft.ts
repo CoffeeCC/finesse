@@ -7,7 +7,7 @@ import { browserLocale } from './presets'
 export interface Draft {
   admin: { username: string; password: string; confirm: string }
   server: { name: string; timezone: string; country: string; language: string }
-  libraries: { movies: boolean; shows: boolean; music: boolean; games: boolean }
+  libraries: { movies: boolean; shows: boolean; music: boolean; games: boolean; samples: boolean }
   /** Optional game-artwork accounts (only sent when Games is on). */
   games: { steamGridDbKey: string; igdbClientId: string; igdbClientSecret: string }
   usenet: boolean
@@ -41,7 +41,7 @@ export function newDraft(): Draft {
   return {
     admin: { username: '', password: '', confirm: '' },
     server: { name: 'Finesse', ...loc },
-    libraries: { movies: true, shows: true, music: true, games: false },
+    libraries: { movies: true, shows: true, music: true, games: false, samples: true },
     games: { steamGridDbKey: '', igdbClientId: '', igdbClientSecret: '' },
     usenet: false,
     torrents: false,
@@ -98,7 +98,7 @@ export function toDoc(d: Draft): SetupDoc {
   const doc: SetupDoc = {
     admin: { username: clean(d.admin.username), password: d.admin.password },
     server: { name: clean(d.server.name) || 'Finesse', timezone: d.server.timezone, country: d.server.country, language: d.server.language },
-    libraries: { ...d.libraries, games: Boolean(d.libraries.games) },
+    libraries: { ...d.libraries, games: Boolean(d.libraries.games), samples: Boolean(d.libraries.samples && d.libraries.music) },
     quality: { preset: d.quality },
   }
   if (d.libraries.games) {
@@ -181,7 +181,7 @@ export function fromDoc(doc: SetupDoc): Draft {
   const d = newDraft()
   d.admin = { username: doc.admin?.username ?? '', password: doc.admin?.password ?? '', confirm: doc.admin?.password ?? '' }
   if (doc.server) d.server = { ...d.server, ...doc.server, name: doc.server.name || 'Finesse' } as Draft['server']
-  d.libraries = { ...d.libraries, ...doc.libraries, games: Boolean(doc.libraries?.games) }
+  d.libraries = { ...d.libraries, ...doc.libraries, games: Boolean(doc.libraries?.games), samples: Boolean(doc.libraries?.samples) }
   d.games = { steamGridDbKey: doc.games?.steamGridDbKey ?? '', igdbClientId: doc.games?.igdb?.clientId ?? '', igdbClientSecret: doc.games?.igdb?.clientSecret ?? '' }
   const dl = doc.downloads
   d.usenet = Boolean(dl?.usenet)
