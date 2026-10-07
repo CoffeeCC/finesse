@@ -4,6 +4,42 @@ import { Link } from 'react-router-dom'
 import { groupsApi, type GroupsOverview } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { Spinner } from '../setup/ui'
+import { getMomentSettings, setMomentSettings } from '../../api/moments'
+
+/** Whether friends' servers may send moments and recommendations to people here. */
+function MomentsSwitch() {
+  const toast = useToast()
+  const [on, setOn] = useState<boolean | null>(null)
+  useEffect(() => {
+    getMomentSettings().then((r) => setOn(r.fromFriends), () => setOn(null))
+  }, [])
+  if (on === null) return null
+  return (
+    <label className="flex items-start gap-3 rounded-xl border border-white/10 px-4 py-3">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          const v = e.target.checked
+          setOn(v)
+          setMomentSettings(v).then(
+            () => toast(v ? 'Friends can send moments here' : 'Friends can’t send moments here now'),
+            (err: Error) => {
+              setOn(!v)
+              toast(err.message, 'error')
+            },
+          )
+        }}
+        className="mt-0.5 h-4 w-4 accent-accent-400"
+      />
+      <span className="text-[13px] leading-relaxed text-ink-300">
+        <span className="font-semibold text-white">Friends can send moments and recommendations</span>
+        <br />
+        People on friends’ servers can flag a moment in something they’re watching from here, or recommend it, and send it to everyone here. Turn off to stop new ones; what’s already here stays.
+      </span>
+    </label>
+  )
+}
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
 const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white disabled:opacity-50 transition-colors'
@@ -90,6 +126,7 @@ export default function GroupsAdmin() {
         <p className="text-[13px] leading-relaxed text-ink-300">
           Share libraries with friends who run Finesse too, and watch theirs. They watch through their own Finesse: nobody gets an account here, and nothing can be requested or downloaded.
         </p>
+        <MomentsSwitch />
 
         {o.offers.map((offer) => (
           <div key={offer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent-400/30 bg-accent-500/10 px-4 py-3">

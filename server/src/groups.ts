@@ -30,6 +30,7 @@ import { ApiError, clientIp, readJson, sendJson, type Router } from './http/core
 import { joinUrl, proxyHttp } from './http/proxy.ts'
 import { JfError, mediaBrowserHeader, type Jellyfin } from './jellyfin.ts'
 import { logger } from './log.ts'
+import type { GroupsApi } from './moments.ts'
 
 const log = logger('groups')
 
@@ -183,7 +184,7 @@ function wrongPair(req: IncomingMessage): ApiError {
   return new ApiError(404, 'That code didn’t work. Codes work once and last 7 days; ask for a new one.')
 }
 
-export function registerGroups(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth }) {
+export function registerGroups(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth }): GroupsApi {
   const { settings, jf, auth } = deps
   const update = (fn: (g: GroupsState) => void) =>
     settings.update((s) => {
@@ -360,7 +361,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     } catch {
       /* not JSON */
     }
-    if (!res.ok) throw new ApiError(res.status === 404 || res.status === 429 || res.status === 401 ? res.status : 502, (data as { error?: string } | null)?.error ?? `Their server answered ${res.status}`)
+    if (!res.ok) throw new ApiError([401, 403, 404, 429].includes(res.status) ? res.status : 502, (data as { error?: string } | null)?.error ?? `Their server answered ${res.status}`)
     return data as T
   }
 
@@ -643,4 +644,12 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
       })
     }
   })
+
+  return {
+    peerLink,
+    callFriend,
+    ourName,
+    friends: () => groupsOf(settings.get()).friends,
+    links: () => groupsOf(settings.get()).links,
+  }
 }

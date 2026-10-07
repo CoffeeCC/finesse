@@ -93,6 +93,8 @@ export interface Settings {
   requests?: { profiles: Record<string, string> }
   /** Groups: libraries shared between Finesse servers (see groups.ts). */
   groups?: GroupsState
+  /** Moments (server/src/moments.ts): friends' servers may send them here (default yes). */
+  momentsFromFriends?: boolean
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */
   streaming?: { socket?: string; devices?: Record<string, { name: string; pairedAt: string }> }
   /** Emulators as Wolf apps: which ones, and the folders they get (host paths). */

@@ -38,6 +38,20 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Moments: flag a scene for a friend — v2.7.0 (2026-10-07)
+
+- **Flag a moment.** Tap the flag in the player, nudge where it starts and ends, add a note, and
+  send it to people on your server or to a friend's server. Mark it **Spoiler** and the note stays
+  hidden until they tap.
+- **They're told, and it pops up.** It lands in the new **bell** at the top; opening it plays from
+  just before the moment. When they reach it while watching, the note pops up in the corner for a
+  few seconds, and the stretch is marked on the progress bar. One pop-up at a time, never when
+  you skip past, and **Quiet for this session** if you'd rather not.
+- **Recommend a title.** **More → Recommend…** on any film, show or episode sends the whole thing.
+- **Private by design.** A moment lives on the server with the video and only goes to the servers
+  you send it to, over the Groups link you already have. Admins can stop friends' servers
+  sending moments in (Settings → Groups). Moments are included in backups.
+
 ## A sample album to start with — v2.6.4 (2026-10-07)
 
 - **Lo-Finessa, four tracks by Nessa, made for Finesse.** A new server can start with them in Music,

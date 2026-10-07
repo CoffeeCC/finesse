@@ -9,6 +9,10 @@ import { pickSubtitle } from '../lib/tracks'
 import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
 import { IS_TV, TOUCH_UI, inSpatialMode } from '../lib/device'
 import CastMenu from '../components/CastMenu'
+import MomentComposer from '../components/moments/MomentComposer'
+import { popupSession } from '../components/moments/moments'
+import { getItemMoments, markMomentsRead, useMomentsOn, type Moment } from '../api/moments'
+import { useQuery } from '@tanstack/react-query'
 
 import { goBack, isBackKey, isTypingTarget, pushBackHandler } from '../lib/back'
 import { onRemoteCommand } from '../lib/remoteControl'
@@ -1267,6 +1271,48 @@ export default function PlayerPage() {
       })
       .filter((b) => b.width > 0.002)
   }, [segments, durationSec])
+  // ---------- Moments: flagged stretches on the bar, and a note when you reach one ----------
+  const momentsOn = useMomentsOn()
+  const { data: itemMoments } = useQuery({
+    queryKey: ['moments', 'item', itemId],
+    queryFn: () => getItemMoments(itemId!),
+    enabled: momentsOn && !!itemId,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const momentBands = useMemo(() => {
+    if (!durationSec || !itemMoments) return []
+    return itemMoments
+      .filter((m) => m.start != null && m.end != null)
+      .map((m) => ({ m, left: Math.max(0, m.start! / durationSec), width: Math.max(0.004, (Math.min(durationSec, m.end!) - m.start!) / durationSec) }))
+  }, [itemMoments, durationSec])
+  const [flagging, setFlagging] = useState<{ now: number } | null>(null)
+  const flaggingRef = useRef(false)
+  flaggingRef.current = flagging !== null
+  const [popup, setPopup] = useState<Moment | null>(null)
+  const [popupReveal, setPopupReveal] = useState(false)
+  const lastTimeRef = useRef<number | null>(null)
+  useEffect(() => {
+    const prev = lastTimeRef.current
+    lastTimeRef.current = absTime
+    if (prev == null || !playing || !itemMoments?.length) return
+    // Only when playback runs into a moment, not when you jump past or onto it.
+    if (absTime <= prev || absTime - prev > 2.5) return
+    if (popupSession.quiet || !getPrefs().momentPopups || Date.now() - popupSession.last < 30_000) return
+    const hit = itemMoments.find((m) => m.start != null && !m.mine && !popupSession.shown.has(m.key) && m.start > prev && m.start <= absTime)
+    if (!hit) return
+    popupSession.shown.add(hit.key)
+    popupSession.last = Date.now()
+    setPopupReveal(false)
+    setPopup(hit)
+    void markMomentsRead([hit.key]).catch(() => {})
+  }, [absTime, playing, itemMoments])
+  useEffect(() => {
+    if (!popup) return
+    const t = setTimeout(() => setPopup(null), popup.spoiler ? 9000 : 6500)
+    return () => clearTimeout(t)
+  }, [popup])
+
   const chapterAt = useCallback(
     (sec: number) => {
       const list = item?.Chapters
@@ -1504,6 +1550,7 @@ export default function PlayerPage() {
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
       if (isTypingTarget(e.target) || isBackKey(e)) return
+      if (flaggingRef.current) return
       const L = latest.current
       const wasHidden = !controlsVisibleRef.current
       L.reveal()
@@ -2132,6 +2179,15 @@ export default function PlayerPage() {
                 />
               ))}
               <div className="absolute h-full rounded-full bg-accent-400" style={{ width: `${progressFrac * 100}%` }} />
+              {/* Moments sent to you (and yours): a bright band each */}
+              {momentBands.map(({ m, left, width }) => (
+                <div
+                  key={m.key}
+                  title={`${m.from}${m.note && !m.spoiler ? `: ${m.note}` : m.spoiler ? ' (spoiler)' : ''}`}
+                  className="absolute -top-px h-[calc(100%+2px)] rounded-sm bg-fuchsia-300/90 shadow-[0_0_6px_rgba(240,171,252,0.7)]"
+                  style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
+                />
+              ))}
               {/* Chapter breaks: small gaps in the bar */}
               {chapterMarks.map((f, i) => (
                 <div key={`ch${i}`} className="absolute top-0 h-full w-[3px] -translate-x-1/2 bg-black/80" style={{ left: `${f * 100}%` }} />
@@ -2226,6 +2282,18 @@ export default function PlayerPage() {
 
           <div className="flex-1" />
 
+          {momentsOn && item && (
+            <button
+              onClick={() => setFlagging({ now: absTime })}
+              className={iconBtn}
+              aria-label="Flag a moment"
+              title="Flag a moment: send it to someone"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />
+              </svg>
+            </button>
+          )}
           {hasTrackChoices && (
             <button
               onClick={(e) => openMenu('tracks', e.currentTarget)}
@@ -2373,6 +2441,57 @@ export default function PlayerPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* A moment someone sent you, as playback reaches it: top right, clear of the controls and subtitles */}
+      {popup && (
+        <div
+          role="status"
+          aria-live="polite"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="toast-in absolute right-3 sm:right-6 top-16 sm:top-20 z-[25] w-[min(20rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-2xl border border-white/15 bg-black/75 p-3.5 shadow-2xl backdrop-blur-md"
+        >
+          <div className="flex items-start gap-3">
+            <span aria-hidden className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fuchsia-300/25 text-[13px] font-semibold text-fuchsia-100">
+              {popup.from.charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] font-semibold text-fuchsia-200">{popup.from}</p>
+              {popup.spoiler && !popupReveal ? (
+                <button type="button" onClick={() => setPopupReveal(true)} className="mt-1 rounded-full bg-white/10 px-2.5 py-1 text-[12.5px] font-medium text-white hover:bg-white/20">
+                  Spoiler note · show it
+                </button>
+              ) : (
+                <p className="mt-0.5 text-[14.5px] leading-snug text-white">{popup.note || 'flagged this moment'}</p>
+              )}
+            </div>
+            <button type="button" onClick={() => setPopup(null)} className="-mr-1 -mt-1 h-7 w-7 shrink-0 rounded-full text-ink-300 hover:bg-white/10 hover:text-white" aria-label="Close">
+              ×
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              popupSession.quiet = true
+              setPopup(null)
+            }}
+            className="mt-2 text-[12px] font-medium text-ink-400 hover:text-white"
+          >
+            Quiet for this session
+          </button>
+        </div>
+      )}
+
+      {flagging && item && (
+        <MomentComposer
+          item={itemId!}
+          title={isEpisode ? `${item.SeriesName ?? ''} · ${episodeLabel(item)}` : item.Name ?? ''}
+          span={{ now: flagging.now, duration: durationSec }}
+          existing={itemMoments}
+          inline
+          onClose={() => setFlagging(null)}
+        />
       )}
 
       {error && (

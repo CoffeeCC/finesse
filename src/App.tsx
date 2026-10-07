@@ -1,3 +1,4 @@
+import { MomentArrivals } from './components/moments/MomentsBell'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useLayoutEffect, useMemo } from 'react'
 import { useAuth } from './auth/AuthContext'
@@ -188,6 +189,7 @@ export default function App() {
               <BottomTabs />
               {!IS_TV && <SearchOverlay />}
               <QuickMenu />
+              <MomentArrivals />
               <ServerUpdateOverlay />
               {!__WEBOS__ && <DropToAdd />}
             </>

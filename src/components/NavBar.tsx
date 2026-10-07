@@ -10,6 +10,7 @@ import { pushBackHandler } from '../lib/back'
 import { openSearch } from '../lib/searchOverlay'
 import { openQuickMenu } from '../lib/quickMenu'
 import { useArrQueue } from '../api/queries'
+import MomentsBell from './moments/MomentsBell'
 import { IS_TV } from '../lib/device'
 import { ActionMenu } from './Menu'
 import { useFriendMusic } from './FriendAlbums'
@@ -243,6 +244,8 @@ export default function NavBar() {
             )}
           </button>
         )}
+
+        <MomentsBell lux={lux} />
 
         <NavLink
           to="/mylist"

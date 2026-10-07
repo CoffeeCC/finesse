@@ -1,3 +1,5 @@
+import MomentComposer from '../components/moments/MomentComposer'
+import { useMomentsOn } from '../api/moments'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import TitleLogo from '../components/TitleLogo'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -354,6 +356,8 @@ export default function ItemPage() {
   const [favBusy, setFavBusy] = useState(false)
   const [fixOpen, setFixOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const momentsOn = useMomentsOn()
+  const [recommending, setRecommending] = useState(false)
   const canDeleteHere = useCanDelete()
   const [refreshing, setRefreshing] = useState(false)
   const [previewOn, setPreviewOn] = useState(false)
@@ -471,6 +475,7 @@ export default function ItemPage() {
   const canDelete = canDeleteHere && !friendId && DELETABLE.includes(item.Type ?? '')
   const moreItems: ActionItem[] = [
     ...(isPlayable || isSeries ? [{ label: played ? 'Mark as unwatched' : 'Mark as watched', onSelect: togglePlayed }] : []),
+    ...(momentsOn && (isPlayable || isSeries) ? [{ label: 'Recommend…', onSelect: () => setRecommending(true) }] : []),
     ...(tabs.includes('details') ? [{ label: 'Cast and details', onSelect: () => setTabSel('details') }] : []),
     ...(isAdmin
       ? [
@@ -484,6 +489,9 @@ export default function ItemPage() {
 
   return (
     <div className="pb-16" style={gradeStyle}>
+      {recommending && (
+        <MomentComposer item={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setRecommending(false)} />
+      )}
       {deleting && <DeleteFromLibrary itemId={item.Id} onClose={() => setDeleting(false)} onDeleted={() => goBack(navigate)} />}
       {/* Ambilight: the backdrop, blown out and breathing, washes the whole page */}
       {backdrop && (

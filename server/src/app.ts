@@ -7,6 +7,7 @@ import { SettingsStore, type Paths, type Settings } from './config.ts'
 import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
+import { registerMoments } from './moments.ts'
 import { registerStreaming } from './streaming.ts'
 import { playState, registerPlay } from './play.ts'
 import { InviteStore, registerInvites } from './invites.ts'
@@ -58,6 +59,8 @@ function features(s: Settings) {
     system: s.mode === 'bundle',
     /** Drop files on the app and they land in the libraries (servers Finesse set up). */
     addMedia: s.mode === 'bundle' && Boolean(s.stack) && s.setup.state === 'ready',
+    /** Flag a moment / recommend a title to people here and friends' servers. */
+    moments: true,
   }
 }
 
@@ -94,7 +97,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   router.get('/api/health', ({ res }) => sendJson(res, 200, { status: 'ok', version: VERSION }))
 
   registerInvites(router, { store: invites, jf, auth, settings })
-  registerGroups(router, { settings, jf, auth })
+  const groups = registerGroups(router, { settings, jf, auth })
+  registerMoments(router, { settings, jf, auth, groups })
   registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })

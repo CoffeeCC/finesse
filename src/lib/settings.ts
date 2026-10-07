@@ -52,6 +52,8 @@ export interface Prefs {
   tiltParallax: boolean
   /** Music: when the library has no lyrics for a song, look them up on LRCLIB. */
   onlineLyrics: boolean
+  /** Player: a note pops up when you reach a moment someone sent you. */
+  momentPopups: boolean
 }
 
 const KEY = 'finesse.prefs'
@@ -72,6 +74,7 @@ const DEFAULTS: Prefs = {
   ambient: true,
   tiltParallax: false,
   onlineLyrics: true,
+  momentPopups: true,
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike

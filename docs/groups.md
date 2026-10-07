@@ -66,6 +66,31 @@ Everything is under **Settings → Server → Groups**:
   immediately). **Stop sharing** ends it and removes their viewers.
 - **Servers you watch**: **Remove** stops watching a friend's server and tells their server too.
 
+## Moments: flag a scene, recommend a title
+
+Watching something you want someone to see? Tap the **flag** in the player. The moment starts a
+few seconds back; nudge the start and end, add a note ("this scene 😭"), tick **Spoiler** if it
+gives something away, and pick who it's for:
+
+- **Everyone here**, or particular people on your server;
+- **a friend's server**: everyone there. You can send a title of yours to friends who watch the
+  library it's in, and a title of a friend's back to them.
+
+They get it in the **bell** at the top. Opening it plays from just before the moment. When they
+reach it anyway, the note pops up in the corner for a few seconds and the stretch is marked on
+the progress bar. Spoiler notes stay hidden until they tap. **Recommend…** under **More** on a
+title's page sends the whole title instead. Pick nobody and a moment is just your own bookmark.
+
+- **Where moments live.** On the server with the video: one copy, and only servers it was sent
+  to get it. Whoever runs that server can see it (like anything on their server). It isn't
+  end-to-end encrypted.
+- **Turning it down.** Settings → Playback → **Moment pop-ups** turns the pop-ups off; they still
+  show on the progress bar and in the bell. **Quiet for this session** on a pop-up stops the rest.
+- **Turning it off.** Admins: Settings → Groups → **Friends can send moments and
+  recommendations**. Moments already here stay.
+- **Deleting.** The flag in the player lists the moments already in that title: delete your own
+  there. Admins can delete any moment on their server.
+
 ## Good to know
 
 - **Play on… stays with your own titles.** Your TVs' own Jellyfin apps can't see a friend's
