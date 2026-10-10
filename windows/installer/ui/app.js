@@ -429,7 +429,7 @@ async function folders() {
     <p class="kicker">Step 3 · Your media</p>
     <h1>Where should <em>movies</em> live?</h1>
     <p class="lead">Movies, shows, music and downloads go here. Pick the drive with the most room; you can add more folders later.</p>
-    <div class="drives" id="drives"></div>
+    <div class="drives${drives.length > 3 ? ' many' : ''}" id="drives"></div>
     <div class="pathbox"><code id="path"></code><button class="btn ghost" id="pick">Change…</button></div>
     <div class="err" id="err"></div>
     <div class="actions"><button class="btn primary" id="go">Install Finesse ${ARROW}</button></div>`,
