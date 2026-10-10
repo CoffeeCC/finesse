@@ -40,6 +40,10 @@
 
 ## Windows folders, free search sites, and a clearer Downloads page — v2.7.4 (2026-10-10)
 
+- **Docker Desktop's download survives a bad connection.** It's about 600 MB, and one stall used to
+  end it with "The operation has timed out" and start again from zero. Finesse Setup now keeps what
+  it has, carries on from there (up to 8 tries, saying so on screen), and if it still can't, says
+  so plainly: Try again picks up where it stopped.
 - **The "Your server is ready" page shows your Windows folders.** It said things like
   `/run/desktop/mnt/host/e/Finesse/media/movies`, which is how Docker sees the drive. It now says
   `E:\Finesse\media\movies`, for movies, TV, music and games.

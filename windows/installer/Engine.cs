@@ -297,6 +297,10 @@ namespace Finesse.Setup
 
         // ---------- Docker Desktop ----------
 
+        /// <summary>
+        /// Docker Desktop is about 600 MB, and a long download over home Wi-Fi stalls now and then. A stall costs nothing:
+        /// the part already downloaded is kept, and each retry asks the server to carry on from there.
+        /// </summary>
         public object DownloadDocker()
         {
             bool arm = RuntimeInformation.OSArchitecture == Architecture.Arm64;
@@ -304,46 +308,78 @@ namespace Finesse.Setup
             string dir = Path.Combine(Path.GetTempPath(), "FinesseSetup");
             Directory.CreateDirectory(dir);
             string file = Path.Combine(dir, "Docker Desktop Installer.exe");
-            var req = (HttpWebRequest)WebRequest.Create(url);
-            req.UserAgent = "FinesseSetup/" + Program.Version;
-            req.Timeout = 30000;
-            req.ReadWriteTimeout = 60000;
+            string part = file + ".part";
+            // A leftover from another day could be an older installer: start that one afresh.
+            if (File.Exists(part) && DateTime.UtcNow - File.GetLastWriteTimeUtc(part) > TimeSpan.FromHours(24)) File.Delete(part);
             Log.Write("downloading " + url);
-            using (var resp = (HttpWebResponse)req.GetResponse())
+
+            const int MaxAttempts = 8;
+            long total = 0;
+            for (int attempt = 1; ; attempt++)
             {
-                long total = resp.ContentLength;
-                if (total > 0 && File.Exists(file) && new FileInfo(file).Length == total)
+                long have = File.Exists(part) ? new FileInfo(part).Length : 0;
+                try
                 {
-                    emit("download", new Dictionary<string, object> { ["got"] = total, ["total"] = total, ["speed"] = 0 });
-                    return new Dictionary<string, object> { ["file"] = file };
-                }
-                string part = file + ".part";
-                using (var s = resp.GetResponseStream())
-                using (var f = File.Create(part))
-                {
-                    var buf = new byte[1 << 16];
-                    long got = 0, lastGot = 0;
-                    var clock = Stopwatch.StartNew();
-                    long lastAt = 0;
-                    int n;
-                    while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                    var req = (HttpWebRequest)WebRequest.Create(url);
+                    req.UserAgent = "FinesseSetup/" + Program.Version;
+                    req.Timeout = 30000;
+                    req.ReadWriteTimeout = 30000;
+                    if (have > 0) req.AddRange(have);
+                    using (var resp = (HttpWebResponse)req.GetResponse())
                     {
-                        f.Write(buf, 0, n);
-                        got += n;
-                        if (clock.ElapsedMilliseconds - lastAt > 300)
+                        if (resp.StatusCode != HttpStatusCode.PartialContent) have = 0; // the server sent it all again
+                        if (resp.ContentLength > 0) total = have + resp.ContentLength;
+                        if (have == 0 && total > 0 && File.Exists(file) && new FileInfo(file).Length == total)
                         {
-                            double speed = (got - lastGot) / ((clock.ElapsedMilliseconds - lastAt) / 1000.0);
-                            emit("download", new Dictionary<string, object> { ["got"] = got, ["total"] = total, ["speed"] = speed });
-                            lastAt = clock.ElapsedMilliseconds;
-                            lastGot = got;
+                            emit("download", new Dictionary<string, object> { ["got"] = total, ["total"] = total, ["speed"] = 0 });
+                            return new Dictionary<string, object> { ["file"] = file };
+                        }
+                        using (var s = resp.GetResponseStream())
+                        using (var f = new FileStream(part, have > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write))
+                        {
+                            var buf = new byte[1 << 16];
+                            long got = have, lastGot = have;
+                            var clock = Stopwatch.StartNew();
+                            long lastAt = 0;
+                            int n;
+                            while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                            {
+                                f.Write(buf, 0, n);
+                                got += n;
+                                if (clock.ElapsedMilliseconds - lastAt > 300)
+                                {
+                                    double speed = (got - lastGot) / ((clock.ElapsedMilliseconds - lastAt) / 1000.0);
+                                    emit("download", new Dictionary<string, object> { ["got"] = got, ["total"] = total, ["speed"] = speed });
+                                    lastAt = clock.ElapsedMilliseconds;
+                                    lastGot = got;
+                                }
+                            }
                         }
                     }
-                    if (total > 0 && got != total) throw new FriendlyException("The download stopped part-way. Check the internet connection, then try again.");
+                    if (total > 0 && new FileInfo(part).Length != total) throw new IOException("the download stopped part-way");
+                    break; // all of it
                 }
-                if (File.Exists(file)) File.Delete(file);
-                File.Move(part, file);
-                emit("download", new Dictionary<string, object> { ["got"] = total, ["total"] = total, ["speed"] = 0 });
+                catch (Exception ex)
+                {
+                    // Already complete (the server has nothing more to send after our last byte).
+                    var wr = (ex as WebException)?.Response as HttpWebResponse;
+                    if (wr != null && (int)wr.StatusCode == 416 && have > 0) break;
+
+                    long now = File.Exists(part) ? new FileInfo(part).Length : 0;
+                    Log.Write($"download attempt {attempt} of {MaxAttempts} failed at {now / 1000000} MB: {ex.Message}");
+                    if (attempt >= MaxAttempts)
+                        throw new FriendlyException("Downloading Docker Desktop kept stalling, so the connection to docker.com is slow or being cut. Press Try again to carry on from where it stopped, or install Docker Desktop yourself and open Finesse Setup again.");
+                    emit("download", new Dictionary<string, object>
+                    {
+                        ["got"] = now, ["total"] = total, ["speed"] = 0,
+                        ["note"] = $"The connection stalled. Carrying on from {now / 1000000} MB (try {attempt + 1} of {MaxAttempts})…",
+                    });
+                    Thread.Sleep(Math.Min(2000 * attempt, 10000));
+                }
             }
+            if (File.Exists(file)) File.Delete(file);
+            File.Move(part, file);
+            emit("download", new Dictionary<string, object> { ["got"] = total, ["total"] = total, ["speed"] = 0 });
             return new Dictionary<string, object> { ["file"] = file };
         }
 
