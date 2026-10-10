@@ -175,6 +175,7 @@ export async function checkUsenet(s: UsenetServer, timeoutMs = 20000): Promise<V
 // ---------------------------------------------------------------------------
 
 export async function checkIndexer(ix: IndexerInput): Promise<Verdict> {
+  if (!ix.url) return { ok: true, message: `${ix.name} is one of Prowlarr’s own sites — there’s nothing to enter` }
   const base = ix.url.replace(/\/+$/, '').replace(/\/api$/, '')
   const q = new URLSearchParams({ t: 'search', q: 'test', limit: '1', ...(ix.apiKey ? { apikey: ix.apiKey } : {}) })
   let res: Response

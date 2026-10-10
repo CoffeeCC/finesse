@@ -454,11 +454,15 @@ export async function wireLanguages(arr: Arr, app: 'sonarr' | 'radarr', househol
 export interface IndexerInput {
   name: string
   kind: 'newznab' | 'torznab'
-  url: string
+  /** The indexer's address. Left out for one of Prowlarr's own search sites, named by `definition`. */
+  url?: string
   apiKey?: string
-  /** A Prowlarr definition name (e.g. "nzbgeek"); omitted = generic. */
+  /** A Prowlarr definition name (e.g. "nzbgeek"); omitted = generic. With no `url` it is one of Prowlarr's built-in sites: no address or key. */
   definition?: string
 }
+
+/** "Internet Archive", "internet-archive" and "internetarchive" are the same site. */
+const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
 
 export async function wireProwlarr(
   prowlarr: Arr,
@@ -479,14 +483,22 @@ export async function wireProwlarr(
   for (const ix of o.indexers) {
     step(`Prowlarr: adding ${ix.name}`)
     const impl = ix.kind === 'torznab' ? 'Torznab' : 'Newznab'
+    const builtIn = Boolean(ix.definition) && !ix.url
     try {
       await prowlarr.upsert(
         'indexer',
         (t) => t.name === ix.name,
         (schema) => {
+          if (builtIn) {
+            // One of Prowlarr's own sites: found by name in its list, saved as it comes (nothing to type in).
+            const want = norm(ix.definition)
+            const tpl = schema.find((t) => norm(t.definitionName) === want) ?? schema.find((t) => norm(t.name) === want)
+            if (!tpl) throw new WireError(`this Prowlarr doesn't list ${ix.name}. Add it from Prowlarr's own Indexers page if you want it`)
+            return fromSchema(schema, tpl.implementation, {}, { name: ix.name, enable: true, appProfileId: 1, priority: 25 }, (t) => t === tpl)
+          }
           const pick = (t: Thing) =>
             ix.definition ? String(t.definitionName ?? '').toLowerCase() === ix.definition.toLowerCase() : /^(generic )?(newznab|torznab)$/i.test(String(t.definitionName ?? t.name))
-          const values: Record<string, unknown> = { baseUrl: ix.url.replace(/\/+$/, '') }
+          const values: Record<string, unknown> = { baseUrl: (ix.url ?? '').replace(/\/+$/, '') }
           if (ix.apiKey) values.apiKey = ix.apiKey
           return fromSchema(schema, impl, values, { name: ix.name, enable: true, appProfileId: 1, priority: 25 }, pick)
         },

@@ -101,7 +101,7 @@ answer before you press **Build**.
 | **Downloads** | Usenet, torrents, both or neither. **Neither** just streams files you add yourself. |
 | **Usenet** | Pick your provider (the server address fills in), then your username, password and connection limit. **Test connection** checks the login. |
 | **VPN** | Pick your provider. It tells you where to find your WireGuard key or OpenVPN login. You can paste a WireGuard config file whole. **Test the VPN** starts a real tunnel and shows the address torrents will use. |
-| **Indexers** | Add your indexer with its API key (usually on its profile or API page). **Test** runs a real search. |
+| **Indexers** | Add your indexer with its API key (usually on its profile or API page). **Test** runs a real search. With torrents, two free built-in sites (Internet Archive and LinuxTracker, for content that's free to share) start ticked: no account or key needed. |
 | **Quality** | 720p, 1080p, 4K or anything. This is only the default; each request can choose its own. |
 | **Away from home** | Optional. Tailscale Funnel (free) or Cloudflare Tunnel (your own domain). Each option lists its steps. |
 | **Invite emails** | Optional. Any email account that allows SMTP: Gmail with an app password, iCloud, Fastmail, Resend… |

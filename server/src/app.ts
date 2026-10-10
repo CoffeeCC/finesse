@@ -77,8 +77,12 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   const deps: AppDeps = { settings, jf, auth, web, router, releases, invites }
 
   // Discovery: lets the app (and the TV) learn what it's talking to.
-  router.get('/api/finesse', ({ res }) => {
+  router.get('/api/finesse', ({ req, res }) => {
     const s = settings.get()
+    // This machine's address at home (the Windows installer sets it). Only said to someone already on a local address, so it never leaves the house.
+    const asked = String(req.headers.host ?? '').replace(/:\d+$/, '').toLowerCase()
+    const onLocalNetwork = /^(localhost|\[?::1\]?|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(asked) || asked.endsWith('.local')
+    const lanHost = onLocalNetwork ? process.env.FINESSE_LAN_HOST || null : null
     sendJson(res, 200, {
       name: 'finesse',
       version: VERSION,
@@ -89,6 +93,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready' },
       features: features(s),
       publicUrl: s.publicUrl ?? null,
+      lanHost,
       /** Finesse's own HTTPS port (FINESSE_HTTPS_PORT), for features that need a secure page. */
       httpsPort: Number(process.env.FINESSE_HTTPS_PORT || 0) || null,
       requests: s.requests ? { profiles: s.requests.profiles } : undefined,

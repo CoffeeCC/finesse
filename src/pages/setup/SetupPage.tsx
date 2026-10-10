@@ -339,7 +339,8 @@ export default function SetupPage() {
           onSignIn={change ? () => navigate('/settings#settings-server', { replace: true }) : signIn}
           signingIn={signingIn}
           signInError={signInError}
-          dataPath={info?.defaults.data}
+          dataPath={info?.defaults.dataLabel ?? info?.defaults.data}
+          lanHost={info?.defaults.lanHost}
           services={run?.services ?? []}
         />
       </Backdrop>
@@ -689,11 +690,19 @@ function ReviewStep({ d, info, jumpTo, problems, applyError }: { d: Draft; info:
           ))}
         </div>
         <p className="mt-3 text-[12.5px] leading-relaxed text-ink-400">
-          About {apps.length > 3 ? '3' : '1'} GB to download. Everything is stored under {info?.defaults.root ?? 'the Finesse folder'} and {info?.defaults.data ?? 'your data folder'}.
+          About {apps.length > 3 ? '3' : '1'} GB to download. {info?.defaults.dataLabel ? `Your media and downloads are stored in ${info.defaults.dataLabel}; app settings stay inside Docker.` : `Everything is stored under ${info?.defaults.root ?? 'the Finesse folder'} and ${info?.defaults.data ?? 'your data folder'}.`}
         </p>
       </div>
     </div>
   )
+}
+
+/** The separator in a folder people will read: the Windows installer gives "E:\Finesse", everything else a /path. */
+const sepOf = (base?: string) => (base?.includes('\\') ? '\\' : '/')
+/** base + parts as people should type or browse to it ("E:\Finesse\media\movies"). */
+function folderIn(base: string | undefined, ...parts: string[]) {
+  const root = base ?? 'the data folder'
+  return [root.replace(/[\\/]+$/, ''), ...parts].join(sepOf(base))
 }
 
 function BuildScreen({
@@ -707,6 +716,7 @@ function BuildScreen({
   signingIn,
   signInError,
   dataPath,
+  lanHost,
   services,
 }: {
   run: RunStatus | null
@@ -719,6 +729,7 @@ function BuildScreen({
   signingIn: boolean
   signInError: string
   dataPath?: string
+  lanHost?: string | null
   services: string[]
 }) {
   const [showLog, setShowLog] = useState(false)
@@ -727,6 +738,10 @@ function BuildScreen({
   const doneCount = steps.filter((s) => s.state === 'done').length
   const pct = steps.length ? Math.round((doneCount / steps.length) * 100) : 0
   const host = window.location.hostname
+  // On the PC itself the address bar says localhost, which a TV can't reach: use the PC's address at home when the installer gave it.
+  const onThisPc = host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+  const tvHost = onThisPc ? (lanHost ? `${lanHost}${window.location.port ? `:${window.location.port}` : ''}` : null) : window.location.host
+  const jfHost = onThisPc ? lanHost || null : host
   const jfPort = run?.warnings.map((w) => /port (\d+)\./.exec(w)?.[1]).find(Boolean) ?? '8096'
 
   if (done) {
@@ -753,10 +768,18 @@ function BuildScreen({
           )}
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             <Tip icon="film" title="Add what you already have">
-              Copy files into <code className="rounded bg-white/10 px-1 text-[12px]">{dataPath ?? 'the data folder'}/media/movies</code>, <code className="rounded bg-white/10 px-1 text-[12px]">…/tv</code> or <code className="rounded bg-white/10 px-1 text-[12px]">…/music</code>.
+              Copy files into <code className="rounded bg-white/10 px-1 text-[12px]">{folderIn(dataPath, 'media', 'movies')}</code>, <code className="rounded bg-white/10 px-1 text-[12px]">…{sepOf(dataPath)}tv</code> or <code className="rounded bg-white/10 px-1 text-[12px]">…{sepOf(dataPath)}music</code>.
             </Tip>
             <Tip icon="tv" title="Watch on your TV">
-              LG TVs: install the Finesse app and enter <b>{window.location.host}</b>. Other TVs and players: any Jellyfin app, server <b>{`http://${host}:${jfPort}`}</b>.
+              {tvHost && jfHost ? (
+                <>
+                  LG TVs: install the Finesse app and enter <b>{tvHost}</b>. Other TVs and players: any Jellyfin app, server <b>{`http://${jfHost}:${jfPort}`}</b>.
+                </>
+              ) : (
+                <>
+                  LG TVs: install the Finesse app and enter this PC's address on your home network (it looks like <b>192.168.1.20:{window.location.port || '8080'}</b>). Other TVs and players: any Jellyfin app, with that address and port <b>{jfPort}</b>.
+                </>
+              )}
             </Tip>
             {services.includes('sonarr') || services.includes('radarr') ? (
               <Tip icon="cloud" title="Request something">
@@ -765,7 +788,7 @@ function BuildScreen({
             ) : null}
             {services.includes('romm') ? (
               <Tip icon="games" title="Add your games">
-                Put them in <code className="rounded bg-white/10 px-1 text-[12px]">{dataPath ?? 'the data folder'}/media/games/roms/snes</code> (one folder per system: nes, snes, gb, gba, n64, genesis, psx…). They show up under Games within a few minutes.
+                Put them in <code className="rounded bg-white/10 px-1 text-[12px]">{folderIn(dataPath, 'media', 'games', 'roms', 'snes')}</code> (one folder per system: nes, snes, gb, gba, n64, genesis, psx…). They show up under Games within a few minutes.
               </Tip>
             ) : null}
             <Tip icon="link" title="Invite people">

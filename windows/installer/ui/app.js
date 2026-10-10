@@ -355,6 +355,7 @@ async function dockerInstall() {
     $('#go', el).closest('.actions').hidden = true
     $('#prog', el).hidden = false
     const off = B.on('download', (d) => {
+      $('#pnote', el).textContent = d.note || 'About 600 MB. Windows asks for permission once, to install it.'
       const pct = d.total > 0 ? d.got / d.total : 0
       $('#fill', el).style.width = (pct * 100).toFixed(1) + '%'
       $('#pval', el).textContent = d.total > 0 ? `${Math.round(d.got / 1e6)} of ${Math.round(d.total / 1e6)} MB${d.speed > 0 ? ` · ${(d.speed / 1e6).toFixed(1)} MB/s` : ''}` : ''
