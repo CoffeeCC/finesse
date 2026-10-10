@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Windows installer: a clean handoff to the browser — v2.7.3 (2026-10-10)
+
+- **"Finish in your browser" no longer leaves two Lo-Finessas playing.** The installer's music
+  fades out as the browser opens, and once the install is done the installer says goodbye and
+  closes instead of sitting behind the browser. (On the "Welcome back" screen, **Open Finesse**
+  fades the music too, but stays open so you can still uninstall.)
+
 ## Windows installer: music from the start — v2.7.2 (2026-10-10)
 
 - **Lo-Finessa plays as soon as Finesse Setup opens.** It used to wait for your first click, so

@@ -212,6 +212,16 @@ document.addEventListener('pointerdown', startMusic, true)
 startMusic()
 song.addEventListener('canplay', startMusic, { once: true })
 
+/** Hand over to Finesse in the browser: the installer's music fades out (the browser has its own Lo-Finessa), and when the install is done the installer closes instead of sitting behind it. */
+async function handOff(url, { close = false, button = null } = {}) {
+  if (button) button.disabled = true
+  try { await B.call('open', { url }) } catch (e) { if (button) button.disabled = false; return say("I couldn't open your browser. Open " + url.replace(/^http:\/\//, '') + ' yourself.') }
+  if (music.started) fadeTo(0, 900) // pauses at the end; the choice to have music stays as it was
+  if (!close) return
+  say('Enjoy! See you in your browser.')
+  setTimeout(() => B.call('window', { action: 'close' }), 1800)
+}
+
 // ---------- the window ----------
 $('#bar').addEventListener('mousedown', (e) => { if (e.button === 0 && !e.target.closest('button')) B.call('window', { action: 'drag' }) })
 $('#min').addEventListener('click', () => B.call('window', { action: 'minimize' }))
@@ -524,7 +534,7 @@ function done(r, fw = { ok: true }) {
     modal(`<div class="phone"><div class="qr">${svg}</div><div><h2>On your phone</h2><p>Point your phone's camera here, on the same Wi-Fi as this PC.</p><div class="addr">${esc(phone.replace(/^http:\/\//, '').replace(/\/$/, ''))}</div></div></div>
       <div class="actions"><button class="btn ghost" data-a="ok">Done</button></div>`)
   })
-  $('#open', el).onclick = () => B.call('open', { url: r.url })
+  $('#open', el).onclick = (e) => handOff(r.url, { close: true, button: e.currentTarget })
   if (!SELFTEST) setTimeout(confetti, 350)
 }
 
@@ -542,7 +552,7 @@ function installedScreen() {
     </div>
     ${f.running ? `<button class="link" id="fw" style="margin-top:14px">Phones or TVs can't reach it? Let them in again</button>` : ''}`,
   { art: 'welcome', line: f.running ? 'Welcome back! Everything is running.' : "Welcome back! Want me to start it up?", step: -1 })
-  $('#open', el)?.addEventListener('click', () => B.call('open', { url: f.code ? `${url}setup?code=${encodeURIComponent(f.code)}` : url }))
+  $('#open', el)?.addEventListener('click', () => handOff(f.code ? `${url}setup?code=${encodeURIComponent(f.code)}` : url))
   $('#start', el)?.addEventListener('click', async () => {
     busy = true
     say('On it!')
