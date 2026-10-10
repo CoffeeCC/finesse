@@ -692,8 +692,7 @@
       "additionalProperties": false,
       "required": [
         "name",
-        "kind",
-        "url"
+        "kind"
       ],
       "properties": {
         "name": {
@@ -721,9 +720,21 @@
         },
         "definition": {
           "type": "string",
-          "description": "Optional Prowlarr definition name (e.g. \"nzbgeek\"); omitted = generic Newznab/Torznab."
+          "description": "Optional Prowlarr definition name (e.g. \"nzbgeek\"); omitted = generic Newznab/Torznab. With no url, it names one of Prowlarr's built-in search sites (e.g. \"internetarchive\"): no address or key needed."
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "url"
+          ]
+        },
+        {
+          "required": [
+            "definition"
+          ]
+        }
+      ]
     }
   }
 }

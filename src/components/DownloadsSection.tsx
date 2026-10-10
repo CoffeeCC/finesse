@@ -1,10 +1,27 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArrQueue } from '../api/queries'
-import { arrQueueRemove, arrQueueRetry, type ArrQueueItem } from '../api/arr'
+import { arrQueueRemove, arrQueueRetry, type ArrQueueItem, type DownloadVia } from '../api/arr'
 import { sabItemPause, sabItemResume } from '../api/sab'
 import ArrThumb from './ArrThumb'
 import { useToast } from './Toast'
+
+/** Says plainly how this is being fetched, right by the status. */
+const VIA: Record<Exclude<DownloadVia, null>, { label: string; hint: string; cls: string }> = {
+  torrent: { label: 'Torrent · through your VPN', hint: 'Downloading by torrent. It only ever runs through your VPN.', cls: 'bg-violet-500/15 text-violet-200 border-violet-400/30' },
+  usenet: { label: 'Usenet', hint: 'Downloading from Usenet, through SABnzbd.', cls: 'bg-sky-500/15 text-sky-200 border-sky-400/30' },
+  mixed: { label: 'Torrent + Usenet', hint: 'Some of these are coming by torrent (through your VPN) and some from Usenet.', cls: 'bg-ink-700 text-ink-100 border-white/15' },
+}
+
+function ViaChip({ via }: { via: DownloadVia }) {
+  if (!via) return null
+  const v = VIA[via]
+  return (
+    <span title={v.hint} className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-none ${v.cls}`}>
+      {v.label}
+    </span>
+  )
+}
 
 function Row({ d }: { d: ArrQueueItem }) {
   const toast = useToast()
@@ -80,8 +97,11 @@ function Row({ d }: { d: ArrQueueItem }) {
               style={{ width: `${Math.max(d.done ? 100 : 4, d.progress)}%` }}
             />
           </div>
-          <div className="mt-1 flex items-center justify-between text-xs">
-            <span className={d.done ? 'text-emerald-300' : attention ? 'text-amber-300' : d.paused ? 'text-ink-400' : 'text-accent-300'}>{d.status}</span>
+          <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={d.done ? 'text-emerald-300' : attention ? 'text-amber-300' : d.paused ? 'text-ink-400' : 'text-accent-300'}>{d.status}</span>
+              <ViaChip via={d.via} />
+            </span>
             {!d.done && !attention && <span className="text-ink-400">{d.progress}%</span>}
           </div>
         </div>

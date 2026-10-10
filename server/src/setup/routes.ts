@@ -24,6 +24,12 @@ export const INDEXER_SUGGESTIONS = [
   { name: 'DOGnzb', url: 'https://api.dognzb.cr' },
 ]
 
+/** Search sites Prowlarr already knows, for content that is free to share: no account, address or key. The ids are Prowlarr definition names; one a given Prowlarr doesn't list is skipped with a note, not an error. */
+export const BUILTIN_INDEXERS = [
+  { id: 'internetarchive', name: 'Internet Archive', note: 'Public-domain films, music and books' },
+  { id: 'linuxtracker', name: 'LinuxTracker', note: 'Linux distributions: an easy way to try a Request' },
+]
+
 export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
   return (deps: AppDeps) => {
     const { router, settings, auth } = deps
@@ -72,9 +78,14 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       sendJson(res, 200, {
         state: s.setup.state,
         mode: s.mode,
-        defaults: { timezone: process.env.TZ || 'Etc/UTC', root: base.hostRoot, data: base.hostData, puid: base.puid, pgid: base.pgid, gpu: base.gpu },
+        defaults: {
+          timezone: process.env.TZ || 'Etc/UTC', root: base.hostRoot, data: base.hostData, puid: base.puid, pgid: base.pgid, gpu: base.gpu,
+          // What people see on this machine (the Windows installer says "E:\Finesse"; data is Docker's own view), and its address at home.
+          dataLabel: process.env.FINESSE_DATA_LABEL || null, lanHost: process.env.FINESSE_LAN_HOST || null,
+        },
         vpnProviders: VPN_PROVIDERS,
         indexerSuggestions: INDEXER_SUGGESTIONS,
+        builtinIndexers: BUILTIN_INDEXERS,
         catalog: Object.values(CATALOG).map((d) => ({ id: d.id, name: d.name, role: d.role, image: d.image })),
         lastError: s.setup.lastError ?? null,
         stack: s.stack ? { services: s.stack.services, quality: s.stack.quality, vpn: s.stack.vpn ? { provider: s.stack.vpn.provider, type: s.stack.vpn.type, countries: s.stack.vpn.countries } : null } : null,
@@ -101,12 +112,16 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       await guard(req)
       const ix = await readJson<IndexerInput>(req)
       if (ix.apiKey === KEEP) ix.apiKey = storedDoc()?.downloads?.indexers?.find((x) => x.url === ix.url)?.apiKey
+      const kind = ix.kind === 'torznab' ? 'torznab' : 'newznab'
+      // One of Prowlarr's own sites: no address to try.
+      if (!ix.url && ix.definition) return sendJson(res, 200, await checkIndexer({ name: ix.name || ix.definition, kind, definition: ix.definition }))
+      let host: string
       try {
-        new URL(ix.url)
+        host = new URL(ix.url ?? '').host
       } catch {
         throw new ApiError(400, 'A valid url is required')
       }
-      sendJson(res, 200, await checkIndexer({ name: ix.name || new URL(ix.url).host, kind: ix.kind === 'torznab' ? 'torznab' : 'newznab', url: ix.url, apiKey: ix.apiKey }))
+      sendJson(res, 200, await checkIndexer({ name: ix.name || host, kind, url: ix.url, apiKey: ix.apiKey }))
     })
 
     router.post('/api/setup/check/vpn', async ({ req, res }) => {

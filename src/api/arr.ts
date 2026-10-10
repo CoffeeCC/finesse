@@ -341,7 +341,11 @@ export interface ArrQueueItem {
   nzoIds: string[]
   /** Every backing download is currently paused. */
   paused: boolean
+  /** How it's being fetched: Usenet (SABnzbd), torrent (qBittorrent, behind the VPN), both (a series with some of each), or unknown. */
+  via: DownloadVia
 }
+
+export type DownloadVia = 'usenet' | 'torrent' | 'mixed' | null
 
 interface RawQueueRecord {
   id?: number
@@ -372,6 +376,12 @@ function reasonOf(r: RawQueueRecord): string | undefined {
     if (m.title) return m.title
   }
   return undefined
+}
+
+function viaOf(protocols: Iterable<string | undefined>): DownloadVia {
+  const set = new Set<string>()
+  for (const p of protocols) if (p === 'usenet' || p === 'torrent') set.add(p)
+  return set.size === 0 ? null : set.size === 2 ? 'mixed' : (set.values().next().value as 'usenet' | 'torrent')
 }
 
 /** Usenet downloads live in SABnzbd, keyed by the record's downloadId.
@@ -409,13 +419,14 @@ interface Agg {
   reason?: string
   queueIds: number[]
   nzoIds: string[]
+  protocols: string[]
 }
 
 function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => number): Map<number, Agg> {
   const map = new Map<number, Agg>()
   for (const r of records) {
     const id = idOf(r)
-    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [] }
+    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [], protocols: [] }
     const { size, left } = pct(r.size, r.sizeleft)
     cur.size += size
     cur.left += left
@@ -428,6 +439,7 @@ function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => numbe
     if (r.status !== 'paused') cur.allPaused = false
     if (r.id) cur.queueIds.push(r.id)
     cur.nzoIds.push(...nzoOf(r))
+    if (r.protocol) cur.protocols.push(r.protocol)
     map.set(id, cur)
   }
   return map
@@ -460,6 +472,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       queueIds: r.id ? [r.id] : [],
       nzoIds: nzoOf(r),
       paused: r.status === 'paused',
+      via: viaOf([r.protocol]),
     })
   }
 
@@ -484,6 +497,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       queueIds: agg.queueIds,
       nzoIds: agg.nzoIds,
       paused: agg.allPaused,
+      via: viaOf(agg.protocols),
     })
   }
 

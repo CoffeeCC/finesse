@@ -92,9 +92,11 @@ export interface VpnProvider {
 export interface SetupInfo {
   state: string
   mode: string
-  defaults: { timezone: string; root: string; data: string; puid: number; pgid: number; gpu: boolean }
+  defaults: { timezone: string; root: string; data: string; puid: number; pgid: number; gpu: boolean; dataLabel?: string | null; lanHost?: string | null }
   vpnProviders: VpnProvider[]
   indexerSuggestions: { name: string; url: string }[]
+  /** Search sites Prowlarr already has, for content that is free to share: no account, address or key. */
+  builtinIndexers?: { id: string; name: string; note: string }[]
   catalog: { id: string; name: string; role: string; image: string }[]
   lastError: string | null
 }
@@ -113,8 +115,10 @@ export interface UsenetServer {
 export interface Indexer {
   name: string
   kind: 'newznab' | 'torznab'
-  url: string
+  /** Left out for one of Prowlarr's built-in sites (named by `definition`). */
+  url?: string
   apiKey?: string
+  definition?: string
 }
 
 export interface VpnDoc {

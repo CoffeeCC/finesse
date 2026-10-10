@@ -1,9 +1,9 @@
 // The wizard's steps. Each gets the draft and an updater; `stepBlocker`
 // says what (if anything) still stops the person moving on.
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { setupApi, type SetupInfo, type SystemItem, type Verdict } from '../../api/setup'
-import { indexerKey, kept, newServer, vpnDoc, type Draft } from './draft'
+import { indexerKey, isBuiltInSite, kept, newServer, vpnDoc, type Draft } from './draft'
 import { countries, LANGUAGES, parseWireGuard, QUALITY_PRESETS, SMTP_PRESETS, timeZones, USENET_PRESETS } from './presets'
 import { Callout, CheckButton, ChoiceCard, ExternalLink, gb, SectionTitle, SelectField, StatusDot, TextField, Toggle } from './ui'
 
@@ -28,7 +28,7 @@ export const STEP_META: Record<StepId, { nav: string; title: string; lead: React
   downloads: { nav: 'Downloads', title: 'How should new things arrive?', lead: 'Finesse can find and download what you request automatically. Pick one, both, or neither.' },
   usenet: { nav: 'Usenet', title: 'Your Usenet provider', lead: 'The service that stores the files (usually $3–10 a month). Sign up with any provider, then copy its address, username and password here — Finesse does the rest.' },
   vpn: { nav: 'VPN', title: 'Your VPN', lead: 'Torrents only ever connect through your VPN: if it drops, they stop, and nothing leaks. Use the VPN account you already have.' },
-  indexers: { nav: 'Search sites', title: 'Where to search', lead: 'Search sites find what you ask for. Sign up with at least one, then paste its address and API key (it’s in your account settings on their site). Two find more than one.' },
+  indexers: { nav: 'Search sites', title: 'Where to search', lead: 'Search sites find what you ask for. To use your own, sign up with one and paste its address and API key (it’s in your account settings on their site). Two find more than one.' },
   quality: { nav: 'Quality', title: 'How good should it look?', lead: 'The default for new requests. You can pick a different quality for any single request.' },
   remote: { nav: 'Away from home', title: 'Watching away from home', lead: 'Optional. Reach Finesse from anywhere — and share with friends’ servers — without opening ports on your router.' },
   email: { nav: 'Invite emails', title: 'Emailing invites', lead: 'Optional. Send invites straight to people’s inboxes. You can always share an invite link instead.' },
@@ -113,7 +113,7 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
     case 'indexers': {
       for (const ix of d.indexers) {
         if (!ix.name.trim()) return 'Give each indexer a name'
-        if (!/^https?:\/\/\S+$/.test(ix.url.trim())) return `Enter ${ix.name || 'the indexer'}’s address`
+        if (!isBuiltInSite(ix) && !/^https?:\/\/\S+$/.test(ix.url.trim())) return `Enter ${ix.name || 'the indexer'}’s address`
       }
       return null
     }
@@ -508,18 +508,66 @@ function Field2({ label, children }: { label: string; children: ReactNode }) {
 export function IndexersStep({ d, set, info, report }: StepProps) {
   const suggestions = info?.indexerSuggestions ?? []
   const add = (ix: { name: string; url: string; kind: 'newznab' | 'torznab' }) => set((x) => void x.indexers.push({ ...ix, apiKey: '', key: indexerKey() }))
-  const shown = d.indexers.filter((ix) => (ix.kind === 'newznab' ? d.usenet : d.torrents))
+  const builtin = info?.builtinIndexers ?? []
+  const shown = d.indexers.filter((ix) => !isBuiltInSite(ix) && (ix.kind === 'newznab' ? d.usenet : d.torrents))
+  const chosen = (id: string) => d.indexers.some((i) => i.definition === id && isBuiltInSite(i))
+  const toggleBuiltin = (b: { id: string; name: string }) =>
+    set((x) => {
+      if (x.indexers.some((i) => i.definition === b.id && isBuiltInSite(i))) x.indexers = x.indexers.filter((i) => !(i.definition === b.id && isBuiltInSite(i)))
+      else x.indexers.push({ name: b.name, kind: 'torznab', url: '', definition: b.id, apiKey: '', key: indexerKey() })
+    })
+  // Torrents are on and nothing is chosen yet: start with the free sites ticked, once. They can be unticked.
+  useEffect(() => {
+    if (!d.torrents || d.builtinOffered || builtin.length === 0) return
+    set((x) => {
+      x.builtinOffered = true
+      for (const b of builtin) if (!x.indexers.some((i) => i.definition === b.id)) x.indexers.push({ name: b.name, kind: 'torznab', url: '', definition: b.id, apiKey: '', key: indexerKey() })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.torrents, d.builtinOffered, builtin.length])
+  const anyTorrentSite = d.torrents && d.indexers.some((i) => i.kind === 'torznab')
+  const anyUsenetSite = d.usenet && d.indexers.some((i) => i.kind === 'newznab')
   const upd = (key: string, fn: (ix: Draft['indexers'][number]) => void) => set((x) => fn(x.indexers.find((i) => i.key === key)!))
   return (
     <div className="space-y-6">
       <p className="text-[13.5px] leading-relaxed text-ink-300">
         {d.usenet && <>For <b className="text-white">Usenet</b>, add a Usenet search site (many have a free tier). </>}
-        {d.torrents && <>For <b className="text-white">torrents</b>, add a torrent search site (its address often ends in “torznab”) — your VPN is already set up for them. </>}
-        In your account on their site, copy the <b className="text-white">API key</b>, and paste it with the site’s address below. Press <b className="text-white">Test</b> to check it before you build.
+        {d.torrents && <>For <b className="text-white">torrents</b>, you can also add your own torrent search site (its address often ends in “torznab”) — your VPN is already set up for them. </>}
+        For your own sites, copy the <b className="text-white">API key</b> from your account on their site, and paste it with the site’s address below. Press <b className="text-white">Test</b> to check it before you build.
       </p>
-      {shown.length === 0 && (
-        <Callout tone="warn" title="No search sites yet">
-          Without at least one, requests can’t find anything to download. You can skip this and add them later from Settings → Server → Downloads &amp; away from home.
+      {d.torrents && builtin.length > 0 && (
+        <div className="space-y-3 rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.06] p-4 sm:p-5">
+          <div>
+            <p className="text-[15px] font-semibold text-white">Free search sites, built in</p>
+            <p className="mt-1 text-[13.5px] leading-relaxed text-ink-200">
+              These need no account, address or API key, so requests can start working right away. They’re for content that’s free to share, like public-domain films and music. For anything else, add your own search site below.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {builtin.map((b) => {
+              const on = chosen(b.id)
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => toggleBuiltin(b)}
+                  aria-pressed={on}
+                  className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors ${on ? 'border-emerald-400/60 bg-emerald-400/10' : 'border-white/10 bg-white/[0.03] hover:border-white/25'}`}
+                >
+                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[13px] font-bold ${on ? 'border-emerald-300 bg-emerald-400 text-ink-950' : 'border-white/25 text-transparent'}`}>✓</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-semibold text-white">{b.name}</span>
+                    <span className="block text-[12.5px] leading-snug text-ink-300">{b.note}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {!anyTorrentSite && !anyUsenetSite && (
+        <Callout tone="warn" title="Requests won’t find anything yet">
+          Without a search site, pressing Request has nowhere to look. {d.torrents && builtin.length > 0 ? 'Tick a free site above, or add your own below.' : 'Add one below.'} You can also add them later from Settings → Server → Downloads &amp; away from home.
         </Callout>
       )}
       {shown.map((ix) => (
