@@ -189,7 +189,7 @@ npm run server:test     # server tests (no Docker needed)
 ## Support Finesse
 
 Finesse is free, and it's made in spare time. If it makes movie night better, you can
-[chip in on Ko-fi](https://ko-fi.com/cryptohsaka). There's a **Support Finesse** button in
+[chip in on Ko-fi](https://ko-fi.com/finesseserver). There's a **Support Finesse** button in
 Settings → About too.
 
 ## Please use it responsibly

@@ -7,4 +7,4 @@ export const PROJECT_URL = `https://github.com/${PROJECT_REPO}`
 export const DOCS_URL = `${PROJECT_URL}/blob/master/docs`
 
 /** Where people can support Finesse. Empty hides the "Support Finesse" card. */
-export const DONATE_URL = 'https://ko-fi.com/cryptohsaka'
+export const DONATE_URL = 'https://ko-fi.com/finesseserver'

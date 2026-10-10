@@ -11,5 +11,9 @@ You may listen to these tracks in Finesse, on any server it's installed on, and 
 them included. You may not use them anywhere else (in other software, videos, streams or
 advertising) or sell them, without permission.
 
+The official Finesse project channels (YouTube @finesseserver and its Lo-FiNessa channel, X
+@finesse_server, Reddit u/finesseserver, Ko-fi and Discord) may use these tracks in videos,
+livestreams and promotional posts.
+
 This licence covers the music only. Finesse's code is MIT-licensed (see the LICENSE file at the
 top of the repository).

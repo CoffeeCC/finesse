@@ -86,4 +86,4 @@ automatically yet.
 
 ## How do I support it?
 
-Star the repo, report bugs, or [chip in on Ko-fi](https://ko-fi.com/cryptohsaka).
+Star the repo, report bugs, or [chip in on Ko-fi](https://ko-fi.com/finesseserver).
