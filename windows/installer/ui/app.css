@@ -154,6 +154,24 @@ p.small, .small { font-size: 12.5px; line-height: 1.55; color: var(--ink-400); }
 .drive { text-align: left; padding: 14px 14px 12px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .09); background: rgba(255, 255, 255, .03); cursor: pointer; transition: border-color .2s, background .2s, transform .15s, box-shadow .2s; }
 .drive:hover { background: rgba(255, 255, 255, .06); transform: translateY(-1px); }
 .drive.on { border-color: var(--accent-400); background: rgba(117, 137, 216, .12); box-shadow: 0 0 0 3px rgba(117, 137, 216, .18), 0 10px 30px rgba(79, 99, 180, .25); }
+/* The media step: heading, drives, folder, Install. Only the drives scroll, so Install is never below the fold. */
+.screen.folders { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; max-height: 100%; }
+.screen.folders h1 { font-size: 40px; margin-bottom: 10px; }
+.screen.folders p.lead { margin-bottom: 14px; }
+.screen.folders .kicker { margin-bottom: 10px; }
+.screen.folders .drives { flex: 0 1 auto; min-height: 104px; overflow-y: auto; padding: 6px 8px 8px 6px; margin: 0 -8px 8px -6px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .2) transparent; }
+.screen.folders .drives::-webkit-scrollbar { width: 6px; }
+.screen.folders .drives::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .2); border-radius: 3px; }
+.screen.folders .pathbox, .screen.folders .err, .screen.folders .actions { flex: none; }
+.screen.folders .actions { margin-top: 16px; }
+@media (max-height: 640px) { /* the smallest window: the same compact cards as when there are many drives */
+  .screen.folders p.lead { display: none; }
+  .screen.folders .drives { gap: 8px; }
+  .screen.folders .drive { padding: 9px 12px 8px; border-radius: 13px; }
+  .screen.folders .drive .l { font-size: 17px; }
+  .screen.folders .drive .n { margin-bottom: 5px; }
+  .screen.folders .drive .meter { margin-top: 5px; }
+}
 .drives.many { gap: 8px; margin-bottom: 10px; }
 .drives.many .drive { padding: 9px 12px 8px; border-radius: 13px; }
 .drives.many .drive .l { font-size: 17px; }

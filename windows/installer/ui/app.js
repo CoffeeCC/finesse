@@ -437,6 +437,7 @@ async function folders() {
     <div class="err" id="err"></div>
     <div class="actions"><button class="btn primary" id="go">Install Finesse ${ARROW}</button></div>`,
   { art: 'popcorn', line: 'Where do your movies live? Pick the roomiest drive.', step: 2 })
+  el.classList.add('folders') // the drives scroll if there are many; the folder and Install stay in view
   render()
   $('#drives', el).onclick = async (e) => {
     const l = e.target.closest('.drive')?.dataset.l
