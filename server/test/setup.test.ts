@@ -23,6 +23,7 @@ function check(s: Schema, v: unknown, at = ''): string[] {
     const ok = (s.oneOf as Schema[]).filter((x) => check(x, v, at).length === 0)
     return ok.length === 1 ? [] : [`${at}: oneOf matched ${ok.length}`]
   }
+  if (s.anyOf && !(s.anyOf as Schema[]).some((x) => check(x, v, at).length === 0)) return [`${at}: anyOf matched none`]
   if ('const' in s && v !== s.const) return [`${at}: const`]
   if (s.enum && !(s.enum as unknown[]).includes(v)) return [`${at}: enum`]
   const type = s.type as string | undefined
@@ -85,6 +86,7 @@ const bad: [string, (d: Record<string, any>) => unknown][] = [
   ['indexer kind', (d) => ((d.downloads.indexers[0].kind = 'rss'), d)],
   ['indexer url scheme', (d) => ((d.downloads.indexers[0].url = 'ftp://x.example'), d)],
   ['indexer without a name', (d) => (delete d.downloads.indexers[0].name, d)],
+  ['indexer with neither an address nor a built-in site', (d) => (delete d.downloads.indexers[0].url, d)],
   ['quality preset', (d) => ((d.quality.preset = '8k'), d)],
   ['remote method', (d) => ((d.remoteAccess = { method: 'ngrok' }), d)],
   ['tailscale key format', (d) => ((d.remoteAccess.tailscale.authKey = 'abc'), d)],
@@ -109,6 +111,7 @@ const bad: [string, (d: Record<string, any>) => unknown][] = [
 const good: [string, (d: Record<string, any>) => unknown][] = [
   ['usenet null, torrents only', (d) => ((d.downloads.usenet = null), (d.downloads.indexers = []), d)],
   ['torrents null, usenet only', (d) => ((d.downloads.torrents = null), d)],
+  ['a built-in search site needs no address or key', (d) => (d.downloads.indexers.push({ name: 'Internet Archive', kind: 'torznab', definition: 'internetarchive' }), d)],
   ['no downloads at all', (d) => (delete d.downloads, d)],
   ['email null', (d) => ((d.email = null), d)],
   ['OpenVPN provider', (d) => ((d.downloads.torrents.vpn = { provider: 'private internet access', type: 'openvpn', openvpn: { username: 'p1234567', password: 'x' } }), d)],

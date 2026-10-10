@@ -38,7 +38,7 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
-## Windows: real folder names and a TV address that works — v2.7.4 (2026-10-10)
+## Windows folders, free search sites, and a clearer Downloads page — v2.7.4 (2026-10-10)
 
 - **The "Your server is ready" page shows your Windows folders.** It said things like
   `/run/desktop/mnt/host/e/Finesse/media/movies`, which is how Docker sees the drive. It now says
@@ -47,6 +47,17 @@
   works on the PC itself. Finesse Setup now tells Finesse the PC's address on your home network, and
   the page shows that (for example `192.168.1.20:8080`). Servers installed before this update show
   what the address looks like until Finesse Setup is run again.
+- **Free search sites, built in.** With torrents, "Where to search" now starts with **Internet Archive**
+  and **LinuxTracker** ticked: no account, address or API key, so Request can start finding things
+  right away. They are for content that's free to share (public-domain films and music, Linux
+  distributions). Untick them any time, and add your own site below for anything else. If Prowlarr
+  doesn't list one of them, setup says so and carries on. If no search site is chosen, a clear
+  warning says Request won't find anything yet.
+- **Downloads says how each one is coming.** Every row shows **Torrent · through your VPN** or
+  **Usenet** next to its status (or **Torrent + Usenet** for a series with some of each).
+- **"Other devices" in Settings** says what address to open on a phone, tablet, TV or another
+  computer (and the LG TV and Jellyfin-app addresses), with a Copy button. On the server itself it
+  explains how to find the address. The Windows installer now tells Finesse the PC's address.
 
 ## Windows installer: a clean handoff to the browser — v2.7.3 (2026-10-10)
 

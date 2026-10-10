@@ -15,6 +15,7 @@ import { playSelect, playNav } from '../lib/sound'
 import { useFinesse } from '../lib/finesseServer'
 import { DONATE_URL, PROJECT_URL } from '../lib/project'
 import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
+import ConnectDevices from '../components/ConnectDevices'
 import GroupsAdmin from './settings/GroupsAdmin'
 import { StreamingSettings } from './settings/StreamingAdmin'
 import {
@@ -356,6 +357,7 @@ export default function SettingsPage() {
   }
 
   const sections = [
+    ...(__WEBOS__ ? [] : [{ id: 'devices', label: 'Other devices' }]),
     ...SECTIONS,
     { id: 'updates', label: 'Updates' },
     { id: 'about', label: 'About' },
@@ -417,6 +419,13 @@ export default function SettingsPage() {
         </nav>
 
         <div className="space-y-10 min-w-0">
+          {!__WEBOS__ && (
+            <section id="settings-devices" aria-labelledby="settings-devices-title" className="scroll-mt-24">
+              {heading('devices', 'Other devices')}
+              <ConnectDevices />
+            </section>
+          )}
+
           <section id="settings-playback" aria-labelledby="settings-playback-title" className="scroll-mt-24">
             {heading('playback', 'Playback')}
             <div className={SECTION_CARD}>

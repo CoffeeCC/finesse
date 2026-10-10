@@ -159,11 +159,14 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
     known(p, ix, at, ['name', 'kind', 'url', 'apiKey', 'definition'])
     if (!nonEmpty(ix.name)) p.push({ path: `${at}.name`, message: 'Give the indexer a name' })
     if (ix.kind !== 'newznab' && ix.kind !== 'torznab') p.push({ path: `${at}.kind`, message: 'Kind is newznab (Usenet) or torznab (torrents)' })
-    try {
-      const u = new URL(ix.url)
-      if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error()
-    } catch {
-      p.push({ path: `${at}.url`, message: 'Enter the indexer’s address, e.g. https://api.nzbgeek.info' })
+    // An address is needed unless this names one of Prowlarr's own sites (definition, no url).
+    if (!(nonEmpty(ix.definition) && !nonEmpty(ix.url))) {
+      try {
+        const u = new URL(ix.url as string)
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error()
+      } catch {
+        p.push({ path: `${at}.url`, message: 'Enter the indexer’s address, e.g. https://api.nzbgeek.info (or name one of Prowlarr’s built-in sites with "definition")' })
+      }
     }
     if (ix.kind === 'torznab' && !vpn) p.push({ path: `${at}.kind`, message: 'Torrent indexers need the torrent downloader (add a VPN)' })
     if (ix.kind === 'newznab' && servers.length === 0) p.push({ path: `${at}.kind`, message: 'Usenet indexers need a Usenet server' })

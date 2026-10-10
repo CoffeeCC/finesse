@@ -13,7 +13,9 @@ export interface Draft {
   usenet: boolean
   torrents: boolean
   servers: (Omit<UsenetServer, 'port' | 'connections'> & { preset: string; port: string; connections: string })[]
-  indexers: (Indexer & { key: string })[]
+  indexers: (Indexer & { url: string; key: string })[]
+  /** The built-in search sites were offered (ticked) once; after that, the choice is the person's. */
+  builtinOffered: boolean
   vpn: {
     provider: string
     type: 'wireguard' | 'openvpn'
@@ -47,6 +49,7 @@ export function newDraft(): Draft {
     torrents: false,
     servers: [],
     indexers: [],
+    builtinOffered: false,
     vpn: { provider: '', type: 'wireguard', privateKey: '', addresses: '', presharedKey: '', endpointIp: '', endpointPort: '51820', publicKey: '', username: '', password: '', countries: '' },
     quality: '1080p',
     remote: 'none',
@@ -63,6 +66,8 @@ export function newServer(primary: boolean): Draft['servers'][number] {
 }
 
 let seq = 0
+/** One of Prowlarr's own search sites: named, with no address or key to enter. */
+export const isBuiltInSite = (ix: { definition?: string; url?: string }) => Boolean(ix.definition) && !(ix.url ?? '').trim()
 export const indexerKey = () => `ix${Date.now().toString(36)}${seq++}`
 
 const clean = (s: string) => s.trim()
@@ -127,7 +132,11 @@ export function toDoc(d: Draft): SetupDoc {
       torrents: d.torrents ? { vpn: vpnDoc(d) } : null,
       indexers: d.indexers
         .filter((ix) => (ix.kind === 'newznab' ? d.usenet : d.torrents))
-        .map((ix) => ({ name: clean(ix.name), kind: ix.kind, url: clean(ix.url), ...(clean(ix.apiKey ?? '') ? { apiKey: clean(ix.apiKey!) } : {}) })),
+        .map((ix) =>
+          isBuiltInSite(ix)
+            ? { name: clean(ix.name), kind: ix.kind, definition: ix.definition }
+            : { name: clean(ix.name), kind: ix.kind, url: clean(ix.url), ...(ix.definition ? { definition: ix.definition } : {}), ...(clean(ix.apiKey ?? '') ? { apiKey: clean(ix.apiKey!) } : {}) },
+        ),
     }
   }
   if (d.remote === 'tailscale') doc.remoteAccess = { method: 'tailscale', tailscale: { authKey: clean(d.tailscale.authKey), hostname: clean(d.tailscale.hostname).toLowerCase() || 'finesse' } }
@@ -187,7 +196,8 @@ export function fromDoc(doc: SetupDoc): Draft {
   d.usenet = Boolean(dl?.usenet)
   d.torrents = Boolean(dl?.torrents)
   d.servers = (dl?.usenet?.servers ?? []).map((s) => ({ ...s, preset: '', port: String(s.port ?? 563), connections: String(s.connections ?? 20) }))
-  d.indexers = (dl?.indexers ?? []).map((ix) => ({ ...ix, key: indexerKey() }))
+  d.indexers = (dl?.indexers ?? []).map((ix) => ({ ...ix, url: ix.url ?? '', key: indexerKey() }))
+  d.builtinOffered = true // an existing setup: whatever is (or isn't) there is their choice
   const v = dl?.torrents?.vpn
   if (v) {
     d.vpn = {
