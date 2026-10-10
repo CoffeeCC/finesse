@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Windows installer: music from the start — v2.7.2 (2026-10-10)
+
+- **Lo-Finessa plays as soon as Finesse Setup opens.** It used to wait for your first click, so
+  the installer started out silent. The **Lo-Finessa** button in the top corner still turns it
+  off, and Finesse Setup remembers your choice.
+- **"Where should movies live?" keeps Install Finesse in view.** Heading, drives, folder and the
+  button all fit in the window. With many drives, only the list of drives scrolls.
+
 ## Windows installer: pick any drive — v2.7.1 (2026-10-10)
 
 - **Fixed: Finesse Setup for Windows could get stuck on "Where should movies live?"** On a PC

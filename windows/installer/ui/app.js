@@ -178,7 +178,7 @@ const ICON = {
 }
 const ARROW = '<span class="arrow">→</span>'
 
-// ---------- music: the whole Lo-Finessa song, on the first click, if wanted ----------
+// ---------- music: the whole Lo-Finessa song, from the moment it opens, if wanted ----------
 const song = $('#song')
 const music = { on: (() => { try { return localStorage.getItem('finesse.setup.music') !== 'off' } catch { return true } })(), started: false }
 function musicUi() {
@@ -208,6 +208,9 @@ $('#music').addEventListener('click', (e) => {
 })
 song.addEventListener('canplay', musicUi, { once: true })
 document.addEventListener('pointerdown', startMusic, true)
+// On launch: the exe lets the page play without a click (--autoplay-policy in Shell.cs). If that is ever refused, or the song wasn't ready, the next click or the song loading tries again.
+startMusic()
+song.addEventListener('canplay', startMusic, { once: true })
 
 // ---------- the window ----------
 $('#bar').addEventListener('mousedown', (e) => { if (e.button === 0 && !e.target.closest('button')) B.call('window', { action: 'drag' }) })
@@ -434,6 +437,7 @@ async function folders() {
     <div class="err" id="err"></div>
     <div class="actions"><button class="btn primary" id="go">Install Finesse ${ARROW}</button></div>`,
   { art: 'popcorn', line: 'Where do your movies live? Pick the roomiest drive.', step: 2 })
+  el.classList.add('folders') // the drives scroll if there are many; the folder and Install stay in view
   render()
   $('#drives', el).onclick = async (e) => {
     const l = e.target.closest('.drive')?.dataset.l
