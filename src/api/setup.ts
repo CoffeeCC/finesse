@@ -92,7 +92,7 @@ export interface VpnProvider {
 export interface SetupInfo {
   state: string
   mode: string
-  defaults: { timezone: string; root: string; data: string; puid: number; pgid: number; gpu: boolean }
+  defaults: { timezone: string; root: string; data: string; puid: number; pgid: number; gpu: boolean; dataLabel?: string | null; lanHost?: string | null }
   vpnProviders: VpnProvider[]
   indexerSuggestions: { name: string; url: string }[]
   catalog: { id: string; name: string; role: string; image: string }[]

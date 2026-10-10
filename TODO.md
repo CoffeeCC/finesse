@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Windows: real folder names and a TV address that works — v2.7.4 (2026-10-10)
+
+- **The "Your server is ready" page shows your Windows folders.** It said things like
+  `/run/desktop/mnt/host/e/Finesse/media/movies`, which is how Docker sees the drive. It now says
+  `E:\Finesse\media\movies`, for movies, TV, music and games.
+- **"Watch on your TV" gives an address a TV can use.** It used to say `localhost:8080`, which only
+  works on the PC itself. Finesse Setup now tells Finesse the PC's address on your home network, and
+  the page shows that (for example `192.168.1.20:8080`). Servers installed before this update show
+  what the address looks like until Finesse Setup is run again.
+
 ## Windows installer: a clean handoff to the browser — v2.7.3 (2026-10-10)
 
 - **"Finish in your browser" no longer leaves two Lo-Finessas playing.** The installer's music

@@ -454,6 +454,7 @@ namespace Finesse.Setup
                 throw new FriendlyException("Couldn't download Finesse (" + pull.FirstError + "). Check the internet connection, then try again.");
 
             Step("start");
+            string lan = LanIp();
             string args = string.Join(" ",
                 $"run -d --name {Name} --restart unless-stopped",
                 $"--network {Network} --network-alias finesse",
@@ -464,6 +465,8 @@ namespace Finesse.Setup
                 $"-e FINESSE_ROOT={mount} -e FINESSE_DATA={Q(lin)} -e FINESSE_CONFIG_DIR={mount}/config/finesse",
                 // What Finesse shows people as "your media folder" (Add media): the Windows path, not Docker's.
                 $"-e FINESSE_DATA_LABEL={Q(media)}",
+                // The PC's address at home, for "enter this on your TV" (the browser here only knows localhost).
+                lan != null ? $"-e FINESSE_LAN_HOST={lan}" : "",
                 $"-e PUID=1000 -e PGID=1000 -e TZ={TimeZones.Local()}",
                 "--label finesse.installer=windows",
                 Image);
@@ -479,7 +482,6 @@ namespace Finesse.Setup
                 Thread.Sleep(1500);
             }
             string code = Docker($"exec {Name} finesse setup-code", 30000).Out.Trim();
-            string lan = LanIp();
             Log.Write($"Finesse is running on port {port}");
             return new Dictionary<string, object>
             {

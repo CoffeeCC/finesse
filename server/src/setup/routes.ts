@@ -72,7 +72,11 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       sendJson(res, 200, {
         state: s.setup.state,
         mode: s.mode,
-        defaults: { timezone: process.env.TZ || 'Etc/UTC', root: base.hostRoot, data: base.hostData, puid: base.puid, pgid: base.pgid, gpu: base.gpu },
+        defaults: {
+          timezone: process.env.TZ || 'Etc/UTC', root: base.hostRoot, data: base.hostData, puid: base.puid, pgid: base.pgid, gpu: base.gpu,
+          // What people see on this machine (the Windows installer says "E:\Finesse"; data is Docker's own view), and its address at home.
+          dataLabel: process.env.FINESSE_DATA_LABEL || null, lanHost: process.env.FINESSE_LAN_HOST || null,
+        },
         vpnProviders: VPN_PROVIDERS,
         indexerSuggestions: INDEXER_SUGGESTIONS,
         catalog: Object.values(CATALOG).map((d) => ({ id: d.id, name: d.name, role: d.role, image: d.image })),
