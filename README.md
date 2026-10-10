@@ -5,9 +5,9 @@
 **Your own streaming service.** Movies, shows and music on every screen, installed, connected
 and looked after for you.
 
-[![Watch the tour](docs/media/tour-poster.jpg)](docs/media/finesse-tour.mp4)
+[![Watch the tour](docs/media/tour-poster.jpg)](https://youtu.be/Hh9M_WYSR3Y)
 
-**[▶ Watch the 9-minute tour](docs/media/finesse-tour.mp4)** · [Install](#install) ·
+**[▶ Watch the 9-minute tour](https://youtu.be/Hh9M_WYSR3Y)** · [Install](#install) ·
 [Features](#what-you-get) · [For AI agents](docs/agents/INSTALL.md) · [Docs](docs/install.md)
 
 </div>
@@ -27,7 +27,7 @@ a games console than a catalogue, with the art of whatever you rest on filling t
 
 A 9-minute narrated film of the real thing: installing it, the setup page, and every feature on
 the web, a phone and a TV, with captions throughout.
-[Watch it](docs/media/finesse-tour.mp4), or jump to a chapter in your video player:
+[Watch it](https://youtu.be/Hh9M_WYSR3Y), or jump to a chapter in your video player:
 
 `0:00` Welcome · `0:17` Install and set up · `1:49` Building your server ·
 `2:07` Profiles and sign-in · `2:15` Home · `2:42` Search · `2:48` A title’s page ·
