@@ -520,7 +520,7 @@ A new look for phones and computers. The TV app keeps its own home for now.
 ## Finesse sets up game streaming — v1.4.0 (2026-10-02)
 
 - **One switch for Steam on the TV.** On a full install, **Settings → Server → Game streaming**
-  has **Turn on game streaming**. Finesse downloads [Wolf](https://games-on-whales.github.io/wolf/),
+  has **Turn on game streaming**. Finesse downloads [Wolf](https://games-on-whales.github.io/wolf/stable/),
   runs it, and keeps it up to date with the other apps. **Games** then lists what you can play,
   and you pair TVs, phones and computers with Moonlight's PIN, as in 1.3. See
   [Game streaming](docs/streaming.md).
@@ -549,7 +549,7 @@ A new look for phones and computers. The TV app keeps its own home for now.
 
 ## Game streaming with Wolf — v1.3.0 (2026-10-02)
 
-- **Steam on the TV.** Already run [Wolf](https://games-on-whales.github.io/wolf/), which streams
+- **Steam on the TV.** Already run [Wolf](https://games-on-whales.github.io/wolf/stable/), which streams
   Steam and other apps from your server to Moonlight? Point Finesse at it (`WOLF_SOCKET`) and
   **Games** shows what you can stream, with how to start in Moonlight. See
   [Game streaming](docs/streaming.md).

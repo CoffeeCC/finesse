@@ -36,7 +36,7 @@ Put games in your media folder, one folder per system:
 New games show up under **Games** within a few minutes, and there's a full rescan every night.
 Folder names are RomM's system names: `nes`, `snes`, `n64`, `gb`, `gbc`, `gba`, `nds`,
 `genesis`, `sms`, `gamegear`, `psx`, `pce`, `atari2600`, `arcade` and
-[many more](https://docs.romm.app/latest/Getting-Started/Folder-Structure/).
+[many more](https://docs.romm.app/latest/getting-started/folder-structure/).
 
 ## Box art
 

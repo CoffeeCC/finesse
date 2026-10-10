@@ -1,6 +1,6 @@
 # Game streaming: play Steam on your TV
 
-[Wolf](https://games-on-whales.github.io/wolf/) runs Steam and other apps on your server and
+[Wolf](https://games-on-whales.github.io/wolf/stable/) runs Steam and other apps on your server and
 streams them to [Moonlight](https://moonlight-stream.org) on TVs, phones, tablets and computers.
 Everyone who plays gets their own session.
 

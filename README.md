@@ -93,7 +93,7 @@ about ten minutes, and nothing is installed until you press **Build my server**.
   files don't have them) and a full-screen lyric video.
 - **Games.** Optional: retro games (NES to PlayStation) that play right in the browser, with the
   library kept by [RomM](https://romm.app). See [Games](docs/games.md).
-- **Game streaming.** One switch sets up [Wolf](https://games-on-whales.github.io/wolf/), which
+- **Game streaming.** One switch sets up [Wolf](https://games-on-whales.github.io/wolf/stable/), which
   runs Steam on your server and streams it to Moonlight on TVs, phones and computers. Finesse
   checks the server first, lists what you can play, and pairs devices with Moonlight's PIN.
   Already run Wolf? Connect it instead. See [Game streaming](docs/streaming.md).
