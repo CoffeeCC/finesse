@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Windows installer: pick any drive — v2.7.1 (2026-10-10)
+
+- **Fixed: Finesse Setup for Windows could get stuck on "Where should movies live?"** On a PC
+  with more than three drives, the drive cards pushed the folder box and **Install Finesse** below
+  the window, and nothing could scroll, so there was no way to continue. The step now scrolls, and
+  the drive cards are more compact when you have many drives.
+
 ## Moments: flag a scene for a friend — v2.7.0 (2026-10-07)
 
 - **Flag a moment.** Tap the flag in the player, nudge where it starts and ends, add a note, and
