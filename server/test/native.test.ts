@@ -220,3 +220,41 @@ test('stopping asks the app itself first', async () => {
   assert.deepEqual(asked, ['prowlarr'])
   assert.equal(await host.isRunning('prowlarr'), false)
 })
+
+test('an app that must be its own Windows service is registered, started, stopped and removed through it', async () => {
+  const root = tmp()
+  const c = ctx(root)
+  const services = new Map<string, string>() // name → state
+  const calls: string[] = []
+  const run = (exe: string, args: string[]) => {
+    calls.push(`${exe.endsWith('sc.exe') ? 'sc' : 'app'} ${args.join(' ')}`)
+    if (!exe.endsWith('sc.exe')) {
+      if (args.at(-1) === 'install' || args.at(-1) === 'update') services.set('SABnzbd', services.get('SABnzbd') ?? 'STOPPED')
+      return { code: 0, out: '' }
+    }
+    const [cmd, name] = args as [string, string]
+    const st = services.get(name)
+    if (st === undefined) return { code: 1060, out: 'The specified service does not exist as an installed service.' }
+    if (cmd === 'queryex') return { code: 0, out: `SERVICE_NAME: ${name}\n        STATE              : 4  ${st}\n        PID                : 4242\n` }
+    if (cmd === 'start') services.set(name, 'RUNNING')
+    if (cmd === 'stop') services.set(name, 'STOPPED')
+    if (cmd === 'delete') services.delete(name)
+    return { code: 0, out: '' }
+  }
+  const app = { ...fakeApp(await freePort()), service: 'SABnzbd', log: (cfg: string) => join(cfg, 'logs', 'sabnzbd.log') }
+  const host = new NativeHost(root, deps({ sabnzbd: app }, { run }))
+  await host.prepareNetwork(c)
+  host.ensureDirs(c, ['sabnzbd'])
+  await host.ensureService('sabnzbd', c)
+  assert.ok(calls.some((x) => x.startsWith('app ') && x.endsWith(' install')), 'registered the app’s own way')
+  assert.ok(calls.includes('sc config SABnzbd start= demand'), 'only Finesse starts it')
+  assert.equal(await host.isRunning('sabnzbd'), true)
+  assert.equal((await host.state('sabnzbd', c))!.running, true)
+  mkdirSync(join(root, 'config', 'sabnzbd', 'logs'), { recursive: true })
+  writeFileSync(join(root, 'config', 'sabnzbd', 'logs', 'sabnzbd.log'), 'one\ntwo\nthree\n')
+  assert.equal(await host.logs('sabnzbd', 2), 'two\nthree', 'its own log file')
+  await host.stop('sabnzbd', 2)
+  assert.equal(await host.isRunning('sabnzbd'), false)
+  await host.removeService('sabnzbd')
+  assert.equal(services.has('SABnzbd'), false)
+})

@@ -36,6 +36,11 @@ export interface NativeApp {
   port: number
   /** Only Finesse talks to it (127.0.0.1), or the whole network (Jellyfin). */
   lan?: boolean
+  /** Runs as a Windows service of its own with this name, which Finesse registers, starts and stops
+   *  (SABnzbd: its Windows build treats any start from a service as being a service itself). */
+  service?: string
+  /** Where it keeps its own log, when its output doesn't go to Finesse (a service). */
+  log?(cfg: string): string
   args(o: { cfg: string; dir: string; port: number }): string[]
 }
 
@@ -96,6 +101,8 @@ export const NATIVE_APPS: Partial<Record<StackServiceId, NativeApp>> = {
     exe: 'SABnzbd/SABnzbd-console.exe',
     // Not 8080: that's Finesse's own.
     port: 8085,
+    service: 'SABnzbd',
+    log: (cfg) => join(cfg, 'logs', 'sabnzbd.log'),
     args: ({ cfg, port }) => ['-f', join(cfg, 'sabnzbd.ini'), '-s', `127.0.0.1:${port}`, '-b', '0'],
   },
   qbittorrent: {
@@ -151,6 +158,8 @@ export interface NativeDeps {
   askToStop?: (id: StackServiceId, url: string) => Promise<boolean>
   /** The program name a process id belongs to now, if any (to tell our leftover from a reused id). */
   imageOf?: (pid: number) => string | null
+  /** Runs a program to its end: sc.exe, or an app registering itself as a service. */
+  run?: (exe: string, args: string[]) => { code: number; out: string }
 }
 
 const LOG_LINES = 2000
@@ -176,6 +185,7 @@ export class NativeHost implements StackHost {
       kill: deps.kill ?? defaultKill,
       imageOf: deps.imageOf ?? defaultImageOf,
       askToStop: deps.askToStop ?? (async () => false),
+      run: deps.run ?? runTo,
     }
     this.saved = this.load()
   }
@@ -341,7 +351,7 @@ export class NativeHost implements StackHost {
     if (this.adopted) return
     this.adopted = true
     for (const [id, a] of Object.entries(this.saved.apps) as [StackServiceId, Spec & { pid?: number }][]) {
-      if (!a.pid || this.procs.get(id)?.child) continue
+      if (!a.pid || this.procs.get(id)?.child || this.apps[id]?.service) continue
       const image = this.deps.imageOf(a.pid)
       if (image && image.toLowerCase() === basename(a.exe).toLowerCase()) {
         log.info(`ending ${CATALOG[id].name} left over from before (pid ${a.pid})`)
@@ -354,6 +364,40 @@ export class NativeHost implements StackHost {
     }
   }
 
+  // ---------- apps that run as their own Windows service ----------
+
+  private sc(args: string[]) {
+    return this.deps.run(sys32('sc.exe'), args)
+  }
+
+  /** RUNNING, START_PENDING, STOPPED… or null when the service isn't registered. */
+  private serviceState(name: string): string | null {
+    const r = this.sc(['queryex', name])
+    if (r.code !== 0) return null
+    return /STATE\s*:\s*\d+\s+(\w+)/.exec(r.out)?.[1] ?? null
+  }
+
+  private servicePid(name: string): number {
+    return Number(/PID\s*:\s*(\d+)/.exec(this.sc(['queryex', name]).out)?.[1] ?? 0)
+  }
+
+  /** Registers it the app's own way (with its settings), started only by Finesse. */
+  private registerService(id: StackServiceId, spec: Spec) {
+    const name = this.app(id).service!
+    const how = this.serviceState(name) === null ? 'install' : 'update'
+    const r = this.deps.run(spec.exe, [...spec.args, how])
+    log.info(`${CATALOG[id].name}: ${how} as a Windows service → ${r.code}`)
+    if (this.serviceState(name) === null) throw new Error(`${CATALOG[id].name} couldn’t set itself up as a Windows service: ${r.out.trim().slice(-300)}`)
+    this.sc(['config', name, 'start=', 'demand'])
+  }
+
+  /** Running (or starting) now. */
+  private alive(id: StackServiceId): boolean {
+    const name = this.apps[id]?.service
+    if (name) return ['RUNNING', 'START_PENDING'].includes(this.serviceState(name) ?? '')
+    return Boolean(this.procs.get(id)?.child)
+  }
+
   async ensureService(id: StackServiceId, ctx: StackContext, onProgress?: ProgressSink, opts: { forceRecreate?: boolean } = {}): Promise<boolean> {
     this.adopt()
     await this.download(id, onProgress)
@@ -363,11 +407,12 @@ export class NativeHost implements StackHost {
     const changed = !had || had.hash !== want.hash || Boolean(opts.forceRecreate)
     if (changed) {
       onProgress?.({ service: id, phase: 'create', detail: had ? 'updating' : undefined })
-      if (p?.child) await this.stop(id)
+      if (this.alive(id)) await this.stop(id)
       this.saved.apps[id] = { ...want }
       this.save()
+      if (this.app(id).service) this.registerService(id, want)
     }
-    if (changed || !p?.child) {
+    if (changed || !this.alive(id) || !p?.wanted) {
       onProgress?.({ service: id, phase: 'start' })
       await this.start(id)
     }
@@ -382,6 +427,16 @@ export class NativeHost implements StackHost {
     p.wanted = true
     if (p.restartTimer) clearTimeout(p.restartTimer)
     p.restartTimer = null
+    const name = this.app(id).service
+    if (name) {
+      if (this.serviceState(name) === null) this.registerService(id, spec)
+      if (this.alive(id)) return
+      p.startedAt = Date.now()
+      const r = this.sc(['start', name])
+      if (r.code !== 0 && !this.alive(id)) throw new Error(`${CATALOG[id].name} didn’t start: ${r.out.trim().slice(-200)}`)
+      log.info(`started ${CATALOG[id].name} (Windows service ${name})`)
+      return
+    }
     if (p.child) return
     this.launch(id, spec, p)
   }
@@ -468,6 +523,8 @@ export class NativeHost implements StackHost {
     p.wanted = false
     if (p.restartTimer) clearTimeout(p.restartTimer)
     p.restartTimer = null
+    const name = this.apps[id]?.service
+    if (name) return this.stopService(id, name, seconds)
     const child = p.child
     if (!child?.pid) return
     const gone = new Promise<void>((resolve) => child.once('exit', () => resolve()))
@@ -493,13 +550,29 @@ export class NativeHost implements StackHost {
     }
   }
 
+  /** Its own shutdown, else the service controller's; ended outright if it's still there after `seconds`. */
+  private async stopService(id: StackServiceId, name: string, seconds: number) {
+    if (!this.alive(id)) return
+    const pid = this.servicePid(name)
+    if (!(await this.deps.askToStop(id, this.url(id)).catch(() => false))) this.sc(['stop', name])
+    const until = Date.now() + seconds * 1000
+    while (this.alive(id) && Date.now() < until) await new Promise((r) => setTimeout(r, 500))
+    if (this.alive(id) && pid) {
+      try {
+        this.deps.kill(pid, true)
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+
   async restart(id: StackServiceId, seconds = 30): Promise<void> {
     await this.stop(id, seconds)
     await this.start(id)
   }
 
   async isRunning(id: StackServiceId): Promise<boolean> {
-    return Boolean(this.procs.get(id)?.child)
+    return this.alive(id)
   }
 
   async state(id: StackServiceId, ctx: StackContext): Promise<AppState | null> {
@@ -513,7 +586,7 @@ export class NativeHost implements StackHost {
       /* no longer something this host runs */
     }
     return {
-      running: Boolean(p?.child),
+      running: this.alive(id),
       restarting: Boolean(p?.restartTimer),
       exitCode: p?.exitCode ?? 0,
       startedAt: p?.startedAt ? new Date(p.startedAt).toISOString() : '',
@@ -524,6 +597,15 @@ export class NativeHost implements StackHost {
   }
 
   async logs(id: StackServiceId, tail = 200, since?: number): Promise<string> {
+    // A service writes its own log.
+    const own = this.apps[id]?.log?.(join(this.root, 'config', id))
+    if (own && !since) {
+      try {
+        return readFileSync(own, 'utf8').split(/\r?\n/).filter(Boolean).slice(-tail).join('\n')
+      } catch {
+        return ''
+      }
+    }
     const lines = this.procs.get(id)?.lines ?? []
     const from = since ? since * 1000 : 0
     return lines
@@ -554,7 +636,7 @@ export class NativeHost implements StackHost {
         }
       }
       const p = this.procs.get(id)
-      if (!p?.child && !p?.restartTimer) {
+      if (!this.alive(id) && !p?.restartTimer && !(this.apps[id]?.service && Date.now() - (p?.startedAt ?? 0) < 30000)) {
         const tail = (await this.logs(id, 8)).trim()
         throw new Error(`${def.name} stopped unexpectedly (exit ${p?.exitCode ?? '?'}).${tail ? `\n${tail}` : ''}`)
       }
@@ -577,6 +659,8 @@ export class NativeHost implements StackHost {
 
   async removeService(id: StackServiceId): Promise<void> {
     await this.stop(id)
+    const name = this.apps[id]?.service
+    if (name && this.serviceState(name) !== null) this.sc(['delete', name])
     delete this.saved.apps[id]
     this.save()
   }
@@ -584,7 +668,7 @@ export class NativeHost implements StackHost {
   async managed(): Promise<Map<string, ManagedApp>> {
     const out = new Map<string, ManagedApp>()
     for (const [id, spec] of Object.entries(this.saved.apps) as [StackServiceId, Spec][]) {
-      const running = Boolean(this.procs.get(id)?.child)
+      const running = this.apps[id] ? this.alive(id) : false
       out.set(id, { id, state: running ? 'running' : 'exited', status: running ? 'Up' : 'Stopped', image: `${CATALOG[id].name} ${spec.version}` })
     }
     return out
@@ -638,6 +722,11 @@ function run(exe: string, args: string[]) {
   const r = spawnSync(exe, args, { windowsHide: true, encoding: 'utf8', timeout: 10 * 60000 })
   if (r.error) throw r.error
   if (r.status !== 0) throw new Error(`${basename(exe)} failed (exit ${r.status}): ${(r.stderr || r.stdout || '').trim().slice(-300)}`)
+}
+
+function runTo(exe: string, args: string[]): { code: number; out: string } {
+  const r = spawnSync(exe, args, { windowsHide: true, encoding: 'utf8', timeout: 120000 })
+  return { code: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? r.error.message : ''}` }
 }
 
 function sha256(file: string): Promise<string> {

@@ -575,6 +575,14 @@ namespace Finesse.Setup
                 StopService();
                 Sc($"delete {FinesseService.Name}");
             }
+            // SABnzbd runs as a service of its own, registered by Finesse: removed too, but only if it's ours.
+            var sab = Run("sc.exe", "qc SABnzbd", 15000);
+            if (sab.Ok && sab.Out.IndexOf(Paths.Data, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Sc("stop SABnzbd");
+                Thread.Sleep(3000);
+                Sc("delete SABnzbd");
+            }
             Run("netsh.exe", "advfirewall firewall delete rule name=\"Finesse\"", 30000);
             foreach (var f in new[] {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Finesse.url"),

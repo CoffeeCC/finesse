@@ -91,6 +91,7 @@ Get-Content uninstall.out
 if ($p.ExitCode -ne 0) { throw "Uninstall exited with $($p.ExitCode)" }
 Start-Sleep -Seconds 5
 if (Get-Service Finesse -ErrorAction SilentlyContinue) { throw 'The Finesse service is still there' }
+if (Get-Service SABnzbd -ErrorAction SilentlyContinue) { throw 'The SABnzbd service Finesse registered is still there' }
 $left = Get-Process node, jellyfin, Prowlarr.Console, Radarr.Console, SABnzbd-console, qbittorrent -ErrorAction SilentlyContinue
 if ($left) { $left | Format-Table Name, Id; throw 'Apps are still running after uninstall' }
 if (-not (Test-Path $Media)) { throw 'Uninstall removed the media folder' }
