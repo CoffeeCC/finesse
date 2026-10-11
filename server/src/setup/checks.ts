@@ -5,11 +5,13 @@
 
 import { mkdirSync, rmSync, statfsSync, accessSync, constants } from 'node:fs'
 import { connect as netConnect, type Socket } from 'node:net'
-import { cpus, totalmem } from 'node:os'
+import { cpus, platform, release, totalmem, version } from 'node:os'
 import { join } from 'node:path'
 import { connect as tlsConnect } from 'node:tls'
 import { CATALOG } from '../stack/catalog.ts'
 import type { Docker } from '../stack/docker.ts'
+import type { StackHost } from '../stack/host.ts'
+import { Orchestrator } from '../stack/orchestrator.ts'
 import { newKey, seedGluetunAuth } from '../stack/seed.ts'
 import type { IndexerInput, UsenetServer } from '../stack/wire.ts'
 import { vpnConfig, type VpnDoc } from './doc.ts'
@@ -27,21 +29,17 @@ export interface Verdict {
 // System
 // ---------------------------------------------------------------------------
 
-export async function checkSystem(
-  docker: Docker,
-  paths: { root: string; data: string },
-  hostDevices: () => Promise<string[]>,
-  portFree?: (p: number) => Promise<boolean>,
-): Promise<{ ok: boolean; items: (Verdict & { id: string; title: string })[] }> {
+export async function checkSystem(host: StackHost, paths: { root: string; data: string }): Promise<{ ok: boolean; items: (Verdict & { id: string; title: string })[] }> {
   const items: (Verdict & { id: string; title: string })[] = []
-  const reachable = await docker.ping()
-  const v = reachable ? await docker.version().catch(() => null) : null
-  items.push({
-    id: 'docker',
-    title: 'Docker',
-    ok: Boolean(v),
-    message: v ? `Docker ${v.Version} (${v.Os}/${v.Arch})` : 'Finesse can’t reach Docker — was it started with /var/run/docker.sock mounted?',
-  })
+  const docker = host instanceof Orchestrator ? host.docker : null
+  const reachable = await host.ping()
+  const v = docker && reachable ? await docker.version().catch(() => null) : null
+  // The first line says what runs the apps (the wizard knows it as "docker" either way).
+  items.push(
+    docker
+      ? { id: 'docker', title: 'Docker', ok: Boolean(v), message: v ? `Docker ${v.Version} (${v.Os}/${v.Arch})` : 'Finesse can’t reach Docker — was it started with /var/run/docker.sock mounted?' }
+      : { id: 'docker', title: 'Windows', ok: reachable, message: `${osName()} — the apps run as normal Windows programs, no Docker needed` },
+  )
   for (const [id, title, dir] of [
     ['data', 'Media & downloads folder', paths.data],
     ['root', 'Config folder', paths.root],
@@ -59,13 +57,18 @@ export async function checkSystem(
       items.push({ id, title, ok: false, message: `${dir} isn’t writable (${(e as NodeJS.ErrnoException).code ?? (e as Error).message})` })
     }
   }
-  const devices = reachable ? await hostDevices().catch(() => [] as string[]) : []
-  const tun = devices.includes('/dev/net/tun')
-  items.push({ id: 'tun', title: 'VPN support', ok: tun, message: tun ? 'The host can run VPN tunnels (/dev/net/tun)' : 'No /dev/net/tun — torrents need it for the VPN (Usenet works without)' })
-  const gpu = devices.includes('/dev/dri')
-  items.push({ id: 'gpu', title: 'Hardware transcoding', ok: true, message: gpu ? 'Graphics chip found (/dev/dri) — Jellyfin can transcode in hardware' : 'No graphics chip found — Jellyfin will transcode in software (fine for direct play)' })
-  if (reachable && portFree) {
-    const free = await portFree(8096).catch(() => true)
+  const devices = reachable ? await host.hostDevices().catch(() => [] as string[]) : []
+  if (docker) {
+    const tun = devices.includes('/dev/net/tun')
+    items.push({ id: 'tun', title: 'VPN support', ok: tun, message: tun ? 'The host can run VPN tunnels (/dev/net/tun)' : 'No /dev/net/tun — torrents need it for the VPN (Usenet works without)' })
+    const gpu = devices.includes('/dev/dri')
+    items.push({ id: 'gpu', title: 'Hardware transcoding', ok: true, message: gpu ? 'Graphics chip found (/dev/dri) — Jellyfin can transcode in hardware' : 'No graphics chip found — Jellyfin will transcode in software (fine for direct play)' })
+  } else {
+    items.push({ id: 'tun', title: 'VPN for torrents', ok: true, message: 'Torrents only run through the VPN app on this PC (pick it in the next steps)' })
+    items.push({ id: 'gpu', title: 'Hardware transcoding', ok: true, message: 'Jellyfin uses this PC’s graphics chip when it can' })
+  }
+  if (reachable) {
+    const free = await host.hostPortFree(8096).catch(() => true)
     items.push({
       id: 'ports',
       title: 'Jellyfin port',
@@ -73,7 +76,7 @@ export async function checkSystem(
       message: free ? 'Port 8096 is free for native Jellyfin apps' : 'Port 8096 is already in use (another Jellyfin?) — Finesse will use the next free port',
     })
   }
-  const info = reachable ? await docker.info().catch(() => null) : null
+  const info = docker && reachable ? await docker.info().catch(() => null) : null
   items.push({
     id: 'machine',
     title: 'This machine',
@@ -270,3 +273,12 @@ export function explainGluetun(logs: string): string | null {
   return err ? `VPN error: ${err[1]!.slice(0, 160)}` : null
 }
 
+
+/** "Windows 11 Pro (build 26100)" or the platform's own name. */
+function osName(): string {
+  try {
+    return `${version()} (build ${release().split('.').pop()})`
+  } catch {
+    return platform()
+  }
+}

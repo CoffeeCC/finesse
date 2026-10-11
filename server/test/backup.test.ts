@@ -102,7 +102,7 @@ test('back up everything, lose it, restore it', async () => {
   writeFileSync(join(w.cfg, 'romm/assets/users/1/saves/gb/Tobu Tobu Girl.srm'), 'level 1')
   writeFileSync(w.paths.settingsFile, JSON.stringify({ hello: 'changed' }))
 
-  const r = await restoreBackup(join(w.paths.backups, file.name), { configDir: w.configDir, root: w.root, uid: process.getuid!(), gid: process.getgid!(), docker: null })
+  const r = await restoreBackup(join(w.paths.backups, file.name), { configDir: w.configDir, root: w.root, uid: process.getuid!(), gid: process.getgid!(), apps: null })
   assert.deepEqual(rowsOf(join(w.cfg, 'jellyfin/data/jellyfin.db')), ['alex watched Sintel', 'robin watched Big Buck Bunny'])
   assert.deepEqual(rowsOf(join(w.cfg, 'sonarr/sonarr.db')), ['Pioneer One'])
   assert.deepEqual(rowsOf(join(w.cfg, 'radarr/radarr.db')), ['Big Buck Bunny', 'Sintel'])
@@ -132,7 +132,7 @@ test('restore can bring back just one part', async () => {
   sqlite(join(w.cfg, 'jellyfin/data/jellyfin.db'), [])
   sqlite(join(w.cfg, 'sonarr/sonarr.db'), [])
   writeFileSync(w.paths.settingsFile, JSON.stringify({ hello: 'changed' }))
-  await restoreBackup(join(w.paths.backups, file.name), { configDir: w.configDir, root: w.root, uid: process.getuid!(), gid: process.getgid!(), docker: null, only: ['watch'] })
+  await restoreBackup(join(w.paths.backups, file.name), { configDir: w.configDir, root: w.root, uid: process.getuid!(), gid: process.getgid!(), apps: null, only: ['watch'] })
   assert.equal(rowsOf(join(w.cfg, 'jellyfin/data/jellyfin.db')).length, 2)
   assert.deepEqual(rowsOf(join(w.cfg, 'sonarr/sonarr.db')), [], 'requests weren’t asked for')
   assert.equal(JSON.parse(readFileSync(w.paths.settingsFile, 'utf8')).hello, 'changed', 'settings weren’t asked for')

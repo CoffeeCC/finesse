@@ -11,13 +11,12 @@
 // that Jellyfin knows the folder and picks up new files by itself.
 
 import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import type { SettingsStore } from '../config.ts'
 import { logger } from '../log.ts'
+import { fromApp } from './apppaths.ts'
 
 const log = logger('libraries')
-/** Jellyfin sees the media folder here (see the catalog's Jellyfin mounts). */
-const JF_MEDIA = '/data/media'
 
 export interface JellyfinLibrary {
   id: string
@@ -99,9 +98,8 @@ export class LibraryNudger {
       for (const lib of await this.api.list(base, jf.apiKey)) {
         if (this.filled.has(lib.id)) continue
         // Only folders inside the media folder, read where Finesse sees them.
-        const dirs = lib.locations
-          .filter((p) => (p === JF_MEDIA || p.startsWith(`${JF_MEDIA}/`)) && !p.split('/').includes('..'))
-          .map((p) => join(s.stack!.hostData, p.slice('/data'.length)))
+        const media = join(s.stack!.hostData, 'media')
+        const dirs = lib.locations.map((p) => fromApp(s.stack!.hostData, p)).filter((p): p is string => Boolean(p) && (p === media || p!.startsWith(media + sep)))
         const sig = dirs.map(folderSignature).join('\n')
         if (!sig.trim() || this.scannedFor.get(lib.id) === sig) continue
         if ((await this.api.count(base, jf.apiKey, lib.id)) > 0) {

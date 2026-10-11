@@ -4,8 +4,8 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- Runs as you; Windows asks for permission only for the steps that need it. -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- Windows asks once, when Setup opens: it installs a service into Program Files and opens the firewall. -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

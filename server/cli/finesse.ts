@@ -23,6 +23,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { VERSION } from '../src/jellyfin.ts'
 import { Docker } from '../src/stack/docker.ts'
+import { Orchestrator } from '../src/stack/orchestrator.ts'
 import { swap } from '../src/stack/selfupdate.ts'
 import { qrTerminal } from '../src/qr.ts'
 import { BACKUP_PARTS, isPart, restoreBackup, type BackupPart } from '../src/stack/backup.ts'
@@ -423,13 +424,13 @@ async function main(argv: string[]): Promise<number> {
       const file = isAbsolute(name) || existsSync(name) ? resolve(name) : join(configDir, 'backups', name)
       if (!existsSync(file)) throw new Error(`No backup at ${file}`)
       const root = (process.env.FINESSE_ROOT || '').replace(/\/+$/, '') || null
-      const docker = root ? new Docker() : null
+      const host = root ? new Orchestrator() : null
       const r = await restoreBackup(file, {
         configDir,
         root,
         uid: Number(process.env.PUID ?? 1000),
         gid: Number(process.env.PGID ?? 1000),
-        docker: docker && (await docker.ping()) ? docker : null,
+        apps: host && (await host.ping()) ? host : null,
         only: (onlyArg as BackupPart[] | null) ?? undefined,
         say: (m) => console.log(dim(`  ${m}`)),
       })

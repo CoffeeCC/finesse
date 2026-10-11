@@ -73,6 +73,8 @@ export interface Settings {
     services: string[]
     /** Full VPN settings (secrets included) — needed to recreate Gluetun. */
     vpn?: import('./stack/catalog.ts').VpnConfig
+    /** Windows: the VPN app's network adapter qBittorrent is locked to. */
+    vpnAdapter?: string
     remote?: { method: 'none' | 'tailscale' | 'cloudflare'; tailscale?: { authKey: string; hostname: string }; cloudflare?: { token: string } }
     exposeJellyfin?: boolean
     jellyfinPort?: number

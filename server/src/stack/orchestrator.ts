@@ -5,22 +5,21 @@
 // its own.
 
 import { createHash } from 'node:crypto'
-import { chownSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { chownSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { logger } from '../log.ts'
 import { CATALOG, containerName, proxyFor, type ServiceDef, type StackContext, type StackServiceId } from './catalog.ts'
 import { Docker, DockerError } from './docker.ts'
+import { NotOnThisHost, type AppState, type ProgressSink, type StackHost } from './host.ts'
 import type { StreamingProbe } from './wolf.ts'
+
+export type { ProgressSink } from './host.ts'
 
 const log = logger('stack')
 
 export const LABEL_MANAGED = 'finesse.managed'
 export const LABEL_SERVICE = 'finesse.service'
 export const LABEL_SPEC = 'finesse.spec'
-
-export interface ProgressSink {
-  (event: { service: StackServiceId; phase: 'pull' | 'create' | 'start' | 'wait' | 'ready' | 'skip'; detail?: string; fraction?: number }): void
-}
 
 export function serviceUrl(id: StackServiceId): string {
   const def = CATALOG[id]
@@ -83,11 +82,100 @@ export function specHash(spec: Record<string, unknown>): string {
   return createHash('sha256').update(JSON.stringify(spec)).digest('hex').slice(0, 16)
 }
 
-export class Orchestrator {
+/** The Docker host, for what only Docker installs do (Games, Wolf, Tailscale, exec into an app). */
+export function dockerOf(host: StackHost, what: string): Orchestrator {
+  if (host instanceof Orchestrator) return host
+  throw new NotOnThisHost(what)
+}
+
+export class Orchestrator implements StackHost {
+  readonly kind = 'docker'
   readonly docker: Docker
 
   constructor(docker = new Docker()) {
     this.docker = docker
+  }
+
+  supports(_id: StackServiceId): boolean {
+    return true
+  }
+
+  url(id: StackServiceId): string {
+    return serviceUrl(id)
+  }
+
+  peer(id: StackServiceId): { host: string; port: number } {
+    return { host: CATALOG[id].alias, port: CATALOG[id].port }
+  }
+
+  /** Every app sees the data folder at /data. */
+  appPath(_ctx: { hostData: string }, rel: string): string {
+    return `/data/${rel}`
+  }
+
+  ping(): Promise<boolean> {
+    return this.docker.ping()
+  }
+
+  download(id: StackServiceId, onProgress?: ProgressSink): Promise<void> {
+    return this.ensureImage(CATALOG[id], onProgress)
+  }
+
+  async state(id: StackServiceId, ctx: StackContext): Promise<AppState | null> {
+    const c = await this.docker.inspect(containerName(id)).catch(() => null)
+    if (!c) return null
+    ctx.selinux ??= await this.hostSelinux()
+    const managed = c.Config.Labels?.[LABEL_MANAGED] === 'true'
+    return {
+      running: c.State.Running,
+      restarting: c.State.Restarting,
+      exitCode: c.State.ExitCode,
+      startedAt: c.State.StartedAt,
+      image: c.Config.Image,
+      managed,
+      updatePending: c.Config.Labels?.[LABEL_SPEC] !== specHash(containerSpec(CATALOG[id], ctx)),
+    }
+  }
+
+  async isRunning(id: StackServiceId): Promise<boolean> {
+    const c = await this.docker.inspect(containerName(id)).catch(() => null)
+    return Boolean(c?.State.Running)
+  }
+
+  start(id: StackServiceId): Promise<void> {
+    return this.docker.start(containerName(id))
+  }
+
+  stop(id: StackServiceId, seconds = 30): Promise<void> {
+    return this.docker.stop(containerName(id), seconds)
+  }
+
+  restart(id: StackServiceId, seconds = 30): Promise<void> {
+    return this.docker.restart(containerName(id), seconds)
+  }
+
+  logs(id: StackServiceId, tail = 200, since?: number): Promise<string> {
+    return this.docker.logs(containerName(id), tail, since)
+  }
+
+  /** ffmpeg inside the Jellyfin container (it sees the library), staged in Jellyfin's config folder. */
+  async ffmpeg(args: string[], out: string, hostRoot: string): Promise<{ file: string | null; output: string }> {
+    const stageIn = '/config/finesse-previews'
+    const stage = `${hostRoot}/config/jellyfin/finesse-previews`
+    mkdirSync(stage, { recursive: true })
+    try {
+      // Made by Finesse (root): Jellyfin runs as PUID and must write here.
+      chownSync(stage, Number(process.env.PUID ?? 1000), Number(process.env.PGID ?? 1000))
+    } catch {
+      /* not root (dev): already ours */
+    }
+    const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`
+    const cmd = `mkdir -p ${stageIn} && nice -n 19 /usr/lib/jellyfin-ffmpeg/ffmpeg ${args.map(q).join(' ')} ${q(`${stageIn}/${out}`)}`
+    const r = await this.docker.exec(containerName('jellyfin'), ['sh', '-c', cmd]).catch((e) => ({ code: -1, output: String(e) }))
+    const file = `${stage}/${out}`
+    if (r.code === 0 && existsSync(file) && statSync(file).size > 0) return { file, output: r.output }
+    rmSync(file, { force: true })
+    return { file: null, output: r.output }
   }
 
   private hostProbe: { at: number; devices: string[]; gpuGroups: string[] } | null = null

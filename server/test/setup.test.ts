@@ -183,6 +183,31 @@ describe('setup document', () => {
     assert.deepEqual(servicesFor(full as never), ['jellyfin', 'prowlarr', 'sonarr', 'radarr', 'sabnzbd'])
   })
 
+  test('Windows: torrents lock to the VPN app’s adapter, with no Gluetun', () => {
+    const d = base()
+    d.downloads.torrents = { adapter: 'NordLynx' }
+    d.remoteAccess = { method: 'none' }
+    assert.deepEqual(check(schema, d), [], 'schema')
+    assert.deepEqual(validateSetup(d, { native: true }).problems, [])
+    const ids = servicesFor(d as never, true)
+    assert.ok(ids.includes('qbittorrent') && !ids.includes('gluetun'))
+    // The same document on Docker: the adapter means nothing there.
+    assert.match(validateSetup(d).problems[0]!.message, /VPN adapter is for Windows installs/)
+  })
+
+  test('Windows: says plainly what isn’t there yet', () => {
+    const d = base()
+    d.remoteAccess = { method: 'none' }
+    const paths = (x: unknown) => validateSetup(x, { native: true }).problems.map((p) => p.path)
+    assert.deepEqual(paths(d), ['downloads.torrents.vpn'], 'Gluetun keys: give the adapter instead')
+    d.downloads.torrents = {}
+    assert.deepEqual(paths(d), ['downloads.torrents.adapter'])
+    d.downloads.torrents = { adapter: 'Mullvad' }
+    d.libraries = { games: true }
+    d.remoteAccess = { method: 'tailscale', tailscale: { authKey: 'tskey-auth-abc' } }
+    assert.deepEqual(paths(d).sort(), ['libraries.games', 'remoteAccess.method'])
+  })
+
   test('games: RomM + its database, with optional artwork keys', () => {
     const d = base() as Record<string, any>
     d.libraries = { games: true }

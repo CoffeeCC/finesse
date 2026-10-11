@@ -92,6 +92,10 @@ export interface VpnProvider {
 export interface SetupInfo {
   state: string
   mode: string
+  /** What runs the apps: Docker, or this PC's own Windows programs. */
+  host?: 'docker' | 'native'
+  /** Windows: this PC's connected network adapters, VPN-looking ones first. */
+  adapters?: { name: string; vpn: boolean }[]
   defaults: { timezone: string; root: string; data: string; puid: number; pgid: number; gpu: boolean; dataLabel?: string | null; lanHost?: string | null }
   vpnProviders: VpnProvider[]
   indexerSuggestions: { name: string; url: string }[]
@@ -143,7 +147,7 @@ export interface SetupDoc {
   server?: { name?: string; language?: string; country?: string; timezone?: string }
   libraries?: { movies?: boolean; shows?: boolean; music?: boolean; games?: boolean; samples?: boolean }
   games?: { igdb?: { clientId: string; clientSecret: string }; steamGridDbKey?: string; screenscraper?: { username: string; password: string } }
-  downloads?: { usenet?: { servers: UsenetServer[] } | null; torrents?: { vpn: VpnDoc } | null; indexers?: Indexer[] }
+  downloads?: { usenet?: { servers: UsenetServer[] } | null; torrents?: { vpn?: VpnDoc; adapter?: string } | null; indexers?: Indexer[] }
   quality?: { preset?: '720p' | '1080p' | '4k' | 'any' }
   remoteAccess?: { method: 'none' | 'tailscale' | 'cloudflare'; tailscale?: { authKey: string; hostname?: string }; cloudflare?: { token: string; publicUrl: string } }
   publicUrl?: string
@@ -179,6 +183,7 @@ export const setupApi = {
   current: () => call<{ doc: SetupDoc | null }>('GET', '/api/setup/current'),
   checkUsenet: (s: UsenetServer) => call<Verdict>('POST', '/api/setup/check/usenet', s, { timeoutMs: 45000 }),
   checkIndexer: (ix: Indexer) => call<Verdict>('POST', '/api/setup/check/indexer', ix, { timeoutMs: 45000 }),
+  checkAdapter: (adapter: string) => call<Verdict>('POST', '/api/setup/check/adapter', { adapter }),
   checkVpn: (v: VpnDoc) => call<Verdict & { problems?: Problem[] }>('POST', '/api/setup/check/vpn', v, { timeoutMs: 240000 }),
   validate: (d: SetupDoc) => call<{ ok: boolean; problems: Problem[] }>('POST', '/api/setup/validate', d),
   apply: (d: SetupDoc) => call<RunStatus>('POST', '/api/setup/apply', d),

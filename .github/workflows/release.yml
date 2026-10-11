@@ -6,6 +6,9 @@ name: Release
 #                            presses "Update Finesse" (deploy/invite-service)
 #   finesse-webos-<v>.json   the TV bundle — the webOS app's OTA updater
 #   com.finesse.tv_<v>_all.ipk  the LG TV app to install (docs/tv.md)
+#   finesse-windows-<v>-x64.zip  Finesse for Windows without Docker: Node, the
+#                            server and the app (FinesseSetup.exe installs it;
+#                            Windows installs update to it)
 # and pushes the multi-arch server image ghcr.io/<owner>/finesse:<v> (+ :latest),
 # which installs and self-updates use, and attaches FinesseSetup.exe (the Windows installer;
 # releases/latest/download/FinesseSetup.exe always points at the newest).
@@ -56,7 +59,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if gh release view "$tag" --json assets --jq '.assets[].name' > assets.txt 2>/dev/null; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            if grep -qx "finesse-web-$version.tar.gz" assets.txt && grep -qx "finesse-webos-$version.json" assets.txt; then
+            if grep -qx "finesse-web-$version.tar.gz" assets.txt && grep -qx "finesse-webos-$version.json" assets.txt && grep -qx "finesse-windows-$version-x64.zip" assets.txt; then
               echo "Release $tag already has both assets — nothing to do."
               echo "needed=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -86,6 +89,8 @@ jobs:
           npm run package:webos
           cp "webos/release/finesse-webos-$VERSION.json" .
           cp "webos/release/com.finesse.tv_${VERSION}_all.ipk" . 2>/dev/null || true
+          npm run server:build
+          windows/bundle.sh "$VERSION" .
 
       - name: Publish
         if: steps.check.outputs.needed == 'true'
@@ -94,7 +99,7 @@ jobs:
           VERSION: ${{ steps.check.outputs.version }}
           TAG: ${{ steps.check.outputs.tag }}
         run: |
-          assets=("finesse-web-$VERSION.tar.gz" "finesse-webos-$VERSION.json")
+          assets=("finesse-web-$VERSION.tar.gz" "finesse-webos-$VERSION.json" "finesse-windows-$VERSION-x64.zip")
           ipk="com.finesse.tv_${VERSION}_all.ipk"
           [ -f "$ipk" ] && assets+=("$ipk")
           if [ "${{ steps.check.outputs.exists }}" = "true" ]; then
@@ -191,5 +196,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.release.outputs.version }}
         run: |
-          dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version="$VERSION" -o out
+          # Setup checks the Windows bundle it downloads against this checksum, built into the exe.
+          gh release download "v$VERSION" -p "finesse-windows-$VERSION-x64.zip" -D bundle
+          sha=$(sha256sum "bundle/finesse-windows-$VERSION-x64.zip" | cut -d' ' -f1)
+          dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version="$VERSION" -p:BundleSha256="$sha" -o out
           gh release upload "v$VERSION" out/FinesseSetup.exe --clobber

@@ -21,12 +21,24 @@ export function writeOwned(file: string, content: string, uid: number, gid: numb
   }
 }
 
+/** Where an app runs. Docker: its container port, /data paths, reachable on the
+ *  private network. Windows: the port Finesse picked, real folders, 127.0.0.1
+ *  only, and versions Finesse manages (the app's own updater stays off). */
+export interface SeedHost {
+  native?: boolean
+  port?: number
+  /** A data-folder path as the app sees it ("usenet/complete" → "/data/usenet/complete"). */
+  data?: (rel: string) => string
+}
+
+const dataPath = (h: SeedHost, rel: string) => (h.data ? h.data(rel) : `/data/${rel}`)
+
 // ---------- Servarr (Sonarr / Radarr / Lidarr / Prowlarr) ----------
 
 const ARR_PORTS: Record<string, number> = { sonarr: 8989, radarr: 7878, lidarr: 8686, prowlarr: 9696 }
 
 /** Ensures config.xml exists with an API key; returns the key in use. */
-export function seedArr(configDir: string, app: 'sonarr' | 'radarr' | 'lidarr' | 'prowlarr', uid: number, gid: number): string {
+export function seedArr(configDir: string, app: 'sonarr' | 'radarr' | 'lidarr' | 'prowlarr', uid: number, gid: number, host: SeedHost = {}): string {
   const file = join(configDir, 'config.xml')
   if (existsSync(file)) {
     const m = /<ApiKey>([^<]+)<\/ApiKey>/.exec(readFileSync(file, 'utf8'))
@@ -35,12 +47,12 @@ export function seedArr(configDir: string, app: 'sonarr' | 'radarr' | 'lidarr' |
   const key = newKey()
   const name = app[0]!.toUpperCase() + app.slice(1)
   // AuthenticationMethod External: Finesse is the front door (the apps are
-  // only reachable on the private finesse network, never published).
+  // only reachable on the private finesse network, or on 127.0.0.1 on Windows).
   writeOwned(
     file,
     `<Config>
-  <BindAddress>*</BindAddress>
-  <Port>${ARR_PORTS[app]}</Port>
+  <BindAddress>${host.native ? '127.0.0.1' : '*'}</BindAddress>
+  <Port>${host.port ?? ARR_PORTS[app]}</Port>
   <EnableSsl>False</EnableSsl>
   <LaunchBrowser>False</LaunchBrowser>
   <ApiKey>${key}</ApiKey>
@@ -48,7 +60,7 @@ export function seedArr(configDir: string, app: 'sonarr' | 'radarr' | 'lidarr' |
   <AuthenticationRequired>DisabledForLocalAddresses</AuthenticationRequired>
   <UrlBase></UrlBase>
   <InstanceName>${name}</InstanceName>
-  <UpdateMechanism>Docker</UpdateMechanism>
+  <UpdateMechanism>${host.native ? 'External' : 'Docker'}</UpdateMechanism>${host.native ? '\n  <UpdateAutomatically>False</UpdateAutomatically>' : ''}
   <LogLevel>info</LogLevel>
   <AnalyticsEnabled>False</AnalyticsEnabled>
 </Config>
@@ -61,7 +73,7 @@ export function seedArr(configDir: string, app: 'sonarr' | 'radarr' | 'lidarr' |
 
 // ---------- SABnzbd ----------
 
-export function seedSab(configDir: string, uid: number, gid: number): string {
+export function seedSab(configDir: string, uid: number, gid: number, host: SeedHost = {}): string {
   const file = join(configDir, 'sabnzbd.ini')
   if (existsSync(file)) {
     const m = /^api_key\s*=\s*(\S+)/m.exec(readFileSync(file, 'utf8'))
@@ -78,9 +90,9 @@ __encoding__ = utf-8
 api_key = ${key}
 nzb_key = ${newKey()}
 host_whitelist = sabnzbd, finesse-sabnzbd
-download_dir = /data/usenet/incomplete
-complete_dir = /data/usenet/complete
-permissions = 775
+download_dir = ${dataPath(host, 'usenet/incomplete')}
+complete_dir = ${dataPath(host, 'usenet/complete')}
+${host.native ? `host = 127.0.0.1\nport = ${host.port}\n` : ''}permissions = 775
 check_new_rel = 0
 auto_browser = 0
 [categories]
@@ -125,6 +137,9 @@ priority = -100
 
 // ---------- qBittorrent ----------
 
+/** Windows: qBittorrent starts locked to an adapter that can't exist; setup then locks it to the VPN's (wire.ts bindQbit). */
+export const QBIT_LOCKED = 'finesse-vpn-not-connected'
+
 /** qBittorrent's WebUI\Password_PBKDF2 value (PBKDF2-SHA512, 100k rounds). */
 export function qbitPasswordHash(password: string): string {
   const salt = randomBytes(16)
@@ -133,34 +148,36 @@ export function qbitPasswordHash(password: string): string {
 }
 
 /** Writes qBittorrent.conf if missing; returns the WebUI password to store (or null if kept). */
-export function seedQbit(configDir: string, uid: number, gid: number): { username: string; password: string } | null {
-  const file = join(configDir, 'qBittorrent', 'qBittorrent.conf')
+export function seedQbit(configDir: string, uid: number, gid: number, host: SeedHost = {}): { username: string; password: string } | null {
+  // Windows (started with --profile) keeps it under config\; the container under its own name.
+  const file = host.native ? join(configDir, 'qBittorrent', 'config', 'qBittorrent.ini') : join(configDir, 'qBittorrent', 'qBittorrent.conf')
   if (existsSync(file)) return null
   const password = newPassword()
   writeOwned(
     file,
     `[BitTorrent]
-Session\\DefaultSavePath=/data/torrents
-Session\\TempPath=/data/torrents/incomplete
+Session\\DefaultSavePath=${dataPath(host, 'torrents').replace(/\\/g, '/')}
+Session\\TempPath=${dataPath(host, 'torrents/incomplete').replace(/\\/g, '/')}
 Session\\TempPathEnabled=true
 Session\\Port=6881
 Session\\GlobalMaxRatio=2
 Session\\GlobalMaxSeedingMinutes=10080
 Session\\QueueingSystemEnabled=true
-
+${host.native ? `Session\\Interface=${QBIT_LOCKED}\nSession\\InterfaceName=${QBIT_LOCKED}\n` : ''}
 [LegalNotice]
 Accepted=true
 
 [Preferences]
-WebUI\\Address=*
-WebUI\\Port=8080
+${host.native ? 'Advanced\\neverCheckFileAssoc=true\nAdvanced\\updateCheck=false\n' : ''}WebUI\\Enabled=true
+WebUI\\Address=${host.native ? '127.0.0.1' : '*'}
+WebUI\\Port=${host.port ?? 8080}
 WebUI\\Username=finesse
 WebUI\\Password_PBKDF2="${qbitPasswordHash(password)}"
 WebUI\\HostHeaderValidation=false
 WebUI\\CSRFProtection=false
 WebUI\\AuthSubnetWhitelistEnabled=true
 WebUI\\AuthSubnetWhitelist=10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-`,
+${host.native ? 'WebUI\\LocalHostAuth=false\n' : ''}`,
     uid,
     gid,
   )
@@ -210,7 +227,7 @@ export function seedTailscaleServe(configDir: string) {
 
 /** Serve Jellyfin under /jellyfin from its very first start (BaseUrl only
  *  takes effect on a restart, so it's set before Jellyfin ever runs). */
-export function seedJellyfin(configDir: string, uid: number, gid: number) {
+export function seedJellyfin(configDir: string, uid: number, gid: number, host: SeedHost = {}) {
   const file = join(configDir, 'config', 'network.xml')
   if (existsSync(file)) return
   writeOwned(
@@ -219,7 +236,7 @@ export function seedJellyfin(configDir: string, uid: number, gid: number) {
 <NetworkConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <BaseUrl>/jellyfin</BaseUrl>
   <EnableUPnP>false</EnableUPnP>
-  <EnableRemoteAccess>true</EnableRemoteAccess>
+  <EnableRemoteAccess>true</EnableRemoteAccess>${host.port && host.port !== 8096 ? `\n  <InternalHttpPort>${host.port}</InternalHttpPort>` : ''}
 </NetworkConfiguration>
 `,
     uid,

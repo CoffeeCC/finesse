@@ -31,7 +31,7 @@ function realBridge() {
   }
 }
 
-/** A pretend PC, for working on the page in a browser: ?mock=fresh | docker | installed | slow */
+/** A pretend PC, for working on the page in a browser: ?mock=fresh | installed | slow | docker (Finesse 2, the Docker version, is here) */
 function mockBridge() {
   const scenario = params.get('mock') || 'fresh'
   const subs = {}
@@ -43,46 +43,35 @@ function mockBridge() {
     { letter: 'D', label: 'Media', free: 3.41e12, total: 4e12, system: false },
     { letter: 'E', label: 'Games', free: 640e9, total: 2e12, system: false },
   ]
-  const state = { docker: scenario !== 'fresh', running: scenario === 'installed' || scenario === 'docker', finesse: scenario === 'installed' }
-  const media = (path) => {
-    const ok = /^[A-Za-z]:\\[^ ]*$/.test(path)
-    return { path, ok, free: 3.41e12, linux: '/run/desktop/mnt/host/' + path[0].toLowerCase() + path.slice(2).replace(/\\/g, '/'), error: ok ? null : 'Use a folder whose path has no spaces or accents, like D:\\Finesse.' }
-  }
+  const state = { finesse: scenario === 'installed' }
+  const media = (path) => ({ path, ok: /^[A-Za-z]:\\/.test(path), free: 3.41e12, error: /^[A-Za-z]:\\/.test(path) ? null : "Pick a folder on one of this PC's drives (like D:\\Finesse)." })
   const api = {
     async info() {
       await t(600)
       return {
         windows: { name: 'Windows 11 Pro', version: '24H2', build: 26100, arch: 'x64', supported: true },
-        memoryGB: 32, cores: 12, virtualization: 'on', wsl: state.docker,
-        docker: { installed: state.docker, running: state.running, version: state.running ? '28.4.0' : null },
-        finesse: state.finesse ? { installed: true, running: true, port: 8080, code: 'K7QM-3XPD' } : { installed: false },
-        drives, lan: '192.168.1.50', networkPublic: false, log: 'C:\\Users\\you\\AppData\\Local\\Finesse\\setup.log', image: 'ghcr.io/coffeecc/finesse:latest',
+        memoryGB: 32, cores: 12,
+        finesse: state.finesse ? { installed: true, running: true, port: 8080, code: 'K7QM-3XPD', version: '3.0.0', media: 'D:\\Finesse' } : { installed: false },
+        dockerVersion: scenario === 'docker',
+        drives, lan: '192.168.1.50', networkPublic: false, log: 'C:\\Users\\you\\AppData\\Local\\Finesse\\setup.log',
       }
     },
     async defaultMedia() { return media('D:\\Finesse') },
     async checkMedia({ path }) { return media(path) },
-    async downloadDocker() {
-      const total = 612e6
-      for (let got = 0; got <= total; got += total / 60) { emit('download', { got, total, speed: 38e6 }); await t(90) }
-      return { file: 'C:\\Temp\\Docker Desktop Installer.exe' }
-    },
-    async installDocker() { await t(4000); state.docker = true; return { ok: true, restart: true } },
-    async startDocker() { for (let s = 0; s < 12; s += 3) { emit('dockerStarting', { seconds: s }); await t(700) } state.running = true; return { ok: true, version: '28.4.0' } },
-    async installFinesse({ port }) {
-      emit('install', { step: 'prepare' }); await t(900)
-      for (let i = 0; i <= 14; i++) { emit('install', { step: 'pull', progress: i / 14, detail: `${i} of 14` }); await t(260) }
-      emit('install', { step: 'start' }); await t(1200)
-      emit('install', { step: 'wake' }); await t(2600)
+    async install({ media: path }) {
+      emit('install', { step: 'prepare' }); await t(700)
+      const total = 58
+      for (let mb = 0; mb <= total; mb += 4) { emit('install', { step: 'download', progress: mb / total, detail: `${mb} of ${total} MB` }); await t(160) }
+      for (const step of ['unpack', 'service', 'firewall', 'start']) { emit('install', { step }); await t(800) }
+      emit('install', { step: 'wake' }); await t(2200)
+      emit('install', { step: 'finish' }); await t(500)
       state.finesse = true
-      return { port, code: 'K7QM-3XPD', url: `http://localhost:${port}/finesse/setup?code=K7QM-3XPD`, lan: `http://192.168.1.50:${port}/finesse/`, media: 'D:\\Finesse' }
+      return { port: 8080, code: 'K7QM-3XPD', version: '3.0.0', url: 'http://localhost:8080/finesse/setup?code=K7QM-3XPD', lan: 'http://192.168.1.50:8080/finesse/', media: path, firewall: true }
     },
     async firewall() { await t(900); return { ok: true } },
-    async finish() { await t(300); return { shortcut: 'Finesse.url' } },
     async startFinesse() { await t(1200); return { ok: true } },
-    async restart() { return true },
-    async signout() { return true },
-    async uninstall() { await t(2500); state.finesse = false; return { removed: 9 } },
-    async log() { return '2026-10-05 21:14:02 Finesse Setup 2.6.0 starting\n2026-10-05 21:14:03 docker info → 0' },
+    async uninstall() { await t(2500); state.finesse = false; return { ok: true } },
+    async log() { return '2026-10-11 21:14:02 Finesse Setup 3.0.0 starting\n2026-10-11 21:14:03 sc create Finesse → 0' },
     async pickFolder() { return 'E:\\Movies' },
     async open({ url }) { window.open(url, '_blank') },
     async window({ action }) { if (action === 'close') document.body.style.opacity = 0.3 },
@@ -147,7 +136,7 @@ function say(text) {
 }
 
 // ---------- the panel ----------
-const STEPS = ['Check', 'Docker', 'Folder', 'Install', 'Done']
+const STEPS = ['Check', 'Folder', 'Install', 'Done']
 function rail(now) {
   const el = $('#rail')
   if (now < 0) { el.classList.add('hide'); return }
@@ -171,7 +160,7 @@ function show(html, { art, line, step = -1 } = {}) {
 }
 
 const ICON = {
-  docker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="8" rx="2"/><path d="M7 11V7h4v4M11 7h4v4"/></svg>',
+  win: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
   folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   tv: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8"/></svg>',
@@ -281,7 +270,6 @@ async function main() {
   musicUi()
   if (SELFTEST) return selfTest()
   if (params.has('uninstall')) return uninstallScreen()
-  if (params.has('resume')) return dockerStart()
   if (info.finesse.installed) return installedScreen()
   welcome()
 }
@@ -292,10 +280,11 @@ function welcome() {
     <h1>Your own <em>streaming service</em>, on this PC.</h1>
     <p class="lead">Finesse puts your movies, shows and music on every screen at home, and finds new ones when someone asks. This sets it all up.</p>
     <div class="facts">
-      <div class="fact"><span class="ic">${ICON.docker}</span><span><b>Docker Desktop</b> runs Finesse's apps. Setup installs it if it's missing (free for personal use).</span></div>
+      <div class="fact"><span class="ic">${ICON.win}</span><span><b>A normal Windows program.</b> Nothing else to install first, and it starts with Windows.</span></div>
       <div class="fact"><span class="ic">${ICON.folder}</span><span><b>Your media</b> goes in a folder you pick, on the drive with room for it.</span></div>
-      <div class="fact"><span class="ic">${ICON.clock}</span><span><b>About 10 minutes</b>, plus one restart if Docker is new to this PC.</span></div>
+      <div class="fact"><span class="ic">${ICON.clock}</span><span><b>About 5 minutes</b>, then you finish in your browser.</span></div>
     </div>
+    ${info.dockerVersion ? '<p class="small">Finesse 2 (the Docker Desktop version) is on this PC. This installs the new Windows version; you can remove the old one from Settings → Apps afterwards.</p>' : ''}
     <div class="actions"><button class="btn primary" id="go">Set up Finesse ${ARROW}</button></div>`,
   { art: 'welcome', line: "Hi, I'm Nessa! Let's put your own streaming service on this PC." })
   $('#go', el).onclick = checks
@@ -303,12 +292,11 @@ function welcome() {
 
 async function checks() {
   const w = info.windows
+  const room = info.drives.length ? Math.max(...info.drives.map((d) => d.free)) : 0
   const items = [
-    { name: 'Windows', val: `${w.name}${w.version ? ' ' + w.version : ''}`, state: w.supported ? 'ok' : 'bad', help: w.supported ? '' : 'Finesse needs 64-bit Windows 10 (version 2004 or newer) or Windows 11. Windows Update can get you there.' },
-    { name: 'Memory', val: `${Math.round(info.memoryGB)} GB`, state: info.memoryGB >= 8 ? 'ok' : info.memoryGB >= 4 ? 'warn' : 'bad', help: info.memoryGB >= 8 ? '' : info.memoryGB >= 4 ? '8 GB or more keeps everything smooth. It works, just a bit slower.' : 'Finesse and Docker need at least 4 GB of memory.' },
-    { name: 'Virtualization', val: info.virtualization === 'on' ? 'On' : info.virtualization === 'off' ? 'Off' : 'Unknown', state: info.virtualization === 'off' ? 'bad' : info.virtualization === 'on' ? 'ok' : 'warn', help: info.virtualization === 'off' ? 'Docker needs it. Turn on "Intel VT-x" or "AMD SVM" in your PC\'s BIOS/UEFI settings, then open Finesse Setup again.' : info.virtualization === 'unknown' ? "Couldn't tell. If Docker won't start later, this is the first thing to check." : '' },
-    { name: 'Room for media', val: info.drives.length ? gb(Math.max(...info.drives.map((d) => d.free))) + ' free' : '?', state: info.drives.some((d) => d.free > 100e9) ? 'ok' : 'warn', help: info.drives.some((d) => d.free > 100e9) ? '' : 'Movies take 2–60 GB each. It works, but you\'ll want a bigger drive soon.' },
-    { name: 'Docker Desktop', val: info.docker.running ? 'Running' : info.docker.installed ? 'Installed' : 'Not yet', state: info.docker.installed ? 'ok' : 'warn', help: info.docker.installed ? '' : "Setup installs it next." },
+    { name: 'Windows', val: `${w.name}${w.version ? ' ' + w.version : ''}`, state: w.supported ? 'ok' : 'bad', help: w.supported ? '' : 'Finesse needs 64-bit Windows 10 (version 1809 or newer) or Windows 11. Windows Update can get you there.' },
+    { name: 'Memory', val: `${Math.round(info.memoryGB)} GB`, state: info.memoryGB >= 4 ? 'ok' : info.memoryGB >= 2 ? 'warn' : 'bad', help: info.memoryGB >= 4 ? '' : info.memoryGB >= 2 ? '4 GB or more keeps everything smooth. It works, just a bit slower.' : 'Finesse needs at least 2 GB of memory.' },
+    { name: 'Room for media', val: info.drives.length ? gb(room) + ' free' : '?', state: room > 100e9 ? 'ok' : 'warn', help: room > 100e9 ? '' : 'Movies take 2–60 GB each. It works, but you\'ll want a bigger drive soon.' },
   ]
   const el = show(`
     <p class="kicker">Step 1 · This PC</p>
@@ -336,93 +324,8 @@ async function checks() {
     return
   }
   next.disabled = false
-  say(info.docker.installed ? 'Looking good! Docker is already here, too.' : "Looking good! Docker's next.")
-  next.onclick = () => (info.docker.running ? folders() : info.docker.installed ? dockerStart() : dockerInstall())
-}
-
-async function dockerInstall() {
-  const el = show(`
-    <p class="kicker">Step 2 · Docker Desktop</p>
-    <h1>Getting <em>Docker</em></h1>
-    <p class="lead">Finesse runs each of its apps (Jellyfin, the downloaders and the rest) in Docker Desktop. It's free for personal use and small businesses.</p>
-    <div class="progress" id="prog" hidden><div class="top"><b id="ptitle">Downloading Docker Desktop</b><span id="pval"></span></div><div class="bar-track" id="track"><div class="bar-fill" id="fill"></div></div></div>
-    <p class="small" id="pnote">About 600 MB. Windows asks for permission once, to install it.</p>
-    <div class="actions"><button class="btn primary" id="go">Install Docker Desktop ${ARROW}</button><button class="link" id="mine">I'll install it myself</button></div>`,
-  { art: 'games', line: "Docker's a big download. Perfect time for a quick game.", step: 1 })
-  $('#mine', el).onclick = () => { B.call('open', { url: 'https://docs.docker.com/desktop/setup/install/windows-install/' }); say("Open Finesse Setup again once it's in, and I'll take it from there.") }
-  $('#go', el).onclick = async () => {
-    busy = true
-    $('#go', el).closest('.actions').hidden = true
-    $('#prog', el).hidden = false
-    const off = B.on('download', (d) => {
-      $('#pnote', el).textContent = d.note || 'About 600 MB. Windows asks for permission once, to install it.'
-      const pct = d.total > 0 ? d.got / d.total : 0
-      $('#fill', el).style.width = (pct * 100).toFixed(1) + '%'
-      $('#pval', el).textContent = d.total > 0 ? `${Math.round(d.got / 1e6)} of ${Math.round(d.total / 1e6)} MB${d.speed > 0 ? ` · ${(d.speed / 1e6).toFixed(1)} MB/s` : ''}` : ''
-    })
-    try {
-      const { file } = await B.call('downloadDocker')
-      off()
-      $('#ptitle', el).textContent = 'Installing Docker Desktop'
-      $('#pval', el).textContent = 'a few minutes'
-      $('#track', el).classList.add('indeterminate')
-      $('#pnote', el).textContent = 'Windows is asking for permission: choose Yes. Docker installs quietly in the background.'
-      say('Windows will ask for permission. Say yes, I promise I\'m nice.')
-      await B.call('installDocker', { file })
-      busy = false
-      restartScreen()
-    } catch (e) { off(); busy = false; oops(e.message, dockerInstall) }
-  }
-}
-
-function restartScreen() {
-  const el = show(`
-    <p class="kicker">Step 2 · Docker Desktop</p>
-    <h1>One <em>restart</em>, then we're back.</h1>
-    <p class="lead">Docker Desktop is installed. Windows needs a restart to finish setting it up. Finesse Setup opens again by itself afterwards and carries on.</p>
-    <div class="actions"><button class="btn primary" id="go">Restart now ${ARROW}</button><button class="link" id="later">Later</button></div>
-    <p class="small" style="margin-top:14px">Save anything you have open first.</p>`,
-  { art: 'lofi', line: "I'll be right here when you're back. Promise.", step: 1 })
-  $('#go', el).onclick = () => B.call('restart')
-  $('#later', el).onclick = () => { say("No rush. Finesse Setup opens by itself after your next restart."); setTimeout(() => B.call('window', { action: 'close' }), 2600) }
-}
-
-async function dockerStart() {
-  busy = true
-  const el = show(`
-    <p class="kicker">Step 2 · Docker Desktop</p>
-    <h1>Waking <em>Docker</em> up</h1>
-    <p class="lead">Docker Desktop is starting. The first time takes a minute or two.</p>
-    <div class="progress"><div class="top"><b>Starting Docker Desktop</b><span id="secs"></span></div><div class="bar-track indeterminate"><div class="bar-fill"></div></div></div>
-    <p class="small" id="hint"></p>`,
-  { art: 'lofi', line: "Waking Docker up… it's not a morning person.", step: 1 })
-  const off = B.on('dockerStarting', (d) => {
-    $('#secs', el).textContent = d.seconds + 's'
-    if (d.seconds > 50) $('#hint', el).textContent = "Still going. If a Docker Desktop window opened, it may want you to accept its terms or skip signing in: that's all it needs."
-  })
-  try {
-    const r = await B.call('startDocker')
-    off()
-    busy = false
-    if (r.ok) {
-      // With Docker up we can see whether Finesse is already here (and never install over it).
-      info = await B.call('info').catch(() => info)
-      return info.finesse.installed ? installedScreen() : folders()
-    }
-    if (r.reason === 'signout') return signOutScreen()
-    oops("Docker Desktop didn't finish starting. If its window is open, it may be waiting for you (accept its terms, or skip signing in). Then press Try again.", dockerStart, r.detail)
-  } catch (e) { off(); busy = false; oops(e.message, dockerStart) }
-}
-
-function signOutScreen() {
-  const el = show(`
-    <p class="kicker">Step 2 · Docker Desktop</p>
-    <h1>Sign out, <em>sign back in</em></h1>
-    <p class="lead">Docker is running, but Windows lets this account use it only after you sign out and back in. Finesse Setup opens again by itself afterwards.</p>
-    <div class="actions"><button class="btn primary" id="go">Restart now ${ARROW}</button><button class="link" id="again">Try again</button></div>`,
-  { art: 'lofi', line: 'Windows wants a fresh start. Back in a sec!', step: 1 })
-  $('#go', el).onclick = () => B.call('restart')
-  $('#again', el).onclick = dockerStart
+  say('Looking good! Now, where should your movies live?')
+  next.onclick = () => folders()
 }
 
 async function folders() {
@@ -440,14 +343,14 @@ async function folders() {
     $('#go', el).disabled = !mediaChoice.ok
   }
   const el = show(`
-    <p class="kicker">Step 3 · Your media</p>
+    <p class="kicker">Step 2 · Your media</p>
     <h1>Where should <em>movies</em> live?</h1>
     <p class="lead">Movies, shows, music and downloads go here. Pick the drive with the most room; you can add more folders later.</p>
     <div class="drives${drives.length > 3 ? ' many' : ''}" id="drives"></div>
     <div class="pathbox"><code id="path"></code><button class="btn ghost" id="pick">Change…</button></div>
     <div class="err" id="err"></div>
     <div class="actions"><button class="btn primary" id="go">Install Finesse ${ARROW}</button></div>`,
-  { art: 'popcorn', line: 'Where do your movies live? Pick the roomiest drive.', step: 2 })
+  { art: 'popcorn', line: 'Where do your movies live? Pick the roomiest drive.', step: 1 })
   el.classList.add('folders') // the drives scroll if there are many; the folder and Install stay in view
   render()
   $('#drives', el).onclick = async (e) => {
@@ -469,55 +372,52 @@ async function install() {
   busy = true
   const STEPS_I = [
     ['prepare', 'Getting things ready'],
-    ['pull', 'Downloading Finesse'],
-    ['start', 'Starting Finesse'],
-    ['wake', 'Waiting for it to wake up'],
+    ['download', 'Downloading Finesse'],
+    ['unpack', 'Unpacking'],
+    ['service', 'Setting it up to start with Windows'],
     ['firewall', 'Letting phones and TVs in'],
+    ['start', 'Starting Finesse'],
     ['finish', 'Adding Finesse to the Start menu'],
   ]
   const el = show(`
-    <p class="kicker">Step 4 · Finesse</p>
+    <p class="kicker">Step 3 · Finesse</p>
     <h1>Installing <em>Finesse</em></h1>
-    <div class="steps">${STEPS_I.map(([k, label]) => `<div class="step" id="s-${k}"><span class="dot"></span><span>${label}</span><span class="val"></span>${k === 'pull' ? '<div class="mini"><i></i></div>' : ''}</div>`).join('')}</div>
+    <div class="steps">${STEPS_I.map(([k, label]) => `<div class="step" id="s-${k}"><span class="dot"></span><span>${label}</span><span class="val"></span>${k === 'download' ? '<div class="mini"><i></i></div>' : ''}</div>`).join('')}</div>
     <p class="small" id="inote" style="margin-top:14px"></p>`,
-  { art: 'popcorn', line: "Popcorn's ready. Finesse is on its way.", step: 3 })
+  { art: 'popcorn', line: "Popcorn's ready. Finesse is on its way.", step: 2 })
   let current = null
+  const order = STEPS_I.map((s) => s[0])
   const mark = (k) => {
+    if (k === 'wake') k = 'start'
     if (current === k) return
-    const order = STEPS_I.map((s) => s[0])
     for (const [key] of STEPS_I) {
       const row = $('#s-' + key, el)
       const i = order.indexOf(key), j = order.indexOf(k)
-      row.className = 'step ' + (i < j ? 'done' : i === j ? 'now' : '')
-      if (i < j) row.querySelector('.dot').textContent = '✓'
+      row.className = 'step ' + (j < 0 || i < j ? 'done' : i === j ? 'now' : '')
+      if (j < 0 || i < j) row.querySelector('.dot').textContent = '✓'
     }
     current = k
-    if (k === 'wake') { setArt('lofi'); say('Almost there. Just tuning in…') }
-    if (k === 'firewall') { $('#inote', el).textContent = 'Windows asks once, so phones and TVs at home can reach Finesse. Choose Yes.'; say('One more permission, for your phones and TV. Yes, please!') }
+    if (k === 'start') { setArt('lofi'); say('Almost there. Just tuning in…') }
   }
   const off = B.on('install', (d) => {
     mark(d.step)
-    if (d.step === 'pull' && d.progress >= 0) {
-      $('#s-pull .mini i', el).style.width = (d.progress * 100).toFixed(0) + '%'
-      $('#s-pull .val', el).textContent = Math.round(d.progress * 100) + '%'
+    if (d.step === 'download') {
+      if (d.progress >= 0) $('#s-download .mini i', el).style.width = (d.progress * 100).toFixed(0) + '%'
+      $('#s-download .val', el).textContent = d.progress >= 0 ? Math.round(d.progress * 100) + '%' : ''
+      $('#inote', el).textContent = d.detail && /stalled/.test(d.detail) ? d.detail : ''
     }
   })
   try {
-    const r = await B.call('installFinesse', { media: mediaChoice.path, port: 8080 })
+    const r = await B.call('install', { media: mediaChoice.path })
     off()
-    mark('firewall')
-    const fw = await B.call('firewall', { port: r.port })
-    $('#inote', el).textContent = ''
-    mark('finish')
-    await B.call('finish', { port: r.port })
     mark('done')
     busy = false
     await sleep(500)
-    done(r, fw)
+    done(r)
   } catch (e) { off(); busy = false; oops(e.message, install) }
 }
 
-function done(r, fw = { ok: true }) {
+function done(r) {
   const phone = r.lan || null
   const el = show(`
     <p class="kicker">All set</p>
@@ -525,10 +425,10 @@ function done(r, fw = { ok: true }) {
     <p class="lead" style="margin-bottom:12px">Finish setting it up in your browser: accounts, libraries, and downloads if you want them.</p>
     ${phone ? `<div class="small">On your phone or TV, at home:</div><div class="addr" title="${esc(phone)}">${esc(phone.replace(/^http:\/\//, '').replace(/\/$/, ''))}</div>` : ''}
     ${r.code ? `<div class="code">Setup code <b>${esc(r.code)}</b></div>` : ''}
-    ${!fw.ok || info.networkPublic ? `<div class="note">${info.networkPublic ? 'Windows has this Wi-Fi set to <b>Public</b>, which hides this PC from other devices. In Settings → Network & internet, set it to <b>Private</b> so phones and TVs can reach Finesse.' : "Without the firewall permission, phones and TVs can't reach Finesse yet. Run Finesse Setup again any time to fix it."}</div>` : ''}
+    ${r.firewall === false || info.networkPublic ? `<div class="note">${info.networkPublic ? 'Windows has this Wi-Fi set to <b>Public</b>, which hides this PC from other devices. In Settings → Network & internet, set it to <b>Private</b> so phones and TVs can reach Finesse.' : "Windows didn't let Finesse through its firewall, so phones and TVs can't reach it yet. Run Finesse Setup again any time to fix it."}</div>` : ''}
     <div class="actions"><button class="btn primary" id="open">Finish in your browser ${ARROW}</button>${phone && window.QR ? `<button class="btn ghost" id="phone">On your phone</button>` : ''}</div>
-    <p class="small" style="margin-top:12px">It's in your Start menu as <b>Finesse</b>, and runs whenever Docker Desktop does (it starts when you sign in).</p>`,
-  { art: 'done', line: 'We did it! Your own streaming service is live!', step: 4 })
+    <p class="small" style="margin-top:12px">It's in your Start menu as <b>Finesse</b>, and starts with Windows, even before anyone signs in.</p>`,
+  { art: 'done', line: 'We did it! Your own streaming service is live!', step: 3 })
   el.classList.add('finish')
   $('#phone', el)?.addEventListener('click', async () => {
     const svg = await window.QR.svg(phone)
@@ -551,7 +451,10 @@ function installedScreen() {
       ${f.running ? `<button class="btn primary" id="open">Open Finesse ${ARROW}</button>` : `<button class="btn primary" id="start">Start Finesse ${ARROW}</button>`}
       <button class="btn ghost" id="un">Uninstall…</button>
     </div>
-    ${f.running ? `<button class="link" id="fw" style="margin-top:14px">Phones or TVs can't reach it? Let them in again</button>` : ''}`,
+    <div style="margin-top:14px;display:flex;gap:18px;flex-wrap:wrap">
+      ${f.running ? `<button class="link" id="fw">Phones or TVs can't reach it? Let them in again</button>` : ''}
+      <button class="link" id="repair">Repair Finesse</button>
+    </div>`,
   { art: 'welcome', line: f.running ? 'Welcome back! Everything is running.' : "Welcome back! Want me to start it up?", step: -1 })
   $('#open', el)?.addEventListener('click', () => handOff(f.code ? `${url}setup?code=${encodeURIComponent(f.code)}` : url))
   $('#start', el)?.addEventListener('click', async () => {
@@ -560,10 +463,14 @@ function installedScreen() {
     try { await B.call('startFinesse'); busy = false; info = await B.call('info'); installedScreen() } catch (e) { busy = false; oops(e.message, installedScreen) }
   })
   $('#un', el).onclick = uninstallScreen
+  $('#repair', el).onclick = async () => {
+    mediaChoice = f.media ? await B.call('checkMedia', { path: f.media }) : null
+    if (!mediaChoice?.ok) return folders()
+    install()
+  }
   $('#fw', el)?.addEventListener('click', async () => {
-    say('Windows will ask. Say yes, and phones and TVs can come in.')
     const r = await B.call('firewall', { port: f.port }).catch(() => ({ ok: false }))
-    say(r.ok ? (info.networkPublic ? "Done! One more thing: this Wi-Fi is set to Public in Windows. Set it to Private, too." : 'Done! Phones and TVs at home can reach Finesse now.') : "That didn't go through. Try again, and choose Yes when Windows asks.")
+    say(r.ok ? (info.networkPublic ? "Done! One more thing: this Wi-Fi is set to Public in Windows. Set it to Private, too." : 'Done! Phones and TVs at home can reach Finesse now.') : "That didn't go through. Try again in a moment.")
   })
 }
 
@@ -571,7 +478,7 @@ function uninstallScreen() {
   const el = show(`
     <p class="kicker">Uninstall</p>
     <h1>Remove <em>Finesse</em>?</h1>
-    <p class="lead">This removes Finesse and the apps it installed in Docker. Your movies, shows and music stay right where they are.</p>
+    <p class="lead">This removes Finesse and the apps it installed. Your movies, shows and music stay right where they are.</p>
     <label class="box"><input type="checkbox" id="del" /> Also delete Finesse's settings (accounts, app setup, watch history)</label>
     <div class="actions"><button class="btn danger" id="go">Uninstall</button><button class="btn ghost" id="keep">Keep Finesse</button></div>`,
   { art: 'oops', line: 'Leaving already? Your movies stay right where they are.', step: -1 })
@@ -583,7 +490,7 @@ function uninstallScreen() {
     try {
       await B.call('uninstall', { deleteSettings: $('#del', el).checked })
       busy = false
-      show(`<p class="kicker">Done</p><h1>Finesse is <em>gone</em>.</h1><p class="lead">Docker Desktop stays installed (other things may use it); remove it from Settings → Apps if you like.</p>
+      show(`<p class="kicker">Done</p><h1>Finesse is <em>gone</em>.</h1><p class="lead">Your media folder is still there, with everything in it.</p>
         <div class="actions"><button class="btn ghost" id="bye">Close</button></div>`, { art: 'lofi', line: 'Bye for now. Come back any time!' })
       $('#bye').onclick = () => B.call('window', { action: 'close' })
     } catch (e) { busy = false; oops(e.message, uninstallScreen) }
@@ -610,11 +517,11 @@ async function selfTest() {
   await checks(); await shot('2-check')
   const realInfo = info
   info = { ...info, drives: info.drives.length ? info.drives : [{ letter: 'C', label: 'Windows', free: 120e9, total: 256e9, system: true }] }
-  mediaChoice = { path: 'C:\\Finesse', ok: true, free: 120e9, linux: '/run/desktop/mnt/host/c/Finesse' }
+  mediaChoice = { path: 'C:\\Finesse', ok: true, free: 120e9 }
   await folders(); await shot('3-folder')
   done({ port: 8080, code: 'K7QM-3XPD', url: 'http://localhost:8080/finesse/setup?code=K7QM-3XPD', lan: 'http://192.168.1.50:8080/finesse/' }); await shot('4-done')
   info = realInfo
-  await oops('Docker Desktop didn\'t finish starting. (This is a test of the error screen.)', () => {}); await shot('5-oops')
+  await oops('Downloading Finesse kept stalling. (This is a test of the error screen.)', () => {}); await shot('5-oops')
   await B.call('quit', { code: 0 })
 }
 

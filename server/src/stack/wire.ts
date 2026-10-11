@@ -5,6 +5,8 @@
 // don't silently break the wiring.
 
 import { logger } from '../log.ts'
+import { toApp } from './apppaths.ts'
+import { QBIT_LOCKED } from './seed.ts'
 
 const log = logger('wire')
 
@@ -68,6 +70,8 @@ export interface JellyfinSetup {
   language: string
   country: string
   libraries: { movies: boolean; shows: boolean; music: boolean }
+  /** The real data folder (on Windows Jellyfin's libraries point straight at it; in Docker at /data). */
+  hostData?: string
   /** Known API key from a previous run (lets re-runs work without the admin password). */
   apiKey?: string
   /** Restarts Jellyfin (needed when its BaseUrl changes). */
@@ -137,9 +141,9 @@ export async function wireJellyfin(o: JellyfinSetup, step: (msg: string) => void
 
   // Libraries
   const want: [boolean, string, string, string][] = [
-    [o.libraries.movies, 'Movies', 'movies', '/data/media/movies'],
-    [o.libraries.shows, 'Shows', 'tvshows', '/data/media/tv'],
-    [o.libraries.music, 'Music', 'music', '/data/media/music'],
+    [o.libraries.movies, 'Movies', 'movies', toApp(o.hostData ?? '', 'media/movies')],
+    [o.libraries.shows, 'Shows', 'tvshows', toApp(o.hostData ?? '', 'media/tv')],
+    [o.libraries.music, 'Music', 'music', toApp(o.hostData ?? '', 'media/music')],
   ]
   const folders = await http<{ Name: string; Locations: string[] }[]>('GET', `${J()}/Library/VirtualFolders`, { headers: jfAuth(token) })
   for (const [enabled, name, type, path] of want) {
@@ -577,6 +581,21 @@ export async function wireQbit(url: string, categories: Record<string, string>, 
     step(`qBittorrent: category ${name}`)
     await http('POST', `${url}/api/v2/torrents/createCategory`, { form: { category: name, savePath }, okStatuses: [409] })
   }
+}
+
+/** Windows: locks qBittorrent to the VPN app's network adapter (its kill
+ *  switch). True when the adapter was found; false when it's missing and
+ *  qBittorrent was locked to nothing until it's back. */
+export async function bindQbit(url: string, adapter: string): Promise<boolean> {
+  const list = await http<{ name: string; value: string }[]>('GET', `${url}/api/v2/app/networkInterfaceList`)
+  const hit = list.find((i) => i.name.toLowerCase() === adapter.toLowerCase() || i.value.toLowerCase() === adapter.toLowerCase())
+  // Missing: locked to an adapter that can't exist, so torrents wait instead of using the normal connection.
+  const value = hit?.value ?? QBIT_LOCKED
+  const prefs = await http<{ current_network_interface?: string }>('GET', `${url}/api/v2/app/preferences`)
+  if (prefs.current_network_interface !== value) {
+    await http('POST', `${url}/api/v2/app/setPreferences`, { form: { json: JSON.stringify({ current_network_interface: value, current_interface_address: '' }) } })
+  }
+  return Boolean(hit)
 }
 
 // ---------- RomM (Games) ----------

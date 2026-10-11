@@ -38,6 +38,28 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A real Windows program — v3.0.0 (2026-10-11)
+
+- **Finesse installs on Windows like any other program.** No Docker Desktop, no WSL, nothing to turn
+  on in the BIOS, and no restart. [Finesse Setup](docs/windows.md) asks for permission once, asks
+  where your media should live, and installs Finesse as a Windows service that starts with the PC,
+  even before anyone signs in.
+- **The apps are their real Windows versions.** Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd
+  and qBittorrent download when setup needs them, at versions Finesse has tested, and are checked
+  before they run. Finesse starts them in the background (no windows, no tray icons), restarts one
+  that crashes, and stops them all when it stops.
+- **Torrents go through your own VPN app.** In setup, pick your VPN's connection (NordVPN, Mullvad,
+  Proton VPN, WireGuard…) and qBittorrent is locked to it: when the VPN is off, torrents wait, and
+  nothing goes out over your normal connection. **Settings → Server** shows whether it's connected.
+- **Updates and uninstalling.** Finesse updates itself from Settings → Updates, and goes back to the
+  version before if a new one won't start. Uninstalling removes Finesse and its apps and leaves your
+  media alone.
+- **Not on Windows yet:** Games, and the built-in Tailscale and Cloudflare setup (the Tailscale app
+  for Windows works instead).
+- **Using Finesse 2 on Windows (the Docker Desktop version)?** It keeps working as it is. To switch,
+  install Finesse 3, set it up, then remove the old one; settings don't carry over from Docker.
+- Nothing changes for Finesse on Linux, a NAS or anywhere else that runs Docker.
+
 ## Discover movies to request — v2.9.0 (2026-10-11)
 
 - **Discover, on the Request page.** Open **Request** with **Movies** picked and nothing typed, and

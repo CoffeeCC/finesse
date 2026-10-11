@@ -10,7 +10,8 @@ import { ApiError, readJson, sendJson } from '../http/core.ts'
 import { safeFile, sendFile } from '../http/static.ts'
 import { VERSION } from '../jellyfin.ts'
 import type { SetupRunner } from '../setup/apply.ts'
-import { CATALOG, containerName, type StackServiceId } from '../stack/catalog.ts'
+import { CATALOG, type StackServiceId } from '../stack/catalog.ts'
+import { dockerOf, Orchestrator } from '../stack/orchestrator.ts'
 import { ClipMaker } from '../stack/clips.ts'
 import { GamesNudger } from '../stack/games.ts'
 import { LibraryNudger } from '../stack/libraries.ts'
@@ -18,6 +19,7 @@ import { BACKUP_FILE, describeParts, isPart } from '../stack/backup.ts'
 import { Maintainer } from '../stack/maintain.ts'
 import { randomBytes } from 'node:crypto'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
+import { windowsUpdater } from '../stack/winupdate.ts'
 
 export interface StackRef {
   runner?: SetupRunner
@@ -38,7 +40,7 @@ export function systemPlugin(ref: StackRef): Plugin {
     // Hands off while setup or the Games switch is changing which apps exist.
     const maint = new Maintainer(settings, orch, settings.paths, () => runner.status.state === 'running' || runner.gamesJob.state === 'working' || runner.streamingJob.state === 'working')
     ref.maintainer = maint
-    const clips = new ClipMaker(settings, orch.docker, settings.paths, () => runner.status.state !== 'running' && !maint.isWorking)
+    const clips = new ClipMaker(settings, orch, settings.paths, () => runner.status.state !== 'running' && !maint.isWorking)
     if (process.env.FINESSE_MAINTENANCE !== 'off') {
       maint.start()
       clips.start()
@@ -52,16 +54,21 @@ export function systemPlugin(ref: StackRef): Plugin {
 
     // Whole-app updates: whenever Finesse runs from a registry image in Docker
     // (bundle or adopt); otherwise the web-only updater stays in charge.
-    if (deps.updater) {
+    // Windows: a new Windows build next to this one, and the Finesse service restarts on it.
+    if (deps.updater && orch.kind === 'native' && process.env.FINESSE_INSTALL_DIR) {
+      deps.updater.image = windowsUpdater(deps.releases, process.env.FINESSE_INSTALL_DIR, () => maint.backupNow('before-update').then(() => {}))
+    }
+    if (deps.updater && orch instanceof Orchestrator) {
+      const docker = orch.docker
       deps.updater.image = {
         plan: async (version) => {
-          const me = await selfContainer(orch.docker)
+          const me = await selfContainer(docker)
           return me ? imageFor(me.Config.Image, version) : null
         },
         run: async (image, onStep) => {
           onStep('backing up')
           await maint.backupNow('before-update').catch(() => {})
-          await startSelfUpdate(orch.docker, image, onStep)
+          await startSelfUpdate(docker, image, onStep)
         },
       }
     }
@@ -81,13 +88,19 @@ export function systemPlugin(ref: StackRef): Plugin {
         version: VERSION,
         web: deps.web.current().version,
         mode: s.mode,
+        host: orch.kind,
         setup: { state: s.setup.state, completedAt: s.setup.completedAt ?? null, running: runner.status.state === 'running' },
         stack: s.stack ? { root: s.stack.hostRoot, data: s.stack.hostData, services: s.stack.services, quality: s.stack.quality, paused: s.stack.paused ?? [], jellyfinPort: s.stack.exposeJellyfin ? s.stack.jellyfinPort : null } : null,
         updates: { auto: s.updates.auto, lastStackUpdate: s.maintenance?.lastStackUpdate ?? null },
         busy: maint.isWorking,
         previews: { enabled: s.previews?.enabled !== false, ...clips.status },
-        games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
-        streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
+        // Docker only for now: Windows installs show neither switch.
+        ...(orch.kind === 'docker'
+          ? {
+              games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
+              streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
+            }
+          : {}),
         backup: { job: maint.backupJob },
         health: maint.health,
       })
@@ -97,7 +110,7 @@ export function systemPlugin(ref: StackRef): Plugin {
       await auth.requireAdmin(req)
       needStack()
       const id = stackId(params.id!)
-      await orch.docker.restart(containerName(id), 30)
+      await orch.restart(id, 30)
       maint.event('info', `${CATALOG[id].name} restarted by an administrator`)
       if (id === 'gluetun') void maint.tick()
       sendJson(res, 200, { ok: true })
@@ -111,7 +124,7 @@ export function systemPlugin(ref: StackRef): Plugin {
       settings.update((x) => {
         x.stack!.paused = [...new Set([...(x.stack!.paused ?? []), id])]
       })
-      await orch.docker.stop(containerName(id), 30)
+      await orch.stop(id, 30)
       maint.event('info', `${CATALOG[id].name} paused by an administrator`)
       sendJson(res, 200, { ok: true })
     })
@@ -123,7 +136,7 @@ export function systemPlugin(ref: StackRef): Plugin {
       settings.update((x) => {
         x.stack!.paused = (x.stack!.paused ?? []).filter((p) => p !== id)
       })
-      await orch.docker.start(containerName(id))
+      await orch.start(id)
       maint.event('info', `${CATALOG[id].name} started by an administrator`)
       sendJson(res, 200, { ok: true })
     })
@@ -133,7 +146,7 @@ export function systemPlugin(ref: StackRef): Plugin {
       needStack()
       const id = stackId(params.id!)
       const tail = Math.min(2000, Math.max(10, Number(url.searchParams.get('tail')) || 300))
-      const text = await orch.docker.logs(containerName(id), tail)
+      const text = await orch.logs(id, tail)
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
       res.end(text)
     })
@@ -230,7 +243,7 @@ export function systemPlugin(ref: StackRef): Plugin {
     router.get('/api/system/streaming/check', async ({ req, res }) => {
       await auth.requireAdmin(req)
       needStack()
-      sendJson(res, 200, streamingCheck(await orch.streamingProbe(), { runDir: wolfRunDir(settings.get().stack!) }))
+      sendJson(res, 200, streamingCheck(await dockerOf(orch, 'Game streaming').streamingProbe(), { runDir: wolfRunDir(settings.get().stack!) }))
     })
 
     router.put('/api/system/streaming', async ({ req, res }) => {

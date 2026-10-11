@@ -3,38 +3,32 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
-using System.Management;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.ServiceProcess;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Web.Script.Serialization;
 using Microsoft.Win32;
 
 namespace Finesse.Setup
 {
-    /// <summary>What Finesse Setup does on the PC. On Windows, Finesse runs in Docker Desktop:
-    ///  - app settings live in a Docker volume ("finesse"), mounted at its own path inside Docker's VM, which is the
-    ///    path Finesse hands to the apps it starts (like FINESSE_ROOT on Linux). Their databases stay off Windows
-    ///    drives, where SQLite locking is unreliable;
-    ///  - movies, shows and downloads live in a Windows folder, which Docker Desktop shows its VM at
-    ///    /run/desktop/mnt/host/&lt;drive&gt;/… (FINESSE_DATA).</summary>
+    /// <summary>What Finesse Setup does on the PC. Finesse runs as a Windows service (see Service.cs): no Docker, no
+    /// WSL, nothing to turn on in the BIOS. Setup puts it in Program Files, picks the media folder, lets phones and TVs
+    /// at home in through the firewall, and starts it. Finesse then installs the apps it needs itself.</summary>
     class Engine
     {
-        public const string Image = "ghcr.io/coffeecc/finesse:latest";
-        const string Name = "finesse", Network = "finesse", Volume = "finesse";
+        const string Repo = "CoffeeCC/finesse";
         readonly Action<string, object> emit;
 
         public Engine(Action<string, object> emit) { this.emit = emit; }
-
-        static string ProgramFiles => Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        static string DockerDir => Path.Combine(ProgramFiles, "Docker", "Docker");
-        static string DockerExe => Path.Combine(DockerDir, "resources", "bin", "docker.exe");
-        static string DockerDesktop => Path.Combine(DockerDir, "Docker Desktop.exe");
-        static string DockerCli => File.Exists(DockerExe) ? DockerExe : "docker";
 
         // ---------- running things ----------
 
@@ -46,7 +40,7 @@ namespace Finesse.Setup
             public string FirstError => (Err.Length > 0 ? Err : Out).Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
         }
 
-        static Result Run(string file, string args, int timeoutMs = 60000, Action<string> onLine = null, Encoding encoding = null)
+        static Result Run(string file, string args, int timeoutMs = 60000, Encoding encoding = null)
         {
             var psi = new ProcessStartInfo(file, args)
             {
@@ -57,13 +51,12 @@ namespace Finesse.Setup
                 StandardOutputEncoding = encoding ?? Encoding.UTF8,
                 StandardErrorEncoding = encoding ?? Encoding.UTF8,
             };
-            psi.EnvironmentVariables["DOCKER_CLI_HINTS"] = "false";
             var o = new StringBuilder();
             var e = new StringBuilder();
             using (var p = new Process { StartInfo = psi })
             {
-                p.OutputDataReceived += (s, a) => { if (a.Data == null) return; lock (o) o.AppendLine(a.Data); onLine?.Invoke(a.Data); };
-                p.ErrorDataReceived += (s, a) => { if (a.Data == null) return; lock (e) e.AppendLine(a.Data); onLine?.Invoke(a.Data); };
+                p.OutputDataReceived += (s, a) => { if (a.Data != null) lock (o) o.AppendLine(a.Data); };
+                p.ErrorDataReceived += (s, a) => { if (a.Data != null) lock (e) e.AppendLine(a.Data); };
                 try { p.Start(); }
                 catch (Win32Exception ex) { return new Result { Code = -1, Err = ex.Message }; }
                 p.BeginOutputReadLine();
@@ -78,46 +71,23 @@ namespace Finesse.Setup
             }
         }
 
-        static Result Docker(string args, int timeoutMs = 60000, Action<string> onLine = null)
+        static Result Sc(string args)
         {
-            var r = Run(DockerCli, args, timeoutMs, onLine);
-            Log.Write($"docker {args} → {r.Code}{(r.Ok ? "" : ": " + r.FirstError)}");
+            var r = Run("sc.exe", args, 30000);
+            Log.Write($"sc {args} → {r.Code}{(r.Ok ? "" : ": " + r.FirstError)}");
             return r;
         }
 
-        static string Q(string s) => s.IndexOfAny(new[] { ' ', '"', '\t' }) >= 0 ? "\"" + s.Replace("\"", "\\\"") + "\"" : s;
-
-        /// <summary>Runs something Windows has to approve (the UAC prompt). Null if the person said no.</summary>
-        static int? Elevated(string file, string args, bool hidden = false)
-        {
-            var psi = new ProcessStartInfo(file, args) { UseShellExecute = true, Verb = "runas" };
-            if (hidden) psi.WindowStyle = ProcessWindowStyle.Hidden;
-            try
-            {
-                using (var p = Process.Start(psi))
-                {
-                    p.WaitForExit();
-                    return p.ExitCode;
-                }
-            }
-            catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) { return null; }
-        }
-
+        /// <summary>Opens a page in the person's own browser. Setup runs as administrator, and a browser started from
+        /// it would be too; Explorer hands the link to the browser as the signed-in person instead.</summary>
         public static void OpenUrl(string url)
         {
             if (url == null || !(url.StartsWith("http://") || url.StartsWith("https://"))) return;
-            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception ex) { Log.Write("open failed: " + ex.Message); }
+            try { Process.Start(new ProcessStartInfo("explorer.exe", "\"" + url + "\"") { UseShellExecute = false }); }
+            catch (Exception ex) { Log.Write("open failed: " + ex.Message); }
         }
 
         // ---------- what this PC has ----------
-
-        static bool DockerUp(out string version, out string error)
-        {
-            var r = Docker("info --format {{.ServerVersion}}", 20000);
-            version = r.Out;
-            error = r.Err;
-            return r.Ok && r.Out.Length > 0;
-        }
 
         public object Info()
         {
@@ -136,61 +106,43 @@ namespace Finesse.Setup
             catch { }
             // Windows 11 still calls itself "Windows 10" in the registry.
             if (build >= 22000) edition = edition.Replace("Windows 10", "Windows 11");
+            var arch = RuntimeInformation.OSArchitecture;
             info["windows"] = new Dictionary<string, object>
             {
                 ["name"] = edition,
                 ["version"] = display,
                 ["build"] = build,
-                ["arch"] = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
-                ["supported"] = build >= 19041 && Environment.Is64BitOperatingSystem && RuntimeInformation.OSArchitecture != Architecture.X86,
+                ["arch"] = arch.ToString().ToLowerInvariant(),
+                // The apps are 64-bit Intel/AMD programs; Windows 11 on Arm runs them too.
+                ["supported"] = build >= 17763 && (arch == Architecture.X64 || (arch == Architecture.Arm64 && build >= 22000)),
             };
             info["memoryGB"] = Math.Round(Native.TotalMemory() / 1e9, 1);
             info["cores"] = Environment.ProcessorCount;
 
-            bool? hypervisor = null, firmware = null;
-            try { using (var s = new ManagementObjectSearcher("SELECT HypervisorPresent FROM Win32_ComputerSystem")) foreach (ManagementObject o in s.Get()) hypervisor = o["HypervisorPresent"] as bool?; } catch { }
-            try { using (var s = new ManagementObjectSearcher("SELECT VirtualizationFirmwareEnabled FROM Win32_Processor")) foreach (ManagementObject o in s.Get()) firmware = o["VirtualizationFirmwareEnabled"] as bool?; } catch { }
-            // With Hyper-V or WSL already running, the firmware flag reads false: the hypervisor answers for it.
-            info["virtualization"] = hypervisor == true || firmware == true ? "on" : hypervisor == null && firmware == null ? "unknown" : "off";
-
-            var wsl = Run("wsl.exe", "--status", 15000, null, Encoding.Unicode);
-            info["wsl"] = wsl.Ok;
-
-            bool dockerInstalled = File.Exists(DockerDesktop) || File.Exists(DockerExe);
-            string dockerVersion = null;
-            bool dockerUp = dockerInstalled && DockerUp(out dockerVersion, out _);
-            info["docker"] = new Dictionary<string, object>
+            var s = ServiceSettings.Load();
+            bool installed = ServiceExists() && File.Exists(Paths.Current);
+            var finesse = new Dictionary<string, object> { ["installed"] = installed };
+            if (installed)
             {
-                ["installed"] = dockerInstalled,
-                ["running"] = dockerUp,
-                ["version"] = dockerUp ? dockerVersion : null,
-            };
-
-            var finesse = new Dictionary<string, object> { ["installed"] = false };
-            if (dockerUp)
-            {
-                var ps = Docker($"ps -a --filter name=^/{Name}$ --format {{{{.Status}}}}");
-                if (ps.Ok && ps.Out.Length > 0)
-                {
-                    finesse["installed"] = true;
-                    finesse["running"] = ps.Out.StartsWith("Up");
-                    var port = Docker($"port {Name} 8080/tcp");
-                    var m = Regex.Match(port.Out, @":(\d+)\s*$", RegexOptions.Multiline);
-                    finesse["port"] = m.Success ? int.Parse(m.Groups[1].Value) : 8080;
-                    if (ps.Out.StartsWith("Up"))
-                    {
-                        var code = Docker($"exec {Name} finesse setup-code", 20000);
-                        finesse["code"] = code.Ok ? code.Out : null;
-                    }
-                }
+                finesse["running"] = ServiceRunning();
+                finesse["port"] = s?.Port ?? 8080;
+                finesse["media"] = s?.Media;
+                finesse["version"] = File.ReadAllText(Paths.Current).Trim();
+                finesse["code"] = SetupCode();
             }
             info["finesse"] = finesse;
+            // Finesse 2 ran in Docker Desktop and registered itself for this person only.
+            using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\Finesse")) info["dockerVersion"] = k != null;
             info["drives"] = Drives();
             info["lan"] = LanIp();
             info["networkPublic"] = NetworkIsPublic();
             info["log"] = Log.File;
-            info["image"] = Image;
             return info;
+        }
+
+        static string SetupCode()
+        {
+            try { return File.Exists(Paths.SetupCode) ? File.ReadAllText(Paths.SetupCode).Trim() : null; } catch { return null; }
         }
 
         static List<Dictionary<string, object>> Drives()
@@ -216,10 +168,10 @@ namespace Finesse.Setup
             return list;
         }
 
-        static readonly string[] VirtualNics = { "vethernet", "hyper-v", "virtualbox", "vmware", "tailscale", "wsl", "docker", "loopback", "bluetooth", "tap-", "wireguard", "zerotier", "npcap", "vpn" };
+        static readonly string[] VirtualNics = { "vethernet", "hyper-v", "virtualbox", "vmware", "tailscale", "wsl", "docker", "loopback", "bluetooth", "tap-", "wireguard", "zerotier", "npcap", "vpn", "nordlynx", "mullvad", "proton" };
 
-        /// <summary>The address phones and TVs at home use: the network card with a gateway that isn't virtual.</summary>
-        static string LanIp()
+        /// <summary>The address phones and TVs at home use: the network card with a gateway that isn't virtual (or a VPN).</summary>
+        public static string LanIp()
         {
             try
             {
@@ -250,6 +202,8 @@ namespace Finesse.Setup
 
         public object DefaultMedia()
         {
+            var keep = ServiceSettings.Load()?.Media;
+            if (!string.IsNullOrEmpty(keep)) return CheckMedia(keep);
             var best = Drives().OrderByDescending(d => (long)d["free"]).FirstOrDefault();
             string letter = best != null ? (string)best["letter"] : "C";
             return CheckMedia(letter + @":\Finesse");
@@ -266,170 +220,84 @@ namespace Finesse.Setup
             path = path.TrimEnd('\\');
             if (path.Length == 2) path += "\\";
             r["path"] = path;
-            if (path.Contains(" ") || path.Any(c => c > 127))
-            {
-                r["error"] = "Use a folder whose path has no spaces or accents, like D:\\Finesse.";
-                return r;
-            }
             DriveInfo drive;
             try { drive = new DriveInfo(path.Substring(0, 1)); }
             catch { r["error"] = "That drive isn't here."; return r; }
             if (!drive.IsReady) { r["error"] = "That drive isn't ready."; return r; }
             if (drive.DriveType != DriveType.Fixed)
             {
+                // Finesse runs as a service, before anyone signs in: mapped network drives aren't there for it.
                 r["error"] = drive.DriveType == DriveType.Network
-                    ? "Network drives don't work with Docker Desktop. Pick a drive inside this PC."
+                    ? "Finesse runs before anyone signs in, when network drives aren't connected yet. Pick a drive inside this PC."
                     : "Pick a drive that stays connected (inside this PC), not a removable one.";
                 return r;
             }
+            if (path.StartsWith(Paths.Install, StringComparison.OrdinalIgnoreCase) || path.StartsWith(Paths.Data, StringComparison.OrdinalIgnoreCase))
+            {
+                r["error"] = "That's where Finesse keeps its own files. Pick another folder, like D:\\Finesse.";
+                return r;
+            }
             r["free"] = drive.AvailableFreeSpace;
-            r["linux"] = ToDocker(path);
             r["ok"] = true;
             return r;
         }
 
-        /// <summary>D:\Finesse → /run/desktop/mnt/host/d/Finesse (how Docker Desktop's VM sees it).</summary>
-        static string ToDocker(string windowsPath)
+        // ---------- the service ----------
+
+        static bool ServiceExists() => ServiceController.GetServices().Any(s => s.ServiceName.Equals(FinesseService.Name, StringComparison.OrdinalIgnoreCase));
+
+        static bool ServiceRunning()
         {
-            string rest = windowsPath.Substring(2).Replace('\\', '/').TrimEnd('/');
-            return "/run/desktop/mnt/host/" + char.ToLowerInvariant(windowsPath[0]) + rest;
+            try { using (var sc = new ServiceController(FinesseService.Name)) return sc.Status == ServiceControllerStatus.Running; }
+            catch { return false; }
         }
 
-        // ---------- Docker Desktop ----------
-
-        /// <summary>
-        /// Docker Desktop is about 600 MB, and a long download over home Wi-Fi stalls now and then. A stall costs nothing:
-        /// the part already downloaded is kept, and each retry asks the server to carry on from there.
-        /// </summary>
-        public object DownloadDocker()
+        static void StopService()
         {
-            bool arm = RuntimeInformation.OSArchitecture == Architecture.Arm64;
-            string url = $"https://desktop.docker.com/win/main/{(arm ? "arm64" : "amd64")}/Docker%20Desktop%20Installer.exe";
-            string dir = Path.Combine(Path.GetTempPath(), "FinesseSetup");
-            Directory.CreateDirectory(dir);
-            string file = Path.Combine(dir, "Docker Desktop Installer.exe");
-            string part = file + ".part";
-            // A leftover from another day could be an older installer: start that one afresh.
-            if (File.Exists(part) && DateTime.UtcNow - File.GetLastWriteTimeUtc(part) > TimeSpan.FromHours(24)) File.Delete(part);
-            Log.Write("downloading " + url);
-
-            const int MaxAttempts = 8;
-            long total = 0;
-            for (int attempt = 1; ; attempt++)
+            using (var sc = new ServiceController(FinesseService.Name))
             {
-                long have = File.Exists(part) ? new FileInfo(part).Length : 0;
-                try
-                {
-                    var req = (HttpWebRequest)WebRequest.Create(url);
-                    req.UserAgent = "FinesseSetup/" + Program.Version;
-                    req.Timeout = 30000;
-                    req.ReadWriteTimeout = 30000;
-                    if (have > 0) req.AddRange(have);
-                    using (var resp = (HttpWebResponse)req.GetResponse())
-                    {
-                        if (resp.StatusCode != HttpStatusCode.PartialContent) have = 0; // the server sent it all again
-                        if (resp.ContentLength > 0) total = have + resp.ContentLength;
-                        if (have == 0 && total > 0 && File.Exists(file) && new FileInfo(file).Length == total)
-                        {
-                            emit("download", new Dictionary<string, object> { ["got"] = total, ["total"] = total, ["speed"] = 0 });
-                            return new Dictionary<string, object> { ["file"] = file };
-                        }
-                        using (var s = resp.GetResponseStream())
-                        using (var f = new FileStream(part, have > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write))
-                        {
-                            var buf = new byte[1 << 16];
-                            long got = have, lastGot = have;
-                            var clock = Stopwatch.StartNew();
-                            long lastAt = 0;
-                            int n;
-                            while ((n = s.Read(buf, 0, buf.Length)) > 0)
-                            {
-                                f.Write(buf, 0, n);
-                                got += n;
-                                if (clock.ElapsedMilliseconds - lastAt > 300)
-                                {
-                                    double speed = (got - lastGot) / ((clock.ElapsedMilliseconds - lastAt) / 1000.0);
-                                    emit("download", new Dictionary<string, object> { ["got"] = got, ["total"] = total, ["speed"] = speed });
-                                    lastAt = clock.ElapsedMilliseconds;
-                                    lastGot = got;
-                                }
-                            }
-                        }
-                    }
-                    if (total > 0 && new FileInfo(part).Length != total) throw new IOException("the download stopped part-way");
-                    break; // all of it
-                }
-                catch (Exception ex)
-                {
-                    // Already complete (the server has nothing more to send after our last byte).
-                    var wr = (ex as WebException)?.Response as HttpWebResponse;
-                    if (wr != null && (int)wr.StatusCode == 416 && have > 0) break;
-
-                    long now = File.Exists(part) ? new FileInfo(part).Length : 0;
-                    Log.Write($"download attempt {attempt} of {MaxAttempts} failed at {now / 1000000} MB: {ex.Message}");
-                    if (attempt >= MaxAttempts)
-                        throw new FriendlyException("Downloading Docker Desktop kept stalling, so the connection to docker.com is slow or being cut. Press Try again to carry on from where it stopped, or install Docker Desktop yourself and open Finesse Setup again.");
-                    emit("download", new Dictionary<string, object>
-                    {
-                        ["got"] = now, ["total"] = total, ["speed"] = 0,
-                        ["note"] = $"The connection stalled. Carrying on from {now / 1000000} MB (try {attempt + 1} of {MaxAttempts})…",
-                    });
-                    Thread.Sleep(Math.Min(2000 * attempt, 10000));
-                }
+                if (sc.Status == ServiceControllerStatus.Stopped) return;
+                Log.Write("stopping the Finesse service");
+                try { sc.Stop(); } catch (InvalidOperationException) { }
+                try { sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromMinutes(3)); }
+                catch (System.ServiceProcess.TimeoutException) { throw new FriendlyException("Finesse didn't stop in time. Restart the PC, then run Finesse Setup again."); }
             }
-            if (File.Exists(file)) File.Delete(file);
-            File.Move(part, file);
-            emit("download", new Dictionary<string, object> { ["got"] = total, ["total"] = total, ["speed"] = 0 });
-            return new Dictionary<string, object> { ["file"] = file };
         }
 
-        public object InstallDocker(string file)
+        static void StartService()
         {
-            if (file == null || !File.Exists(file)) throw new FriendlyException("The Docker Desktop installer is missing. Press Install again to download it.");
-            Log.Write("installing Docker Desktop");
-            var code = Elevated(file, "install --quiet --accept-license --backend=wsl-2 --always-run-service");
-            if (code == null) throw new FriendlyException("Windows didn't get permission to install Docker Desktop. Press Install again and choose Yes when Windows asks.");
-            Log.Write("Docker Desktop installer exited with " + code);
-            if (code != 0 && code != 3010)
+            using (var sc = new ServiceController(FinesseService.Name))
             {
-                string why = "";
-                try
-                {
-                    string log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Docker", "install-log.txt");
-                    if (File.Exists(log)) why = File.ReadLines(log).Reverse().FirstOrDefault(l => l.Contains("rror")) ?? "";
-                }
-                catch { }
-                throw new FriendlyException("Docker Desktop didn't install (code " + code + ")." + (why.Length > 0 ? " It said: " + why.Trim() : "") + " Try again, or install it from docker.com and open Finesse Setup again.");
+                if (sc.Status == ServiceControllerStatus.Running) return;
+                sc.Start();
+                sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
             }
-            // A new install always wants a restart (WSL, and permission to use Docker without asking).
-            Resume.Register();
-            return new Dictionary<string, object> { ["ok"] = true, ["restart"] = true };
         }
 
-        public object StartDocker()
+        public object StartFinesse()
         {
-            if (DockerUp(out var version, out _)) return new Dictionary<string, object> { ["ok"] = true, ["version"] = version };
-            if (!File.Exists(DockerDesktop)) throw new FriendlyException("Docker Desktop isn't installed.");
-            if (Process.GetProcessesByName("Docker Desktop").Length == 0)
-            {
-                Log.Write("starting Docker Desktop");
-                Process.Start(new ProcessStartInfo(DockerDesktop) { UseShellExecute = true });
-            }
-            var clock = Stopwatch.StartNew();
-            string last = "";
-            while (clock.Elapsed < TimeSpan.FromMinutes(6))
-            {
-                if (DockerUp(out version, out last)) return new Dictionary<string, object> { ["ok"] = true, ["version"] = version };
-                // The engine is up but this account may not use it yet: that needs a sign-out.
-                if (Regex.IsMatch(last ?? "", "docker-users|access is denied", RegexOptions.IgnoreCase) && clock.Elapsed > TimeSpan.FromSeconds(20))
-                    return new Dictionary<string, object> { ["ok"] = false, ["reason"] = "signout" };
-                emit("dockerStarting", new Dictionary<string, object> { ["seconds"] = (int)clock.Elapsed.TotalSeconds });
-                Thread.Sleep(3000);
-            }
-            return new Dictionary<string, object> { ["ok"] = false, ["reason"] = "timeout", ["detail"] = last };
+            StartService();
+            return new Dictionary<string, object> { ["ok"] = true };
         }
 
-        // ---------- Finesse ----------
+        /// <summary>Finesse runs as a service: it starts with Windows (before anyone signs in) and comes back if it stops.</summary>
+        static void RegisterService()
+        {
+            string bin = $"\\\"{Paths.Exe}\\\" --service";
+            var r = ServiceExists()
+                ? Sc($"config {FinesseService.Name} binPath= \"{bin}\" start= delayed-auto DisplayName= \"Finesse\"")
+                : Sc($"create {FinesseService.Name} binPath= \"{bin}\" start= delayed-auto DisplayName= \"Finesse\"");
+            if (!r.Ok) throw new FriendlyException("Windows didn't let Finesse set itself up as a service (" + r.FirstError + ").");
+            Sc($"description {FinesseService.Name} \"Your own streaming service: Jellyfin, and the apps that find what you ask for.\"");
+            Sc($"failure {FinesseService.Name} reset= 86400 actions= restart/5000/restart/30000/restart/60000");
+        }
+
+        // ---------- installing ----------
+
+        void Step(string step, double progress = -1, string detail = null)
+        {
+            emit("install", new Dictionary<string, object> { ["step"] = step, ["progress"] = progress, ["detail"] = detail });
+        }
 
         static int FreePort(int want)
         {
@@ -447,67 +315,41 @@ namespace Finesse.Setup
             throw new FriendlyException($"Ports {want}–{want + 19} are all busy on this PC.");
         }
 
-        void Step(string step, double progress = -1, string detail = null)
-        {
-            emit("install", new Dictionary<string, object> { ["step"] = step, ["progress"] = progress, ["detail"] = detail });
-        }
-
-        public object InstallFinesse(string media, int port)
+        /// <summary>Installs (or repairs, or updates) Finesse. `bundle`: a finesse-windows-*.zip already on this PC
+        /// (testing); otherwise this version's is downloaded and checked.</summary>
+        public object Install(string media, string bundle = null)
         {
             var m = CheckMedia(media);
             if (!(bool)m["ok"]) throw new FriendlyException((string)m["error"]);
             media = (string)m["path"];
-            string lin = (string)m["linux"];
-            Directory.CreateDirectory(media);
-            if (!DockerUp(out _, out _)) throw new FriendlyException("Docker Desktop isn't running. Start it, then try again.");
 
             Step("prepare");
-            var stale = Docker($"ps -a --filter name=^/{Name}$ --format {{{{.Status}}}}");
-            if (stale.Ok && stale.Out.Length > 0) Docker($"rm -f {Name}");
-            port = FreePort(port);
-            if (!Docker($"volume create {Volume}").Ok) throw new FriendlyException("Docker couldn't make a place for Finesse's settings.");
-            string mount = Docker($"volume inspect {Volume} --format {{{{.Mountpoint}}}}").Out.Trim();
-            if (!mount.StartsWith("/")) throw new FriendlyException("Docker didn't say where Finesse's settings live (" + mount + ").");
-            if (!Docker($"network inspect {Network}").Ok && !Docker($"network create {Network} --label finesse.managed=true").Ok)
-                throw new FriendlyException("Docker couldn't create Finesse's network.");
+            Directory.CreateDirectory(media);
+            Directory.CreateDirectory(Paths.Install);
+            Directory.CreateDirectory(Paths.Data);
+            var old = ServiceSettings.Load();
+            if (ServiceExists()) StopService();
+            int port = old?.Port > 0 ? old.Port : FreePort(8080);
 
-            // Layers: count the ones finished out of the ones seen.
-            Step("pull", 0);
-            var layers = new HashSet<string>();
-            var done = new HashSet<string>();
-            var pull = Docker($"pull {Image}", 45 * 60 * 1000, line =>
-            {
-                var x = Regex.Match(line, @"^([0-9a-f]{12}): (.+)$");
-                if (!x.Success) return;
-                lock (layers)
-                {
-                    layers.Add(x.Groups[1].Value);
-                    if (x.Groups[2].Value.StartsWith("Pull complete") || x.Groups[2].Value.StartsWith("Already exists")) done.Add(x.Groups[1].Value);
-                    Step("pull", layers.Count == 0 ? 0 : (double)done.Count / layers.Count, $"{done.Count} of {layers.Count}");
-                }
-            });
-            if (!pull.Ok && !Docker($"image inspect {Image}").Ok)
-                throw new FriendlyException("Couldn't download Finesse (" + pull.FirstError + "). Check the internet connection, then try again.");
+            string zip = bundle ?? DownloadBundle();
+            Step("unpack");
+            string version = Unpack(zip);
+            if (bundle == null) try { File.Delete(zip); } catch { }
+
+            Step("service");
+            string me = Assembly.GetEntryAssembly().Location;
+            if (!string.Equals(Path.GetFullPath(me), Path.GetFullPath(Paths.Exe), StringComparison.OrdinalIgnoreCase)) File.Copy(me, Paths.Exe, true);
+            new ServiceSettings { Port = port, Media = media }.Save();
+            string before = File.Exists(Paths.Current) ? File.ReadAllText(Paths.Current).Trim() : "";
+            if (before.Length > 0 && before != version) File.WriteAllText(Paths.Previous, before);
+            File.WriteAllText(Paths.Current, version);
+            RegisterService();
+
+            Step("firewall");
+            var fw = (Dictionary<string, object>)Firewall(port);
 
             Step("start");
-            string lan = LanIp();
-            string args = string.Join(" ",
-                $"run -d --name {Name} --restart unless-stopped",
-                $"--network {Network} --network-alias finesse",
-                $"-p {port}:8080",
-                "-v /var/run/docker.sock:/var/run/docker.sock",
-                $"--mount type=volume,src={Volume},dst={mount}",
-                $"-v {Q(lin + ":" + lin)}",
-                $"-e FINESSE_ROOT={mount} -e FINESSE_DATA={Q(lin)} -e FINESSE_CONFIG_DIR={mount}/config/finesse",
-                // What Finesse shows people as "your media folder" (Add media): the Windows path, not Docker's.
-                $"-e FINESSE_DATA_LABEL={Q(media)}",
-                // The PC's address at home, for "enter this on your TV" (the browser here only knows localhost).
-                lan != null ? $"-e FINESSE_LAN_HOST={lan}" : "",
-                $"-e PUID=1000 -e PGID=1000 -e TZ={TimeZones.Local()}",
-                "--label finesse.installer=windows",
-                Image);
-            var run = Docker(args, 120000);
-            if (!run.Ok) throw new FriendlyException("Docker couldn't start Finesse: " + run.FirstError);
+            StartService();
 
             Step("wake");
             var clock = Stopwatch.StartNew();
@@ -515,17 +357,24 @@ namespace Finesse.Setup
             {
                 if (clock.Elapsed > TimeSpan.FromMinutes(3))
                     throw new FriendlyException("Finesse started but isn't answering yet. Give it a minute, then open http://localhost:" + port + "/finesse/");
-                Thread.Sleep(1500);
+                Thread.Sleep(1000);
             }
-            string code = Docker($"exec {Name} finesse setup-code", 30000).Out.Trim();
-            Log.Write($"Finesse is running on port {port}");
+            string code = null;
+            for (int i = 0; i < 20 && (code = SetupCode()) == null; i++) Thread.Sleep(500);
+
+            Step("finish");
+            Shortcuts(port);
+            Log.Write($"Finesse {version} is running on port {port}");
+            string lan = LanIp();
             return new Dictionary<string, object>
             {
                 ["port"] = port,
                 ["code"] = code,
-                ["url"] = $"http://localhost:{port}/finesse/" + (code.Length > 0 ? "setup?code=" + Uri.EscapeDataString(code) : ""),
+                ["version"] = version,
+                ["url"] = $"http://localhost:{port}/finesse/" + (!string.IsNullOrEmpty(code) ? "setup?code=" + Uri.EscapeDataString(code) : ""),
                 ["lan"] = lan == null ? null : $"http://{lan}:{port}/finesse/",
                 ["media"] = media,
+                ["firewall"] = fw["ok"],
             };
         }
 
@@ -540,107 +389,213 @@ namespace Finesse.Setup
             catch { return false; }
         }
 
-        public object StartFinesse()
+        /// <summary>Unpacks the bundle into app\&lt;version&gt; (next to any other version) and returns that version.</summary>
+        static string Unpack(string zip)
         {
-            var up = (Dictionary<string, object>)StartDocker();
-            if (!(bool)up["ok"]) return up;
-            var r = Docker($"start {Name}");
-            if (!r.Ok) throw new FriendlyException("Finesse didn't start: " + r.FirstError);
-            return new Dictionary<string, object> { ["ok"] = true };
+            string apps = Path.Combine(Paths.Install, "app");
+            string tmp = Path.Combine(apps, ".unpacking");
+            if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+            Directory.CreateDirectory(tmp);
+            try
+            {
+                ZipFile.ExtractToDirectory(zip, tmp);
+                foreach (var need in new[] { "node.exe", @"server\finesse-server.mjs", @"web\index.html", "VERSION" })
+                    if (!File.Exists(Path.Combine(tmp, need))) throw new FriendlyException("The Finesse download is incomplete (" + need + " is missing). Try again.");
+                string version = File.ReadAllText(Path.Combine(tmp, "VERSION")).Trim();
+                if (!Regex.IsMatch(version, @"^\d+\.\d+\.\d+$")) throw new FriendlyException("The Finesse download doesn't say which version it is. Try again.");
+                string dest = Path.Combine(apps, version);
+                // The running version is stopped by now, so its folder can be replaced (a repair).
+                if (Directory.Exists(dest)) Directory.Delete(dest, true);
+                Directory.Move(tmp, dest);
+                return version;
+            }
+            finally
+            {
+                if (Directory.Exists(tmp)) try { Directory.Delete(tmp, true); } catch { }
+            }
         }
 
-        /// <summary>One Windows prompt: phones and TVs on your home network may reach Finesse (and Jellyfin's apps).</summary>
+        /// <summary>This version's finesse-windows zip from GitHub (about 60 MB), carried on after a stall, and checked
+        /// against the checksum this exe was built with (or, failing that, the one GitHub keeps for the release).</summary>
+        string DownloadBundle()
+        {
+            string version = Program.Version;
+            string name = $"finesse-windows-{version}-x64.zip";
+            string url = $"https://github.com/{Repo}/releases/download/v{version}/{name}";
+            string expected = BundleSha256() ?? ReleaseDigest(version, name);
+            if (expected == null) throw new FriendlyException("Finesse Setup couldn't check the download it needs. Check this PC's internet connection, then try again.");
+            string dir = Path.Combine(Path.GetTempPath(), "FinesseSetup");
+            Directory.CreateDirectory(dir);
+            string file = Path.Combine(dir, name);
+            if (File.Exists(file) && Sha256(file) == expected) return file;
+            Download(url, file);
+            if (Sha256(file) != expected)
+            {
+                File.Delete(file);
+                throw new FriendlyException("The Finesse download didn't match what it should be, so it wasn't used. Try again.");
+            }
+            return file;
+        }
+
+        static string BundleSha256()
+        {
+            var a = typeof(Engine).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BundleSha256");
+            return string.IsNullOrWhiteSpace(a?.Value) ? null : a.Value.Trim().ToLowerInvariant();
+        }
+
+        static string ReleaseDigest(string version, string name)
+        {
+            try
+            {
+                var req = (HttpWebRequest)WebRequest.Create($"https://api.github.com/repos/{Repo}/releases/tags/v{version}");
+                req.UserAgent = "FinesseSetup/" + version;
+                req.Accept = "application/vnd.github+json";
+                req.Timeout = 20000;
+                using (var r = req.GetResponse())
+                using (var s = new StreamReader(r.GetResponseStream()))
+                {
+                    var rel = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(s.ReadToEnd());
+                    foreach (Dictionary<string, object> a in (System.Collections.ArrayList)rel["assets"])
+                        if ((string)a["name"] == name && a.ContainsKey("digest") && a["digest"] is string d && d.StartsWith("sha256:")) return d.Substring(7).ToLowerInvariant();
+                }
+            }
+            catch (Exception ex) { Log.Write("release digest: " + ex.Message); }
+            return null;
+        }
+
+        static string Sha256(string file)
+        {
+            using (var sha = SHA256.Create())
+            using (var f = File.OpenRead(file))
+                return BitConverter.ToString(sha.ComputeHash(f)).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <summary>A download that carries on from where it stalled (home Wi-Fi drops now and then).</summary>
+        void Download(string url, string file)
+        {
+            string part = file + ".part";
+            if (File.Exists(part) && DateTime.UtcNow - File.GetLastWriteTimeUtc(part) > TimeSpan.FromHours(24)) File.Delete(part);
+            Log.Write("downloading " + url);
+            const int MaxAttempts = 8;
+            long total = 0;
+            for (int attempt = 1; ; attempt++)
+            {
+                long have = File.Exists(part) ? new FileInfo(part).Length : 0;
+                try
+                {
+                    var req = (HttpWebRequest)WebRequest.Create(url);
+                    req.UserAgent = "FinesseSetup/" + Program.Version;
+                    req.Timeout = 30000;
+                    req.ReadWriteTimeout = 30000;
+                    if (have > 0) req.AddRange(have);
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    {
+                        if (resp.StatusCode != HttpStatusCode.PartialContent) have = 0;
+                        if (resp.ContentLength > 0) total = have + resp.ContentLength;
+                        using (var s = resp.GetResponseStream())
+                        using (var f = new FileStream(part, have > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write))
+                        {
+                            var buf = new byte[1 << 16];
+                            long got = have;
+                            var clock = Stopwatch.StartNew();
+                            long lastAt = 0;
+                            int n;
+                            while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                            {
+                                f.Write(buf, 0, n);
+                                got += n;
+                                if (clock.ElapsedMilliseconds - lastAt > 250)
+                                {
+                                    Step("download", total > 0 ? (double)got / total : -1, $"{got / 1000000} of {total / 1000000} MB");
+                                    lastAt = clock.ElapsedMilliseconds;
+                                }
+                            }
+                        }
+                    }
+                    if (total > 0 && new FileInfo(part).Length != total) throw new IOException("the download stopped part-way");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    var wr = (ex as WebException)?.Response as HttpWebResponse;
+                    if (wr != null && (int)wr.StatusCode == 416 && have > 0) break;
+                    long now = File.Exists(part) ? new FileInfo(part).Length : 0;
+                    Log.Write($"download attempt {attempt} of {MaxAttempts} failed at {now / 1000000} MB: {ex.Message}");
+                    if (attempt >= MaxAttempts)
+                        throw new FriendlyException("Downloading Finesse kept stalling, so the connection to github.com is slow or being cut. Press Try again to carry on from where it stopped.");
+                    Step("download", total > 0 ? (double)now / total : -1, $"The connection stalled. Carrying on from {now / 1000000} MB…");
+                    Thread.Sleep(Math.Min(2000 * attempt, 10000));
+                }
+            }
+            if (File.Exists(file)) File.Delete(file);
+            File.Move(part, file);
+            Step("download", 1);
+        }
+
+        /// <summary>Phones and TVs on your home network may reach Finesse and Jellyfin's own port (its apps for TVs and phones).</summary>
         public object Firewall(int port)
         {
-            string cmd = $"/c netsh advfirewall firewall delete rule name=\"Finesse\" >nul 2>&1 & netsh advfirewall firewall add rule name=\"Finesse\" dir=in action=allow protocol=TCP localport={port},8096 profile=private,domain";
-            var code = Elevated("cmd.exe", cmd, hidden: true);
-            Log.Write("firewall rule → " + (code?.ToString() ?? "declined"));
-            return new Dictionary<string, object> { ["ok"] = code == 0, ["declined"] = code == null };
+            var r = Run("cmd.exe", $"/c netsh advfirewall firewall delete rule name=\"Finesse\" >nul 2>&1 & netsh advfirewall firewall add rule name=\"Finesse\" dir=in action=allow protocol=TCP localport={port},8096 profile=private,domain", 30000);
+            Log.Write("firewall rule → " + r.Code);
+            return new Dictionary<string, object> { ["ok"] = r.Ok };
         }
 
-        /// <summary>Start menu and desktop shortcuts, and an entry in Settings → Apps to uninstall.</summary>
-        public object Finish(int port)
+        /// <summary>Start menu and desktop shortcuts for everyone on the PC, and an entry in Settings → Apps.</summary>
+        static void Shortcuts(int port)
         {
-            string exe = Resume.CopySelf();
             string url = $"http://localhost:{port}/finesse/";
-            string shortcut = "[InternetShortcut]\r\nURL=" + url + "\r\nIconFile=" + exe + "\r\nIconIndex=0\r\n";
-            string menu = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Finesse.url");
-            string desk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Finesse.url");
-            File.WriteAllText(menu, shortcut);
-            try { File.WriteAllText(desk, shortcut); } catch { }
-            using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\Finesse"))
+            string shortcut = "[InternetShortcut]\r\nURL=" + url + "\r\nIconFile=" + Paths.Exe + "\r\nIconIndex=0\r\n";
+            File.WriteAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Finesse.url"), shortcut);
+            try { File.WriteAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Finesse.url"), shortcut); } catch { }
+            using (var k = Registry.LocalMachine.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\Finesse"))
             {
                 k.SetValue("DisplayName", "Finesse");
-                k.SetValue("DisplayVersion", Program.Version);
+                k.SetValue("DisplayVersion", File.ReadAllText(Paths.Current).Trim());
                 k.SetValue("Publisher", "Finesse");
-                k.SetValue("DisplayIcon", exe);
-                k.SetValue("UninstallString", $"\"{exe}\" --uninstall");
+                k.SetValue("DisplayIcon", Paths.Exe);
+                k.SetValue("InstallLocation", Paths.Install);
+                k.SetValue("UninstallString", $"\"{Paths.Exe}\" --uninstall");
                 k.SetValue("URLInfoAbout", "https://github.com/CoffeeCC/finesse");
                 k.SetValue("HelpLink", "https://github.com/CoffeeCC/finesse/blob/master/docs/windows.md");
                 k.SetValue("NoModify", 1, RegistryValueKind.DWord);
                 k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-                k.SetValue("EstimatedSize", 2 * 1024 * 1024, RegistryValueKind.DWord);
+                k.SetValue("EstimatedSize", 400 * 1024, RegistryValueKind.DWord);
                 k.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd"));
             }
-            Resume.Clear();
-            return new Dictionary<string, object> { ["shortcut"] = menu };
         }
 
-        public object Restart()
-        {
-            Resume.Register();
-            Run("shutdown.exe", "/r /t 5 /c \"Restarting to finish installing Docker for Finesse.\"", 10000);
-            return true;
-        }
+        // ---------- uninstalling ----------
 
+        /// <summary>Stops Finesse (it stops its apps), removes the service and Program Files\Finesse. The media folder
+        /// always stays; Finesse's settings and its apps' settings (C:\ProgramData\Finesse) only if asked.</summary>
         public object Uninstall(bool deleteSettings)
         {
-            var up = (Dictionary<string, object>)StartDocker();
-            if (!(bool)up["ok"]) throw new FriendlyException("Docker Desktop needs to be running to remove Finesse's apps. Start it, then try again.");
-            int removed = 0;
-            var ids = Docker("ps -aq --filter label=finesse.managed=true").Out.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            if (ids.Length > 0 && Docker("rm -f " + string.Join(" ", ids), 180000).Ok) removed = ids.Length;
-            if (Docker($"rm -f {Name}").Ok) removed++;
-            Docker($"network rm {Network}");
-            if (deleteSettings) Docker($"volume rm {Volume}");
-            Elevated("cmd.exe", "/c netsh advfirewall firewall delete rule name=\"Finesse\"", hidden: true);
+            if (ServiceExists())
+            {
+                StopService();
+                Sc($"delete {FinesseService.Name}");
+            }
+            // SABnzbd runs as a service of its own, registered by Finesse: removed too, but only if it's ours.
+            var sab = Run("sc.exe", "qc SABnzbd", 15000);
+            if (sab.Ok && sab.Out.IndexOf(Paths.Data, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Sc("stop SABnzbd");
+                Thread.Sleep(3000);
+                Sc("delete SABnzbd");
+            }
+            Run("netsh.exe", "advfirewall firewall delete rule name=\"Finesse\"", 30000);
             foreach (var f in new[] {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Finesse.url"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Finesse.url") })
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Finesse.url"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "Finesse.url") })
                 try { if (File.Exists(f)) File.Delete(f); } catch { }
-            try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\Finesse", false); } catch { }
-            Resume.Clear();
-            // This exe can't delete itself while it runs: a moment after it closes.
-            string me = System.Reflection.Assembly.GetEntryAssembly().Location;
-            if (string.Equals(Path.GetFullPath(me), Resume.Installed, StringComparison.OrdinalIgnoreCase))
-                Process.Start(new ProcessStartInfo("cmd.exe", $"/c timeout /t 3 /nobreak >nul & del /q \"{me}\"") { CreateNoWindow = true, UseShellExecute = false });
-            return new Dictionary<string, object> { ["removed"] = removed };
-        }
-    }
-
-    /// <summary>Picking up after a restart: a copy of this exe in %LOCALAPPDATA%\Finesse, run once at sign-in.</summary>
-    static class Resume
-    {
-        const string RunOnce = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
-        public static string Installed => Path.Combine(Program.Home, "FinesseSetup.exe");
-
-        public static string CopySelf()
-        {
-            string me = System.Reflection.Assembly.GetEntryAssembly().Location;
-            if (!string.Equals(Path.GetFullPath(me), Path.GetFullPath(Installed), StringComparison.OrdinalIgnoreCase))
-                File.Copy(me, Installed, true);
-            return Installed;
-        }
-
-        public static void Register()
-        {
-            CopySelf();
-            using (var k = Registry.CurrentUser.CreateSubKey(RunOnce)) k.SetValue("FinesseSetup", $"\"{Installed}\" --resume");
-        }
-
-        public static void Clear()
-        {
-            try { using (var k = Registry.CurrentUser.OpenSubKey(RunOnce, true)) k?.DeleteValue("FinesseSetup", false); } catch { }
+            try { Registry.LocalMachine.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\Finesse", false); } catch { }
+            if (deleteSettings)
+            {
+                try { Directory.Delete(Paths.Data, true); } catch (Exception ex) { Log.Write("settings left: " + ex.Message); }
+            }
+            // This exe may be the one in Program Files: the folder goes a moment after it closes.
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c timeout /t 3 /nobreak >nul & rmdir /s /q \"{Paths.Install}\"") { CreateNoWindow = true, UseShellExecute = false });
+            return new Dictionary<string, object> { ["ok"] = true };
         }
     }
 }

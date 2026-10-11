@@ -11,10 +11,11 @@ import { addSamples } from '../stack/samples.ts'
 import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
 import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
-import { Orchestrator, serviceUrl } from '../stack/orchestrator.ts'
-import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe } from '../stack/seed.ts'
+import { dockerOf, Orchestrator } from '../stack/orchestrator.ts'
+import type { StackHost } from '../stack/host.ts'
+import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe, type SeedHost } from '../stack/seed.ts'
 import { clearFinishedTcLog } from '../stack/games.ts'
-import { Arr, jellyfinScan, wireArr, wireJellyfin, wireLanguages, wireProwlarr, wireQbit, wireRomm, wireSab } from '../stack/wire.ts'
+import { Arr, bindQbit, jellyfinScan, wireArr, wireJellyfin, wireLanguages, wireProwlarr, wireQbit, wireRomm, wireSab } from '../stack/wire.ts'
 import { qualityProfiles, redact, servicesFor, vpnConfig, type SetupDoc } from './doc.ts'
 
 const log = logger('setup')
@@ -81,10 +82,10 @@ async function tailscaleUrl(orch: Orchestrator, timeoutMs = 90000): Promise<{ ur
 }
 
 /** Null when the tunnel registered a connection with Cloudflare, else what went wrong. */
-async function cloudflaredConnected(orch: Orchestrator, timeoutMs = 45000): Promise<string | null> {
+async function cloudflaredConnected(orch: StackHost, timeoutMs = 45000): Promise<string | null> {
   const until = Date.now() + timeoutMs
   while (Date.now() < until) {
-    const logs = await orch.docker.logs(containerName('cloudflared'), 200).catch(() => '')
+    const logs = await orch.logs('cloudflared', 200).catch(() => '')
     if (/Registered tunnel connection/i.test(logs)) return null
     if (/Unauthorized|invalid token|Provided Tunnel token is not valid/i.test(logs)) return 'the tunnel token was rejected — copy it again from Zero Trust → Networks → Tunnels'
     await new Promise((r) => setTimeout(r, 2000))
@@ -153,7 +154,7 @@ async function installGames(orch: Orchestrator, ctx: StackContext, settings: Set
   try {
     await orch.waitReady('romm', undefined, 300000)
   } catch (e) {
-    const logs = await orch.docker.logs(containerName('romm'), 200).catch(() => '')
+    const logs = await orch.logs('romm', 200).catch(() => '')
     if (/Access denied for user/i.test(logs))
       throw new Error('RomM can’t sign in to its database — it was created with different settings. To start Games fresh, delete the config/romm-db folder and try again.')
     throw e
@@ -161,21 +162,21 @@ async function installGames(orch: Orchestrator, ctx: StackContext, settings: Set
   const s = settings.get()
   const old = s.services.romm
   const creds =
-    s.games?.login ?? (old?.url === serviceUrl('romm') && old.username && old.password ? { username: old.username, password: old.password } : { username: 'finesse', password: newKey() })
+    s.games?.login ?? (old?.url === orch.url('romm') && old.username && old.password ? { username: old.username, password: old.password } : { username: 'finesse', password: newKey() })
   // Saved before RomM creates the account, so a retry signs in with the same password.
   settings.update((x) => void (x.games && (x.games.login = creds)))
-  await wireRomm(serviceUrl('romm'), creds, say)
+  await wireRomm(orch.url('romm'), creds, say)
   return creds
 }
 
 export class SetupRunner {
   status: RunStatus = { state: 'idle', steps: [], log: [], warnings: [] }
   private settings: SettingsStore
-  readonly orch: Orchestrator
+  readonly orch: StackHost
   /** When the last run finished (the setup code stays valid for a while after). */
   finishedAt = 0
 
-  constructor(settings: SettingsStore, orch = new Orchestrator()) {
+  constructor(settings: SettingsStore, orch: StackHost = new Orchestrator()) {
     this.settings = settings
     this.orch = orch
   }
@@ -212,7 +213,7 @@ export class SetupRunner {
   start(doc: SetupDoc): RunStatus {
     if (this.status.state === 'running') throw new Error('Setup is already running')
     if (this.gamesJob.state === 'working' || this.streamingJob.state === 'working') throw new Error('Finesse is busy — try again in a minute')
-    const services = orderServices(servicesFor(doc))
+    const services = orderServices(servicesFor(doc, this.orch.kind === 'native'))
     const has = (id: StackServiceId) => services.includes(id)
     const downloads = has('prowlarr')
     const steps: [string, string, boolean][] = [
@@ -295,7 +296,9 @@ export class SetupRunner {
     }
 
     await this.run('check', async () => {
-      if (!(await orch.docker.ping())) throw new Error('Finesse can’t reach Docker — start it with /var/run/docker.sock mounted')
+      if (!(await orch.ping())) throw new Error('Finesse can’t reach Docker — start it with /var/run/docker.sock mounted')
+      const missing = services.filter((id) => !orch.supports(id))
+      if (missing.length) throw new Error(`${missing.map((id) => CATALOG[id].name).join(', ')} can’t run on Windows yet — turn ${missing.length > 1 ? 'them' : 'it'} off and try again`)
       ctx.hostDevices = await orch.hostDevices()
       ctx.gpu = ctx.hostDevices.includes('/dev/dri')
       if ((has('gluetun') || has('tailscale')) && !ctx.hostDevices.includes('/dev/net/tun')) throw new Error('This machine has no /dev/net/tun, which the VPN needs')
@@ -309,12 +312,14 @@ export class SetupRunner {
     const gluetunKey = prev.services.gluetun?.apiKey || newKey()
     await this.run('folders', async () => {
       orch.ensureDirs(ctx, services)
-      if (has('jellyfin')) seedJellyfin(`${ctx.hostRoot}/config/jellyfin`, ctx.puid, ctx.pgid)
+      // Docker: container ports and /data. Windows: the ports picked in the check step, and real folders.
+      const at = (id: StackServiceId): SeedHost => (orch.kind === 'native' ? { native: true, port: orch.peer(id).port, data: (rel) => orch.appPath(ctx, rel) } : {})
+      if (has('jellyfin')) seedJellyfin(`${ctx.hostRoot}/config/jellyfin`, ctx.puid, ctx.pgid, at('jellyfin'))
       for (const app of ['prowlarr', 'sonarr', 'radarr', 'lidarr'] as const) {
-        if (has(app)) keys[app] = seedArr(`${ctx.hostRoot}/config/${app}`, app, ctx.puid, ctx.pgid)
+        if (has(app)) keys[app] = seedArr(`${ctx.hostRoot}/config/${app}`, app, ctx.puid, ctx.pgid, at(app))
       }
-      if (has('sabnzbd')) keys.sabnzbd = seedSab(`${ctx.hostRoot}/config/sabnzbd`, ctx.puid, ctx.pgid)
-      if (has('qbittorrent')) qbitCreds = seedQbit(`${ctx.hostRoot}/config/qbittorrent`, ctx.puid, ctx.pgid) ?? (prev.services.qbittorrent?.username ? { username: prev.services.qbittorrent.username, password: prev.services.qbittorrent.password ?? '' } : null)
+      if (has('sabnzbd')) keys.sabnzbd = seedSab(`${ctx.hostRoot}/config/sabnzbd`, ctx.puid, ctx.pgid, at('sabnzbd'))
+      if (has('qbittorrent')) qbitCreds = seedQbit(`${ctx.hostRoot}/config/qbittorrent`, ctx.puid, ctx.pgid, at('qbittorrent')) ?? (prev.services.qbittorrent?.username ? { username: prev.services.qbittorrent.username, password: prev.services.qbittorrent.password ?? '' } : null)
       if (has('gluetun')) seedGluetunAuth(`${ctx.hostRoot}/config/gluetun`, gluetunKey)
       if (has('tailscale')) seedTailscaleServe(`${ctx.hostRoot}/config/tailscale`)
     })
@@ -324,7 +329,7 @@ export class SetupRunner {
       for (const id of services) {
         i++
         s.progress = (i - 1) / services.length
-        await orch.ensureImage(CATALOG[id], (e) => {
+        await orch.download(id, (e) => {
           if (e.fraction !== undefined) s.progress = (i - 1 + e.fraction) / services.length
           s.detail = `${CATALOG[id].name} (${i} of ${services.length})`
         })
@@ -336,7 +341,7 @@ export class SetupRunner {
     await this.run('jellyfin', async (s) => {
       // Jellyfin's own port is for native Jellyfin apps (Finesse reaches it
       // internally). If something already uses it, take the next free one.
-      if (ctx.exposeJellyfin) {
+      if (ctx.exposeJellyfin && orch instanceof Orchestrator) {
         const running = await orch.docker.inspect(containerName('jellyfin'))
         const bindings = (running?.HostConfig.PortBindings ?? {}) as Record<string, { HostPort?: string }[] | undefined>
         const bound = Number(bindings['8096/tcp']?.[0]?.HostPort) || 0
@@ -359,6 +364,8 @@ export class SetupRunner {
         }
       }
       await orch.ensureService('jellyfin', ctx, progress(s))
+      // On Windows, Jellyfin answers on its own port directly.
+      if (orch.kind === 'native') ctx.jellyfinPort = orch.peer('jellyfin').port
       await orch.waitReady('jellyfin', progress(s), 300000, ['/jellyfin/System/Info/Public', '/System/Info/Public'])
       // Jellyfin answers a little before it has really finished starting (and
       // quietly drops what it gets meanwhile) — wait for its own all-clear.
@@ -368,15 +375,16 @@ export class SetupRunner {
     await this.run('jellyfin-setup', async (s) => {
       jf = await wireJellyfin(
         {
-          url: serviceUrl('jellyfin'),
+          url: orch.url('jellyfin'),
           admin: doc.admin,
           serverName: doc.server?.name || 'Finesse',
           language: (doc.server?.language || 'en').split('-')[0]!,
           country: doc.server?.country || 'US',
           libraries: { movies: true, shows: true, music: true, ...doc.libraries },
+          hostData: ctx.hostData,
           apiKey: prev.jellyfin.apiKey,
           restart: async () => {
-            await orch.docker.restart(containerName('jellyfin'), 30)
+            await orch.restart('jellyfin', 30)
             await orch.waitReady('jellyfin', progress(s), 300000, ['/jellyfin/System/Info/Public', '/System/Info/Public'])
             await orch.waitLog('jellyfin', /Startup complete/, 180000)
           },
@@ -389,7 +397,7 @@ export class SetupRunner {
       // Save Jellyfin now: from here on the app can sign in even if a later step fails.
       this.settings.update((x) => {
         x.mode = 'bundle'
-        x.jellyfin = { url: serviceUrl('jellyfin'), apiKey: jf.apiKey, basePath: jf.basePath }
+        x.jellyfin = { url: orch.url('jellyfin'), apiKey: jf.apiKey, basePath: jf.basePath }
       })
       // Something to play right away (once only: a deleted sample stays deleted).
       if (doc.libraries?.samples && !this.settings.get().samplesAdded) {
@@ -409,6 +417,10 @@ export class SetupRunner {
         // qBittorrent lives in Gluetun's network namespace: a new Gluetun means a new qBittorrent.
         await orch.ensureService('qbittorrent', ctx, progress(s), { forceRecreate: recreated })
         await orch.waitReady('qbittorrent', progress(s), 180000)
+      } else if (has('qbittorrent')) {
+        // Windows: no Gluetun; qBittorrent is locked to the VPN app's adapter in the connect step.
+        await orch.ensureService('qbittorrent', ctx, progress(s))
+        await orch.waitReady('qbittorrent', progress(s), 180000)
       }
     })
 
@@ -427,25 +439,31 @@ export class SetupRunner {
         s.detail = m
         this.say(m)
       }
-      if (has('sabnzbd')) await wireSab(serviceUrl('sabnzbd'), keys.sabnzbd!, doc.downloads?.usenet?.servers ?? [], say)
+      if (has('sabnzbd')) await wireSab(orch.url('sabnzbd'), keys.sabnzbd!, doc.downloads?.usenet?.servers ?? [], say)
+      if (has('qbittorrent') && doc.downloads?.torrents?.adapter) {
+        // Windows: locked to the VPN app before anything is downloaded.
+        const adapter = doc.downloads.torrents.adapter
+        if (!(await bindQbit(orch.url('qbittorrent'), adapter)))
+          this.status.warnings.push(`Torrents are paused: the VPN adapter “${adapter}” isn’t there yet. Turn on your VPN app and they start by themselves.`)
+      }
       if (has('qbittorrent')) {
-        await wireQbit(serviceUrl('qbittorrent'), { radarr: '/data/torrents/movies', 'tv-sonarr': '/data/torrents/tv', lidarr: '/data/torrents/music' }, say)
+        await wireQbit(orch.url('qbittorrent'), { radarr: orch.appPath(ctx, 'torrents/movies'), 'tv-sonarr': orch.appPath(ctx, 'torrents/tv'), lidarr: orch.appPath(ctx, 'torrents/music') }, say)
       }
       const apiOf: Record<string, 'v1' | 'v3'> = { sonarr: 'v3', radarr: 'v3', lidarr: 'v1', prowlarr: 'v1' }
-      const roots: Record<string, string> = { sonarr: '/data/media/tv', radarr: '/data/media/movies', lidarr: '/data/media/music' }
+      const roots: Record<string, string> = { sonarr: orch.appPath(ctx, 'media/tv'), radarr: orch.appPath(ctx, 'media/movies'), lidarr: orch.appPath(ctx, 'media/music') }
       const sabCat: Record<string, string> = { sonarr: 'tv', radarr: 'movies', lidarr: 'music' }
       const qbitCat: Record<string, string> = { sonarr: 'tv-sonarr', radarr: 'radarr', lidarr: 'lidarr' }
       for (const app of ['sonarr', 'radarr', 'lidarr'] as const) {
         if (!has(app)) continue
-        const arr = new Arr(serviceUrl(app), keys[app]!, apiOf[app]!)
+        const arr = new Arr(orch.url(app), keys[app]!, apiOf[app]!)
         await wireArr(
           {
             app,
             arr,
             rootFolder: roots[app]!,
-            sab: has('sabnzbd') ? { host: 'sabnzbd', port: 8080, apiKey: keys.sabnzbd!, category: sabCat[app]! } : undefined,
-            qbit: has('qbittorrent') && qbitCreds ? { host: 'qbittorrent', port: 8080, username: qbitCreds.username, password: qbitCreds.password, category: qbitCat[app]! } : undefined,
-            jellyfin: { host: 'jellyfin', port: 8096, urlBase: '/jellyfin', apiKey: jf.apiKey },
+            sab: has('sabnzbd') ? { ...orch.peer('sabnzbd'), apiKey: keys.sabnzbd!, category: sabCat[app]! } : undefined,
+            qbit: has('qbittorrent') && qbitCreds ? { ...orch.peer('qbittorrent'), username: qbitCreds.username, password: qbitCreds.password, category: qbitCat[app]! } : undefined,
+            jellyfin: { ...orch.peer('jellyfin'), urlBase: '/jellyfin', apiKey: jf.apiKey },
           },
           say,
         )
@@ -460,10 +478,10 @@ export class SetupRunner {
       }
       if (has('prowlarr')) {
         const { indexerErrors } = await wireProwlarr(
-          new Arr(serviceUrl('prowlarr'), keys.prowlarr!, 'v1'),
+          new Arr(orch.url('prowlarr'), keys.prowlarr!, 'v1'),
           {
-            selfUrl: serviceUrl('prowlarr'),
-            apps: (['sonarr', 'radarr', 'lidarr'] as const).filter(has).map((app) => ({ app, url: serviceUrl(app), apiKey: keys[app]! })),
+            selfUrl: orch.url('prowlarr'),
+            apps: (['sonarr', 'radarr', 'lidarr'] as const).filter(has).map((app) => ({ app, url: orch.url(app), apiKey: keys[app]! })),
             indexers: doc.downloads?.indexers ?? [],
           },
           say,
@@ -475,7 +493,7 @@ export class SetupRunner {
     let remoteUrl: string | undefined
     let rommCreds: { username: string; password: string } | null = null
     await this.run('games', async (s) => {
-      rommCreds = await installGames(orch, ctx, this.settings, (m) => {
+      rommCreds = await installGames(dockerOf(orch, 'Games'), ctx, this.settings, (m) => {
         s.detail = m
         this.say(m)
       })
@@ -486,7 +504,7 @@ export class SetupRunner {
       if (has('tailscale')) {
         await orch.ensureService('tailscale', ctx, progress(s))
         s.detail = 'Joining your tailnet…'
-        const r = await tailscaleUrl(orch)
+        const r = await tailscaleUrl(dockerOf(orch, 'Tailscale'))
         if (r.url) {
           remoteUrl = r.url
           this.say(`Tailscale: Finesse is at ${r.url}`)
@@ -502,7 +520,7 @@ export class SetupRunner {
     })
 
     await this.run('finish', async () => {
-      jellyfinScan(`${serviceUrl('jellyfin')}${jf.basePath}`, jf.apiKey).catch(() => {})
+      jellyfinScan(`${orch.url('jellyfin')}${jf.basePath}`, jf.apiKey).catch(() => {})
       // Re-applied with less than before (downloads or Games left out): turn
       // those apps off. Their settings stay in their folders for next time.
       // Game streaming has its own switch (Settings → Server): a setup
@@ -519,11 +537,11 @@ export class SetupRunner {
         const svc = x.services
         for (const app of ['sonarr', 'radarr', 'lidarr', 'prowlarr', 'sabnzbd', 'qbittorrent', 'gluetun', 'romm'] as const) if (!has(app)) delete svc[app]
         if (!has('romm')) delete svc.steamgriddb
-        for (const app of ['sonarr', 'radarr', 'lidarr', 'prowlarr'] as const) if (has(app)) svc[app] = { url: serviceUrl(app), apiKey: keys[app] }
-        if (has('sabnzbd')) svc.sabnzbd = { url: serviceUrl('sabnzbd'), apiKey: keys.sabnzbd }
-        if (has('qbittorrent') && qbitCreds) svc.qbittorrent = { url: serviceUrl('qbittorrent'), ...qbitCreds }
+        for (const app of ['sonarr', 'radarr', 'lidarr', 'prowlarr'] as const) if (has(app)) svc[app] = { url: orch.url(app), apiKey: keys[app] }
+        if (has('sabnzbd')) svc.sabnzbd = { url: orch.url('sabnzbd'), apiKey: keys.sabnzbd }
+        if (has('qbittorrent') && qbitCreds) svc.qbittorrent = { url: orch.url('qbittorrent'), ...qbitCreds }
         if (has('gluetun')) svc.gluetun = { url: 'http://gluetun:8000', apiKey: gluetunKey }
-        if (has('romm') && rommCreds) svc.romm = { url: serviceUrl('romm'), ...rommCreds }
+        if (has('romm') && rommCreds) svc.romm = { url: orch.url('romm'), ...rommCreds }
         if (has('romm') && ctx.games?.steamGridDbKey) svc.steamgriddb = { apiKey: ctx.games.steamGridDbKey }
         x.stack = {
           hostRoot: ctx.hostRoot,
@@ -534,6 +552,7 @@ export class SetupRunner {
           services: streaming ? [...services, 'wolf'] : services,
           ...(x.stack?.streaming ? { streaming: x.stack.streaming } : {}),
           vpn: ctx.vpn,
+          ...(doc.downloads?.torrents?.adapter ? { vpnAdapter: doc.downloads.torrents.adapter } : {}),
           remote: doc.remoteAccess?.method && doc.remoteAccess.method !== 'none' ? { method: doc.remoteAccess.method, tailscale: ctx.tailscale, cloudflare: ctx.cloudflared } : undefined,
           exposeJellyfin: ctx.exposeJellyfin,
           jellyfinPort: ctx.jellyfinPort,
@@ -581,15 +600,16 @@ export class SetupRunner {
       const prev = this.settings.get()
       const games = gamesConfig({ admin: { username: '', password: '' }, games: keys }, prev.games)
       this.settings.update((x) => void (x.games = games))
-      const ctx = stackContext(this.settings.get(), await this.orch.hostDevices())!
-      this.orch.ensureDirs(ctx, ['romm-db', 'romm'])
+      const orch = dockerOf(this.orch, 'Games')
+      const ctx = stackContext(this.settings.get(), await orch.hostDevices())!
+      orch.ensureDirs(ctx, ['romm-db', 'romm'])
       for (const id of ['romm-db', 'romm'] as const) {
         say(`Downloading ${CATALOG[id].name}…`)
-        await this.orch.ensureImage(CATALOG[id])
+        await orch.download(id)
       }
-      const creds = await installGames(this.orch, ctx, this.settings, say)
+      const creds = await installGames(orch, ctx, this.settings, say)
       this.settings.update((x) => {
-        x.services.romm = { url: serviceUrl('romm'), ...creds }
+        x.services.romm = { url: orch.url('romm'), ...creds }
         if (games.steamGridDbKey) x.services.steamgriddb = { apiKey: games.steamGridDbKey }
         x.stack!.services = [...new Set([...x.stack!.services, 'romm-db', 'romm'])]
       })
@@ -626,17 +646,18 @@ export class SetupRunner {
         await this.orch.removeService('wolf')
         return
       }
-      const probe = await this.orch.streamingProbe()
+      const orch = dockerOf(this.orch, 'Game streaming')
+      const probe = await orch.streamingProbe()
       const nvidia = probe.devices.includes('/dev/nvidia0') && probe.nvidiaRuntime
       this.settings.update((x) => void (x.stack!.streaming = { nvidia }))
       const ctx = stackContext(this.settings.get(), probe.devices)!
-      this.orch.ensureDirs(ctx, ['wolf'])
+      orch.ensureDirs(ctx, ['wolf'])
       say('Downloading Wolf…')
-      await this.orch.ensureImage(CATALOG.wolf, (e) => {
+      await orch.download('wolf', (e) => {
         if (e.phase === 'pull' && e.fraction !== undefined) this.streamingJob.detail = `Downloading Wolf — ${Math.round(e.fraction * 100)}%`
       })
       say('Starting Wolf…')
-      await this.orch.ensureService('wolf', ctx)
+      await orch.ensureService('wolf', ctx)
       // Wolf's API socket answers once it's up.
       const socket = wolfSocket(ctx)
       const until = Date.now() + 120000
@@ -644,9 +665,9 @@ export class SetupRunner {
       for (;;) {
         const r = await wolfCall(socket, 'GET', '/api/v1/apps').catch((e) => ((last = e), null))
         if (r?.status === 200) break
-        const c = await this.orch.docker.inspect(containerName('wolf'))
+        const c = await orch.docker.inspect(containerName('wolf'))
         if (c && !c.State.Running && !c.State.Restarting) {
-          const logs = await this.orch.docker.logs(containerName('wolf'), 30).catch(() => '')
+          const logs = await orch.docker.logs(containerName('wolf'), 30).catch(() => '')
           throw new Error(`Wolf stopped right after starting (exit ${c.State.ExitCode}).\n${logs.trim().split('\n').slice(-6).join('\n')}`)
         }
         if (Date.now() > until) throw new Error(`Wolf didn’t answer within two minutes: ${wolfProblem(last, socket)}`)
@@ -676,7 +697,7 @@ export class SetupRunner {
     const managed = await this.orch.managed()
     for (const id of managed.keys()) {
       if (id in CATALOG) await this.orch.removeService(id as StackServiceId)
-      else await this.orch.docker.remove(containerName(id as StackServiceId), { force: true })
+      else if (this.orch instanceof Orchestrator) await this.orch.docker.remove(containerName(id as StackServiceId), { force: true })
     }
   }
 }

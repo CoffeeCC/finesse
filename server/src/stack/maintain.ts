@@ -11,6 +11,7 @@
 // the small hours.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
+import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { gzipSync } from 'node:zlib'
@@ -20,7 +21,9 @@ import { stackContext } from '../setup/apply.ts'
 import { writeTarGz, type TarEntry } from '../tar.ts'
 import { applyPendingRestore, BACKUP_FILE, backupName, BIG_PARTS, databaseEntries, DEFAULT_PARTS, heldApps, partsOf, type BackupPart } from './backup.ts'
 import { CATALOG, containerName, orderServices, type StackContext, type StackServiceId } from './catalog.ts'
-import { containerSpec, LABEL_MANAGED, LABEL_SPEC, Orchestrator, serviceUrl, specHash } from './orchestrator.ts'
+import type { StackHost } from './host.ts'
+import { Orchestrator } from './orchestrator.ts'
+import { bindQbit } from './wire.ts'
 
 const log = logger('maintain')
 
@@ -103,7 +106,7 @@ const CONFIG_FILES = [
 
 export class Maintainer {
   readonly settings: SettingsStore
-  readonly orch: Orchestrator
+  readonly orch: StackHost
   readonly paths: Paths
   /** True while setup runs — the loop never fights it. */
   private readonly busy: () => boolean
@@ -115,7 +118,7 @@ export class Maintainer {
   private vpnWasUp: boolean | null = null
   private dockerWasUp: boolean | null = null
 
-  constructor(settings: SettingsStore, orch: Orchestrator, paths: Paths, busy: () => boolean = () => false) {
+  constructor(settings: SettingsStore, orch: StackHost, paths: Paths, busy: () => boolean = () => false) {
     this.settings = settings
     this.orch = orch
     this.paths = paths
@@ -158,8 +161,7 @@ export class Maintainer {
       this.health.checkedAt = new Date().toISOString()
       return this.health
     }
-    const docker = this.orch.docker
-    this.health.docker = await docker.ping()
+    this.health.docker = await this.orch.ping()
     if (this.health.docker !== this.dockerWasUp) {
       if (!this.health.docker) this.event('error', 'Finesse can’t reach Docker — the apps can’t be checked or repaired')
       else if (this.dockerWasUp === false) this.event('info', 'Docker is reachable again')
@@ -180,10 +182,10 @@ export class Maintainer {
     const ids = orderServices(s.stack.services.filter(isStackId))
     if (!this.busy() && !this.working) await this.repair(ctx, ids, s).catch((e) => this.event('error', `Repair failed: ${(e as Error).message}`))
     this.health.services = await this.inspect(ctx, ids, s)
-    this.health.vpn = ids.includes('gluetun') ? await this.checkVpn(s) : null
+    this.health.vpn = ids.includes('gluetun') ? await this.checkVpn(s) : s.stack.vpnAdapter && ids.includes('qbittorrent') ? await this.checkVpnAdapter(s, s.stack.vpnAdapter) : null
     this.health.disks = this.disks(ctx)
     this.health.checkedAt = new Date().toISOString()
-    if (existsSync(join(this.paths.configDir, 'restore-pending.json')) && s.stack) {
+    if (existsSync(join(this.paths.configDir, 'restore-pending.json')) && s.stack && this.orch instanceof Orchestrator) {
       await applyPendingRestore(this.paths.configDir, s.stack.hostRoot, this.orch.docker, (level, m) => this.event(level, m)).catch(() => {})
     }
     if (!this.busy() && !this.working) await this.scheduled(s)
@@ -193,32 +195,30 @@ export class Maintainer {
   // ---------- repair ----------
 
   private async repair(ctx: StackContext, ids: StackServiceId[], s: Settings) {
-    const docker = this.orch.docker
     // Paused by an administrator, or held while a restore swaps a database in.
     const paused = new Set([...(s.stack?.paused ?? []), ...heldApps(this.paths.configDir)])
     let gluetunStarted = 0
     for (const id of ids) {
-      const name = containerName(id)
       const def = CATALOG[id]
       if (paused.has(id)) continue
-      const c = await docker.inspect(name)
+      const c = await this.orch.state(id, ctx)
       if (!c) {
         this.event('warn', `${def.name} was missing — recreating it`)
         await this.orch.ensureService(id, ctx)
         if (id === 'gluetun') gluetunStarted = Date.now()
         continue
       }
-      if (c.Config.Labels?.[LABEL_MANAGED] !== 'true') continue
-      if (!c.State.Running && !c.State.Restarting) {
-        this.event('warn', `${def.name} had stopped (exit code ${c.State.ExitCode}) — starting it again`)
-        await docker.start(name)
+      if (!c.managed) continue
+      if (!c.running && !c.restarting) {
+        this.event('warn', `${def.name} had stopped (exit code ${c.exitCode}) — starting it again`)
+        await this.orch.start(id)
       }
-      const started = Date.parse(c.State.StartedAt) || 0
+      const started = Date.parse(c.startedAt) || 0
       if (id === 'gluetun') gluetunStarted = Math.max(gluetunStarted, started)
       // qBittorrent lives in Gluetun's network: when Gluetun restarts, it's cut off until it restarts too.
       if (id === 'qbittorrent' && gluetunStarted && started < gluetunStarted - 2000) {
         this.event('info', 'The VPN restarted — reconnecting qBittorrent through it')
-        await docker.restart(name).catch(async () => {
+        await this.orch.restart(id, 20).catch(async () => {
           await this.orch.ensureService('qbittorrent', ctx, undefined, { forceRecreate: true })
         })
       }
@@ -231,7 +231,7 @@ export class Maintainer {
     const def = CATALOG[id]
     if (!def.port || !def.healthPath) return { ok: true }
     try {
-      const r = await fetch(serviceUrl(id) + def.healthPath, { signal: AbortSignal.timeout(5000), redirect: 'manual' })
+      const r = await fetch(this.orch.url(id) + def.healthPath, { signal: AbortSignal.timeout(5000), redirect: 'manual' })
       r.body?.cancel().catch(() => {})
       if ((r.status >= 200 && r.status < 300) || r.status === 401 || r.status === 403) return { ok: true }
       return { ok: false, detail: `answers HTTP ${r.status}` }
@@ -241,31 +241,48 @@ export class Maintainer {
   }
 
   private async inspect(ctx: StackContext, ids: StackServiceId[], s: Settings): Promise<ServiceHealth[]> {
-    const docker = this.orch.docker
-    ctx.selinux ??= await this.orch.hostSelinux()
     const paused = new Set(s.stack?.paused ?? [])
     return Promise.all(
       ids.map(async (id): Promise<ServiceHealth> => {
         const def = CATALOG[id]
         const base = { id, name: def.name, role: def.role, image: def.image }
-        const c = await docker.inspect(containerName(id)).catch(() => null)
+        const c = await this.orch.state(id, ctx).catch(() => null)
         if (!c) return { ...base, state: 'missing', updatePending: false }
-        const want = specHash(containerSpec(def, ctx))
-        const updatePending = c.Config.Labels?.[LABEL_SPEC] !== want
-        const out: ServiceHealth = { ...base, image: c.Config.Image, updatePending, state: 'running', startedAt: c.State.StartedAt }
-        if (c.State.Restarting) {
-          const logs = await docker.logs(containerName(id), 5).catch(() => '')
+        const out: ServiceHealth = { ...base, image: c.image, updatePending: c.updatePending, state: 'running', startedAt: c.startedAt }
+        if (c.restarting) {
+          const logs = await this.orch.logs(id, 5).catch(() => '')
           return { ...out, state: 'restarting', detail: logs.trim().split('\n').pop()?.slice(0, 300) }
         }
-        if (!c.State.Running) return { ...out, state: paused.has(id) ? 'paused' : 'stopped', detail: paused.has(id) ? 'Stopped by an administrator' : `Exited with code ${c.State.ExitCode}` }
+        if (!c.running) return { ...out, state: paused.has(id) ? 'paused' : 'stopped', detail: paused.has(id) ? 'Stopped by an administrator' : `Exited with code ${c.exitCode}` }
         const p = await this.probe(id)
         if (!p.ok) {
-          const young = Date.now() - (Date.parse(c.State.StartedAt) || 0) < STARTUP_GRACE_MS
+          const young = Date.now() - (Date.parse(c.startedAt) || 0) < STARTUP_GRACE_MS
           return { ...out, state: young ? 'starting' : 'unreachable', detail: p.detail }
         }
         return out
       }),
     )
+  }
+
+  /** Windows: the VPN app's adapter is up, and qBittorrent is locked to it (or to nothing while it's down). */
+  private async checkVpnAdapter(s: Settings, adapter: string): Promise<VpnHealth> {
+    const up = Object.entries(networkInterfaces()).some(([name, addrs]) => name.toLowerCase() === adapter.toLowerCase() && (addrs ?? []).some((a) => !a.internal))
+    let vpn: VpnHealth = up ? { connected: true } : { connected: false, error: `Your VPN app isn’t connected (${adapter}) — torrents are paused until it is` }
+    const url = s.services.qbittorrent?.url
+    if (url) {
+      const bound = await bindQbit(url, adapter).catch(() => null)
+      if (up && bound === false) vpn = { connected: false, error: `qBittorrent can’t see the VPN adapter “${adapter}” yet — torrents stay paused` }
+    }
+    this.vpnEvents(vpn)
+    return vpn
+  }
+
+  private vpnEvents(vpn: VpnHealth) {
+    if (vpn.connected !== this.vpnWasUp) {
+      if (vpn.connected) this.event('info', `VPN connected${vpn.country ? ` (${vpn.country})` : ''} — torrents are flowing through it`)
+      else if (this.vpnWasUp !== null) this.event('warn', 'VPN disconnected — torrents are paused until it reconnects (nothing leaks outside the tunnel)')
+      this.vpnWasUp = vpn.connected
+    }
   }
 
   private async checkVpn(s: Settings): Promise<VpnHealth> {
@@ -283,11 +300,7 @@ export class Maintainer {
     } catch (e) {
       vpn = { connected: false, error: `The VPN container isn’t answering (${(e as Error).message})` }
     }
-    if (vpn.connected !== this.vpnWasUp) {
-      if (vpn.connected) this.event('info', `VPN connected${vpn.country ? ` (${vpn.country})` : ''} — torrents are flowing through it`)
-      else if (this.vpnWasUp !== null) this.event('warn', 'VPN disconnected — torrents are paused until it reconnects (nothing leaks outside the tunnel)')
-      this.vpnWasUp = vpn.connected
-    }
+    this.vpnEvents(vpn)
     return vpn
   }
 
@@ -422,7 +435,7 @@ export class Maintainer {
     // RomM keeps its library, collections and play history in MariaDB: dump it
     // next to RomM's config (last 7 kept). Saves and states are files in config/romm/assets.
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    if (s.stack?.services.includes('romm-db')) {
+    if (s.stack?.services.includes('romm-db') && this.orch instanceof Orchestrator) {
       const r = await this.orch.docker
         .exec(containerName('romm-db'), ['sh', '-c', 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --quick romm 2>/dev/null'])
         .catch((e) => ({ code: -1, output: String(e) }))

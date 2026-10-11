@@ -19,8 +19,9 @@ import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import type { Settings } from '../config.ts'
 import { readTarGz, type TarEntry } from '../tar.ts'
-import { containerName } from './catalog.ts'
+import { containerName, type StackServiceId } from './catalog.ts'
 import type { Docker } from './docker.ts'
+import type { StackHost } from './host.ts'
 
 export type BackupPart = 'settings' | 'apps' | 'watch' | 'requests' | 'games'
 
@@ -194,7 +195,8 @@ export interface RestoreOptions {
   root: string | null
   uid: number
   gid: number
-  docker: Docker | null
+  /** Stops and starts the apps around their database swap (null: nothing is running them). */
+  apps: Pick<StackHost, 'isRunning' | 'stop' | 'start'> | null
   only?: BackupPart[]
   say?: (m: string) => void
 }
@@ -298,18 +300,17 @@ async function swapDatabases(
   say: (m: string) => void,
 ) {
   for (const s of staged) {
-    const name = containerName(s.app as never)
-    const c = o.docker ? await o.docker.inspect(name).catch(() => null) : null
-    const wasRunning = Boolean(c?.State.Running)
+    const app = s.app as StackServiceId
+    const wasRunning = o.apps ? await o.apps.isRunning(app).catch(() => false) : false
     if (wasRunning) {
       say(`Stopping ${s.label}…`)
-      await o.docker!.stop(name, 30)
+      await o.apps!.stop(app, 30)
     }
     for (const ext of ['-wal', '-shm']) rmSync(`${s.db}${ext}`, { force: true })
     renameSync(s.tmp, s.db)
     own(s.db)
     if (wasRunning) {
-      await o.docker!.start(name)
+      await o.apps!.start(app)
       say(`${s.label}: database restored, started again`)
     } else say(`${s.label}: database restored (it starts with it)`)
     result.databases.push(s.label)

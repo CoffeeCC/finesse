@@ -187,7 +187,7 @@
           ]
         },
         "torrents": {
-          "description": "Torrents via qBittorrent, which ONLY ever connects through the VPN (Gluetun, with a kill switch). null = no torrents.",
+          "description": "Torrents via qBittorrent, which ONLY ever connects through a VPN. Docker installs: give \"vpn\" (Gluetun runs the tunnel, with a kill switch). Windows installs: give \"adapter\", the network adapter of the VPN app on that PC; qBittorrent is locked to it, so torrents pause whenever the VPN is off. null = no torrents.",
           "oneOf": [
             {
               "type": "null"
@@ -201,6 +201,20 @@
               "properties": {
                 "vpn": {
                   "$ref": "#/$defs/vpn"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapter"
+              ],
+              "properties": {
+                "adapter": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Windows only: the VPN app's network adapter name as Windows shows it (e.g. \"NordLynx\", \"Mullvad\", \"ProtonVPN\", \"wg0\")."
                 }
               }
             }

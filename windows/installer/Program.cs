@@ -11,7 +11,12 @@ namespace Finesse.Setup
 {
     class Options
     {
-        public bool Resume;      // after the restart that finishes Docker's install
+        public bool Service;     // run as the Finesse service (Windows starts it so)
+        public bool Install;     // no window: install with --media (and --bundle), print the result (CI, scripts)
+        public bool Quiet;       // with --uninstall: no window
+        public bool DeleteSettings;
+        public string Media;
+        public string Bundle;    // a finesse-windows-*.zip on this PC instead of downloading this version's
         public bool Uninstall;   // from Settings → Apps
         public string SelfTest;  // CI: render each screen to PNGs in this folder, then quit
         public string UiDir;     // development: load the interface from a folder instead of the exe
@@ -24,7 +29,12 @@ namespace Finesse.Setup
             {
                 switch (args[i].ToLowerInvariant())
                 {
-                    case "--resume": o.Resume = true; break;
+                    case "--service": o.Service = true; break;
+                    case "--install": o.Install = true; break;
+                    case "--quiet": o.Quiet = true; break;
+                    case "--delete-settings": o.DeleteSettings = true; break;
+                    case "--media": if (i + 1 < args.Length) o.Media = args[++i]; break;
+                    case "--bundle": if (i + 1 < args.Length) o.Bundle = Path.GetFullPath(args[++i]); break;
                     case "--uninstall": o.Uninstall = true; break;
                     case "--dev": o.Dev = true; break;
                     case "--selftest": o.SelfTest = i + 1 < args.Length ? args[++i] : "selftest"; break;
@@ -52,10 +62,17 @@ namespace Finesse.Setup
         static int Run(string[] args)
         {
             var opt = Options.Parse(args);
+            System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12;
+            // The service: no window, nothing of WebView2.
+            if (opt.Service)
+            {
+                System.ServiceProcess.ServiceBase.Run(new FinesseService());
+                return 0;
+            }
             Directory.CreateDirectory(Home);
             Log.Open(Path.Combine(Home, "setup.log"));
             Log.Write($"Finesse Setup {Version} starting ({string.Join(" ", args)}) on {Environment.OSVersion}, {RuntimeInformation.OSArchitecture}");
-            System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls12;
+            if (opt.Install || (opt.Uninstall && opt.Quiet)) return Headless(opt);
 
             using (var one = new Mutex(true, "Local\\FinesseSetup", out bool first))
             {
@@ -71,6 +88,25 @@ namespace Finesse.Setup
                 var shell = new Shell(opt);
                 Application.Run(shell);
                 return shell.ExitCode;
+            }
+        }
+
+        /// <summary>Without a window: FinesseSetup.exe --install --media D:\Finesse [--bundle finesse-windows.zip],
+        /// or --uninstall --quiet [--delete-settings]. Prints what happened as JSON; exit code 0 when it worked.</summary>
+        static int Headless(Options opt)
+        {
+            var engine = new Engine((ev, data) => Console.WriteLine(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new System.Collections.Generic.Dictionary<string, object> { ["event"] = ev, ["data"] = data })));
+            try
+            {
+                object result = opt.Install ? engine.Install(opt.Media ?? (string)((System.Collections.Generic.Dictionary<string, object>)engine.DefaultMedia())["path"], opt.Bundle) : engine.Uninstall(opt.DeleteSettings);
+                Console.WriteLine(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new System.Collections.Generic.Dictionary<string, object> { ["ok"] = true, ["result"] = result }));
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Log.Write("headless failed: " + ex);
+                Console.WriteLine(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new System.Collections.Generic.Dictionary<string, object> { ["ok"] = false, ["error"] = ex.Message }));
+                return 1;
             }
         }
     }

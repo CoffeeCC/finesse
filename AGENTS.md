@@ -68,7 +68,9 @@ runs the same, plus the TV build.
 | `server/cli/finesse.ts` | The `finesse` CLI inside the container |
 | `setup.schema.json` | Public schema of the setup document. **Keep it in sync with `server/src/setup/doc.ts`.** `server/test/setup.test.ts` enforces this. |
 | `webos/` | TV packaging and the CSS down-leveller for Chromium 68 |
-| `windows/installer/` | Finesse Setup for Windows: a WinForms + WebView2 exe (.NET Framework 4.8) whose interface is `ui/` (plain HTML/JS; opened in a browser it runs a pretend install, `?mock=fresh`). `Engine.cs` does the work: Docker Desktop, the `finesse` volume (settings) and a Windows media folder (`/run/desktop/mnt/host/…`). CI builds it and screenshots each screen (`.github/workflows/windows-installer.yml`); releases attach `FinesseSetup.exe`. |
+| `server/src/stack/host.ts`, `native.ts`, `hosts.ts` | Who runs the apps: `StackHost` is what setup, the health loop and Settings → Server use. `Orchestrator` (Docker) for Linux and NAS installs; `NativeHost` on Windows (`FINESSE_HOST=native`): the projects' own Windows builds, pinned and hash-checked in `NATIVE_APPS`, started hidden and kept running by Finesse. `apppaths.ts` maps the data folder as the apps name it (`/data` in Docker, the real folder on Windows). |
+| `windows/installer/` | Finesse Setup for Windows: a WinForms + WebView2 exe (.NET Framework 4.8) whose interface is `ui/` (plain HTML/JS; opened in a browser it runs a pretend install, `?mock=fresh`). `Engine.cs` installs `finesse-windows-<v>-x64.zip` into Program Files and registers the Finesse service; the same exe is the service (`Service.cs`: Node in a kill-on-close job object, version switch on exit 75, rollback). `--install`/`--uninstall --quiet` work without a window. CI builds it, screenshots each screen, and runs a real install end to end (`windows/e2e.ps1`); releases attach `FinesseSetup.exe`. |
+| `windows/bundle.sh` | Builds `finesse-windows-<v>-x64.zip` (pinned `node.exe`, the server, the web app, samples): what Windows installs run and update to. |
 | `deploy/` | Pre-1.0 nginx + Python invite-service deployment (legacy; kept for existing installs) |
 | `tools/tour/` | The video tour: a demo server, scene scripts, narration, and the film + episodes. Adding a feature? Add its scene ([tools/tour/README.md](tools/tour/README.md)). |
 
@@ -90,7 +92,9 @@ runs the same, plus the TV build.
 
   Re-running setup must change nothing.
 - **Only touch containers labelled `finesse.managed=true`.**
-- **Pinned images live in `server/src/stack/catalog.ts`.** Bumping one is a release decision:
+- **Pinned images live in `server/src/stack/catalog.ts`** (and the Windows builds in
+  `server/src/stack/native.ts`, each with its SHA-256; keep the versions in step where both exist).
+  Bumping one is a release decision:
   the maintainer applies new pins on existing installs, overnight or via **Update now**. Test
   the whole flow first (below).
 - **Words.** UI copy is plain, friendly and specific ("Can't find news.example.com — check the
