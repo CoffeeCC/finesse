@@ -31,7 +31,7 @@ function realBridge() {
   }
 }
 
-/** A pretend PC, for working on the page in a browser: ?mock=fresh | docker | installed | slow */
+/** A pretend PC, for working on the page in a browser: ?mock=fresh | docker | installed | slow | nowsl (Docker Desktop installed, WSL missing) | novirt (virtualization off in the BIOS) */
 function mockBridge() {
   const scenario = params.get('mock') || 'fresh'
   const subs = {}
@@ -67,7 +67,8 @@ function mockBridge() {
       return { file: 'C:\\Temp\\Docker Desktop Installer.exe' }
     },
     async installDocker() { await t(4000); state.docker = true; return { ok: true, restart: true } },
-    async startDocker() { for (let s = 0; s < 12; s += 3) { emit('dockerStarting', { seconds: s }); await t(700) } state.running = true; return { ok: true, version: '28.4.0' } },
+    async installWsl() { await t(2500); state.wsl = true; return { ok: true, restart: true } },
+    async startDocker() { if (scenario === 'novirt') return { ok: false, reason: 'virtualization' }; if (scenario === 'nowsl' && !state.wsl) return { ok: false, reason: 'wsl' }; for (let s = 0; s < 12; s += 3) { emit('dockerStarting', { seconds: s }); await t(700) } state.running = true; return { ok: true, version: '28.4.0' } },
     async installFinesse({ port }) {
       emit('install', { step: 'prepare' }); await t(900)
       for (let i = 0; i <= 14; i++) { emit('install', { step: 'pull', progress: i / 14, detail: `${i} of 14` }); await t(260) }
@@ -80,6 +81,7 @@ function mockBridge() {
     async finish() { await t(300); return { shortcut: 'Finesse.url' } },
     async startFinesse() { await t(1200); return { ok: true } },
     async restart() { return true },
+    async restartToFirmware() { return true },
     async signout() { return true },
     async uninstall() { await t(2500); state.finesse = false; return { removed: 9 } },
     async log() { return '2026-10-05 21:14:02 Finesse Setup 2.6.0 starting\n2026-10-05 21:14:03 docker info → 0' },
@@ -375,16 +377,61 @@ async function dockerInstall() {
   }
 }
 
-function restartScreen() {
+function restartScreen(what = 'Docker Desktop is installed.') {
   const el = show(`
     <p class="kicker">Step 2 · Docker Desktop</p>
     <h1>One <em>restart</em>, then we're back.</h1>
-    <p class="lead">Docker Desktop is installed. Windows needs a restart to finish setting it up. Finesse Setup opens again by itself afterwards and carries on.</p>
+    <p class="lead">${what} Windows needs a restart to finish setting it up. Finesse Setup opens again by itself afterwards and carries on.</p>
     <div class="actions"><button class="btn primary" id="go">Restart now ${ARROW}</button><button class="link" id="later">Later</button></div>
     <p class="small" style="margin-top:14px">Save anything you have open first.</p>`,
   { art: 'lofi', line: "I'll be right here when you're back. Promise.", step: 1 })
   $('#go', el).onclick = () => B.call('restart')
   $('#later', el).onclick = () => { say("No rush. Finesse Setup opens by itself after your next restart."); setTimeout(() => B.call('window', { action: 'close' }), 2600) }
+}
+
+/** Docker Desktop is here but WSL, which it runs on, isn't: add it (one permission prompt, then a restart). */
+function wslScreen() {
+  const el = show(`
+    <p class="kicker">Step 2 · Docker Desktop</p>
+    <h1>One more <em>Windows</em> part</h1>
+    <p class="lead">Docker Desktop runs on <b>WSL</b> (Windows Subsystem for Linux), a free part of Windows that this PC doesn't have yet. Finesse Setup can add it for you: Windows asks for permission once, then needs a restart.</p>
+    <p class="small">If Docker Desktop showed a "WSL not installed" message, you can close it. This fixes it.</p>
+    <div class="actions"><button class="btn primary" id="go">Add WSL ${ARROW}</button><button class="link" id="mine">How to do it myself</button></div>`,
+  { art: 'lofi', line: 'Docker needs one more piece. I can grab it for you.', step: 1 })
+  $('#mine', el).onclick = () => B.call('open', { url: 'https://learn.microsoft.com/windows/wsl/install' })
+  $('#go', el).onclick = async () => {
+    busy = true
+    $('#go', el).disabled = true
+    $('#go', el).textContent = 'Adding WSL…'
+    say('Windows will ask for permission. Say yes!')
+    try {
+      const r = await B.call('installWsl')
+      busy = false
+      if (r.restart) return restartScreen('WSL is added.')
+      dockerStart()
+    } catch (e) { busy = false; oops(e.message, wslScreen) }
+  }
+}
+
+/** Virtualization is off in the PC's BIOS: only the person can turn it on, so explain how in plain words. */
+function virtualizationScreen() {
+  const el = show(`
+    <p class="kicker">Step 2 · Docker Desktop</p>
+    <h1>Turn on <em>virtualization</em></h1>
+    <p class="lead">Docker Desktop needs a setting called <b>virtualization</b>, and it's switched off in this PC's BIOS (the settings it shows before Windows starts). It's safe to turn on, and only you can do it.</p>
+    <ol class="small howto">
+      <li>Press <b>Restart into BIOS</b>. Windows asks for permission, then restarts.</li>
+      <li>Find the setting. It's usually under <b>Advanced</b>, <b>CPU</b> or <b>Security</b>, called <b>Intel Virtualization Technology</b>, <b>VT-x</b>, <b>SVM Mode</b> or <b>AMD-V</b>.</li>
+      <li>Set it to <b>Enabled</b>, then <b>Save &amp; Exit</b> (often F10). Finesse Setup opens again by itself.</li>
+    </ol>
+    <div class="actions"><button class="btn primary" id="go">Restart into BIOS ${ARROW}</button><button class="link" id="again">Check again</button><button class="link" id="how">Show me how</button></div>`,
+  { art: 'lofi', line: "This one's a switch only you can flip. I'll wait.", step: 1 })
+  $('#how', el).onclick = () => B.call('open', { url: 'https://support.microsoft.com/windows/enable-virtualization-on-windows-c5578302-6e43-4b4b-a449-8ced115f58e1' })
+  $('#again', el).onclick = () => dockerStart()
+  $('#go', el).onclick = async () => {
+    say('Windows will ask for permission. Say yes!')
+    try { await B.call('restartToFirmware') } catch (e) { oops(e.message, virtualizationScreen) }
+  }
 }
 
 async function dockerStart() {
@@ -410,6 +457,8 @@ async function dockerStart() {
       return info.finesse.installed ? installedScreen() : folders()
     }
     if (r.reason === 'signout') return signOutScreen()
+    if (r.reason === 'wsl') return wslScreen()
+    if (r.reason === 'virtualization') return virtualizationScreen()
     oops("Docker Desktop didn't finish starting. If its window is open, it may be waiting for you (accept its terms, or skip signing in). Then press Try again.", dockerStart, r.detail)
   } catch (e) { off(); busy = false; oops(e.message, dockerStart) }
 }

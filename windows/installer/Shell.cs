@@ -221,11 +221,13 @@ namespace Finesse.Setup
                         case "downloadDocker": result = engine.DownloadDocker(); break;
                         case "installDocker": result = engine.InstallDocker(Str("file")); break;
                         case "startDocker": result = engine.StartDocker(); break;
+                        case "installWsl": result = engine.InstallWsl(); break;
                         case "installFinesse": result = engine.InstallFinesse(Str("media"), Int("port", 8080)); break;
                         case "firewall": result = engine.Firewall(Int("port", 8080)); break;
                         case "finish": result = engine.Finish(Int("port", 8080)); break;
                         case "startFinesse": result = engine.StartFinesse(); break;
                         case "restart": result = engine.Restart(); break;
+                        case "restartToFirmware": result = engine.RestartToFirmware(); break;
                         case "uninstall": result = engine.Uninstall(Bool("deleteSettings")); break;
                         case "defaultMedia": result = engine.DefaultMedia(); break;
                         case "checkMedia": result = engine.CheckMedia(Str("path")); break;

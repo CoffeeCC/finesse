@@ -137,6 +137,10 @@ p.small, .small { font-size: 12.5px; line-height: 1.55; color: var(--ink-400); }
 @keyframes flow { to { background-position: -200% 0; } }
 @keyframes slide { from { left: -35%; } to { left: 100%; } }
 
+/* numbered how-to (things only the person can do) */
+.howto { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 6px; line-height: 1.5; }
+.howto b { color: #fff; font-weight: 600; }
+
 /* steps list during install */
 .steps { display: grid; gap: 0; margin-top: 6px; }
 .step { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; padding: 11px 2px; color: var(--ink-400); font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, .05); }

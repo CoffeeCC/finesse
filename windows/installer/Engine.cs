@@ -383,9 +383,66 @@ namespace Finesse.Setup
             return new Dictionary<string, object> { ["file"] = file };
         }
 
+        /// <summary>WSL itself is installed (with or without a Linux distribution): what Docker Desktop's WSL 2 backend runs on.</summary>
+        static bool WslReady() => Run("wsl.exe", "--status", 15000, null, Encoding.Unicode).Ok || Run("wsl.exe", "--version", 15000, null, Encoding.Unicode).Ok;
+
+        /// <summary>False only when Windows says plainly that virtualization is off in the PC's firmware (BIOS/UEFI), which WSL 2 and Docker can't work without. Unsure counts as on.</summary>
+        static bool VirtualizationOn()
+        {
+            // A running hypervisor hides the firmware flag, so it counts as on by itself.
+            var r = Run("powershell.exe", "-NoProfile -NonInteractive -Command \"$c = Get-CimInstance Win32_ComputerSystem; $p = Get-CimInstance Win32_Processor | Select-Object -First 1; if ($c.HypervisorPresent -or $p.VirtualizationFirmwareEnabled) { 'on' } else { 'off' }\"", 20000);
+            bool off = r.Ok && r.Out.Trim() == "off";
+            if (off) Log.Write("virtualization is off in firmware");
+            return !off;
+        }
+
+        /// <summary>Docker Desktop set up (by someone, by hand) on its Hyper-V engine instead, which needs no WSL.</summary>
+        static bool DockerUsesHyperV()
+        {
+            try
+            {
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Docker");
+                foreach (var name in new[] { "settings-store.json", "settings.json" })
+                {
+                    string f = Path.Combine(dir, name);
+                    if (File.Exists(f) && Regex.IsMatch(File.ReadAllText(f), "\"wslEngineEnabled\"\\s*:\\s*false", RegexOptions.IgnoreCase)) return true;
+                }
+            }
+            catch { /* unreadable: assume the usual WSL engine */ }
+            return false;
+        }
+
+        /// <summary>
+        /// Docker Desktop runs on WSL 2, and a fresh Windows often doesn't have it ("WSL not installed" from Docker).
+        /// One permission prompt adds it; it takes effect after a restart. `wsl --install` needs Windows 10 2004 or newer;
+        /// the two Windows features (and a kernel update) are the older way to the same place.
+        /// </summary>
+        static bool AddWsl()
+        {
+            if (WslReady()) return false;
+            Log.Write("installing WSL");
+            const string script = "/c wsl.exe --install --no-distribution || (dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart & dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart & wsl.exe --update)";
+            var code = Elevated("cmd.exe", script, true);
+            if (code == null) throw new FriendlyException("Windows didn't get permission to add WSL, which Docker Desktop needs. Press Try again and choose Yes when Windows asks.");
+            Log.Write("WSL install exited with " + code);
+            if (code != 0 && code != 3010)
+                throw new FriendlyException("Windows couldn't add WSL (code " + code + "), which Docker Desktop needs. Open PowerShell as administrator, run: wsl --install, restart the PC, then open Finesse Setup again.");
+            return true;
+        }
+
+        /// <summary>The "Add WSL" step on its own (Docker Desktop is already installed but WSL isn't).</summary>
+        public object InstallWsl()
+        {
+            bool added = AddWsl();
+            if (added) Resume.Register();
+            return new Dictionary<string, object> { ["ok"] = true, ["restart"] = added };
+        }
+
         public object InstallDocker(string file)
         {
             if (file == null || !File.Exists(file)) throw new FriendlyException("The Docker Desktop installer is missing. Press Install again to download it.");
+            // WSL first, so the one restart after this finishes both.
+            AddWsl();
             Log.Write("installing Docker Desktop");
             var code = Elevated(file, "install --quiet --accept-license --backend=wsl-2 --always-run-service");
             if (code == null) throw new FriendlyException("Windows didn't get permission to install Docker Desktop. Press Install again and choose Yes when Windows asks.");
@@ -409,6 +466,10 @@ namespace Finesse.Setup
         public object StartDocker()
         {
             if (DockerUp(out var version, out _)) return new Dictionary<string, object> { ["ok"] = true, ["version"] = version };
+            // With virtualization off in the BIOS, Docker Desktop never starts: say so instead of waiting.
+            if (!VirtualizationOn()) return new Dictionary<string, object> { ["ok"] = false, ["reason"] = "virtualization" };
+            // Without WSL, Docker Desktop only shows "WSL not installed": say so here and offer to add it.
+            if (!WslReady() && !DockerUsesHyperV()) return new Dictionary<string, object> { ["ok"] = false, ["reason"] = "wsl" };
             if (!File.Exists(DockerDesktop)) throw new FriendlyException("Docker Desktop isn't installed.");
             if (Process.GetProcessesByName("Docker Desktop").Length == 0)
             {
@@ -590,6 +651,16 @@ namespace Finesse.Setup
         {
             Resume.Register();
             Run("shutdown.exe", "/r /t 5 /c \"Restarting to finish installing Docker for Finesse.\"", 10000);
+            return true;
+        }
+
+        /// <summary>Restarts straight into the PC's firmware settings (UEFI), where virtualization is turned on.</summary>
+        public object RestartToFirmware()
+        {
+            Resume.Register();
+            var code = Elevated("shutdown.exe", "/r /fw /t 5", true);
+            if (code == null) throw new FriendlyException("Windows didn't get permission to restart into the BIOS. Press the button again and choose Yes, or restart and open the BIOS yourself.");
+            if (code != 0) throw new FriendlyException("This PC can't restart into its BIOS by itself (code " + code + "). Restart it and press the BIOS key while it starts (often F2, F10, F12 or Del).");
             return true;
         }
 
