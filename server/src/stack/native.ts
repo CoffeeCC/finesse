@@ -466,7 +466,7 @@ export class NativeHost implements StackHost {
   private launch(id: StackServiceId, spec: Spec, p: Proc) {
     const child = spawn(spec.exe, spec.args, {
       cwd: spec.cwd,
-      env: { ...process.env, ...spec.env },
+      env: { ...childEnv(process.env), ...spec.env },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -717,6 +717,13 @@ export class NativeHost implements StackHost {
     rmSync(file, { force: true })
     return { file: null, output: r.output }
   }
+}
+
+/** Finesse's own environment minus what is meant for Finesse. The apps read some of it as their own
+ *  settings: Sonarr, Radarr and the rest take PORT as their port, and so would sit on Finesse's. */
+export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const ours = /^(PORT|HOST|NODE_ENV|NODE_OPTIONS|FINESSE_.*|JELLYFIN_.*)$/i
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !ours.test(k)))
 }
 
 function run(exe: string, args: string[]) {

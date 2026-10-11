@@ -417,6 +417,10 @@ export class SetupRunner {
         // qBittorrent lives in Gluetun's network namespace: a new Gluetun means a new qBittorrent.
         await orch.ensureService('qbittorrent', ctx, progress(s), { forceRecreate: recreated })
         await orch.waitReady('qbittorrent', progress(s), 180000)
+      } else if (has('qbittorrent')) {
+        // Windows: no Gluetun; qBittorrent is locked to the VPN app's adapter in the connect step.
+        await orch.ensureService('qbittorrent', ctx, progress(s))
+        await orch.waitReady('qbittorrent', progress(s), 180000)
       }
     })
 

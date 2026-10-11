@@ -9,7 +9,7 @@ import { createServer, type AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import type { StackContext } from '../src/stack/catalog.ts'
-import { NativeHost, type NativeApp, type NativeDeps } from '../src/stack/native.ts'
+import { childEnv, NativeHost, type NativeApp, type NativeDeps } from '../src/stack/native.ts'
 import { tmp } from './helpers.ts'
 
 const APP_JS = `
@@ -259,4 +259,9 @@ test('an app that must be its own Windows service is registered, started, stoppe
   assert.equal(await host.isRunning('sabnzbd'), false)
   await host.removeService('sabnzbd')
   assert.equal(services.has('SABnzbd'), false)
+})
+
+test('the apps don’t inherit what is meant for Finesse (Radarr would take PORT as its own)', () => {
+  const env = childEnv({ PORT: '8080', Port: '8080', NODE_ENV: 'production', FINESSE_HOST: 'native', finesse_root: 'C:\\x', PATH: 'C:\\Windows', SystemRoot: 'C:\\Windows', TZ: 'America/Chicago' })
+  assert.deepEqual(env, { PATH: 'C:\\Windows', SystemRoot: 'C:\\Windows', TZ: 'America/Chicago' })
 })
