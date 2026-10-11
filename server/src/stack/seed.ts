@@ -168,6 +168,7 @@ ${host.native ? `Session\\Interface=${QBIT_LOCKED}\nSession\\InterfaceName=${QBI
 Accepted=true
 
 [Preferences]
+${host.native ? 'Advanced\\neverCheckFileAssoc=true\nAdvanced\\updateCheck=false\n' : ''}WebUI\\Enabled=true
 WebUI\\Address=${host.native ? '127.0.0.1' : '*'}
 WebUI\\Port=${host.port ?? 8080}
 WebUI\\Username=finesse

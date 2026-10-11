@@ -4,9 +4,11 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
-import { QBIT_LOCKED } from '../src/stack/seed.ts'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { QBIT_LOCKED, seedQbit } from '../src/stack/seed.ts'
 import { bindQbit } from '../src/stack/wire.ts'
-import { listen } from './helpers.ts'
+import { listen, tmp } from './helpers.ts'
 
 function fakeQbit(adapters: { name: string; value: string }[]) {
   const prefs: Record<string, unknown> = { current_network_interface: '' }
@@ -56,4 +58,12 @@ test('a missing adapter locks qBittorrent to nothing instead of the normal conne
   } finally {
     q.server.close()
   }
+})
+
+test('the Windows qBittorrent starts with its web UI on, locked, and with no first-run questions', () => {
+  const dir = tmp()
+  assert.ok(seedQbit(dir, 0, 0, { native: true, port: 8090, data: (rel) => join('C:\\Media', rel) }))
+  const ini = readFileSync(join(dir, 'qBittorrent', 'config', 'qBittorrent.ini'), 'utf8')
+  for (const line of ['WebUI\\Enabled=true', 'WebUI\\Address=127.0.0.1', 'WebUI\\Port=8090', 'WebUI\\LocalHostAuth=false', `Session\\Interface=${QBIT_LOCKED}`, 'Advanced\\neverCheckFileAssoc=true', 'Advanced\\updateCheck=false'])
+    assert.ok(ini.split('\n').includes(line), line)
 })
