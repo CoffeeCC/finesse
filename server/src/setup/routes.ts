@@ -9,6 +9,7 @@ import { checkSetupCode, requireSetupCode } from '../auth.ts'
 import { ApiError, readJson, sendJson } from '../http/core.ts'
 import schema from '../../../setup.schema.json' with { type: 'json' }
 import { CATALOG } from '../stack/catalog.ts'
+import { dockerOf } from '../stack/orchestrator.ts'
 import { SetupRunner, stackBase } from './apply.ts'
 import { checkIndexer, checkSystem, checkUsenet, checkVpn } from './checks.ts'
 import { fillSecrets, KEEP, maskSecrets, validateSetup, type SetupDoc, VPN_PROVIDERS, type VpnDoc } from './doc.ts'
@@ -97,7 +98,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       const base = stackBase()
       // Join the stack network now, so later checks can reach apps on it.
       await runner.orch.prepareNetwork({ ...base, timezone: 'Etc/UTC', exposeJellyfin: false, jellyfinPort: 8096 }).catch(() => {})
-      sendJson(res, 200, await checkSystem(runner.orch.docker, { root: base.hostRoot, data: base.hostData }, () => runner.orch.hostDevices(), (p) => runner.orch.hostPortFree(p)))
+      sendJson(res, 200, await checkSystem(runner.orch, { root: base.hostRoot, data: base.hostData }))
     })
 
     router.post('/api/setup/check/usenet', async ({ req, res }) => {
@@ -131,7 +132,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       if (problems.length) return sendJson(res, 200, { ok: false, message: problems[0]!.message, problems })
       const base = stackBase()
       await runner.orch.prepareNetwork({ ...base, timezone: 'Etc/UTC', exposeJellyfin: false, jellyfinPort: 8096 })
-      sendJson(res, 200, await checkVpn(runner.orch.docker, vpn, { hostRoot: base.hostRoot, network: base.network, timezone: process.env.TZ || 'Etc/UTC', hostDevices: await runner.orch.hostDevices() }))
+      sendJson(res, 200, await checkVpn(dockerOf(runner.orch, 'The VPN check').docker, vpn, { hostRoot: base.hostRoot, network: base.network, timezone: process.env.TZ || 'Etc/UTC', hostDevices: await runner.orch.hostDevices() }))
     })
 
     router.post('/api/setup/validate', async ({ req, res }) => {
