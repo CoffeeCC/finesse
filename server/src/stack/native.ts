@@ -37,9 +37,11 @@ export interface NativeApp {
   port: number
   /** Only Finesse talks to it (127.0.0.1), or the whole network (Jellyfin). */
   lan?: boolean
-  /** Runs as a Windows service of its own with this name, which Finesse registers, starts and stops
-   *  (SABnzbd: its Windows build treats any start from a service as being a service itself). */
-  service?: string
+  /** Runs as a Windows service of its own, which Finesse registers, starts and stops (SABnzbd: its Windows
+   *  build treats any start from a service as being a service itself, even to register one). `exe` is the
+   *  service's program (relative to the app folder); `argsValue`, where under its registry key it reads its
+   *  arguments (else they go on the command line). */
+  service?: { name: string; display: string; exe: string; argsValue?: string }
   /** Where it keeps its own log, when its output doesn't go to Finesse (a service). */
   log?(cfg: string): string
   args(o: { cfg: string; dir: string; port: number }): string[]
@@ -102,7 +104,8 @@ export const NATIVE_APPS: Partial<Record<StackServiceId, NativeApp>> = {
     exe: 'SABnzbd/SABnzbd-console.exe',
     // Not 8080: that's Finesse's own.
     port: 8085,
-    service: 'SABnzbd',
+    // What SABnzbd's own "install" does: SABnzbd.exe as the service, its arguments in the registry.
+    service: { name: 'SABnzbd', display: 'SABnzbd (Finesse)', exe: 'SABnzbd/SABnzbd.exe', argsValue: 'CommandLine' },
     log: (cfg) => join(cfg, 'logs', 'sabnzbd.log'),
     args: ({ cfg, port }) => ['-f', join(cfg, 'sabnzbd.ini'), '-s', `127.0.0.1:${port}`, '-b', '0'],
   },
@@ -374,19 +377,24 @@ export class NativeHost implements StackHost {
     return Number(/PID\s*:\s*(\d+)/.exec(this.sc(['queryex', name]).out)?.[1] ?? 0)
   }
 
-  /** Registers it the app's own way (with its settings), started only by Finesse. */
+  /** Registers it as its own service would (with its settings), started only by Finesse. */
   private registerService(id: StackServiceId, spec: Spec) {
-    const name = this.app(id).service!
-    const how = this.serviceState(name) === null ? 'install' : 'update'
-    const r = this.deps.run(spec.exe, [...spec.args, how])
-    log.info(`${CATALOG[id].name}: ${how} as a Windows service → ${r.code}`)
-    if (this.serviceState(name) === null) throw new Error(`${CATALOG[id].name} couldn’t set itself up as a Windows service: ${r.out.trim().slice(-300)}`)
-    this.sc(['config', name, 'start=', 'demand'])
+    const svc = this.app(id).service!
+    const exe = join(this.appDir(id), svc.exe)
+    const bin = svc.argsValue ? `"${exe}"` : [`"${exe}"`, ...spec.args.map((a) => `"${a}"`)].join(' ')
+    const exists = this.serviceState(svc.name) !== null
+    const r = this.sc([exists ? 'config' : 'create', svc.name, 'binPath=', bin, 'start=', 'demand', 'DisplayName=', svc.display])
+    if (r.code !== 0) throw new Error(`Windows didn’t let Finesse set up ${CATALOG[id].name} as a service: ${r.out.trim().slice(-300)}`)
+    if (svc.argsValue) {
+      const reg = this.deps.run(sys32('reg.exe'), ['add', `HKLM\\SYSTEM\\CurrentControlSet\\Services\\${svc.name}`, '/v', svc.argsValue, '/t', 'REG_MULTI_SZ', '/d', spec.args.join('\\0'), '/f'])
+      if (reg.code !== 0) throw new Error(`Couldn’t save ${CATALOG[id].name}’s settings for its service: ${reg.out.trim().slice(-300)}`)
+    }
+    log.info(`${CATALOG[id].name}: ${exists ? 'updated' : 'registered'} as the Windows service ${svc.name}`)
   }
 
   /** Running (or starting) now. */
   private alive(id: StackServiceId): boolean {
-    const name = this.apps[id]?.service
+    const name = this.apps[id]?.service?.name
     if (name) return ['RUNNING', 'START_PENDING'].includes(this.serviceState(name) ?? '')
     return Boolean(this.procs.get(id)?.child)
   }
@@ -420,7 +428,7 @@ export class NativeHost implements StackHost {
     p.wanted = true
     if (p.restartTimer) clearTimeout(p.restartTimer)
     p.restartTimer = null
-    const name = this.app(id).service
+    const name = this.app(id).service?.name
     if (name) {
       if (this.serviceState(name) === null) this.registerService(id, spec)
       if (this.alive(id)) return
@@ -516,7 +524,7 @@ export class NativeHost implements StackHost {
     p.wanted = false
     if (p.restartTimer) clearTimeout(p.restartTimer)
     p.restartTimer = null
-    const name = this.apps[id]?.service
+    const name = this.apps[id]?.service?.name
     if (name) return this.stopService(id, name, seconds)
     const child = p.child
     if (!child?.pid) return
@@ -652,7 +660,7 @@ export class NativeHost implements StackHost {
 
   async removeService(id: StackServiceId): Promise<void> {
     await this.stop(id)
-    const name = this.apps[id]?.service
+    const name = this.apps[id]?.service?.name
     if (name && this.serviceState(name) !== null) this.sc(['delete', name])
     delete this.saved.apps[id]
     this.save()
