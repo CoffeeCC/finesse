@@ -13,12 +13,11 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, join } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { logger } from '../log.ts'
 import { CATALOG, proxyFor, type StackContext, type StackServiceId } from './catalog.ts'
 import { NotOnThisHost, type AppState, type ManagedApp, type ProgressSink, type StackHost } from './host.ts'
@@ -287,16 +286,21 @@ export class NativeHost implements StackHost {
     const total = Number(res.headers.get('content-length')) || 0
     let got = 0
     let last = 0
-    const body = Readable.fromWeb(res.body as never)
-    body.on('data', (c: Buffer) => {
-      got += c.length
-      const f = total ? got / total : 0
-      if (total && (f - last >= 0.02 || f === 1)) {
-        last = f
-        onProgress?.({ service: id, phase: 'pull', fraction: f, detail: `${CATALOG[id].name} ${app.version}` })
+    // One reader, written as it arrives (a 'data' listener next to a pipe fights it over pausing).
+    const out = await open(file, 'w')
+    try {
+      for await (const c of res.body as unknown as AsyncIterable<Uint8Array>) {
+        await out.write(c)
+        got += c.length
+        const f = total ? got / total : 0
+        if (total && (f - last >= 0.02 || f === 1)) {
+          last = f
+          onProgress?.({ service: id, phase: 'pull', fraction: f, detail: `${CATALOG[id].name} ${app.version}` })
+        }
       }
-    })
-    await pipeline(body, createWriteStream(file))
+    } finally {
+      await out.close()
+    }
     const sum = await sha256(file)
     if (sum !== app.sha256) {
       rmSync(file, { force: true })

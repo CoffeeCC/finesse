@@ -62,9 +62,11 @@ if (-not $v.ok) { throw "The document has problems: $($v.problems | ConvertTo-Js
 $null = Invoke-RestMethod -Method Post "$base/api/setup/apply" -Headers $h -Body $doc -ContentType 'application/json'
 $seen = 0
 $end = (Get-Date).AddMinutes(25)
+$st = [pscustomobject]@{ state = 'running'; log = @() }
 do {
   Start-Sleep -Seconds 5
-  $st = Invoke-RestMethod "$base/api/setup/status" -Headers $h
+  try { $st = Invoke-RestMethod "$base/api/setup/status" -Headers $h }
+  catch { Write-Host "  (Finesse isn't answering: $($_.Exception.Message))"; continue }
   $st.log | Select-Object -Skip $seen | ForEach-Object { Write-Host "  $_" }
   $seen = $st.log.Count
 } while ($st.state -eq 'running' -and (Get-Date) -lt $end)
