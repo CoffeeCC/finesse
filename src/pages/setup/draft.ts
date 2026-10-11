@@ -1,7 +1,7 @@
 // The wizard's working copy of the setup document: friendlier shapes for the
 // forms (strings for numbers, UI-only toggles), converted with toDoc().
 
-import type { Indexer, SetupDoc, UsenetServer } from '../../api/setup'
+import type { Indexer, SetupDoc, UsenetServer, VpnDoc } from '../../api/setup'
 import { browserLocale } from './presets'
 
 export interface Draft {
@@ -12,6 +12,9 @@ export interface Draft {
   games: { steamGridDbKey: string; igdbClientId: string; igdbClientSecret: string }
   usenet: boolean
   torrents: boolean
+  /** Windows installs (no Docker): torrents use the VPN app on the PC, named by its network adapter. */
+  native: boolean
+  vpnAdapter: string
   servers: (Omit<UsenetServer, 'port' | 'connections'> & { preset: string; port: string; connections: string })[]
   indexers: (Indexer & { url: string; key: string })[]
   /** The built-in search sites were offered (ticked) once; after that, the choice is the person's. */
@@ -47,6 +50,8 @@ export function newDraft(): Draft {
     games: { steamGridDbKey: '', igdbClientId: '', igdbClientSecret: '' },
     usenet: false,
     torrents: false,
+    native: false,
+    vpnAdapter: '',
     servers: [],
     indexers: [],
     builtinOffered: false,
@@ -76,7 +81,7 @@ const clean = (s: string) => s.trim()
 export const KEEP = '__finesse_keep__'
 export const kept = (s: string | undefined) => s === KEEP
 
-export function vpnDoc(d: Draft): NonNullable<NonNullable<SetupDoc['downloads']>['torrents']>['vpn'] {
+export function vpnDoc(d: Draft): VpnDoc {
   const v = d.vpn
   const countries = v.countries
     .split(',')
@@ -103,10 +108,10 @@ export function toDoc(d: Draft): SetupDoc {
   const doc: SetupDoc = {
     admin: { username: clean(d.admin.username), password: d.admin.password },
     server: { name: clean(d.server.name) || 'Finesse', timezone: d.server.timezone, country: d.server.country, language: d.server.language },
-    libraries: { ...d.libraries, games: Boolean(d.libraries.games), samples: Boolean(d.libraries.samples && d.libraries.music) },
+    libraries: { ...d.libraries, games: Boolean(d.libraries.games && !d.native), samples: Boolean(d.libraries.samples && d.libraries.music) },
     quality: { preset: d.quality },
   }
-  if (d.libraries.games) {
+  if (d.libraries.games && !d.native) {
     const g = d.games
     const games: NonNullable<SetupDoc['games']> = {}
     if (clean(g.steamGridDbKey)) games.steamGridDbKey = clean(g.steamGridDbKey)
@@ -129,7 +134,7 @@ export function toDoc(d: Draft): SetupDoc {
             })),
           }
         : null,
-      torrents: d.torrents ? { vpn: vpnDoc(d) } : null,
+      torrents: d.torrents ? (d.native ? { adapter: clean(d.vpnAdapter) } : { vpn: vpnDoc(d) }) : null,
       indexers: d.indexers
         .filter((ix) => (ix.kind === 'newznab' ? d.usenet : d.torrents))
         .map((ix) =>
@@ -139,8 +144,8 @@ export function toDoc(d: Draft): SetupDoc {
         ),
     }
   }
-  if (d.remote === 'tailscale') doc.remoteAccess = { method: 'tailscale', tailscale: { authKey: clean(d.tailscale.authKey), hostname: clean(d.tailscale.hostname).toLowerCase() || 'finesse' } }
-  else if (d.remote === 'cloudflare') doc.remoteAccess = { method: 'cloudflare', cloudflare: { token: clean(d.cloudflare.token), publicUrl: clean(d.cloudflare.publicUrl).replace(/\/+$/, '') } }
+  if (d.remote === 'tailscale' && !d.native) doc.remoteAccess = { method: 'tailscale', tailscale: { authKey: clean(d.tailscale.authKey), hostname: clean(d.tailscale.hostname).toLowerCase() || 'finesse' } }
+  else if (d.remote === 'cloudflare' && !d.native) doc.remoteAccess = { method: 'cloudflare', cloudflare: { token: clean(d.cloudflare.token), publicUrl: clean(d.cloudflare.publicUrl).replace(/\/+$/, '') } }
   else doc.remoteAccess = { method: 'none' }
   if (d.remote === 'own' && clean(d.publicUrl)) doc.publicUrl = clean(d.publicUrl).replace(/\/+$/, '')
   doc.email = d.emailOn
@@ -195,6 +200,8 @@ export function fromDoc(doc: SetupDoc): Draft {
   const dl = doc.downloads
   d.usenet = Boolean(dl?.usenet)
   d.torrents = Boolean(dl?.torrents)
+  d.vpnAdapter = dl?.torrents?.adapter ?? ''
+  d.native = Boolean(dl?.torrents?.adapter)
   d.servers = (dl?.usenet?.servers ?? []).map((s) => ({ ...s, preset: '', port: String(s.port ?? 563), connections: String(s.connections ?? 20) }))
   d.indexers = (dl?.indexers ?? []).map((ix) => ({ ...ix, url: ix.url ?? '', key: indexerKey() }))
   d.builtinOffered = true // an existing setup: whatever is (or isn't) there is their choice

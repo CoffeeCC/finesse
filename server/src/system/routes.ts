@@ -19,6 +19,7 @@ import { BACKUP_FILE, describeParts, isPart } from '../stack/backup.ts'
 import { Maintainer } from '../stack/maintain.ts'
 import { randomBytes } from 'node:crypto'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
+import { windowsUpdater } from '../stack/winupdate.ts'
 
 export interface StackRef {
   runner?: SetupRunner
@@ -53,6 +54,10 @@ export function systemPlugin(ref: StackRef): Plugin {
 
     // Whole-app updates: whenever Finesse runs from a registry image in Docker
     // (bundle or adopt); otherwise the web-only updater stays in charge.
+    // Windows: a new Windows build next to this one, and the Finesse service restarts on it.
+    if (deps.updater && orch.kind === 'native' && process.env.FINESSE_INSTALL_DIR) {
+      deps.updater.image = windowsUpdater(deps.releases, process.env.FINESSE_INSTALL_DIR, () => maint.backupNow('before-update').then(() => {}))
+    }
     if (deps.updater && orch instanceof Orchestrator) {
       const docker = orch.docker
       deps.updater.image = {
@@ -83,13 +88,19 @@ export function systemPlugin(ref: StackRef): Plugin {
         version: VERSION,
         web: deps.web.current().version,
         mode: s.mode,
+        host: orch.kind,
         setup: { state: s.setup.state, completedAt: s.setup.completedAt ?? null, running: runner.status.state === 'running' },
         stack: s.stack ? { root: s.stack.hostRoot, data: s.stack.hostData, services: s.stack.services, quality: s.stack.quality, paused: s.stack.paused ?? [], jellyfinPort: s.stack.exposeJellyfin ? s.stack.jellyfinPort : null } : null,
         updates: { auto: s.updates.auto, lastStackUpdate: s.maintenance?.lastStackUpdate ?? null },
         busy: maint.isWorking,
         previews: { enabled: s.previews?.enabled !== false, ...clips.status },
-        games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
-        streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
+        // Docker only for now: Windows installs show neither switch.
+        ...(orch.kind === 'docker'
+          ? {
+              games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
+              streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
+            }
+          : {}),
         backup: { job: maint.backupJob },
         health: maint.health,
       })

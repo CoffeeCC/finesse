@@ -5,6 +5,7 @@
 // don't silently break the wiring.
 
 import { logger } from '../log.ts'
+import { toApp } from './apppaths.ts'
 import { QBIT_LOCKED } from './seed.ts'
 
 const log = logger('wire')
@@ -69,6 +70,8 @@ export interface JellyfinSetup {
   language: string
   country: string
   libraries: { movies: boolean; shows: boolean; music: boolean }
+  /** The real data folder (on Windows Jellyfin's libraries point straight at it; in Docker at /data). */
+  hostData?: string
   /** Known API key from a previous run (lets re-runs work without the admin password). */
   apiKey?: string
   /** Restarts Jellyfin (needed when its BaseUrl changes). */
@@ -138,9 +141,9 @@ export async function wireJellyfin(o: JellyfinSetup, step: (msg: string) => void
 
   // Libraries
   const want: [boolean, string, string, string][] = [
-    [o.libraries.movies, 'Movies', 'movies', '/data/media/movies'],
-    [o.libraries.shows, 'Shows', 'tvshows', '/data/media/tv'],
-    [o.libraries.music, 'Music', 'music', '/data/media/music'],
+    [o.libraries.movies, 'Movies', 'movies', toApp(o.hostData ?? '', 'media/movies')],
+    [o.libraries.shows, 'Shows', 'tvshows', toApp(o.hostData ?? '', 'media/tv')],
+    [o.libraries.music, 'Music', 'music', toApp(o.hostData ?? '', 'media/music')],
   ]
   const folders = await http<{ Name: string; Locations: string[] }[]>('GET', `${J()}/Library/VirtualFolders`, { headers: jfAuth(token) })
   for (const [enabled, name, type, path] of want) {

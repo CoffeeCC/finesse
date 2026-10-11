@@ -6,6 +6,9 @@
 import { ApiError } from '../http/core.ts'
 import type { StackContext, StackServiceId } from './catalog.ts'
 
+/** Finesse runs the apps as this PC's own Windows programs (set by the Finesse service on Windows). */
+export const isNative = () => process.env.FINESSE_HOST === 'native'
+
 export interface ProgressSink {
   (event: { service: StackServiceId; phase: 'pull' | 'create' | 'start' | 'wait' | 'ready' | 'skip'; detail?: string; fraction?: number }): void
 }

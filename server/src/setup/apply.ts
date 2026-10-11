@@ -381,6 +381,7 @@ export class SetupRunner {
           language: (doc.server?.language || 'en').split('-')[0]!,
           country: doc.server?.country || 'US',
           libraries: { movies: true, shows: true, music: true, ...doc.libraries },
+          hostData: ctx.hostData,
           apiKey: prev.jellyfin.apiKey,
           restart: async () => {
             await orch.restart('jellyfin', 30)

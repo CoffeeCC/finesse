@@ -9,11 +9,12 @@
 // folder at /data), which Finesse finds at <media folder>/media.
 
 import { existsSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, sep } from 'node:path'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
 import { ApiError, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
+import { fromApp, hostToApp } from './stack/apppaths.ts'
 import { Arr } from './stack/wire.ts'
 import { insideLibrary } from './uploads.ts'
 
@@ -96,9 +97,9 @@ export class Deleter {
 
   /** /data/media/movies/Heat (1995) → <media folder>/media/movies/Heat (1995), only inside a library. */
   private host(root: string, jfPath: string | undefined, allowLibraryRoot = false): string | null {
-    if (!jfPath || !jfPath.startsWith('/data/media/') || jfPath.split('/').includes('..')) return null
-    const p = join(root, jfPath.slice('/data/'.length))
-    const lib = LIBRARIES.map((l) => join(root, l)).find((l) => p === l || p.startsWith(l + '/'))
+    const p = fromApp(root, jfPath)
+    if (!p) return null
+    const lib = LIBRARIES.map((l) => join(root, l)).find((l) => p === l || p.startsWith(l + sep))
     if (!lib || (!allowLibraryRoot && p === lib)) return null
     // Never through a shortcut (symlink) to somewhere outside the library.
     if (!insideLibrary(lib, p)) return null
@@ -232,7 +233,7 @@ export class Deleter {
         for (const f of tracks) files.push(...this.withSidecars(f))
         // The album's own folder, with its cover art, when every track lives there.
         const dirs = [...new Set(tracks.map((t) => dirname(t)))]
-        if (dirs.length === 1 && readdirSync(dirs[0]!).every((n) => !VIDEO_OR_AUDIO.test(n) || tracks.includes(join(dirs[0]!, n))) && this.host(root, `/data/${dirs[0]!.slice(root.length + 1)}`)) {
+        if (dirs.length === 1 && readdirSync(dirs[0]!).every((n) => !VIDEO_OR_AUDIO.test(n) || tracks.includes(join(dirs[0]!, n))) && this.host(root, hostToApp(root, dirs[0]!))) {
           files.length = 0
           folders.push(dirs[0]!)
         }
@@ -256,7 +257,7 @@ export class Deleter {
     }
 
     const bytes = [...files, ...folders].reduce((a, p) => a + this.size(p), 0)
-    const gone = [...folders, ...files.filter((f) => VIDEO_OR_AUDIO.test(f))].map((p) => `/data/${p.slice(root.length + 1)}`)
+    const gone = [...folders, ...files.filter((f) => VIDEO_OR_AUDIO.test(f))].map((p) => hostToApp(root, p))
     return { title, type: item.Type, files: [...new Set(files)], folders, bytes, downloader: steps[0]?.say ?? null, gone, steps }
   }
 
@@ -285,7 +286,7 @@ export class Deleter {
     // Folders the deletion emptied (a season, an album), up to the library itself.
     for (const start of new Set([...plan.files, ...plan.folders].map((p) => dirname(p)))) {
       let dir = start
-      while (this.host(root, `/data/${dir.slice(root.length + 1)}`)) {
+      while (this.host(root, hostToApp(root, dir))) {
         try {
           if (existsSync(dir)) rmdirSync(dir)
         } catch {

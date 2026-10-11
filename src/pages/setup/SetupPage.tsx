@@ -124,7 +124,8 @@ export default function SetupPage() {
       const [cur, i] = await Promise.all([setupApi.current(), setupApi.info()])
       changeRef.current = true
       setInfo(i)
-      setDraft(cur.doc ? fromDoc(cur.doc) : { ...newDraft(), admin: { username: session?.userName ?? '', password: '', confirm: '' } })
+      const base = cur.doc ? fromDoc(cur.doc) : { ...newDraft(), admin: { username: session?.userName ?? '', password: '', confirm: '' } }
+      setDraft({ ...base, native: i.host === 'native' })
       setChange(cur.doc ? 'kept' : 'redo')
       setCodeOk(true)
       setStepIdx(0)
@@ -157,6 +158,7 @@ export default function SetupPage() {
       setCodeOk(true)
       const i = await setupApi.info()
       setInfo(i)
+      set((x) => void (x.native = i.host === 'native'))
       void runSystemCheck()
       setStepIdx(1)
     } catch (err) {
@@ -617,7 +619,7 @@ const PATH_STEP: [RegExp, StepId][] = [
 ]
 
 function ReviewStep({ d, info, jumpTo, problems, applyError }: { d: Draft; info: SetupInfo | null; jumpTo: (s: StepId) => void; problems: Problem[]; applyError: string }) {
-  const libs = (['movies', 'shows', 'music', 'games'] as const).filter((k) => d.libraries[k]).map((k) => ({ movies: 'Movies', shows: 'TV shows', music: 'Music', games: 'Games' })[k])
+  const libs = (['movies', 'shows', 'music', 'games'] as const).filter((k) => d.libraries[k] && !(k === 'games' && d.native)).map((k) => ({ movies: 'Movies', shows: 'TV shows', music: 'Music', games: 'Games' })[k])
   const apps = ['Jellyfin']
   if (d.usenet || d.torrents) {
     apps.push('Prowlarr')
@@ -626,11 +628,11 @@ function ReviewStep({ d, info, jumpTo, problems, applyError }: { d: Draft; info:
     if (d.libraries.music) apps.push('Lidarr')
   }
   if (d.usenet) apps.push('SABnzbd')
-  if (d.torrents) apps.push('Gluetun VPN', 'qBittorrent')
-  if (d.libraries.games) apps.push('RomM')
+  if (d.torrents) apps.push(...(d.native ? [] : ['Gluetun VPN']), 'qBittorrent')
+  if (d.libraries.games && !d.native) apps.push('RomM')
   if (d.remote === 'tailscale') apps.push('Tailscale')
   if (d.remote === 'cloudflare') apps.push('Cloudflare Tunnel')
-  const vpnName = info?.vpnProviders.find((p) => p.id === d.vpn.provider)?.name ?? d.vpn.provider
+  const vpnName = d.native ? `your VPN app (${d.vpnAdapter})` : (info?.vpnProviders.find((p) => p.id === d.vpn.provider)?.name ?? d.vpn.provider)
   const ixCount = d.indexers.filter((ix) => (ix.kind === 'newznab' ? d.usenet : d.torrents)).length
   return (
     <div className="space-y-6">
@@ -690,7 +692,7 @@ function ReviewStep({ d, info, jumpTo, problems, applyError }: { d: Draft; info:
           ))}
         </div>
         <p className="mt-3 text-[12.5px] leading-relaxed text-ink-400">
-          About {apps.length > 3 ? '3' : '1'} GB to download. {info?.defaults.dataLabel ? `Your media and downloads are stored in ${info.defaults.dataLabel}; app settings stay inside Docker.` : `Everything is stored under ${info?.defaults.root ?? 'the Finesse folder'} and ${info?.defaults.data ?? 'your data folder'}.`}
+          About {apps.length > 3 ? '3' : '1'} GB to download. {d.native ? `Your media and downloads are stored in ${info?.defaults.data ?? 'your media folder'}; app settings in ${info?.defaults.root ?? 'Finesse’s folder'}.` : info?.defaults.dataLabel ? `Your media and downloads are stored in ${info.defaults.dataLabel}; app settings stay inside Docker.` : `Everything is stored under ${info?.defaults.root ?? 'the Finesse folder'} and ${info?.defaults.data ?? 'your data folder'}.`}
         </p>
       </div>
     </div>

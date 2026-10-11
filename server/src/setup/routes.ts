@@ -3,12 +3,14 @@
 // administrator (re-running setup repairs or changes the stack).
 
 import type { IncomingMessage } from 'node:http'
+import { networkInterfaces } from 'node:os'
 import type { SettingsStore } from '../config.ts'
 import type { AppDeps, Plugin } from '../app.ts'
 import { checkSetupCode, requireSetupCode } from '../auth.ts'
 import { ApiError, readJson, sendJson } from '../http/core.ts'
 import schema from '../../../setup.schema.json' with { type: 'json' }
 import { CATALOG } from '../stack/catalog.ts'
+import { createHost } from '../stack/hosts.ts'
 import { dockerOf } from '../stack/orchestrator.ts'
 import { SetupRunner, stackBase } from './apply.ts'
 import { checkIndexer, checkSystem, checkUsenet, checkVpn } from './checks.ts'
@@ -34,7 +36,7 @@ export const BUILTIN_INDEXERS = [
 export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
   return (deps: AppDeps) => {
     const { router, settings, auth } = deps
-    const runner = new SetupRunner(settings)
+    const runner = new SetupRunner(settings, createHost(settings))
     runnerRef.runner = runner
     // Finesse restarted in the middle of a first setup: say so, so the wizard
     // offers to run it again rather than waiting forever.
@@ -76,9 +78,13 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       await guard(req)
       const s = settings.get()
       const base = stackBase()
+      const native = runner.orch.kind === 'native'
       sendJson(res, 200, {
         state: s.setup.state,
         mode: s.mode,
+        // What runs the apps: Docker, or this PC's own Windows programs (where torrents use the VPN app's adapter).
+        host: runner.orch.kind,
+        adapters: native ? networkAdapters() : [],
         defaults: {
           timezone: process.env.TZ || 'Etc/UTC', root: base.hostRoot, data: base.hostData, puid: base.puid, pgid: base.pgid, gpu: base.gpu,
           // What people see on this machine (the Windows installer says "E:\Finesse"; data is Docker's own view), and its address at home.
@@ -89,7 +95,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
         builtinIndexers: BUILTIN_INDEXERS,
         catalog: Object.values(CATALOG).map((d) => ({ id: d.id, name: d.name, role: d.role, image: d.image })),
         lastError: s.setup.lastError ?? null,
-        stack: s.stack ? { services: s.stack.services, quality: s.stack.quality, vpn: s.stack.vpn ? { provider: s.stack.vpn.provider, type: s.stack.vpn.type, countries: s.stack.vpn.countries } : null } : null,
+        stack: s.stack ? { services: s.stack.services, quality: s.stack.quality, vpn: s.stack.vpn ? { provider: s.stack.vpn.provider, type: s.stack.vpn.type, countries: s.stack.vpn.countries } : null, vpnAdapter: s.stack.vpnAdapter ?? null } : null,
       })
     })
 
@@ -135,11 +141,25 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       sendJson(res, 200, await checkVpn(dockerOf(runner.orch, 'The VPN check').docker, vpn, { hostRoot: base.hostRoot, network: base.network, timezone: process.env.TZ || 'Etc/UTC', hostDevices: await runner.orch.hostDevices() }))
     })
 
+    // Windows: is the VPN app's adapter connected right now?
+    router.post('/api/setup/check/adapter', async ({ req, res }) => {
+      await guard(req)
+      const { adapter } = await readJson<{ adapter?: string }>(req)
+      if (!adapter?.trim()) throw new ApiError(400, 'adapter is required')
+      const up = networkAdapters().some((a) => a.name.toLowerCase() === adapter.trim().toLowerCase())
+      sendJson(res, 200, {
+        ok: up,
+        message: up
+          ? `${adapter.trim()} is connected — torrents will only ever use it`
+          : `${adapter.trim()} isn’t connected right now. You can still finish setup: torrents wait until your VPN app is on.`,
+      })
+    })
+
     router.post('/api/setup/validate', async ({ req, res }) => {
       await guard(req)
       let body = await readJson(req, 1 << 20)
       if (storedDoc()) body = fillSecrets(body, storedDoc()) as typeof body
-      const { problems } = validateSetup(body)
+      const { problems } = validateSetup(body, { native: runner.orch.kind === 'native' })
       sendJson(res, 200, { ok: problems.length === 0, problems })
     })
 
@@ -155,7 +175,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       let body = await readJson(req, 1 << 20)
       const stored = settings.get().setup.lastDoc
       if (settings.get().setup.state === 'ready' && stored) body = fillSecrets(body, stored) as typeof body
-      const { doc, problems } = validateSetup(body)
+      const { doc, problems } = validateSetup(body, { native: runner.orch.kind === 'native' })
       if (!doc) throw new ApiError(422, 'The setup has problems', problems)
       if (runner.status.state === 'running') throw new ApiError(409, 'Setup is already running')
       sendJson(res, 202, runner.start(doc))
@@ -174,4 +194,13 @@ function requireSetupCodeAllowReady(settings: SettingsStore, req: IncomingMessag
   const s = settings.get().setup
   if (!s.codeHash || !s.codeSalt) throw new ApiError(401, 'Setup code expired')
   checkSetupCode(s.codeSalt, s.codeHash, req)
+}
+
+/** This PC's network adapters that are connected, VPN-looking ones first (for “Lock torrents to my VPN”). */
+export function networkAdapters(list = networkInterfaces()): { name: string; vpn: boolean }[] {
+  const looksVpn = /vpn|wireguard|\bwg\d*|nordlynx|mullvad|proton|surfshark|expressvpn|windscribe|cyberghost|private internet|\bpia\b|ivpn|tap-|\btun\b|wintun|openvpn/i
+  return Object.entries(list)
+    .filter(([, addrs]) => (addrs ?? []).some((a) => !a.internal))
+    .map(([name]) => ({ name, vpn: looksVpn.test(name) }))
+    .sort((a, b) => Number(b.vpn) - Number(a.vpn) || a.name.localeCompare(b.name))
 }

@@ -22,7 +22,7 @@ export interface StepProps {
 
 export const STEP_META: Record<StepId, { nav: string; title: string; lead: ReactNode }> = {
   welcome: { nav: 'Welcome', title: 'Let’s build your media server', lead: 'A few questions, then Finesse installs and connects everything for you — streaming, and downloads if you want them. It takes a few minutes.' },
-  machine: { nav: 'This machine', title: 'Checking this machine', lead: 'Finesse runs every app in its own container on this computer. Here’s what it found.' },
+  machine: { nav: 'This machine', title: 'Checking this machine', lead: 'Finesse runs and looks after every app on this computer. Here’s what it found.' },
   account: { nav: 'Your account', title: 'Create your account', lead: 'You’ll be the administrator: you sign in with this, invite people and approve requests.' },
   libraries: { nav: 'Libraries', title: 'What will you collect?', lead: 'Each library gets its own folder, and its own manager to find new additions if you set up downloads.' },
   downloads: { nav: 'Downloads', title: 'How should new things arrive?', lead: 'Finesse can find and download what you request automatically. Pick one, both, or neither.' },
@@ -84,7 +84,7 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
       return null
     }
     case 'libraries':
-      if (!(d.libraries.movies || d.libraries.shows || d.libraries.music || d.libraries.games)) return 'Pick at least one library'
+      if (!(d.libraries.movies || d.libraries.shows || d.libraries.music || (d.libraries.games && !d.native))) return 'Pick at least one library'
       if (d.libraries.games && d.games.steamGridDbKey.trim() && !/^[A-Za-z0-9]{16,64}$/.test(d.games.steamGridDbKey.trim())) return 'That SteamGridDB key doesn’t look right'
       if (d.libraries.games && Boolean(d.games.igdbClientId.trim()) !== Boolean(d.games.igdbClientSecret.trim())) return 'IGDB needs both the Client ID and the Client Secret'
       return null
@@ -101,6 +101,7 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
       return null
     }
     case 'vpn': {
+      if (d.native) return d.vpnAdapter.trim() ? null : 'Pick your VPN app’s adapter'
       const v = d.vpn
       if (!v.provider) return 'Choose your VPN provider'
       if (v.type === 'wireguard') {
@@ -236,6 +237,9 @@ export function LibrariesStep({ d, set }: StepProps) {
           />
         </div>
       )}
+      {/* Games needs Docker for now (RomM, Wolf): Windows installs don't offer it yet. */}
+      {!d.native && (
+      <>
       <ChoiceCard multi selected={d.libraries.games} onClick={() => toggle('games')} icon={<Icon name="games" />} title="Games">
         Retro games you play right in the browser: NES, SNES, Game Boy, Genesis, PlayStation and more. Managed by RomM. You add the games yourself.
       </ChoiceCard>
@@ -257,6 +261,8 @@ export function LibrariesStep({ d, set }: StepProps) {
             <TextField label="IGDB Client Secret" optional mono type="password" value={d.games.igdbClientSecret} onChange={(v) => set((x) => void (x.games.igdbClientSecret = v))} />
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
@@ -379,7 +385,64 @@ export function UsenetStep({ d, set, report }: StepProps) {
   )
 }
 
-export function VpnStep({ d, set, info, report }: StepProps) {
+export function VpnStep(props: StepProps) {
+  return props.d.native ? <AdapterStep {...props} /> : <ProviderStep {...props} />
+}
+
+/** Windows: torrents use the VPN app already on this PC. Finesse locks qBittorrent to that app's network adapter. */
+function AdapterStep({ d, set, info, report }: StepProps) {
+  const adapters = info?.adapters ?? []
+  const [typed, setTyped] = useState(adapters.some((a) => a.name === d.vpnAdapter) ? '' : d.vpnAdapter)
+  const pick = (name: string) => set((x) => void (x.vpnAdapter = name))
+  return (
+    <div className="space-y-5">
+      <Callout title="How it works on Windows">
+        Use the VPN app you already have on this PC (NordVPN, Mullvad, Proton VPN, Surfshark, WireGuard…). Finesse locks qBittorrent to the VPN’s connection: when the VPN is off, torrents simply wait. Nothing ever goes out over your normal internet.
+      </Callout>
+      <div>
+        <SectionTitle>Turn your VPN app on, then pick its connection</SectionTitle>
+        {adapters.length ? (
+          <div className="mt-3 grid gap-2">
+            {adapters.map((a) => (
+              <button
+                key={a.name}
+                type="button"
+                aria-pressed={d.vpnAdapter === a.name}
+                onClick={() => {
+                  setTyped('')
+                  pick(a.name)
+                }}
+                className={`own-focus flex h-12 items-center justify-between rounded-xl border px-4 text-left text-[14px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-400 ${
+                  d.vpnAdapter === a.name ? 'border-accent-400 bg-accent-500/15 text-white' : 'border-white/10 bg-white/[0.03] text-ink-200 hover:border-white/25'
+                }`}
+              >
+                <span>{a.name}</span>
+                {a.vpn && <span className="rounded-full bg-good/15 px-2 py-0.5 text-[11.5px] font-semibold text-good">Looks like a VPN</span>}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-[13.5px] text-ink-300">No connections found. Turn your VPN app on, then go back a step and come here again.</p>
+        )}
+      </div>
+      <TextField
+        label="Or type its name"
+        optional
+        mono
+        value={typed}
+        onChange={(v) => {
+          setTyped(v)
+          pick(v.trim())
+        }}
+        placeholder="NordLynx"
+        hint="As Windows shows it in Settings → Network & internet → Advanced network settings. Your VPN doesn’t need to be on right now."
+      />
+      <CheckButton label="Check the connection" onResult={(r) => report?.('vpn', 'Your VPN', r)} disabled={!d.vpnAdapter.trim()} run={() => setupApi.checkAdapter(d.vpnAdapter.trim())} />
+    </div>
+  )
+}
+
+function ProviderStep({ d, set, info, report }: StepProps) {
   const providers = info?.vpnProviders ?? []
   const p = providers.find((x) => x.id === d.vpn.provider)
   const [paste, setPaste] = useState('')
@@ -649,6 +712,12 @@ export function RemoteStep({ d, set, system }: StepProps) {
       <ChoiceCard selected={d.remote === 'none'} onClick={() => set((x) => void (x.remote = 'none'))} icon={<Icon name="home" />} title="Only at home">
         Finesse works on your home network. You can add remote access any time.
       </ChoiceCard>
+      {d.native ? (
+        <Callout title="Away from home on Windows">
+          Install the free <ExternalLink href="https://tailscale.com/download/windows">Tailscale app</ExternalLink> on this PC and on your phone: Finesse is then at http://&lt;this-pc&gt;:8080/finesse wherever you are. Built-in Tailscale and Cloudflare setup is coming to Windows.
+        </Callout>
+      ) : (
+      <>
       <ChoiceCard selected={d.remote === 'tailscale'} onClick={() => tun && set((x) => void (x.remote = 'tailscale'))} icon={<Icon name="globe" />} title="Tailscale Funnel" badge={tun ? 'Free' : undefined}>
         {tun ? 'A private https address like finesse.your-tailnet.ts.net. No domain or router changes needed.' : 'Needs /dev/net/tun, which this machine doesn’t have.'}
       </ChoiceCard>
@@ -689,6 +758,8 @@ export function RemoteStep({ d, set, system }: StepProps) {
           <TextField label="Tunnel token" type="password" mono value={d.cloudflare.token} onChange={(v) => set((x) => void (x.cloudflare.token = v.trim().replace(/^.*--token\s+/, '')))} />
           <TextField label="Public address" mono value={d.cloudflare.publicUrl} onChange={(v) => set((x) => void (x.cloudflare.publicUrl = v.trim()))} placeholder="https://media.example.com" />
         </div>
+      )}
+      </>
       )}
       <ChoiceCard selected={d.remote === 'own'} onClick={() => set((x) => void (x.remote = 'own'))} icon={<Icon name="link" />} title="I already have a reverse proxy">
         Caddy, Nginx Proxy Manager, Traefik… point it at port 8080 of this machine and tell Finesse the address.
