@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Discover movies to request — v2.9.0 (2026-10-11)
+
+- **Discover, on the Request page.** Open **Request** with **Movies** picked and nothing typed, and
+  Radarr's Discover is there as rows of posters: **Trending this week**, **Popular**, **Recommended
+  for you** (based on the movies already in your library) and **From your lists**. **Request** on a
+  poster adds it just like a search result; titles you already have say so, and ones excluded in
+  Radarr are left out.
+- Everyone on the server can browse it, not only the admin. The list settings in Radarr (which can
+  hold other services' keys) stay admin-only.
+
 ## Your phone is the remote — v2.8.0 (2026-10-11)
 
 - **Remote.** Open Finesse on your phone and choose **Remote** (in the menu under your name). It

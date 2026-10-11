@@ -3,12 +3,15 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   arrAdd,
+  arrDiscover,
   arrLibraryQuality,
   arrLookup,
   ArrError,
   formatQualityInfo,
   type ArrKind,
   type ArrResult,
+  type DiscoverMovie,
+  type DiscoverSection,
 } from '../api/arr'
 import { useArrQueue } from '../api/queries'
 import ArrThumb from '../components/ArrThumb'
@@ -104,6 +107,16 @@ export default function RequestPage() {
   }
 
   const authError = isError && error instanceof ArrError && error.status === 401
+
+  // Radarr's Discover: shown for movies while nothing is typed.
+  const showDiscover = kind === 'movie' && term.trim().length <= 1
+  const discover = useQuery({
+    queryKey: ['arrDiscover'],
+    enabled: showDiscover,
+    staleTime: 30 * 60_000,
+    retry: false,
+    queryFn: arrDiscover,
+  })
 
   return (
     <div className="pb-16">
@@ -248,6 +261,16 @@ export default function RequestPage() {
           })}
         </div>
 
+        {showDiscover && (
+          <DiscoverRows
+            movies={discover.data}
+            loading={discover.isLoading}
+            failed={discover.isError}
+            stateOf={(r) => overrides[keyOf(r)] ?? 'idle'}
+            onRequest={request}
+          />
+        )}
+
         {/* Downloader (SABnzbd) status: speed / disk / pause-all / speed cap. */}
         <SabPanel />
         {/* What's currently downloading — live from the *arr queues, with controls. */}
@@ -261,4 +284,80 @@ export default function RequestPage() {
       )}
     </div>
   )
+}
+
+const ROWS: { id: DiscoverSection; title: string; hint: string }[] = [
+  { id: 'trending', title: 'Trending this week', hint: 'What people are watching right now.' },
+  { id: 'popular', title: 'Popular', hint: 'The most popular movies at the moment.' },
+  { id: 'recommended', title: 'Recommended for you', hint: 'Based on the movies already in your library.' },
+  { id: 'lists', title: 'From your lists', hint: 'From the lists set up in Radarr.' },
+]
+
+/** Radarr's Discover tab, as rows of posters you can request with one tap. */
+function DiscoverRows({ movies, loading, failed, stateOf, onRequest }: { movies?: DiscoverMovie[]; loading: boolean; failed: boolean; stateOf: (r: ArrResult) => ItemState; onRequest: (r: ArrResult) => void }) {
+  if (loading) return <p className="mb-10 text-sm text-ink-400">Finding movies to discover…</p>
+  if (failed) return <p className="mb-10 text-sm text-ink-400">Discover isn’t available right now. You can still search above.</p>
+  const rows = ROWS.map((row) => ({ ...row, items: (movies ?? []).filter((m) => m.sections.includes(row.id)).slice(0, 30) })).filter((r) => r.items.length > 0)
+  if (rows.length === 0) return null
+  return (
+    <div className="mb-10 space-y-8">
+      {rows.map((row) => (
+        <section key={row.id} aria-label={row.title}>
+          <h2 className="text-lg font-semibold text-white">{row.title}</h2>
+          <p className="mb-3 text-xs text-ink-400">{row.hint}</p>
+          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 no-scrollbar sm:-mx-6 sm:px-6 lg:-mx-12 lg:px-12">
+            {row.items.map((m) => (
+              <DiscoverCard key={m.tmdbId} m={m} state={stateOf(m)} onRequest={() => onRequest(m)} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemState; onRequest: () => void }) {
+  const [broken, setBroken] = useState(false)
+  return (
+    <div className="w-32 shrink-0 sm:w-36">
+      <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-ink-800" title={m.overview}>
+        {m.poster && !broken ? (
+          <img src={m.poster} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+        ) : (
+          <div
+            className="flex h-full w-full items-end p-2.5 text-[13px] font-semibold leading-tight text-white/90"
+            style={{ backgroundImage: `linear-gradient(150deg, hsl(${titleHue(m.title)}, 45%, 34%), hsl(${(titleHue(m.title) + 40) % 360}, 50%, 16%))` }}
+          >
+            {m.title}
+          </div>
+        )}
+      </div>
+      <p className="mt-1.5 truncate text-[13px] font-semibold text-white" title={m.title}>
+        {m.title}
+      </p>
+      <p className="text-[11px] text-ink-400">{m.year ?? ''}</p>
+      <div className="mt-1.5">
+        {m.existing ? (
+          <span className="text-xs font-medium text-emerald-300">Already in Finesse</span>
+        ) : state === 'requested' ? (
+          <span className="text-xs font-medium text-accent-300">Added — searching</span>
+        ) : (
+          <button
+            onClick={onRequest}
+            disabled={state === 'adding'}
+            className="w-full rounded-full bg-accent-fill px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+          >
+            {state === 'adding' ? 'Adding…' : 'Request'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** A steady colour per title, for posters that didn't load. */
+function titleHue(title: string): number {
+  let h = 0
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) % 360
+  return h
 }

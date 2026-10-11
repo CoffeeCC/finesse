@@ -203,6 +203,35 @@ function mapArtist(a: Record<string, unknown>): ArrResult {
   }
 }
 
+export type DiscoverSection = 'trending' | 'popular' | 'recommended' | 'lists'
+
+/** A movie from Radarr's Discover: which rows it belongs in, and whether Radarr already has it. */
+export interface DiscoverMovie extends ArrResult {
+  sections: DiscoverSection[]
+  /** Already in Radarr (requested or downloaded). */
+  existing: boolean
+}
+
+/** Radarr's Discover tab: trending and popular movies, recommendations from what's in the
+ *  library, and the admin's import lists. Excluded titles are left out. */
+export async function arrDiscover(): Promise<DiscoverMovie[]> {
+  const data = await arrFetch<Record<string, unknown>[]>('movie', '/importlist/movie?includeRecommendations=true&includeTrending=true&includePopular=true')
+  const out: DiscoverMovie[] = []
+  const seen = new Set<number>()
+  for (const m of data ?? []) {
+    const tmdb = m.tmdbId as number | undefined
+    if (m.isExcluded || !tmdb || seen.has(tmdb)) continue
+    seen.add(tmdb)
+    const sections: DiscoverSection[] = []
+    if (m.isTrending) sections.push('trending')
+    if (m.isPopular) sections.push('popular')
+    if (m.isRecommendation) sections.push('recommended')
+    if (Array.isArray(m.lists) && m.lists.length) sections.push('lists')
+    out.push({ ...mapMovie(m), sections, existing: Boolean(m.isExisting) })
+  }
+  return out
+}
+
 /** Search TMDb/TVDb via the *arr lookup endpoint. Results flag what's already
  *  in the library (id > 0), so the UI can show In Library / Requested / Add. */
 export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[]> {

@@ -45,6 +45,9 @@ export function arrVerdict(method: string, path: string, query: URLSearchParams)
       new RegExp(`^${ITEM}/lookup$`),
       new RegExp(`^${ITEM}(/\\d+)?$`),
       /^(qualityprofile|rootfolder|metadataprofile|queue|wanted\/missing|release|episodefile)$/,
+      // Radarr's Discover feed (trending, popular, recommended): titles only. The list settings
+      // themselves (importlist, importlist/<id>) can hold other services' tokens and stay admin-only.
+      /^importlist\/movie$/,
       // Posters and artist pictures the app's lists show.
       /^mediacover\/((artist|album)\/)?\d+\/[\w-]+\.(jpg|jpeg|png|gif)$/,
     ].some((r) => r.test(path))

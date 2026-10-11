@@ -26,6 +26,7 @@ describe('the rules', () => {
       ['GET', 'movie/lookup'], ['GET', 'series/lookup'], ['GET', 'artist/lookup'], ['GET', 'qualityprofile'],
       ['GET', 'rootfolder'], ['GET', 'queue'], ['GET', 'wanted/missing'], ['GET', 'series'], ['GET', 'movie/12'],
       ['GET', 'release'], ['GET', 'episodefile'], ['GET', 'mediacover/12/poster-250.jpg'], ['GET', 'mediacover/artist/3/poster.jpg'],
+      ['GET', 'importlist/movie'],
       ['POST', 'movie'], ['POST', 'release'], ['POST', 'command'], ['DELETE', 'queue/bulk'],
     ] as const)
       assert.equal(arrVerdict(m, p, q()).ok, true, `${m} ${p}`)
@@ -34,6 +35,7 @@ describe('the rules', () => {
       ['GET', 'log/file'], ['PUT', 'movie/12'], ['PUT', 'config/host'], ['POST', 'notification'], ['POST', 'downloadclient'],
       ['POST', 'customformat'], ['DELETE', 'rootfolder/1'], ['DELETE', 'moviefile/3'],
       ['GET', 'mediacover/12/config.xml'], ['GET', 'mediacover/x/poster.jpg'], ['DELETE', 'mediacover/12/poster.jpg'],
+      ['GET', 'importlist'], ['GET', 'importlist/1'], ['GET', 'importlist/schema'], ['POST', 'importlist/movie'], ['PUT', 'importlist/1'],
     ] as const)
       assert.equal(arrVerdict(m, p, q()).ok, false, `${m} ${p}`)
   })
