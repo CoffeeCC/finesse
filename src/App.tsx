@@ -28,6 +28,7 @@ import GameDetailPage from './pages/GameDetailPage'
 import PlayGamePage from './pages/PlayGamePage'
 import StreamPlayPage from './pages/StreamPlayPage'
 import FriendsPage from './pages/FriendsPage'
+import RemotePage from './pages/RemotePage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
 import TvBoot from './components/TvBoot'
@@ -177,6 +178,7 @@ export default function App() {
                     <Route path="/watchlist" element={<Navigate to="/mylist" replace />} />
                     <Route path="/libraries" element={<LibrariesPage />} />
                     {!__WEBOS__ && <Route path="/add-media" element={<AddMediaPage />} />}
+                    {!__WEBOS__ && <Route path="/remote" element={<RemotePage />} />}
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />

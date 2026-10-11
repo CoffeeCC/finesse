@@ -130,6 +130,31 @@ function press(button: number) {
 
 const ARROWS: Record<string, [string, number]> = { up: ['ArrowUp', 38], down: ['ArrowDown', 40], left: ['ArrowLeft', 37], right: ['ArrowRight', 39] }
 
+export type RemoteKey = 'up' | 'down' | 'left' | 'right' | 'select' | 'back' | 'search' | 'menu' | 'pageUp' | 'pageDown'
+
+/** The phone remote (lib/remoteControl): the same keys a game controller sends, so
+ *  everything that works with a controller works from the phone too. */
+export function remoteKey(k: RemoteKey) {
+  switch (k) {
+    case 'select':
+      return activate()
+    case 'back':
+      return press(B)
+    case 'search':
+      return press(Y)
+    case 'menu':
+      return press(MENU)
+    case 'pageUp':
+      return press(LT)
+    case 'pageDown':
+      return press(RT)
+    default: {
+      const [name, code] = ARROWS[k]!
+      key(name, code)
+    }
+  }
+}
+
 let started = false
 // A steady timer, not animation frames: frames slow down while the page is busy
 // drawing (and on a TV's CPU), and a quick tap would slip between two of them.

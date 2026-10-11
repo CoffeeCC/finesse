@@ -311,6 +311,17 @@ export default function NavBar() {
                   Add media
                 </MenuItem>
               )}
+              {!__WEBOS__ && (
+                <MenuItem
+                  icon={<Icon d="M8.25 4.5h7.5a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-7.5a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" extra="M12 9.5v.01M10 12h4M12 15.5v.01" />}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/remote')
+                  }}
+                >
+                  Remote
+                </MenuItem>
+              )}
               <MenuItem
                 icon={<Icon d={COG} extra="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />}
                 onClick={() => {

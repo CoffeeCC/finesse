@@ -18,6 +18,20 @@ import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
 import { useAudio } from '../audio/AudioPlayerContext'
 import { goBack } from './back'
+import { remoteKey } from './gamepad'
+
+/** Text typed on the phone: into the box that has focus here, or a search for it. */
+function typeHere(text: string, navigate: (to: string) => void) {
+  const el = document.activeElement
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    // Through the native setter, so React sees the change.
+    const proto = el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, text)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    return
+  }
+  if (text.trim()) navigate(`/search?q=${encodeURIComponent(text.trim())}`)
+}
 
 export type RemoteCommand =
   | { kind: 'playstate'; command: string; seekTicks?: number }
@@ -150,6 +164,37 @@ export function useRemoteControl() {
           break
         case 'DisplayContent':
           if (args.ItemId) navigate(`/item/${args.ItemId}`)
+          break
+        // The phone remote: arrows, OK and the rest, as if pressed on this screen's own remote.
+        case 'MoveUp':
+          remoteKey('up')
+          break
+        case 'MoveDown':
+          remoteKey('down')
+          break
+        case 'MoveLeft':
+          remoteKey('left')
+          break
+        case 'MoveRight':
+          remoteKey('right')
+          break
+        case 'Select':
+          remoteKey('select')
+          break
+        case 'PageUp':
+          remoteKey('pageUp')
+          break
+        case 'PageDown':
+          remoteKey('pageDown')
+          break
+        case 'ToggleContextMenu':
+          remoteKey('menu')
+          break
+        case 'GoToSearch':
+          navigate('/search')
+          break
+        case 'SendString':
+          typeHere(args.String ?? '', navigate)
           break
       }
     }

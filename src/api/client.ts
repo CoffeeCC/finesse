@@ -439,10 +439,12 @@ export interface JfSession {
   UserId?: string
   UserName?: string
   NowPlayingItem?: JfItem
-  PlayState?: { PositionTicks?: number; IsPaused?: boolean }
+  PlayState?: { PositionTicks?: number; IsPaused?: boolean; IsMuted?: boolean; VolumeLevel?: number; AudioStreamIndex?: number; SubtitleStreamIndex?: number; MediaSourceId?: string }
   LastActivityDate?: string
   SupportsRemoteControl?: boolean
   PlayableMediaTypes?: string[]
+  SupportedCommands?: string[]
+  Capabilities?: { SupportedCommands?: string[] }
 }
 
 /** All sessions; used to detect playback on the user's other devices (handoff). */
@@ -477,29 +479,54 @@ export function playOnSession(sessionId: string, itemId: string, startPositionTi
  *  commands it handles. Together with the open websocket (lib/remoteControl) this
  *  is what makes it show up — and work — in other devices' "Play on…" menus.
  *  Only real GeneralCommandType names: an unknown one fails the whole request. */
-export function reportCapabilities() {
-  return request('/Sessions/Capabilities/Full', {
-    method: 'POST',
-    body: {
-      PlayableMediaTypes: ['Video', 'Audio'],
-      SupportedCommands: [
-        'Back',
-        'GoHome',
-        'VolumeUp',
-        'VolumeDown',
-        'Mute',
-        'Unmute',
-        'ToggleMute',
-        'SetVolume',
-        'SetAudioStreamIndex',
-        'SetSubtitleStreamIndex',
-        'DisplayContent',
-        'DisplayMessage',
-      ],
-      SupportsMediaControl: true,
-      SupportsPersistentIdentifier: true,
-    },
-  })
+const BASE_COMMANDS = [
+  'Back',
+  'GoHome',
+  'VolumeUp',
+  'VolumeDown',
+  'Mute',
+  'Unmute',
+  'ToggleMute',
+  'SetVolume',
+  'SetAudioStreamIndex',
+  'SetSubtitleStreamIndex',
+  'DisplayContent',
+  'DisplayMessage',
+]
+/** What the phone remote's D-pad and keyboard send. */
+export const NAV_COMMANDS = ['MoveUp', 'MoveDown', 'MoveLeft', 'MoveRight', 'Select', 'PageUp', 'PageDown', 'ToggleContextMenu', 'GoToSearch', 'SendString']
+
+export async function reportCapabilities() {
+  const send = (commands: string[]) =>
+    request('/Sessions/Capabilities/Full', {
+      method: 'POST',
+      body: { PlayableMediaTypes: ['Video', 'Audio'], SupportedCommands: commands, SupportsMediaControl: true, SupportsPersistentIdentifier: true },
+    })
+  // One name this Jellyfin doesn't know fails the whole report, and then nothing can cast here:
+  // keep the commands that always worked if the remote's are refused.
+  try {
+    return await send([...BASE_COMMANDS, ...NAV_COMMANDS])
+  } catch {
+    return send(BASE_COMMANDS)
+  }
+}
+
+/** Every screen on the network this user can control (the Remote page), newest activity first. */
+export async function getRemoteDisplays(): Promise<JfSession[]> {
+  const sessions = await request<JfSession[]>('/Sessions' + qs({ ControllableByUserId: session!.userId, ActiveWithinSeconds: 900 }))
+  return sessions
+    .filter((s) => s.DeviceId !== DEVICE_ID && s.SupportsRemoteControl)
+    .sort((a, b) => Number(!!b.NowPlayingItem) - Number(!!a.NowPlayingItem) || String(b.LastActivityDate ?? '').localeCompare(String(a.LastActivityDate ?? '')))
+}
+
+/** The commands a screen says it understands (Jellyfin reports them in one of two places). */
+export function commandsOf(s: JfSession): Set<string> {
+  return new Set([...(s.Capabilities?.SupportedCommands ?? []), ...(s.SupportedCommands ?? [])])
+}
+
+/** A remote-control command to another screen: arrows, OK, Back, volume, tracks, typed text… */
+export function sendCommand(sessionId: string, name: string, args?: Record<string, string>) {
+  return request(`/Sessions/${sessionId}/Command`, { method: 'POST', body: { Name: name, ...(args ? { Arguments: args } : {}) } })
 }
 
 export type PlaystateCommand =
