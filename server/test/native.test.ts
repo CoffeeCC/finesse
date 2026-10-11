@@ -41,7 +41,10 @@ function fakeApp(port: number, version = '1.0', sha256 = sum): NativeApp {
 function deps(apps: NativeDeps['apps'], extra: Partial<NativeDeps> = {}): NativeDeps {
   return {
     apps,
-    fetch: (async () => new Response(payload, { headers: { 'content-length': String(payload.length) } })) as unknown as typeof fetch,
+    fetchTo: async (_url, file, progress) => {
+      writeFileSync(file, payload)
+      progress(payload.length, payload.length)
+    },
     unzip: (_file, dest) => {
       mkdirSync(join(dest, 'fake'), { recursive: true })
       writeFileSync(join(dest, 'fake', 'app.js'), APP_JS)

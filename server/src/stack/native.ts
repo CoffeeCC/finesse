@@ -13,8 +13,9 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { appendFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { get as httpsGet } from 'node:https'
+import { pipeline as pipelineStreams } from 'node:stream/promises'
 import { createServer } from 'node:net'
 import { EOL, constants as osConstants, setPriority } from 'node:os'
 import { basename, join } from 'node:path'
@@ -147,7 +148,8 @@ interface Proc {
 
 export interface NativeDeps {
   apps?: Partial<Record<StackServiceId, NativeApp>>
-  fetch?: typeof fetch
+  /** Downloads a URL into a file, saying how far it got. */
+  fetchTo?: (url: string, file: string, progress: (got: number, total: number) => void) => Promise<void>
   /** Unpacks a zip into a folder (Windows' own tar.exe by default). */
   unzip?: (file: string, dest: string) => void
   /** Runs an NSIS installer silently into a folder. */
@@ -178,7 +180,7 @@ export class NativeHost implements StackHost {
     this.root = root
     this.apps = deps.apps ?? NATIVE_APPS
     this.deps = {
-      fetch: deps.fetch ?? fetch,
+      fetchTo: deps.fetchTo ?? downloadTo,
       unzip: deps.unzip ?? ((file, dest) => run(sys32('tar.exe'), ['-xf', file, '-C', dest])),
       // NSIS: /S silent, /D= the folder (must come last, unquoted).
       install: deps.install ?? ((file, dest) => run(file, ['/S', `/D=${dest}`])),
@@ -291,26 +293,17 @@ export class NativeHost implements StackHost {
     mkdirSync(base, { recursive: true })
     const file = join(base, `${app.version}.download`)
     onProgress?.({ service: id, phase: 'pull', fraction: 0, detail: `${CATALOG[id].name} ${app.version}` })
-    const res = await this.deps.fetch(app.url, { redirect: 'follow', signal: AbortSignal.timeout(30 * 60000) })
-    if (!res.ok || !res.body) throw new Error(`Couldn’t download ${CATALOG[id].name} (HTTP ${res.status}) — check this PC’s internet connection and try again`)
-    const total = Number(res.headers.get('content-length')) || 0
-    let got = 0
     let last = 0
-    // One reader, written as it arrives (a 'data' listener next to a pipe fights it over pausing).
-    const out = await open(file, 'w')
-    try {
-      for await (const c of res.body as unknown as AsyncIterable<Uint8Array>) {
-        await out.write(c)
-        got += c.length
-        const f = total ? got / total : 0
-        if (total && (f - last >= 0.02 || f === 1)) {
-          last = f
-          onProgress?.({ service: id, phase: 'pull', fraction: f, detail: `${CATALOG[id].name} ${app.version}` })
-        }
+    await this.deps.fetchTo(app.url, file, (got, total) => {
+      const f = total ? got / total : 0
+      if (total && (f - last >= 0.02 || f === 1)) {
+        last = f
+        onProgress?.({ service: id, phase: 'pull', fraction: f, detail: `${CATALOG[id].name} ${app.version}` })
       }
-    } finally {
-      await out.close()
-    }
+    }).catch((e) => {
+      rmSync(file, { force: true })
+      throw new Error(`Couldn’t download ${CATALOG[id].name} (${(e as Error).message}) — check this PC’s internet connection and try again`)
+    })
     const sum = await sha256(file)
     if (sum !== app.sha256) {
       rmSync(file, { force: true })
@@ -722,6 +715,36 @@ function run(exe: string, args: string[]) {
   const r = spawnSync(exe, args, { windowsHide: true, encoding: 'utf8', timeout: 10 * 60000 })
   if (r.error) throw r.error
   if (r.status !== 0) throw new Error(`${basename(exe)} failed (exit ${r.status}): ${(r.stderr || r.stdout || '').trim().slice(-300)}`)
+}
+
+/** A download with node:https (fetch's client can take Finesse down when a big body is paused while its
+ *  connection closes): redirects followed, written with backpressure, and a stalled one given up on. */
+function downloadTo(url: string, file: string, progress: (got: number, total: number) => void, hops = 10): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = httpsGet(url, { headers: { 'User-Agent': 'Finesse' } }, (res) => {
+      const status = res.statusCode ?? 0
+      if (status >= 300 && status < 400 && res.headers.location) {
+        res.resume()
+        if (hops <= 0) return reject(new Error('too many redirects'))
+        return downloadTo(new URL(res.headers.location, url).toString(), file, progress, hops - 1).then(resolve, reject)
+      }
+      if (status !== 200) {
+        res.resume()
+        return reject(new Error(`HTTP ${status}`))
+      }
+      const total = Number(res.headers['content-length']) || 0
+      let got = 0
+      res.on('data', (c: Buffer) => progress((got += c.length), total))
+      const out = createWriteStream(file)
+      pipelineStreams(res, out).then(() => {
+        if (total && got !== total) reject(new Error('the download stopped part-way'))
+        else resolve()
+      }, reject)
+    })
+    req.on('error', reject)
+    // Nothing for two minutes: give up (a retry starts over).
+    req.setTimeout(120000, () => req.destroy(new Error('the connection stalled')))
+  })
 }
 
 function runTo(exe: string, args: string[]): { code: number; out: string } {
