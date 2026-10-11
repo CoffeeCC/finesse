@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { finesseRoot, useFinesse } from '../lib/finesseServer'
 import { useToast } from './Toast'
 
@@ -49,6 +50,16 @@ export default function ConnectDevices() {
                 </dd>
               </div>
             )}
+            <div>
+              <dt className="font-semibold text-white">Use your phone as a remote</dt>
+              <dd className="text-ink-200">
+                Open Finesse on your phone and choose{' '}
+                <Link to="/remote" className="font-semibold text-accent-300 underline-offset-2 hover:underline">
+                  Remote
+                </Link>{' '}
+                (in the menu under your name) to control any screen in the house.
+              </dd>
+            </div>
             <div>
               <dt className="font-semibold text-white">Away from home</dt>
               <dd className="text-ink-200">

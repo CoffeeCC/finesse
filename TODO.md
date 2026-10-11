@@ -38,6 +38,20 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Your phone is the remote — v2.8.0 (2026-10-11)
+
+- **Remote.** Open Finesse on your phone and choose **Remote** (in the menu under your name). It
+  lists every screen in the house that's running Finesse or a Jellyfin app, with what each is
+  playing. Pick one for a full remote:
+  - play/pause, back 10 and forward 30 seconds, previous/next, stop, and a bar to seek with;
+  - volume and mute, and the audio and subtitle tracks of what's playing;
+  - arrows, **OK**, **Back**, **Home** and **Menu**, to move around that screen like its own remote;
+  - a box to type a search (or into whatever box has focus there), instead of an on-screen keyboard.
+- **Pause everything.** When more than one screen is playing, one button pauses them all.
+- Screens signed in as you show up; the admin sees everyone's. The arrows and typing need Finesse 2.8
+  on that screen; older ones and other apps can still be paused, skipped and stopped.
+- Settings → Other devices points to the Remote too.
+
 ## Windows folders, free search sites, and a clearer Downloads page — v2.7.4 (2026-10-10)
 
 - **Docker Desktop's download survives a bad connection.** It's about 600 MB, and one stall used to
