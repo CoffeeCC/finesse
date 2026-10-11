@@ -11,6 +11,7 @@
 // the small hours.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
+import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { gzipSync } from 'node:zlib'
@@ -22,6 +23,7 @@ import { applyPendingRestore, BACKUP_FILE, backupName, BIG_PARTS, databaseEntrie
 import { CATALOG, containerName, orderServices, type StackContext, type StackServiceId } from './catalog.ts'
 import type { StackHost } from './host.ts'
 import { Orchestrator } from './orchestrator.ts'
+import { bindQbit } from './wire.ts'
 
 const log = logger('maintain')
 
@@ -180,7 +182,7 @@ export class Maintainer {
     const ids = orderServices(s.stack.services.filter(isStackId))
     if (!this.busy() && !this.working) await this.repair(ctx, ids, s).catch((e) => this.event('error', `Repair failed: ${(e as Error).message}`))
     this.health.services = await this.inspect(ctx, ids, s)
-    this.health.vpn = ids.includes('gluetun') ? await this.checkVpn(s) : null
+    this.health.vpn = ids.includes('gluetun') ? await this.checkVpn(s) : s.stack.vpnAdapter && ids.includes('qbittorrent') ? await this.checkVpnAdapter(s, s.stack.vpnAdapter) : null
     this.health.disks = this.disks(ctx)
     this.health.checkedAt = new Date().toISOString()
     if (existsSync(join(this.paths.configDir, 'restore-pending.json')) && s.stack && this.orch instanceof Orchestrator) {
@@ -262,6 +264,27 @@ export class Maintainer {
     )
   }
 
+  /** Windows: the VPN app's adapter is up, and qBittorrent is locked to it (or to nothing while it's down). */
+  private async checkVpnAdapter(s: Settings, adapter: string): Promise<VpnHealth> {
+    const up = Object.entries(networkInterfaces()).some(([name, addrs]) => name.toLowerCase() === adapter.toLowerCase() && (addrs ?? []).some((a) => !a.internal))
+    let vpn: VpnHealth = up ? { connected: true } : { connected: false, error: `Your VPN app isn’t connected (${adapter}) — torrents are paused until it is` }
+    const url = s.services.qbittorrent?.url
+    if (url) {
+      const bound = await bindQbit(url, adapter).catch(() => null)
+      if (up && bound === false) vpn = { connected: false, error: `qBittorrent can’t see the VPN adapter “${adapter}” yet — torrents stay paused` }
+    }
+    this.vpnEvents(vpn)
+    return vpn
+  }
+
+  private vpnEvents(vpn: VpnHealth) {
+    if (vpn.connected !== this.vpnWasUp) {
+      if (vpn.connected) this.event('info', `VPN connected${vpn.country ? ` (${vpn.country})` : ''} — torrents are flowing through it`)
+      else if (this.vpnWasUp !== null) this.event('warn', 'VPN disconnected — torrents are paused until it reconnects (nothing leaks outside the tunnel)')
+      this.vpnWasUp = vpn.connected
+    }
+  }
+
   private async checkVpn(s: Settings): Promise<VpnHealth> {
     const key = s.services.gluetun?.apiKey
     const url = s.services.gluetun?.url ?? 'http://gluetun:8000'
@@ -277,11 +300,7 @@ export class Maintainer {
     } catch (e) {
       vpn = { connected: false, error: `The VPN container isn’t answering (${(e as Error).message})` }
     }
-    if (vpn.connected !== this.vpnWasUp) {
-      if (vpn.connected) this.event('info', `VPN connected${vpn.country ? ` (${vpn.country})` : ''} — torrents are flowing through it`)
-      else if (this.vpnWasUp !== null) this.event('warn', 'VPN disconnected — torrents are paused until it reconnects (nothing leaks outside the tunnel)')
-      this.vpnWasUp = vpn.connected
-    }
+    this.vpnEvents(vpn)
     return vpn
   }
 

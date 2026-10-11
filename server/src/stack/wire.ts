@@ -5,6 +5,7 @@
 // don't silently break the wiring.
 
 import { logger } from '../log.ts'
+import { QBIT_LOCKED } from './seed.ts'
 
 const log = logger('wire')
 
@@ -577,6 +578,21 @@ export async function wireQbit(url: string, categories: Record<string, string>, 
     step(`qBittorrent: category ${name}`)
     await http('POST', `${url}/api/v2/torrents/createCategory`, { form: { category: name, savePath }, okStatuses: [409] })
   }
+}
+
+/** Windows: locks qBittorrent to the VPN app's network adapter (its kill
+ *  switch). True when the adapter was found; false when it's missing and
+ *  qBittorrent was locked to nothing until it's back. */
+export async function bindQbit(url: string, adapter: string): Promise<boolean> {
+  const list = await http<{ name: string; value: string }[]>('GET', `${url}/api/v2/app/networkInterfaceList`)
+  const hit = list.find((i) => i.name.toLowerCase() === adapter.toLowerCase() || i.value.toLowerCase() === adapter.toLowerCase())
+  // Missing: locked to an adapter that can't exist, so torrents wait instead of using the normal connection.
+  const value = hit?.value ?? QBIT_LOCKED
+  const prefs = await http<{ current_network_interface?: string }>('GET', `${url}/api/v2/app/preferences`)
+  if (prefs.current_network_interface !== value) {
+    await http('POST', `${url}/api/v2/app/setPreferences`, { form: { json: JSON.stringify({ current_network_interface: value, current_interface_address: '' }) } })
+  }
+  return Boolean(hit)
 }
 
 // ---------- RomM (Games) ----------

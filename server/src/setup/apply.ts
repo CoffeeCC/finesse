@@ -13,9 +13,9 @@ import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
 import { dockerOf, Orchestrator } from '../stack/orchestrator.ts'
 import type { StackHost } from '../stack/host.ts'
-import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe } from '../stack/seed.ts'
+import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe, type SeedHost } from '../stack/seed.ts'
 import { clearFinishedTcLog } from '../stack/games.ts'
-import { Arr, jellyfinScan, wireArr, wireJellyfin, wireLanguages, wireProwlarr, wireQbit, wireRomm, wireSab } from '../stack/wire.ts'
+import { Arr, bindQbit, jellyfinScan, wireArr, wireJellyfin, wireLanguages, wireProwlarr, wireQbit, wireRomm, wireSab } from '../stack/wire.ts'
 import { qualityProfiles, redact, servicesFor, vpnConfig, type SetupDoc } from './doc.ts'
 
 const log = logger('setup')
@@ -213,7 +213,7 @@ export class SetupRunner {
   start(doc: SetupDoc): RunStatus {
     if (this.status.state === 'running') throw new Error('Setup is already running')
     if (this.gamesJob.state === 'working' || this.streamingJob.state === 'working') throw new Error('Finesse is busy — try again in a minute')
-    const services = orderServices(servicesFor(doc))
+    const services = orderServices(servicesFor(doc, this.orch.kind === 'native'))
     const has = (id: StackServiceId) => services.includes(id)
     const downloads = has('prowlarr')
     const steps: [string, string, boolean][] = [
@@ -312,12 +312,14 @@ export class SetupRunner {
     const gluetunKey = prev.services.gluetun?.apiKey || newKey()
     await this.run('folders', async () => {
       orch.ensureDirs(ctx, services)
-      if (has('jellyfin')) seedJellyfin(`${ctx.hostRoot}/config/jellyfin`, ctx.puid, ctx.pgid)
+      // Docker: container ports and /data. Windows: the ports picked in the check step, and real folders.
+      const at = (id: StackServiceId): SeedHost => (orch.kind === 'native' ? { native: true, port: orch.peer(id).port, data: (rel) => orch.appPath(ctx, rel) } : {})
+      if (has('jellyfin')) seedJellyfin(`${ctx.hostRoot}/config/jellyfin`, ctx.puid, ctx.pgid, at('jellyfin'))
       for (const app of ['prowlarr', 'sonarr', 'radarr', 'lidarr'] as const) {
-        if (has(app)) keys[app] = seedArr(`${ctx.hostRoot}/config/${app}`, app, ctx.puid, ctx.pgid)
+        if (has(app)) keys[app] = seedArr(`${ctx.hostRoot}/config/${app}`, app, ctx.puid, ctx.pgid, at(app))
       }
-      if (has('sabnzbd')) keys.sabnzbd = seedSab(`${ctx.hostRoot}/config/sabnzbd`, ctx.puid, ctx.pgid)
-      if (has('qbittorrent')) qbitCreds = seedQbit(`${ctx.hostRoot}/config/qbittorrent`, ctx.puid, ctx.pgid) ?? (prev.services.qbittorrent?.username ? { username: prev.services.qbittorrent.username, password: prev.services.qbittorrent.password ?? '' } : null)
+      if (has('sabnzbd')) keys.sabnzbd = seedSab(`${ctx.hostRoot}/config/sabnzbd`, ctx.puid, ctx.pgid, at('sabnzbd'))
+      if (has('qbittorrent')) qbitCreds = seedQbit(`${ctx.hostRoot}/config/qbittorrent`, ctx.puid, ctx.pgid, at('qbittorrent')) ?? (prev.services.qbittorrent?.username ? { username: prev.services.qbittorrent.username, password: prev.services.qbittorrent.password ?? '' } : null)
       if (has('gluetun')) seedGluetunAuth(`${ctx.hostRoot}/config/gluetun`, gluetunKey)
       if (has('tailscale')) seedTailscaleServe(`${ctx.hostRoot}/config/tailscale`)
     })
@@ -433,6 +435,12 @@ export class SetupRunner {
         this.say(m)
       }
       if (has('sabnzbd')) await wireSab(orch.url('sabnzbd'), keys.sabnzbd!, doc.downloads?.usenet?.servers ?? [], say)
+      if (has('qbittorrent') && doc.downloads?.torrents?.adapter) {
+        // Windows: locked to the VPN app before anything is downloaded.
+        const adapter = doc.downloads.torrents.adapter
+        if (!(await bindQbit(orch.url('qbittorrent'), adapter)))
+          this.status.warnings.push(`Torrents are paused: the VPN adapter “${adapter}” isn’t there yet. Turn on your VPN app and they start by themselves.`)
+      }
       if (has('qbittorrent')) {
         await wireQbit(orch.url('qbittorrent'), { radarr: orch.appPath(ctx, 'torrents/movies'), 'tv-sonarr': orch.appPath(ctx, 'torrents/tv'), lidarr: orch.appPath(ctx, 'torrents/music') }, say)
       }
@@ -539,6 +547,7 @@ export class SetupRunner {
           services: streaming ? [...services, 'wolf'] : services,
           ...(x.stack?.streaming ? { streaming: x.stack.streaming } : {}),
           vpn: ctx.vpn,
+          ...(doc.downloads?.torrents?.adapter ? { vpnAdapter: doc.downloads.torrents.adapter } : {}),
           remote: doc.remoteAccess?.method && doc.remoteAccess.method !== 'none' ? { method: doc.remoteAccess.method, tailscale: ctx.tailscale, cloudflare: ctx.cloudflared } : undefined,
           exposeJellyfin: ctx.exposeJellyfin,
           jellyfinPort: ctx.jellyfinPort,

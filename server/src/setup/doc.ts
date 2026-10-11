@@ -16,7 +16,8 @@ export interface SetupDoc {
   games?: { igdb?: { clientId: string; clientSecret: string }; steamGridDbKey?: string; screenscraper?: { username: string; password: string } }
   downloads?: {
     usenet?: { servers: UsenetServer[] } | null
-    torrents?: { vpn: VpnDoc } | null
+    /** Docker: `vpn` (Gluetun runs the tunnel). Windows: `adapter`, the VPN app's network adapter qBittorrent is locked to. */
+    torrents?: { vpn?: VpnDoc; adapter?: string } | null
     indexers?: IndexerInput[]
   }
   quality?: { preset?: QualityPreset }
@@ -83,7 +84,8 @@ function bool(p: Problem[], v: unknown, at: string) {
   if (v !== undefined && typeof v !== 'boolean') p.push({ path: at, message: 'Must be true or false' })
 }
 
-export function validateSetup(input: unknown): { doc: SetupDoc | null; problems: Problem[] } {
+/** `native`: the document is for a Windows install (no Docker), where some parts work differently or not yet. */
+export function validateSetup(input: unknown, opts: { native?: boolean } = {}): { doc: SetupDoc | null; problems: Problem[] } {
   const p: Problem[] = []
   const d = input as SetupDoc
   if (!d || typeof d !== 'object' || Array.isArray(d)) return { doc: null, problems: [{ path: '', message: 'Setup must be a JSON object' }] }
@@ -99,7 +101,7 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
   known(p, d.games?.screenscraper, 'games.screenscraper', ['username', 'password'])
   known(p, d.downloads, 'downloads', ['usenet', 'torrents', 'indexers'])
   known(p, d.downloads?.usenet, 'downloads.usenet', ['servers'])
-  known(p, d.downloads?.torrents, 'downloads.torrents', ['vpn'])
+  known(p, d.downloads?.torrents, 'downloads.torrents', ['vpn', 'adapter'])
   known(p, d.downloads?.torrents?.vpn, 'downloads.torrents.vpn', ['provider', 'type', 'wireguard', 'openvpn', 'countries'])
   known(p, d.downloads?.torrents?.vpn?.wireguard, 'downloads.torrents.vpn.wireguard', ['privateKey', 'addresses', 'presharedKey', 'endpointIp', 'endpointPort', 'publicKey'])
   known(p, d.downloads?.torrents?.vpn?.openvpn, 'downloads.torrents.vpn.openvpn', ['username', 'password'])
@@ -140,8 +142,17 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
     if (!nonEmpty(s.name)) p.push({ path: `${at}.name`, message: 'Give the server a name' })
   })
   const vpn = dl?.torrents?.vpn
-  if (dl?.torrents && !vpn) p.push({ path: 'downloads.torrents.vpn', message: 'Torrents always run behind a VPN — add your VPN details' })
-  if (vpn) {
+  const adapter = dl?.torrents?.adapter
+  if (opts.native) {
+    if (dl?.torrents && !vpn && !nonEmpty(adapter)) p.push({ path: 'downloads.torrents.adapter', message: 'Torrents only run through a VPN — pick the VPN app’s network adapter on this PC (e.g. NordLynx)' })
+    if (vpn) p.push({ path: 'downloads.torrents.vpn', message: 'On Windows, torrents use the VPN app on this PC — give its adapter instead of VPN keys' })
+    if (d.libraries?.games) p.push({ path: 'libraries.games', message: 'Games isn’t available on Windows yet — leave it off for now' })
+    if (d.remoteAccess && d.remoteAccess.method !== 'none') p.push({ path: 'remoteAccess.method', message: 'Away-from-home access isn’t built in on Windows yet — use “none” and the Tailscale or Cloudflare app on this PC' })
+  } else {
+    if (adapter !== undefined) p.push({ path: 'downloads.torrents.adapter', message: 'A VPN adapter is for Windows installs — this server runs the VPN itself, so give your VPN details under “vpn”' })
+    if (dl?.torrents && !vpn) p.push({ path: 'downloads.torrents.vpn', message: 'Torrents always run behind a VPN — add your VPN details' })
+  }
+  if (vpn && !opts.native) {
     const prov = VPN_PROVIDERS.find((x) => x.id === vpn.provider)
     if (!prov) p.push({ path: 'downloads.torrents.vpn.provider', message: `Unknown provider — use one of: ${VPN_PROVIDERS.map((x) => x.id).join(', ')}` })
     if (vpn.type !== 'wireguard' && vpn.type !== 'openvpn') p.push({ path: 'downloads.torrents.vpn.type', message: 'Type is wireguard or openvpn' })
@@ -168,7 +179,7 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
         p.push({ path: `${at}.url`, message: 'Enter the indexer’s address, e.g. https://api.nzbgeek.info (or name one of Prowlarr’s built-in sites with "definition")' })
       }
     }
-    if (ix.kind === 'torznab' && !vpn) p.push({ path: `${at}.kind`, message: 'Torrent indexers need the torrent downloader (add a VPN)' })
+    if (ix.kind === 'torznab' && !vpn && !adapter) p.push({ path: `${at}.kind`, message: 'Torrent indexers need the torrent downloader (add a VPN)' })
     if (ix.kind === 'newznab' && servers.length === 0) p.push({ path: `${at}.kind`, message: 'Usenet indexers need a Usenet server' })
   })
   if (d.quality?.preset !== undefined && !['720p', '1080p', '4k', 'any'].includes(d.quality.preset)) p.push({ path: 'quality.preset', message: 'Preset is 720p, 1080p, 4k or any' })
@@ -202,10 +213,10 @@ export function validateSetup(input: unknown): { doc: SetupDoc | null; problems:
 }
 
 /** Which services a document needs, in install order. */
-export function servicesFor(d: SetupDoc): StackServiceId[] {
+export function servicesFor(d: SetupDoc, native = false): StackServiceId[] {
   const out: StackServiceId[] = ['jellyfin']
   const usenet = (d.downloads?.usenet?.servers?.length ?? 0) > 0
-  const torrents = Boolean(d.downloads?.torrents?.vpn)
+  const torrents = Boolean(d.downloads?.torrents?.vpn || d.downloads?.torrents?.adapter)
   if (usenet || torrents) {
     out.push('prowlarr')
     const libs = { movies: true, shows: true, music: true, ...d.libraries }
@@ -214,7 +225,8 @@ export function servicesFor(d: SetupDoc): StackServiceId[] {
     if (libs.music) out.push('lidarr')
   }
   if (usenet) out.push('sabnzbd')
-  if (torrents) out.push('gluetun', 'qbittorrent')
+  // Windows: the person's own VPN app is the tunnel.
+  if (torrents) out.push(...(native ? [] : (['gluetun'] as const)), 'qbittorrent')
   if (d.libraries?.games) out.push('romm-db', 'romm')
   if (d.remoteAccess?.method === 'tailscale') out.push('tailscale')
   if (d.remoteAccess?.method === 'cloudflare') out.push('cloudflared')

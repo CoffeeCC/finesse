@@ -3,6 +3,7 @@
 // Windows programs (the native Windows install, native.ts). Setup, the health
 // loop and Settings → Server only talk to this, so they work the same on both.
 
+import { ApiError } from '../http/core.ts'
 import type { StackContext, StackServiceId } from './catalog.ts'
 
 export interface ProgressSink {
@@ -82,9 +83,8 @@ export interface StackHost {
 }
 
 /** Something only Docker installs can do (Games, Wolf, Tailscale in a container…). */
-export class NotOnThisHost extends Error {
-  readonly status = 409
+export class NotOnThisHost extends ApiError {
   constructor(what: string) {
-    super(`${what} isn’t available on Windows yet`)
+    super(409, `${what} isn’t available on Windows yet`)
   }
 }
