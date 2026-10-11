@@ -114,7 +114,6 @@ namespace Finesse.Setup
                 if (!e.Uri.StartsWith("https://setup.finesse/", StringComparison.OrdinalIgnoreCase)) { e.Cancel = true; Engine.OpenUrl(e.Uri); }
             };
             var q = new List<string> { "v=" + Uri.EscapeDataString(Program.Version) };
-            if (opt.Resume) q.Add("resume=1");
             if (opt.Uninstall) q.Add("uninstall=1");
             if (opt.SelfTest != null) q.Add("selftest=1");
             cw.Navigate("https://setup.finesse/index.html?" + string.Join("&", q));
@@ -218,14 +217,9 @@ namespace Finesse.Setup
                     {
                         case "info": result = engine.Info(); break;
                         case "log": result = Log.Tail(60); break;
-                        case "downloadDocker": result = engine.DownloadDocker(); break;
-                        case "installDocker": result = engine.InstallDocker(Str("file")); break;
-                        case "startDocker": result = engine.StartDocker(); break;
-                        case "installFinesse": result = engine.InstallFinesse(Str("media"), Int("port", 8080)); break;
+                        case "install": result = engine.Install(Str("media"), opt.Bundle); break;
                         case "firewall": result = engine.Firewall(Int("port", 8080)); break;
-                        case "finish": result = engine.Finish(Int("port", 8080)); break;
                         case "startFinesse": result = engine.StartFinesse(); break;
-                        case "restart": result = engine.Restart(); break;
                         case "uninstall": result = engine.Uninstall(Bool("deleteSettings")); break;
                         case "defaultMedia": result = engine.DefaultMedia(); break;
                         case "checkMedia": result = engine.CheckMedia(Str("path")); break;

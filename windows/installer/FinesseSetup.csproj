@@ -28,9 +28,17 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="$(WebView2Version)" />
     <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Management" />
+    <Reference Include="System.ServiceProcess" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <!-- Releases build with -p:BundleSha256=<sha256 of finesse-windows-<v>-x64.zip>, so Setup checks what it downloads. -->
+  <ItemGroup Condition="'$(BundleSha256)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BundleSha256</_Parameter1>
+      <_Parameter2>$(BundleSha256)</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
   <ItemGroup>
     <None Remove="ui\**" />

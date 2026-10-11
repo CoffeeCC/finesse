@@ -102,7 +102,7 @@ export const NATIVE_APPS: Partial<Record<StackServiceId, NativeApp>> = {
   qbittorrent: {
     version: '5.2.3',
     // qBittorrent ships no portable build for Windows: its installer, run silently into Finesse's folder.
-    url: 'https://sourceforge.net/projects/qbittorrent/files/qbittorrent-win32/qbittorrent-5.2.3/qbittorrent_5.2.3_x64_setup.exe/download',
+    url: 'https://downloads.sourceforge.net/project/qbittorrent/qbittorrent-win32/qbittorrent-5.2.3/qbittorrent_5.2.3_x64_setup.exe',
     sha256: 'ff508e2f912d59c9eabaf03633ebacfd45c2049f38dcac027b8a7d7ad867ab2f',
     kind: 'nsis',
     exe: 'qbittorrent.exe',

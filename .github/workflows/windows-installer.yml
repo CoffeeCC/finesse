@@ -1,12 +1,14 @@
 name: Windows installer
 
 # Builds FinesseSetup.exe on Windows and runs its self-test: the real window (WebView2), the real
-# checks of the machine, and a picture of each screen, uploaded with the exe as an artifact.
+# checks of the machine, and a picture of each screen, uploaded with the exe as an artifact. Then the
+# whole thing for real (e2e): the Windows bundle installed as a service, set up through Finesse's API with
+# its apps running as Windows programs, restarted, and uninstalled.
 on:
   push:
-    paths: ['windows/**', '.github/workflows/windows-installer.yml']
+    paths: ['windows/**', 'server/**', '.github/workflows/windows-installer.yml']
   pull_request:
-    paths: ['windows/**']
+    paths: ['windows/**', 'server/**']
   workflow_dispatch:
 
 jobs:
@@ -43,3 +45,47 @@ jobs:
           path: |
             out/FinesseSetup.exe
             selftest/
+
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build the Windows bundle
+        run: |
+          npm ci
+          npm run build
+          npm run server:build
+          windows/bundle.sh "$(node -p "require('./package.json').version")" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finesse-windows-bundle
+          path: finesse-windows-*.zip
+
+  e2e:
+    needs: [build, bundle]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: finesse-setup
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: finesse-windows-bundle
+          path: bundle
+      - name: Install, set up, restart, uninstall
+        shell: pwsh
+        run: windows/e2e.ps1 -Setup out/FinesseSetup.exe -Bundle (Get-ChildItem bundle/finesse-windows-*.zip | Select-Object -First 1).FullName
+      - name: Logs
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($f in "$env:ProgramData\Finesse\logs\service.log", "$env:ProgramData\Finesse\logs\finesse.log", "$env:LOCALAPPDATA\Finesse\setup.log") {
+            if (Test-Path $f) { Write-Host "::group::$f"; Get-Content $f -Tail 300; Write-Host '::endgroup::' }
+          }

@@ -196,5 +196,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.release.outputs.version }}
         run: |
-          dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version="$VERSION" -o out
+          # Setup checks the Windows bundle it downloads against this checksum, built into the exe.
+          gh release download "v$VERSION" -p "finesse-windows-$VERSION-x64.zip" -D bundle
+          sha=$(sha256sum "bundle/finesse-windows-$VERSION-x64.zip" | cut -d' ' -f1)
+          dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version="$VERSION" -p:BundleSha256="$sha" -o out
           gh release upload "v$VERSION" out/FinesseSetup.exe --clobber

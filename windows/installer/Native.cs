@@ -131,5 +131,53 @@ namespace Finesse.Setup
             }
             finally { Marshal.ReleaseComObject(dialog); }
         }
+
+        // ---------- the service's job object ----------
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref JobExtendedLimits info, int length);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct JobBasicLimits
+        {
+            public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass, SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct IoCounters { public ulong a, b, c, d, e, f; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct JobExtendedLimits
+        {
+            public JobBasicLimits Basic;
+            public IoCounters Io;
+            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+        }
+
+        /// <summary>A job whose processes all end when it closes: Finesse's Node and every app it starts
+        /// (children join their parent's job), so nothing is left running if the service stops or crashes.</summary>
+        public static IntPtr KillOnCloseJob()
+        {
+            var job = CreateJobObject(IntPtr.Zero, null);
+            if (job == IntPtr.Zero) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            var info = new JobExtendedLimits();
+            info.Basic.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if (!SetInformationJobObject(job, 9 /* JobObjectExtendedLimitInformation */, ref info, Marshal.SizeOf(typeof(JobExtendedLimits))))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return job;
+        }
+
+        public static void AddToJob(IntPtr job, System.Diagnostics.Process p)
+        {
+            if (!AssignProcessToJobObject(job, p.Handle)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        public static void EndJob(IntPtr job) => TerminateJobObject(job, 1);
     }
 }
