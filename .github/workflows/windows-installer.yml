@@ -86,6 +86,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          foreach ($f in "$env:ProgramData\Finesse\logs\service.log", "$env:ProgramData\Finesse\logs\finesse.log", "$env:LOCALAPPDATA\Finesse\setup.log") {
-            if (Test-Path $f) { Write-Host "::group::$f"; Get-Content $f -Tail 300; Write-Host '::endgroup::' }
+          $files = @("$env:LOCALAPPDATA\Finesse\setup.log") + @(Get-ChildItem "$env:ProgramData\Finesse\logs\*.log", "$env:ProgramData\Finesse\config\sabnzbd\logs\*.log" -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          foreach ($f in $files) {
+            if (Test-Path $f) { Write-Host "::group::$f"; Get-Content $f -Tail 200; Write-Host '::endgroup::' }
           }

@@ -13,10 +13,10 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { constants as osConstants, setPriority } from 'node:os'
+import { EOL, constants as osConstants, setPriority } from 'node:os'
 import { basename, join } from 'node:path'
 import { logger } from '../log.ts'
 import { CATALOG, proxyFor, type StackContext, type StackServiceId } from './catalog.ts'
@@ -395,6 +395,18 @@ export class NativeHost implements StackHost {
     return p
   }
 
+  private logFile(id: StackServiceId): string {
+    const dir = join(this.root, 'logs')
+    const file = join(dir, `${id}.log`)
+    try {
+      mkdirSync(dir, { recursive: true })
+      if (statSync(file).size > 5e6) renameSync(file, `${file}.1`)
+    } catch {
+      /* new */
+    }
+    return file
+  }
+
   private launch(id: StackServiceId, spec: Spec, p: Proc) {
     const child = spawn(spec.exe, spec.args, {
       cwd: spec.cwd,
@@ -404,11 +416,20 @@ export class NativeHost implements StackHost {
     })
     p.child = child
     p.startedAt = Date.now()
+    // Also on disk (<root>\logs\<app>.log, about 10 MB kept), for when Finesse itself isn't answering.
+    const logFile = this.logFile(id)
     const keep = (chunk: Buffer) => {
-      for (const text of chunk.toString('utf8').split(/\r?\n/)) {
-        if (!text) continue
+      const lines = chunk.toString('utf8').split(/\r?\n/).filter(Boolean)
+      for (const text of lines) {
         p.lines.push({ at: Date.now(), text })
         if (p.lines.length > LOG_LINES) p.lines.splice(0, p.lines.length - LOG_LINES)
+      }
+      if (lines.length) {
+        try {
+          appendFileSync(logFile, lines.join(EOL) + EOL)
+        } catch {
+          /* the screen's copy is enough */
+        }
       }
     }
     child.stdout?.on('data', keep)
@@ -539,7 +560,8 @@ export class NativeHost implements StackHost {
       }
       await new Promise((r) => setTimeout(r, 1500))
     }
-    throw new Error(`${def.name} didn’t come up within ${Math.round(timeoutMs / 1000)}s (${lastErr})`)
+    const tail = (await this.logs(id, 8)).trim()
+    throw new Error(`${def.name} didn’t come up within ${Math.round(timeoutMs / 1000)}s (${lastErr})${tail ? `. It said:\n${tail}` : ''}`)
   }
 
   async waitLog(id: StackServiceId, pattern: RegExp, timeoutMs = 180000): Promise<boolean> {
