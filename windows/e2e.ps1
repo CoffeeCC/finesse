@@ -79,7 +79,7 @@ $apps = @{ 'Jellyfin' = 'http://127.0.0.1:8096/jellyfin/System/Info/Public'; 'Pr
 foreach ($a in $apps.GetEnumerator()) { if (-not (Answers $a.Value)) { throw "$($a.Key) isn't answering at $($a.Value)" } else { Write-Host "$($a.Key) answers" } }
 Get-Process jellyfin, Prowlarr.Console, Radarr.Console, SABnzbd-console, qbittorrent -ErrorAction SilentlyContinue | Format-Table Name, Id, StartTime
 
-Say 'Add media, Games (Finesse’s own library) and game streaming (Sunshine)'
+Say 'Add media, Games (the library Finesse keeps itself) and game streaming (Sunshine)'
 $node = "$env:ProgramFiles\Finesse\app\$($res.version)\node.exe"
 & $node "$PSScriptRoot\e2e-media.mjs" "http://127.0.0.1:$port" 'http://127.0.0.1:8096/jellyfin' 'ci' 'ci-password-123' $Media
 if ($LASTEXITCODE -ne 0) { throw 'Add media, Games or game streaming failed' }
