@@ -108,14 +108,15 @@ export function toDoc(d: Draft): SetupDoc {
   const doc: SetupDoc = {
     admin: { username: clean(d.admin.username), password: d.admin.password },
     server: { name: clean(d.server.name) || 'Finesse', timezone: d.server.timezone, country: d.server.country, language: d.server.language },
-    libraries: { ...d.libraries, games: Boolean(d.libraries.games && !d.native), samples: Boolean(d.libraries.samples && d.libraries.music) },
+    libraries: { ...d.libraries, games: Boolean(d.libraries.games), samples: Boolean(d.libraries.samples && d.libraries.music) },
     quality: { preset: d.quality },
   }
-  if (d.libraries.games && !d.native) {
+  if (d.libraries.games) {
     const g = d.games
     const games: NonNullable<SetupDoc['games']> = {}
     if (clean(g.steamGridDbKey)) games.steamGridDbKey = clean(g.steamGridDbKey)
-    if (clean(g.igdbClientId) && clean(g.igdbClientSecret)) games.igdb = { clientId: clean(g.igdbClientId), clientSecret: clean(g.igdbClientSecret) }
+    // IGDB feeds RomM; Windows keeps the library itself.
+    if (!d.native && clean(g.igdbClientId) && clean(g.igdbClientSecret)) games.igdb = { clientId: clean(g.igdbClientId), clientSecret: clean(g.igdbClientSecret) }
     if (Object.keys(games).length) doc.games = games
   }
   if (d.usenet || d.torrents) {

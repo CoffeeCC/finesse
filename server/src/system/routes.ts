@@ -18,6 +18,8 @@ import { LibraryNudger } from '../stack/libraries.ts'
 import { BACKUP_FILE, describeParts, isPart } from '../stack/backup.ts'
 import { Maintainer } from '../stack/maintain.ts'
 import { randomBytes } from 'node:crypto'
+import { join } from 'node:path'
+import { isBuiltinRomm } from '../gamelib.ts'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
 import { windowsUpdater } from '../stack/winupdate.ts'
 
@@ -94,13 +96,13 @@ export function systemPlugin(ref: StackRef): Plugin {
         updates: { auto: s.updates.auto, lastStackUpdate: s.maintenance?.lastStackUpdate ?? null },
         busy: maint.isWorking,
         previews: { enabled: s.previews?.enabled !== false, ...clips.status },
-        // Docker only for now: Windows installs show neither switch.
+        // Windows: Games is Finesse's own library; game streaming isn't there yet.
         ...(orch.kind === 'docker'
           ? {
               games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
               streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
             }
-          : {}),
+          : { games: { enabled: isBuiltinRomm(s.services.romm?.url), folder: s.stack ? join(s.stack.hostData, 'media', 'games', 'roms') : null, job: runner.gamesJob, builtin: true } }),
         backup: { job: maint.backupJob },
         health: maint.health,
       })

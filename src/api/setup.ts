@@ -219,7 +219,8 @@ export interface SystemStatus {
   updates: { auto: boolean; lastStackUpdate: string | null }
   busy: boolean
   previews?: { enabled: boolean; made: number; pending: number; total: number; lastRun: string | null }
-  games?: { enabled: boolean; folder: string | null; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
+  /** builtin: Windows, where Finesse keeps the library itself (no RomM). */
+  games?: { enabled: boolean; folder: string | null; builtin?: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   streaming?: { enabled: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   backup?: { job: { state: 'idle' | 'working' | 'done' | 'error'; step?: string; file?: BackupFile; error?: string } }
   health: {

@@ -10,6 +10,7 @@ import type { Endpoint, SettingsStore } from './config.ts'
 import { ApiError, readBody, type Router } from './http/core.ts'
 import { joinUrl, proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import type { JfUser } from './jellyfin.ts'
+import { gameLibrary, isBuiltinRomm } from './gamelib.ts'
 import { addAllowed, arrVerdict, cleanPath, commandAllowed, hasFiles, isRead, rommAllowed, sabAllowed } from './policy.ts'
 
 const isAdmin = (u: JfUser) => u.Policy?.IsAdministrator === true
@@ -115,6 +116,8 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
     const rest = safeRest(params.rest)
     // Household members browse and play; changing the library is admin-only.
     if (!isAdmin(user) && !(path === '/api' ? rommAllowed(req.method ?? 'GET', rest) : isRead(req.method ?? 'GET'))) throw adminOnly()
+    // Windows: no RomM; Finesse keeps the library from the games folder itself.
+    if (isBuiltinRomm(settings.get().services.romm?.url)) return gameLibrary(settings).handle(path === '/api' ? 'api' : 'assets', rest, req, res, url)
     const r = need(settings.get().services.romm, 'RomM', 'password')
     const basic = r.apiKey && !r.username ? r.apiKey : Buffer.from(`${r.username ?? ''}:${r.password ?? ''}`).toString('base64')
     await proxyHttp(req, res, {

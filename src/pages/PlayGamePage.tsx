@@ -87,7 +87,7 @@ export default function PlayGamePage() {
       const s = document.createElement('script')
       s.src = `${data}loader.js`
       s.async = true
-      s.onerror = () => setError('Could not reach the emulator. Check that RomM is running.')
+      s.onerror = () => setError('Could not load the emulator. Try again in a moment.')
       document.body.appendChild(s)
     })()
   }, [rom, core])

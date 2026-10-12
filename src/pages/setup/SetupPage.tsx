@@ -619,7 +619,7 @@ const PATH_STEP: [RegExp, StepId][] = [
 ]
 
 function ReviewStep({ d, info, jumpTo, problems, applyError }: { d: Draft; info: SetupInfo | null; jumpTo: (s: StepId) => void; problems: Problem[]; applyError: string }) {
-  const libs = (['movies', 'shows', 'music', 'games'] as const).filter((k) => d.libraries[k] && !(k === 'games' && d.native)).map((k) => ({ movies: 'Movies', shows: 'TV shows', music: 'Music', games: 'Games' })[k])
+  const libs = (['movies', 'shows', 'music', 'games'] as const).filter((k) => d.libraries[k]).map((k) => ({ movies: 'Movies', shows: 'TV shows', music: 'Music', games: 'Games' })[k])
   const apps = ['Jellyfin']
   if (d.usenet || d.torrents) {
     apps.push('Prowlarr')

@@ -3,9 +3,11 @@
 // `finesse setup status` both read this). Safe to re-run: every step checks
 // what exists first, so "Try again" after a failure resumes where it broke.
 
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Settings, SettingsStore } from '../config.ts'
 import { clearSetupCode } from '../auth.ts'
+import { BUILTIN_ROMM } from '../gamelib.ts'
 import { logger } from '../log.ts'
 import { addSamples } from '../stack/samples.ts'
 import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
@@ -215,6 +217,8 @@ export class SetupRunner {
     if (this.gamesJob.state === 'working' || this.streamingJob.state === 'working') throw new Error('Finesse is busy — try again in a minute')
     const services = orderServices(servicesFor(doc, this.orch.kind === 'native'))
     const has = (id: StackServiceId) => services.includes(id)
+    // Windows: Games is Finesse's own library (gamelib.ts), so there's no RomM to install.
+    const builtinGames = this.orch.kind === 'native' && doc.libraries?.games === true
     const downloads = has('prowlarr')
     const steps: [string, string, boolean][] = [
       ['check', 'Checking this machine', true],
@@ -225,7 +229,7 @@ export class SetupRunner {
       ['downloaders', 'Starting downloaders', has('sabnzbd') || has('qbittorrent')],
       ['managers', 'Starting Sonarr, Radarr & friends', downloads],
       ['connect', 'Connecting everything', downloads],
-      ['games', 'Setting up Games', has('romm')],
+      ['games', 'Setting up Games', has('romm') || builtinGames],
       ['remote', 'Remote access', has('tailscale') || has('cloudflared')],
       ['finish', 'Finishing up', true],
     ]
@@ -286,6 +290,7 @@ export class SetupRunner {
     // Saved right away: a retry after a failure must reuse the database password.
     if (ctx.games) this.settings.update((x) => void (x.games = ctx.games))
     const has = (id: StackServiceId) => services.includes(id)
+    const builtinGames = this.orch.kind === 'native' && doc.libraries?.games === true
     const orch = this.orch
     const progress = (s: Step) => (e: { service: StackServiceId; phase: string; fraction?: number; detail?: string }) => {
       const name = CATALOG[e.service].name
@@ -493,6 +498,11 @@ export class SetupRunner {
     let remoteUrl: string | undefined
     let rommCreds: { username: string; password: string } | null = null
     await this.run('games', async (s) => {
+      if (builtinGames) {
+        s.detail = builtinGamesFolders(ctx.hostData)
+        this.say(s.detail)
+        return
+      }
       rommCreds = await installGames(dockerOf(orch, 'Games'), ctx, this.settings, (m) => {
         s.detail = m
         this.say(m)
@@ -536,13 +546,17 @@ export class SetupRunner {
         x.mode = 'bundle'
         const svc = x.services
         for (const app of ['sonarr', 'radarr', 'lidarr', 'prowlarr', 'sabnzbd', 'qbittorrent', 'gluetun', 'romm'] as const) if (!has(app)) delete svc[app]
-        if (!has('romm')) delete svc.steamgriddb
+        if (!has('romm') && !builtinGames) delete svc.steamgriddb
         for (const app of ['sonarr', 'radarr', 'lidarr', 'prowlarr'] as const) if (has(app)) svc[app] = { url: orch.url(app), apiKey: keys[app] }
         if (has('sabnzbd')) svc.sabnzbd = { url: orch.url('sabnzbd'), apiKey: keys.sabnzbd }
         if (has('qbittorrent') && qbitCreds) svc.qbittorrent = { url: orch.url('qbittorrent'), ...qbitCreds }
         if (has('gluetun')) svc.gluetun = { url: 'http://gluetun:8000', apiKey: gluetunKey }
         if (has('romm') && rommCreds) svc.romm = { url: orch.url('romm'), ...rommCreds }
         if (has('romm') && ctx.games?.steamGridDbKey) svc.steamgriddb = { apiKey: ctx.games.steamGridDbKey }
+        if (builtinGames) {
+          svc.romm = { url: BUILTIN_ROMM }
+          if (doc.games?.steamGridDbKey) svc.steamgriddb = { apiKey: doc.games.steamGridDbKey }
+        }
         x.stack = {
           hostRoot: ctx.hostRoot,
           hostData: ctx.hostData,
@@ -588,6 +602,17 @@ export class SetupRunner {
       this.say(m)
     }
     void (async () => {
+      // Windows: the library is the games folder; turning it on or off is just a setting.
+      if (this.orch.kind === 'native') {
+        this.settings.update((x) => {
+          if (on) {
+            x.services.romm = { url: BUILTIN_ROMM }
+            if (keys.steamGridDbKey) x.services.steamgriddb = { apiKey: keys.steamGridDbKey }
+          } else delete x.services.romm
+        })
+        if (on) say(builtinGamesFolders(s.stack!.hostData))
+        return
+      }
       if (!on) {
         // Settings first, so nothing sees RomM as a missing app to bring back.
         this.settings.update((x) => {
@@ -700,4 +725,10 @@ export class SetupRunner {
       else if (this.orch instanceof Orchestrator) await this.orch.docker.remove(containerName(id as StackServiceId), { force: true })
     }
   }
+}
+
+/** Windows: the games folders (made here), and where to put games. */
+function builtinGamesFolders(hostData: string): string {
+  for (const sub of ['roms', 'bios']) mkdirSync(join(hostData, 'media', 'games', sub), { recursive: true })
+  return `Put games in ${join(hostData, 'media', 'games', 'roms')}\\<console> (nes, snes, gba, psx…)`
 }
