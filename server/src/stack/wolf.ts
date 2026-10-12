@@ -12,7 +12,7 @@ export interface StreamingProbe {
 }
 
 export interface StreamingCheckItem {
-  id: 'folder' | 'gpu' | 'nvidia-modeset' | 'controllers' | 'dualsense'
+  id: 'folder' | 'gpu' | 'nvidia-modeset' | 'controllers' | 'dualsense' | 'desktop'
   ok: boolean
   title: string
   detail: string

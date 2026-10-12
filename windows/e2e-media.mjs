@@ -1,7 +1,8 @@
-// Part of windows/e2e.ps1, run with the node.exe Finesse installed: Add media and Games on a real
-// Windows install. Signs in to Jellyfin as the setup's admin, adds a movie and a game the way the
+// Part of windows/e2e.ps1, run with the node.exe Finesse installed: Add media, Games and game
+// streaming on a real Windows install. Signs in to Jellyfin as the setup's admin, adds a movie and a game the way the
 // app does (Windows paths: \ not /), turns Games on (Finesse's own library, no RomM) and plays the
-// game's file back through the Games API.
+// game's file back through the Games API, then turns game streaming on (Finesse installs and sets
+// up Sunshine) and reads Sunshine's pairing and app lists through Finesse.
 //
 //   node e2e-media.mjs <finesse url> <jellyfin url> <user> <password> <media folder>
 
@@ -94,4 +95,23 @@ const file = await fetch(`${finesse}/finesse/games/api/roms/${rom.id}/content/${
 const got = Buffer.from(await file.arrayBuffer())
 if (!file.ok || !got.equals(game)) fail(`the game's file came back wrong (${file.status}, ${got.length} bytes)`)
 say(`Games: "${rom.name}" (${snes.name}) is listed and its file plays back`)
-console.log('Add media and Games work.')
+// Game streaming: Sunshine, installed and set up by Finesse, answering through Finesse.
+const check = await api('GET', '/api/system/streaming/check')
+say(`This PC for streaming: ${check.items.map((i) => `${i.ok ? '✓' : '!'} ${i.title}`).join('; ')}${check.blocked ? ` (blocked: ${check.blocked})` : ''}`)
+await api('PUT', '/api/system/streaming', { enabled: true })
+for (let i = 0; ; i++) {
+  const s = await api('GET', '/api/system/status')
+  const job = s.streaming?.job
+  if (job?.state === 'error') fail(`turning game streaming on: ${job.error}`)
+  if (s.streaming?.enabled && job?.state !== 'working') break
+  if (i % 15 === 0) say(`  …${job?.detail ?? 'waiting'}`)
+  if (i > 600) fail(`game streaming didn't turn on: ${JSON.stringify(s.streaming)}`)
+  await new Promise((r) => setTimeout(r, 1000))
+}
+const admin = await api('GET', '/api/streaming/admin')
+if (!admin.ok || admin.host !== 'sunshine') fail(`Sunshine's pairing list: ${JSON.stringify(admin)}`)
+const streams = await api('GET', '/api/streaming')
+if (!streams.ok || !streams.apps.length) fail(`Moonlight's list from Sunshine: ${JSON.stringify(streams)}`)
+if (!(await api('GET', '/api/finesse')).features.streaming) fail('the app isn’t told streaming is on')
+say(`Streaming: Sunshine is on; Moonlight would list ${streams.apps.map((a) => a.title).join(', ')}; ${admin.devices.length} paired, ${admin.pending.length} waiting`)
+console.log('Add media, Games and game streaming work.')

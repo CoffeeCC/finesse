@@ -734,7 +734,7 @@ function run(exe: string, args: string[]) {
 
 /** A download with node:https (fetch's client can take Finesse down when a big body is paused while its
  *  connection closes): redirects followed, written with backpressure, and a stalled one given up on. */
-function downloadTo(url: string, file: string, progress: (got: number, total: number) => void, hops = 10): Promise<void> {
+export function downloadTo(url: string, file: string, progress: (got: number, total: number) => void, hops = 10): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = httpsGet(url, { headers: { 'User-Agent': 'Finesse' } }, (res) => {
       const status = res.statusCode ?? 0
@@ -762,8 +762,8 @@ function downloadTo(url: string, file: string, progress: (got: number, total: nu
   })
 }
 
-function runTo(exe: string, args: string[]): { code: number; out: string } {
-  const r = spawnSync(exe, args, { windowsHide: true, encoding: 'utf8', timeout: 120000 })
+export function runTo(exe: string, args: string[], timeoutMs = 120000): { code: number; out: string } {
+  const r = spawnSync(exe, args, { windowsHide: true, encoding: 'utf8', timeout: timeoutMs })
   return { code: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? r.error.message : ''}` }
 }
 

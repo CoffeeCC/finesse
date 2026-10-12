@@ -22,6 +22,8 @@ import { join } from 'node:path'
 import { isBuiltinRomm } from '../gamelib.ts'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
 import { windowsUpdater } from '../stack/winupdate.ts'
+import { windowsGpus, windowsStreamingCheck } from '../stack/sunshine.ts'
+import { runTo } from '../stack/native.ts'
 
 export interface StackRef {
   runner?: SetupRunner
@@ -96,13 +98,16 @@ export function systemPlugin(ref: StackRef): Plugin {
         updates: { auto: s.updates.auto, lastStackUpdate: s.maintenance?.lastStackUpdate ?? null },
         busy: maint.isWorking,
         previews: { enabled: s.previews?.enabled !== false, ...clips.status },
-        // Windows: Games is Finesse's own library; game streaming isn't there yet.
+        // Windows: Games is Finesse's own library, and Sunshine streams instead of Wolf.
         ...(orch.kind === 'docker'
           ? {
               games: { enabled: Boolean(s.stack?.services.includes('romm')), folder: s.stack ? `${s.stack.hostData}/media/games/roms` : null, job: runner.gamesJob },
               streaming: { enabled: Boolean(s.stack?.services.includes('wolf')), job: runner.streamingJob },
             }
-          : { games: { enabled: isBuiltinRomm(s.services.romm?.url), folder: s.stack ? join(s.stack.hostData, 'media', 'games', 'roms') : null, job: runner.gamesJob, builtin: true } }),
+          : {
+              games: { enabled: isBuiltinRomm(s.services.romm?.url), folder: s.stack ? join(s.stack.hostData, 'media', 'games', 'roms') : null, job: runner.gamesJob, builtin: true },
+              streaming: { enabled: Boolean(s.streaming?.sunshine), job: runner.streamingJob, host: 'sunshine' as const },
+            }),
         backup: { job: maint.backupJob },
         health: maint.health,
       })
@@ -245,6 +250,7 @@ export function systemPlugin(ref: StackRef): Plugin {
     router.get('/api/system/streaming/check', async ({ req, res }) => {
       await auth.requireAdmin(req)
       needStack()
+      if (orch.kind === 'native') return sendJson(res, 200, windowsStreamingCheck(windowsGpus(runTo), { foreignSunshine: runner.sunshine().foreign() }))
       sendJson(res, 200, streamingCheck(await dockerOf(orch, 'Game streaming').streamingProbe(), { runDir: wolfRunDir(settings.get().stack!) }))
     })
 
@@ -258,7 +264,7 @@ export function systemPlugin(ref: StackRef): Plugin {
       } catch (e) {
         throw new ApiError(409, (e as Error).message)
       }
-      maint.event('info', body.enabled ? 'Game streaming is being turned on by an administrator' : 'Game streaming was turned off by an administrator (Wolf’s settings kept)')
+      maint.event('info', body.enabled ? 'Game streaming is being turned on by an administrator' : `Game streaming was turned off by an administrator (${orch.kind === 'native' ? 'Sunshine’s' : 'Wolf’s'} settings kept)`)
       sendJson(res, 202, { job: runner.streamingJob })
     })
 

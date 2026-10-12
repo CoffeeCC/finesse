@@ -18,6 +18,7 @@ import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
+import { SunshineClient, SunshineError, type SunshineApi } from './stack/sunshine.ts'
 import {
   EMULATOR_IDS,
   emulatorCatalog,
@@ -296,9 +297,15 @@ export const sessionId = (id: string) => createHash('sha256').update(`finesse-se
 /** The browser's stand-in for a pending pair request (Wolf's pair secret never leaves the server). */
 export const pendingId = (secret: string) => createHash('sha256').update(`finesse-pair:${secret}`).digest('hex').slice(0, 16)
 
-export function registerStreaming(router: Router, deps: { settings: SettingsStore; auth: Auth }) {
+export function registerStreaming(router: Router, deps: { settings: SettingsStore; auth: Auth; sunshineApi?: SunshineApi }) {
   const { settings, auth } = deps
   const socketOf = () => settings.get().streaming?.socket
+  /** Windows: Sunshine streams instead of Wolf (stack/sunshine.ts). */
+  const sunshine = () => {
+    const login = settings.get().streaming?.sunshine
+    return login ? new SunshineClient(login, deps.sunshineApi) : null
+  }
+  const sunshineProblem = (e: unknown) => (e instanceof SunshineError ? e.message : 'Sunshine isn’t answering on this PC. Turn game streaming off and on again in Settings → Server.')
   const need = () => {
     const socket = socketOf()
     if (!socket) throw new ApiError(404, 'Game streaming isn’t set up on this server')
@@ -366,6 +373,17 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   // Everyone at home: what can be streamed.
   router.get('/api/streaming', async ({ req, res }) => {
     await auth.requireUser(req)
+    const sun = sunshine()
+    if (sun) {
+      try {
+        const apps = (await sun.apps()).map((a) => ({ id: `sunshine-${a.index}`, title: a.name, hdr: false, icon: false }))
+        sendJson(res, 200, { ok: true, apps, profiles: [], emulators: [] })
+      } catch (e) {
+        log.warn(`apps: ${sunshineProblem(e)}`)
+        sendJson(res, 200, { ok: false, apps: [], error: 'Game streaming isn’t answering right now. Try again in a minute.' })
+      }
+      return
+    }
     const socket = need()
     try {
       const { raw, profiles } = await wolfLists(socket)
@@ -391,6 +409,16 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   // Administrators: pairing and paired devices.
   router.get('/api/streaming/admin', async ({ req, res }) => {
     await auth.requireAdmin(req)
+    const sun = sunshine()
+    if (sun) {
+      try {
+        const [waiting, devices] = await Promise.all([sun.pending(), sun.devices()])
+        sendJson(res, 200, { ok: true, host: 'sunshine', pending: waiting.map((p) => ({ id: p.id, ip: p.address, name: p.name })), devices: devices.map((d) => ({ id: d.id, name: d.name || null, pairedAt: null })) })
+      } catch (e) {
+        sendJson(res, 200, { ok: false, host: 'sunshine', error: sunshineProblem(e), pending: [], devices: [] })
+      }
+      return
+    }
     const socket = need()
     try {
       const [waiting, ids] = await Promise.all([pending(socket), clientIds(socket)])
@@ -407,11 +435,31 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
 
   router.post('/api/streaming/pair', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    const socket = need()
+    const sun = sunshine()
+    const socket = sun ? '' : need()
     const body = await readJson<{ request?: unknown; pin?: unknown; name?: unknown }>(req)
     const pin = String(body.pin ?? '').trim()
     if (!/^\d{4}$/.test(pin)) throw new ApiError(400, 'The PIN is the 4 digits Moonlight shows')
     const name = String(body.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Moonlight device'
+    if (sun) {
+      const request = String(body.request ?? '')
+      if (!/^[0-9a-f]{32}$/i.test(request)) throw new ApiError(404, 'That device stopped waiting. In Moonlight, start pairing again.')
+      let paired: boolean
+      try {
+        if (!(await sun.pending()).some((p) => p.id === request)) throw new ApiError(404, 'That device stopped waiting. In Moonlight, start pairing again.')
+        paired = await sun.pair(request, pin, name)
+      } catch (e) {
+        if (e instanceof ApiError) throw e
+        throw new ApiError(502, sunshineProblem(e))
+      }
+      if (!paired) {
+        sendJson(res, 200, { ok: false, error: 'Moonlight didn’t finish pairing. If it says the PIN was wrong, start pairing again in Moonlight.' })
+        return
+      }
+      log.info(`paired ${name}`)
+      sendJson(res, 201, { ok: true, device: { id: '', name } })
+      return
+    }
     let waiting: { secret: string; ip: string }[]
     let before: string[]
     try {
@@ -446,6 +494,20 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
 
   router.delete('/api/streaming/devices/:id', async ({ req, res, params }) => {
     await auth.requireAdmin(req)
+    const sun = sunshine()
+    if (sun) {
+      const id = params.id ?? ''
+      try {
+        if (!(await sun.devices()).some((d) => d.id === id)) throw new ApiError(404, 'No such device')
+        if (!(await sun.unpair(id))) throw new ApiError(502, 'Sunshine couldn’t remove it. Try again.')
+      } catch (e) {
+        if (e instanceof ApiError) throw e
+        throw new ApiError(502, sunshineProblem(e))
+      }
+      log.info('removed a device')
+      sendJson(res, 200, { ok: true })
+      return
+    }
     const socket = need()
     let ids: string[]
     try {

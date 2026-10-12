@@ -14,6 +14,8 @@ import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type Gam
 import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
 import { dockerOf, Orchestrator } from '../stack/orchestrator.ts'
+import { downloadTo, runTo, type NativeHost } from '../stack/native.ts'
+import { Sunshine } from '../stack/sunshine.ts'
 import type { StackHost } from '../stack/host.ts'
 import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe, type SeedHost } from '../stack/seed.ts'
 import { clearFinishedTcLog } from '../stack/games.ts'
@@ -654,7 +656,8 @@ export class SetupRunner {
     const s = this.settings.get()
     if (s.mode !== 'bundle' || !s.stack) throw new Error('Finesse isn’t managing a stack on this server')
     if (this.status.state === 'running' || this.gamesJob.state === 'working' || this.streamingJob.state === 'working') throw new Error('Finesse is busy — try again in a minute')
-    const folder = on ? wolfFolderProblem(wolfRunDir(s.stack)) : null
+    const native = this.orch.kind === 'native'
+    const folder = on && !native ? wolfFolderProblem(wolfRunDir(s.stack)) : null
     if (folder) throw new Error(folder)
     this.streamingJob = { state: 'working', detail: on ? 'Checking this machine…' : 'Turning off game streaming…' }
     const say = (m: string) => {
@@ -662,6 +665,23 @@ export class SetupRunner {
       this.say(m)
     }
     void (async () => {
+      // Windows: Sunshine (its own installer and service) instead of Wolf.
+      if (native) {
+        const sunshine = this.sunshine()
+        if (!on) {
+          this.settings.update((x) => void (x.streaming && delete x.streaming.sunshine))
+          sunshine.stop()
+          return
+        }
+        await sunshine.install(say)
+        const login = this.settings.get().streaming?.sunshine ?? { username: 'finesse', password: newKey() }
+        say('Starting Sunshine…')
+        const name = (this.settings.get().setup.lastDoc as SetupDoc | undefined)?.server?.name || 'Finesse'
+        await sunshine.configure(login, name)
+        this.settings.update((x) => void (x.streaming = { ...x.streaming, sunshine: login }))
+        say('Game streaming is on')
+        return
+      }
       if (!on) {
         // Settings first, so the health loop doesn't bring Wolf back.
         this.settings.update((x) => {
@@ -716,6 +736,9 @@ export class SetupRunner {
       },
     )
   }
+
+  /** Windows: Sunshine, installed into Program Files with its installer kept in Finesse's folder. */
+  sunshine: () => Sunshine = () => new Sunshine((this.orch as NativeHost).root, { fetchTo: downloadTo, run: runTo })
 
   /** Stops and removes every managed container (keeps config + media). */
   async teardown() {
