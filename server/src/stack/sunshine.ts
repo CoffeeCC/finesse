@@ -17,7 +17,7 @@ const log = logger('sunshine')
 export const SUNSHINE = {
   version: '2026.914.233613',
   url: 'https://github.com/LizardByte/Sunshine/releases/download/v2026.914.233613/Sunshine-Windows-AMD64-installer.msi',
-  sha256: 'PIN-ME',
+  sha256: '1d7fed8beecd5889dc7ff14cf9f42d6d38f37c3066c13c6c2a5f4e91847e0ccf',
 }
 
 export const SUNSHINE_SERVICE = 'SunshineService'
