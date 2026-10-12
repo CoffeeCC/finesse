@@ -18,6 +18,12 @@ their folders, so adding Games back later picks up where you left off.
 Finesse installs RomM and its database, creates an account for itself in RomM and adds **Games**
 to everyone's menu.
 
+**On Windows** there's no RomM (it doesn't run on Windows): Finesse keeps the library itself, straight
+from the games folder below, and adding Games just makes the folders. Box art comes from libretro's
+free thumbnails (by the file's name: [No-Intro](https://no-intro.org) names like
+`Super Mario World (USA).sfc` match best) and SteamGridDB, if you give it a key. IGDB and
+ScreenScraper aren't used there.
+
 ## Add games
 
 Put games in your media folder, one folder per system:
