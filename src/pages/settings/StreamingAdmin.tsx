@@ -12,10 +12,10 @@ const input = 'h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 
 const label = 'block text-[11px] font-semibold uppercase tracking-wider text-ink-400'
 
 /** One Moonlight device waiting to pair: its PIN and a name for it. */
-function PendingDevice({ id, ip, onPaired }: { id: string; ip: string; onPaired: () => void }) {
+function PendingDevice({ id, ip, suggested, onPaired }: { id: string; ip: string; suggested?: string; onPaired: () => void }) {
   const toast = useToast()
   const [pin, setPin] = useState('')
-  const [name, setName] = useState('')
+  const [name, setName] = useState(suggested ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const ready = /^\d{4}$/.test(pin)
@@ -330,7 +330,7 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
       <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Game streaming</p>
       <div className={`${CARD} space-y-6 px-5 py-5`}>
         <p className="text-[13px] leading-relaxed text-ink-300">
-          Wolf streams Steam and other apps from this server to Moonlight on TVs, phones and computers. To add a device, open Moonlight on it and pick this server. It shows a PIN, and the device appears here.
+          {data?.host === 'sunshine' ? 'Sunshine streams this PC’s games, Steam and desktop' : 'Wolf streams Steam and other apps from this server'} to Moonlight on TVs, phones and computers. To add a device, open Moonlight on it and pick this {data?.host === 'sunshine' ? 'PC' : 'server'}. It shows a PIN, and the device appears here.
         </p>
 
         {error ? (
@@ -348,6 +348,7 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
                     key={p.id}
                     id={p.id}
                     ip={p.ip}
+                    suggested={p.name}
                     onPaired={() => {
                       void refetch()
                       void qc.invalidateQueries({ queryKey: ['streaming', 'apps'] })
@@ -377,7 +378,7 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
                       <li key={d.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                         <div className="min-w-0">
                           <p className="truncate text-[13px] font-medium text-white">{name}</p>
-                          <p className="text-[12px] text-ink-400">{d.pairedAt ? `Paired ${new Date(d.pairedAt).toLocaleDateString()}` : 'Paired in Wolf'}</p>
+                          <p className="text-[12px] text-ink-400">{d.pairedAt ? `Paired ${new Date(d.pairedAt).toLocaleDateString()}` : data.host === 'sunshine' ? 'Paired' : 'Paired in Wolf'}</p>
                         </div>
                         <button
                           type="button"
@@ -394,7 +395,8 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
                 </ul>
               )}
             </div>
-            <Emulators />
+            {/* The emulator apps run in Wolf's containers (Linux servers). */}
+            {data.host !== 'sunshine' && <Emulators />}
           </>
         )}
         {footer}
@@ -494,6 +496,7 @@ function ManagedStreaming() {
   useEffect(() => void load(), [load])
   const enabled = Boolean(status?.enabled)
   const job = status?.job
+  const sunshine = status?.host === 'sunshine'
   // Look at the machine while streaming is off (and again after "check again").
   useEffect(() => {
     if (!status || enabled || check || checkErr || checking) return
@@ -524,8 +527,8 @@ function ManagedStreaming() {
     setBusy(true)
     try {
       await systemApi.setStreaming(on)
-      if (on) toast('Setting up game streaming. Wolf is about 1 GB, so the first time takes a few minutes.')
-      else toast('Game streaming is off. Wolf’s folder, with paired devices and games, stays on the server.')
+      if (on) toast(sunshine ? 'Setting up game streaming. Sunshine downloads and installs in a minute or two.' : 'Setting up game streaming. Wolf is about 1 GB, so the first time takes a few minutes.')
+      else toast(sunshine ? 'Game streaming is off. Sunshine stays installed with its paired devices, ready for next time.' : 'Game streaming is off. Wolf’s folder, with paired devices and games, stays on the server.')
       await load()
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -561,7 +564,7 @@ function ManagedStreaming() {
           <div className="space-y-2 border-t border-white/5 pt-5">
             {errorLine}
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-[12.5px] text-ink-400">Finesse runs Wolf and keeps it up to date.</p>
+              <p className="text-[12.5px] text-ink-400">{sunshine ? 'Finesse set up Sunshine on this PC.' : 'Finesse runs Wolf and keeps it up to date.'}</p>
               <button type="button" className={smallBtn} disabled={busy} onClick={() => (armed ? void turn(false) : setArmed(true))}>
                 {busy && <Spinner className="h-3 w-3" />}
                 {armed ? 'Tap again to turn off' : 'Turn off game streaming'}
@@ -579,12 +582,14 @@ function ManagedStreaming() {
         <div className="space-y-1.5">
           <p className="text-[14px] font-medium text-white">Play your PC games on any screen in the house</p>
           <p className="text-[12.5px] leading-relaxed text-ink-400">
-            Finesse sets up Wolf, which runs Steam and other apps on this server and streams them to Moonlight on TVs, phones, tablets and computers. Everyone who plays gets their own session, and games run on this server’s graphics card.
+            {sunshine
+              ? 'Finesse sets up Sunshine, which streams this PC’s screen to Moonlight on TVs, phones, tablets and computers: Steam (Big Picture), your games or the desktop, running on this PC’s graphics card.'
+              : 'Finesse sets up Wolf, which runs Steam and other apps on this server and streams them to Moonlight on TVs, phones, tablets and computers. Everyone who plays gets their own session, and games run on this server’s graphics card.'}
           </p>
         </div>
 
         <div className="space-y-3 border-t border-white/5 pt-5">
-          <p className="text-[13px] font-semibold text-white">This server</p>
+          <p className="text-[13px] font-semibold text-white">{sunshine ? 'This PC' : 'This server'}</p>
           {checkErr ? (
             <div className="space-y-2">
               <p className="text-[12.5px] text-red-300">{checkErr}</p>
@@ -595,7 +600,7 @@ function ManagedStreaming() {
           ) : !check ? (
             <p className="flex items-center gap-2 text-[12.5px] text-ink-400">
               <Spinner className="h-3 w-3" />
-              Looking at what this server has…
+              Looking at what this {sunshine ? 'PC' : 'server'} has…
             </p>
           ) : (
             <>
@@ -615,7 +620,7 @@ function ManagedStreaming() {
 
         {errorLine}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-5">
-          <p className="text-[12px] text-ink-400">{check?.blocked ? 'Move Finesse’s folder first (see above).' : 'Wolf is about 1 GB to download.'}</p>
+          <p className="text-[12px] text-ink-400">{check?.blocked ? (sunshine ? 'See above.' : 'Move Finesse’s folder first (see above).') : sunshine ? 'Sunshine is a small download from its project on GitHub.' : 'Wolf is about 1 GB to download.'}</p>
           <button type="button" className={primaryBtn} disabled={busy || !check || Boolean(check.blocked)} onClick={() => void turn(true)}>
             {busy && <Spinner className="h-3 w-3" />}
             {check && !check.allGood && !check.blocked ? 'Turn on anyway' : 'Turn on game streaming'}

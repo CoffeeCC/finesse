@@ -146,7 +146,10 @@ export function validateSetup(input: unknown, opts: { native?: boolean } = {}): 
   if (opts.native) {
     if (dl?.torrents && !vpn && !nonEmpty(adapter)) p.push({ path: 'downloads.torrents.adapter', message: 'Torrents only run through a VPN — pick the VPN app’s network adapter on this PC (e.g. NordLynx)' })
     if (vpn) p.push({ path: 'downloads.torrents.vpn', message: 'On Windows, torrents use the VPN app on this PC — give its adapter instead of VPN keys' })
-    if (d.libraries?.games) p.push({ path: 'libraries.games', message: 'Games isn’t available on Windows yet — leave it off for now' })
+    // Games on Windows is Finesse's own library (no RomM): box art comes from libretro and SteamGridDB.
+    if (d.games?.igdb) p.push({ path: 'games.igdb', message: 'IGDB isn’t used on Windows — box art comes from libretro and SteamGridDB. Leave it out' })
+    if (d.games?.screenscraper) p.push({ path: 'games.screenscraper', message: 'ScreenScraper isn’t used on Windows — box art comes from libretro and SteamGridDB. Leave it out' })
+    if (d.emulators !== undefined) p.push({ path: 'emulators', message: 'The streaming emulators run on Linux servers. On Windows, games play in the browser; leave “emulators” out' })
     if (d.remoteAccess && d.remoteAccess.method !== 'none') p.push({ path: 'remoteAccess.method', message: 'Away-from-home access isn’t built in on Windows yet — use “none” and the Tailscale or Cloudflare app on this PC' })
   } else {
     if (adapter !== undefined) p.push({ path: 'downloads.torrents.adapter', message: 'A VPN adapter is for Windows installs — this server runs the VPN itself, so give your VPN details under “vpn”' })
@@ -227,7 +230,8 @@ export function servicesFor(d: SetupDoc, native = false): StackServiceId[] {
   if (usenet) out.push('sabnzbd')
   // Windows: the person's own VPN app is the tunnel.
   if (torrents) out.push(...(native ? [] : (['gluetun'] as const)), 'qbittorrent')
-  if (d.libraries?.games) out.push('romm-db', 'romm')
+  // Windows keeps the games library itself (gamelib.ts): nothing to install.
+  if (d.libraries?.games && !native) out.push('romm-db', 'romm')
   if (d.remoteAccess?.method === 'tailscale') out.push('tailscale')
   if (d.remoteAccess?.method === 'cloudflare') out.push('cloudflared')
   return out

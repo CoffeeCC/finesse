@@ -86,7 +86,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $files = @("$env:LOCALAPPDATA\Finesse\setup.log") + @(Get-ChildItem "$env:ProgramData\Finesse\logs\*.log", "$env:ProgramData\Finesse\config\sabnzbd\logs\*.log", "$env:ProgramData\Finesse\config\qbittorrent\qBittorrent\data\logs\*.log", "$env:ProgramData\Finesse\config\*\logs\*.txt" -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          $files = @("$env:LOCALAPPDATA\Finesse\setup.log") + @(Get-ChildItem "$env:ProgramData\Finesse\logs\*.log", "$env:ProgramData\Finesse\config\sabnzbd\logs\*.log", "$env:ProgramData\Finesse\config\qbittorrent\qBittorrent\data\logs\*.log", "$env:ProgramData\Finesse\config\*\logs\*.txt", "$env:ProgramFiles\Sunshine\config\sunshine.log" -ErrorAction SilentlyContinue | ForEach-Object FullName)
           foreach ($f in $files) {
             if (Test-Path $f) { Write-Host "::group::$f"; Get-Content $f -Tail 200; Write-Host '::endgroup::' }
           }

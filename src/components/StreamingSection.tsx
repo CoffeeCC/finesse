@@ -80,7 +80,7 @@ export default function StreamingSection() {
       ) : isError || !data?.ok ? (
         <p className="rounded-xl border border-white/5 bg-ink-900/50 px-4 py-3 text-sm text-ink-300">{data?.error ?? 'Game streaming isn’t answering right now. Try again in a minute.'}</p>
       ) : direct.length === 0 && profiles.length === 0 ? (
-        <p className="text-sm text-ink-400">Wolf has no apps to stream yet.</p>
+        <p className="text-sm text-ink-400">Nothing to stream yet.</p>
       ) : (
         <div className="space-y-5">
           {profiles.map((p) => (

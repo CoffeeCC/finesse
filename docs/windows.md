@@ -57,9 +57,23 @@ qBittorrent to it: when the VPN is off, torrents simply wait, and nothing ever g
 normal connection. **Settings → Server** shows whether the VPN is connected. Usenet doesn't need
 a VPN.
 
+### Games
+
+- **Games** works on Windows too: pick it in the setup page, or **Settings → Server → Games →
+  Add Games**. Finesse keeps the library itself from your games folder
+  (`D:\Finesse\media\games\roms\<console>`, like `snes` or `psx`); there's no RomM to install.
+  Box art comes free from libretro's thumbnails (a SteamGridDB key adds more), and games play right
+  in the browser. See [Games](games.md).
+- **Game streaming** to Moonlight uses [Sunshine](https://github.com/LizardByte/Sunshine) on
+  Windows: **Settings → Server → Game streaming** installs it and pairs your devices. Moonlight then
+  shows this PC's screen: Steam Big Picture, your games or the desktop. See
+  [Game streaming](streaming.md#windows-sunshine).
+
 ### Not on Windows yet
 
-- **Games** (RomM, game streaming, emulators) still need Linux.
+- **The streaming emulators** (PCSX2, Dolphin, RPCS3… set up for you inside Wolf) and **browser
+  play** of those consoles need Linux. On Windows, install the emulators you like on the PC and
+  start them from Steam Big Picture or the desktop in Moonlight.
 - **Built-in Tailscale or Cloudflare setup.** For access away from home, install the
   [Tailscale app](https://tailscale.com/download/windows) on the PC and on your phone, and open
   Finesse at the PC's Tailscale address.
