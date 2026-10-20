@@ -298,6 +298,8 @@ export interface ItemsQuery {
   filters?: string
   ids?: string
   personIds?: string
+  /** Albums (or songs) by these album artists. */
+  albumArtistIds?: string
   genres?: string
   years?: string
   tags?: string
@@ -335,6 +337,7 @@ export async function getItems(q: ItemsQuery): Promise<JfItemsResult> {
         Filters: q.filters,
         Ids: q.ids,
         PersonIds: q.personIds,
+        AlbumArtistIds: q.albumArtistIds,
         Genres: q.genres,
         Years: q.years,
         Tags: q.tags,
@@ -661,6 +664,14 @@ export function setPlayed(itemId: string, played: boolean) {
 export function searchPeople(term: string, limit = 8) {
   return request<JfItemsResult>(
     '/Persons' + qs({ SearchTerm: term, Limit: limit, UserId: session!.userId, EnableImages: true, EnableTotalRecordCount: false }),
+  )
+}
+
+/** Music artists whose name matches — for universal search. Item search
+ *  matches names only, so this is how "radiohead" finds Radiohead's albums. */
+export function searchArtists(term: string, limit = 5) {
+  return request<JfItemsResult>(
+    '/Artists' + qs({ SearchTerm: term, Limit: limit, UserId: session!.userId, EnableImages: false, EnableTotalRecordCount: false }),
   )
 }
 

@@ -6,6 +6,7 @@ import {
   useGenres,
   useRequestLookup,
   useFriendSearch,
+  useMusicSearch,
   useSearch,
   useSearchPeople,
   useViews,
@@ -17,6 +18,9 @@ import { useToast } from './Toast'
 import { browseHref } from '../pages/BrowsePage'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 import { IS_TV } from '../lib/device'
+import { artistOf, trackArt } from '../lib/music'
+import { usePlayTrack } from '../lib/playAlbum'
+import { useAudio } from '../audio/AudioPlayerContext'
 import type { JfItem } from '../api/types'
 
 // Universal search: one box for everything. Your library first (a ranked top
@@ -24,12 +28,13 @@ import type { JfItem } from '../api/types'
 // have — Radarr/Sonarr matches with a one-tap Request, so "not in the library"
 // is a next step instead of a dead end (it used to be a separate Request page).
 
-type Scope = 'all' | 'movies' | 'shows' | 'episodes' | 'people'
+type Scope = 'all' | 'movies' | 'shows' | 'episodes' | 'music' | 'people'
 const SCOPES: { key: Scope; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'movies', label: 'Movies' },
   { key: 'shows', label: 'Shows' },
   { key: 'episodes', label: 'Episodes' },
+  { key: 'music', label: 'Music' },
   { key: 'people', label: 'People' },
 ]
 
@@ -66,6 +71,8 @@ function score(item: JfItem, q: string): number {
 }
 
 function typeLabel(item: JfItem): string {
+  if (item.Type === 'MusicAlbum') return ['Album', item.AlbumArtist, item.ProductionYear].filter(Boolean).join(' · ')
+  if (item.Type === 'Audio') return ['Song', artistOf(item), item.Album].filter(Boolean).join(' · ')
   if (item.Type === 'Series') return `Series${item.ProductionYear ? ` · ${item.ProductionYear}` : ''}`
   if (item.Type === 'Episode') {
     const code = item.ParentIndexNumber != null && item.IndexNumber != null ? `S${item.ParentIndexNumber}:E${item.IndexNumber}` : 'Episode'
@@ -104,6 +111,9 @@ export default function SearchPanel({
   const resultsRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { surprise, busy } = useSurprise()
+  const { data: views } = useViews()
+  const hasMusic = !!views?.Items.some((v) => v.CollectionType === 'music')
+  const scopes = hasMusic ? SCOPES : SCOPES.filter((s) => s.key !== 'music')
 
   useEffect(() => {
     const t = setTimeout(() => setTerm(input.trim()), 250)
@@ -125,12 +135,19 @@ export default function SearchPanel({
   const friendHits = useFriendSearch(active && (scope === 'all' || scope === 'movies' || scope === 'shows') ? term : '').filter(({ item }) =>
     scope === 'movies' ? item.Type === 'Movie' : scope === 'shows' ? item.Type === 'Series' : true,
   )
-  const request = useRequestLookup(active && scope !== 'people' && scope !== 'episodes' ? term : '')
+  const request = useRequestLookup(active && scope !== 'people' && scope !== 'episodes' && scope !== 'music' ? term : '')
+  const music = useMusicSearch(active && hasMusic && (scope === 'all' || scope === 'music') ? term : '')
 
   const ranked = useMemo(() => {
     const q = norm(term)
     const items = (lib.data?.Items ?? []).filter((i) =>
-      scope === 'movies' ? i.Type === 'Movie' : scope === 'shows' ? i.Type === 'Series' : scope === 'episodes' ? i.Type === 'Episode' : scope !== 'people',
+      scope === 'movies'
+        ? i.Type === 'Movie'
+        : scope === 'shows'
+          ? i.Type === 'Series'
+          : scope === 'episodes'
+            ? i.Type === 'Episode'
+            : scope !== 'people' && scope !== 'music',
     )
     return items
       .map((item, i) => ({ item, s: score(item, q), i }))
@@ -158,6 +175,25 @@ export default function SearchPanel({
   const rest = scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []
   const peopleList = people.data?.Items.slice(0, scope === 'people' ? 24 : 6) ?? []
 
+  // Albums named like the term first (best match on top), then albums by a
+  // matching artist in the order the server gave (newest first). Songs by name.
+  const { albums, songs } = useMemo(() => {
+    const q = norm(term)
+    const rank = (list: JfItem[]) =>
+      list
+        .map((item, i) => ({ item, s: titleScore(item.Name ?? '', q), i }))
+        .sort((a, b) => b.s - a.s || a.i - b.i)
+        .map((x) => x.item)
+    const all = music.data?.albums ?? []
+    const named = all.filter((a) => norm(a.Name ?? '').includes(q))
+    const byArtist = all.filter((a) => !norm(a.Name ?? '').includes(q))
+    const wide = scope === 'music'
+    return {
+      albums: [...rank(named), ...byArtist].slice(0, wide ? 24 : 6),
+      songs: rank(music.data?.songs ?? []).slice(0, wide ? 30 : 6),
+    }
+  }, [music.data, term, scope])
+
   const remember = () => {
     pushRecent(term)
     setRecent(readRecent())
@@ -174,14 +210,23 @@ export default function SearchPanel({
         e.preventDefault()
         first.focus()
       }
-    } else if (e.key === 'Enter' && top) {
+    } else if (e.key === 'Enter' && (top || albums[0])) {
       e.preventDefault()
       opened()
-      navigate(`/item/${top.Id}`)
+      navigate(top ? `/item/${top.Id}` : `/album/${albums[0].Id}`)
     }
   }
 
-  const nothing = active && !lib.isLoading && ranked.length === 0 && peopleList.length === 0 && missing.length === 0 && friendHits.length === 0
+  const nothing =
+    active &&
+    !lib.isLoading &&
+    !music.isLoading &&
+    ranked.length === 0 &&
+    peopleList.length === 0 &&
+    missing.length === 0 &&
+    friendHits.length === 0 &&
+    albums.length === 0 &&
+    songs.length === 0
 
   return (
     <div className={mode === 'overlay' ? 'flex min-h-0 flex-col' : ''}>
@@ -197,7 +242,7 @@ export default function SearchPanel({
           type="search"
           enterKeyHint="search"
           aria-label="Search your library"
-          placeholder="Titles, people, genres"
+          placeholder={hasMusic ? 'Titles, people, music' : 'Titles, people, genres'}
           className={`search-field flex-1 min-w-0 bg-transparent outline-none placeholder:text-ink-400 text-white ${mode === 'overlay' ? 'text-xl' : 'text-base'}`}
         />
         {input && (
@@ -222,7 +267,7 @@ export default function SearchPanel({
 
       {active && (
         <div role="tablist" aria-label="Filter results" className={`flex gap-1.5 overflow-x-auto no-scrollbar ${mode === 'overlay' ? 'px-5 py-3 border-b border-white/10' : 'pt-4'}`}>
-          {SCOPES.map((s) => (
+          {scopes.map((s) => (
             <button
               key={s.key}
               type="button"
@@ -261,7 +306,7 @@ export default function SearchPanel({
           />
         ) : (
           <>
-            {lib.isLoading && <p className="px-2.5 py-6 text-sm text-ink-400">Searching…</p>}
+            {(scope === 'music' ? music.isLoading : lib.isLoading) && <p className="px-2.5 py-6 text-sm text-ink-400">Searching…</p>}
             {nothing && (
               <p className="px-2.5 py-6 text-sm text-ink-300">
                 Nothing matches “{term}”. Check the spelling, or try a person or genre.
@@ -282,6 +327,30 @@ export default function SearchPanel({
                     </span>
                     <span className="shrink-0 text-xs text-ink-400">{watchState(item)}</span>
                   </Link>
+                ))}
+              </>
+            )}
+
+            {albums.length > 0 && (
+              <>
+                <p className={SECTION}>Albums</p>
+                {albums.map((album) => (
+                  <Link key={album.Id} to={`/album/${album.Id}`} onClick={opened} data-result className={ROW}>
+                    <SquareThumb src={posterUrl(album, 100)} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[15px] font-semibold text-white truncate">{album.Name}</span>
+                      <span className="block text-[13px] text-ink-400 truncate">{typeLabel(album)}</span>
+                    </span>
+                  </Link>
+                ))}
+              </>
+            )}
+
+            {songs.length > 0 && (
+              <>
+                <p className={SECTION}>Songs</p>
+                {songs.map((song) => (
+                  <SongRow key={song.Id} song={song} onPlay={opened} />
                 ))}
               </>
             )}
@@ -359,6 +428,40 @@ function Thumb({ item }: { item: JfItem }) {
     <span className="h-14 w-10 shrink-0 rounded-md overflow-hidden bg-ink-800">
       {src && <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
     </span>
+  )
+}
+
+function SquareThumb({ src }: { src: string | null | undefined }) {
+  return (
+    <span className="h-12 w-12 shrink-0 rounded-md overflow-hidden bg-ink-800">
+      {src && <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
+    </span>
+  )
+}
+
+/** A song: pressing it plays its album from this song on. */
+function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
+  const playTrack = usePlayTrack()
+  const { current } = useAudio()
+  const isCurrent = current?.Id === song.Id
+  return (
+    <button
+      type="button"
+      data-result
+      onClick={() => {
+        void playTrack(song)
+        onPlay()
+      }}
+      aria-label={`Play ${song.Name}`}
+      className={`${ROW} w-full text-left`}
+    >
+      <SquareThumb src={trackArt(song, 100)} />
+      <span className="flex-1 min-w-0">
+        <span className="block text-[15px] font-semibold text-white truncate">{song.Name}</span>
+        <span className="block text-[13px] text-ink-400 truncate">{typeLabel(song)}</span>
+      </span>
+      <span className="shrink-0 text-xs text-ink-400">{isCurrent ? 'Playing' : 'Play'}</span>
+    </button>
   )
 }
 

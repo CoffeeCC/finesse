@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Search finds your music — v3.1.0 (unreleased)
+
+- **Search finds albums and songs.** Type an album, a song or an artist and they show up under
+  **Albums** and **Songs**, next to films and shows. An artist's name finds their albums too.
+  Pick an album to open it, or a song to play it (its album carries on after it). A **Music**
+  filter shows only music; it's there when the server has a music library.
+
 ## A real Windows program — v3.0.0 (2026-10-11)
 
 - **Finesse installs on Windows like any other program.** No Docker Desktop, no WSL, nothing to turn

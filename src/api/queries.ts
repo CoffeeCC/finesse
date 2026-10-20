@@ -553,7 +553,52 @@ export function useSearch(term: string) {
   })
 }
 
-/** People matching a search term (cast / crew). */
+export interface MusicSearch {
+  /** Albums whose name matches, then albums by matching artists. */
+  albums: JfItem[]
+  songs: JfItem[]
+}
+
+/** Albums and songs for a search term. Jellyfin matches item names only, so
+ *  matching artists are looked up too and their albums added after the
+ *  albums named like the term. Kept apart from useSearch so a big music
+ *  library can't push films and shows out of its results. */
+export function useMusicSearch(term: string) {
+  const q = term.trim()
+  return useQuery({
+    queryKey: ['searchMusic', q],
+    enabled: q.length > 1,
+    staleTime: 60_000,
+    queryFn: async (): Promise<MusicSearch> => {
+      const none = { Items: [] as JfItem[], TotalRecordCount: 0 }
+      const [named, artists] = await Promise.all([
+        api.getItems({ searchTerm: q, recursive: true, includeItemTypes: 'MusicAlbum,Audio', limit: 40, fields: CARD_FIELDS }),
+        api.searchArtists(q).catch(() => none),
+      ])
+      const artistIds = artists.Items.map((a) => a.Id)
+      const byArtist = artistIds.length
+        ? await api
+            .getItems({
+              albumArtistIds: artistIds.join(','),
+              recursive: true,
+              includeItemTypes: 'MusicAlbum',
+              sortBy: 'ProductionYear,SortName',
+              sortOrder: 'Descending',
+              limit: 24,
+              fields: CARD_FIELDS,
+            })
+            .catch(() => none)
+        : none
+      const namedAlbums = named.Items.filter((i) => i.Type === 'MusicAlbum')
+      const seen = new Set(namedAlbums.map((a) => a.Id))
+      return {
+        albums: [...namedAlbums, ...byArtist.Items.filter((a) => !seen.has(a.Id))],
+        songs: named.Items.filter((i) => i.Type === 'Audio'),
+      }
+    },
+  })
+}
+
 /** "Top 10 at home" — see api.getMostWatchedAtHome. Changes slowly; cached. */
 export function useMostWatchedAtHome() {
   const session = api.getSession()
@@ -582,6 +627,7 @@ export function useFriendSearch(term: string) {
   return results.flatMap((r) => r.data ?? [])
 }
 
+/** People matching a search term (cast / crew). */
 export function useSearchPeople(term: string) {
   return useQuery({
     queryKey: ['searchPeople', term],
