@@ -38,7 +38,7 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
-## Search finds your music — v3.1.0 (unreleased)
+## Search finds your music — v3.0.1 (2026-10-20)
 
 - **Search finds albums and songs.** Type an album, a song or an artist and they show up under
   **Albums** and **Songs**, next to films and shows. An artist's name finds their albums too.
