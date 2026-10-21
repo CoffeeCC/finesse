@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Full-screen music — v3.0.2 (unreleased)
+
+- **Now Playing goes full screen.** The new button in its top corner hides your phone's status
+  and navigation bars (and the browser's), so the artwork, lyrics or lyric video get the whole
+  screen. Press it again, or close Now Playing, to bring them back. Not on iPhones, whose
+  browser only lets videos go full screen.
+
 ## Search finds your music — v3.0.1 (2026-10-20)
 
 - **Search finds albums and songs.** Type an album, a song or an artist and they show up under
