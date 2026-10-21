@@ -11,6 +11,7 @@ import { activeLine } from '../lib/lyrics'
 import { blurhashAverageColor } from '../lib/blurhash'
 import { vividRgb } from '../lib/accent'
 import { pushBackHandler } from '../lib/back'
+import { IS_TV } from '../lib/device'
 import AudioVisualizer from './AudioVisualizer'
 import LyricVideo from './LyricVideo'
 
@@ -223,6 +224,62 @@ function FillIcon({ d, className = 'h-7 w-7' }: { d: string; className?: string 
   )
 }
 
+function IconFullscreen({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+    </svg>
+  )
+}
+
+function IconExitFullscreen({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+    </svg>
+  )
+}
+
+/** Whole-screen Now Playing: hides the phone's status and navigation bars
+ *  (and the browser's) like the video player does. Leaving Now Playing ends
+ *  it, but only if Now Playing started it. Not offered on the TV, which is
+ *  always full screen, or where the browser can't (iPhone Safari). */
+function useFullscreen(open: boolean) {
+  const supported = !IS_TV && !!document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === 'function'
+  const [on, setOn] = useState(() => !!document.fullscreenElement)
+  const ours = useRef(false)
+
+  useEffect(() => {
+    const change = () => {
+      setOn(!!document.fullscreenElement)
+      if (!document.fullscreenElement) ours.current = false
+    }
+    document.addEventListener('fullscreenchange', change)
+    return () => document.removeEventListener('fullscreenchange', change)
+  }, [])
+
+  useEffect(() => {
+    if (open || !ours.current) return
+    ours.current = false
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  }, [open])
+
+  const toggle = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {})
+      return
+    }
+    try {
+      await document.documentElement.requestFullscreen()
+      ours.current = true
+    } catch {
+      /* the browser said no */
+    }
+  }
+
+  return { supported, on, toggle }
+}
+
 export default function NowPlaying() {
   const {
     current, expanded, setExpanded, playing, position, duration, toggle, next, prev, seek, index, queue, jumpTo,
@@ -231,6 +288,7 @@ export default function NowPlaying() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const wide = useIsWide()
+  const fullscreen = useFullscreen(expanded)
   const [viz, setViz] = useState<VisualizerStyle>(() => getPrefs().visualizer)
   const [panel, setPanel] = useState<'lyrics' | 'queue'>('lyrics')
   // Phones: what fills the space above the controls.
@@ -339,7 +397,18 @@ export default function NowPlaying() {
             </button>
           ))}
         </div>
-        <span className="sm:hidden w-10" />
+        {fullscreen.supported ? (
+          <button
+            onClick={() => void fullscreen.toggle()}
+            className="h-10 w-10 shrink-0 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center transition-colors"
+            aria-label={fullscreen.on ? 'Exit full screen' : 'Full screen'}
+            title={fullscreen.on ? 'Exit full screen' : 'Full screen'}
+          >
+            {fullscreen.on ? <IconExitFullscreen className="h-5 w-5" /> : <IconFullscreen className="h-5 w-5" />}
+          </button>
+        ) : (
+          <span className="sm:hidden w-10" />
+        )}
       </div>
   )
 
