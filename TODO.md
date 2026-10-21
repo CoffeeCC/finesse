@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Finesse for Android — v3.0.3 (2026-10-21)
+
+- **An app for Android phones, with Android Auto.** [Finesse for Android](docs/android.md) is
+  Finesse as an app, and puts your music in the car next to Maps: recently added, albums, artists,
+  playlists and search, with album art and the car's controls, picking up where you left off when
+  you connect. **Settings → Other devices** has the download and the address to type.
+
 ## Full-screen music, easier Groups on Tailscale — v3.0.2 (2026-10-20)
 
 - **Now Playing goes full screen.** The new button in its top corner hides your phone's status
