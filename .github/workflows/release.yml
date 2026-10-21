@@ -213,6 +213,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.release.outputs.version }}
           ANDROID_REPO: ${{ github.repository_owner }}/finesse-android
+          GH_REPO: ${{ github.repository }}  # no checkout here, so name the repo for gh
         run: |
           if ! gh release view --repo "$ANDROID_REPO" --json tagName >/dev/null 2>&1; then
             echo "::notice::No Finesse for Android release yet — nothing to attach."
