@@ -74,9 +74,14 @@ export function normalizeServerUrl(input: unknown): string {
   return `${u.protocol}//${u.host}${path}`
 }
 
-/** A host that's only reachable at home (or on Tailscale): this machine, a LAN address or name. */
+/**
+ * A host that's only reachable at home or on Tailscale: this machine, a LAN address or name, a
+ * Tailscale address or MagicDNS name. Plain http to a *.ts.net name only works inside the tailnet,
+ * where WireGuard encrypts it (Funnel's public *.ts.net addresses are https-only).
+ */
 export function privateHost(host: string): boolean {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, '')
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (h.endsWith('.ts.net')) return true
   if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.lan') || h.endsWith('.home.arpa') || !h.includes('.') && !h.includes(':')) return true
   if (h === '::1' || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h)) return true
   const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h)
