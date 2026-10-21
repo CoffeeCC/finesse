@@ -265,6 +265,10 @@ test('a friend’s address over plain http only at home; across the internet it 
   assert.equal(normalizeServerUrl('http://192.168.1.50:8080/finesse/'), 'http://192.168.1.50:8080')
   assert.equal(normalizeServerUrl('http://100.101.102.103:8080'), 'http://100.101.102.103:8080')
   assert.equal(normalizeServerUrl('http://nas.local:8080'), 'http://nas.local:8080')
+  // Tailscale MagicDNS names: plain http only works inside the tailnet, so it's encrypted.
+  assert.equal(normalizeServerUrl('http://truenas.tail1234.ts.net:30500/finesse/'), 'http://truenas.tail1234.ts.net:30500')
+  assert.equal(normalizeServerUrl('nas.tail1234.ts.net'), 'https://nas.tail1234.ts.net')
+  assert.throws(() => normalizeServerUrl('http://ts.net.example.com'), /https/)
   assert.throws(() => normalizeServerUrl('http://sam.example.com'), /https/)
   assert.throws(() => normalizeServerUrl('http://203.0.113.9:8080'), /https/)
 })

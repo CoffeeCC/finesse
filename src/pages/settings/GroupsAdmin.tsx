@@ -216,6 +216,7 @@ export default function GroupsAdmin() {
                 Their address
               </label>
               <input id="group-url" className={`${input} mt-1`} value={addUrl} onChange={(e) => setAddUrl(e.target.value)} placeholder="https://their-server.example.com" autoComplete="off" />
+              <p className="mt-1 text-[12px] text-ink-400">Their https address, or their Tailscale one (100.x.x.x or a name ending in .ts.net). Tailscale is the most private: only your two servers can read what’s sent.</p>
             </div>
             <div>
               <label className={label} htmlFor="group-code">

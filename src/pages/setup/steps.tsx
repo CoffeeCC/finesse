@@ -719,7 +719,7 @@ export function RemoteStep({ d, set, system }: StepProps) {
       ) : (
       <>
       <ChoiceCard selected={d.remote === 'tailscale'} onClick={() => tun && set((x) => void (x.remote = 'tailscale'))} icon={<Icon name="globe" />} title="Tailscale Funnel" badge={tun ? 'Free' : undefined}>
-        {tun ? 'A private https address like finesse.your-tailnet.ts.net. No domain or router changes needed.' : 'Needs /dev/net/tun, which this machine doesn’t have.'}
+        {tun ? 'A private https address like finesse.your-tailnet.ts.net. No domain or router changes needed. Encrypted all the way to this server: Tailscale can’t see what you watch.' : 'Needs /dev/net/tun, which this machine doesn’t have.'}
       </ChoiceCard>
       {d.remote === 'tailscale' && (
         <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
@@ -740,7 +740,7 @@ export function RemoteStep({ d, set, system }: StepProps) {
         </div>
       )}
       <ChoiceCard selected={d.remote === 'cloudflare'} onClick={() => set((x) => void (x.remote = 'cloudflare'))} icon={<Icon name="cloud" />} title="Cloudflare Tunnel">
-        Use your own domain (media.example.com). Free, but you need a domain on Cloudflare.
+        Use your own domain (media.example.com). Free, but you need a domain on Cloudflare. Encrypted on the way, but Cloudflare unlocks it on its servers, so it could see what’s streamed.
       </ChoiceCard>
       {d.remote === 'cloudflare' && (
         <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
