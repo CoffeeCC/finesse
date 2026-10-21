@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Finesse for Android — v3.0.2 (unreleased)
+
+- **An app for Android phones, with Android Auto.** [Finesse for Android](docs/android.md) is
+  Finesse as an app, and puts your music in the car next to Maps: recently added, albums, artists,
+  playlists and search, with album art and the car's controls, picking up where you left off when
+  you connect. **Settings → Other devices** has the download and the address to type.
+
 ## Search finds your music — v3.0.1 (2026-10-20)
 
 - **Search finds albums and songs.** Type an album, a song or an artist and they show up under

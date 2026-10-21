@@ -53,6 +53,8 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **[TrueNAS SCALE](docs/truenas.md)**: install it from the Apps page, listed with your other apps.
 - **[Groups](docs/groups.md)**: share libraries with friends who run Finesse too, and watch and listen to theirs.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.
+- **[Android app and Android Auto](docs/android.md)**: Finesse as an app on Android phones, with your
+  music in the car next to Maps.
 - **[Games](docs/games.md)**: turn on the optional retro-games library.
 - **[Game streaming](docs/streaming.md)**: Steam on the TV with Wolf and Moonlight. Finesse sets Wolf up, or works with yours.
 - **[Emulators](docs/emulators.md)**: PS2, GameCube, Wii, PS3, Wii U and Switch as Wolf apps, from your RomM library, or in the browser (Beta).
@@ -111,6 +113,8 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **Web**, on any computer.
 - **Phones**: a touch-first layout with bottom tabs, a full-screen player and double-tap to skip.
   Add it to your home screen like an app.
+- **Android and Android Auto**: the [Finesse app for Android](docs/android.md) puts your music on
+  the car screen, next to Maps, with the car's controls.
 - **TVs**: an **LG webOS app** that updates itself, and full D-pad navigation in any TV browser.
   Everything is reachable with the arrows and OK.
 - **Play on another device.** Send what you're watching to the TV, then use your phone as the

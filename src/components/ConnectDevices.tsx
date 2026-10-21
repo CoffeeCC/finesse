@@ -2,6 +2,9 @@ import { Link } from 'react-router-dom'
 import { finesseRoot, useFinesse } from '../lib/finesseServer'
 import { useToast } from './Toast'
 
+const ANDROID_APP = 'https://github.com/CoffeeCC/finesse-android/releases/latest'
+const ANDROID_GUIDE = 'https://github.com/CoffeeCC/finesse/blob/master/docs/android.md'
+
 const isLocal = (host: string) => host === 'localhost' || host === '[::1]' || host.startsWith('127.')
 
 /** "Open Finesse on another device": the address to type, said plainly and big. */
@@ -16,6 +19,8 @@ export default function ConnectDevices() {
   const tvAddress = base ? base.replace(/^https?:\/\//, '') : null
   const jellyfin = base && info?.jellyfin ? `${base}${info.jellyfin.path}` : null
   const away = info?.publicUrl ? `${info.publicUrl.replace(/\/+$/, '')}/finesse/` : null
+  // The Android app wants the server's address without /finesse; for the car, the away one.
+  const androidAddress = away ? away.replace(/\/finesse\/$/, '') : tvAddress
 
   const copy = (text: string) =>
     navigator.clipboard
@@ -40,6 +45,20 @@ export default function ConnectDevices() {
               <dt className="font-semibold text-white">LG TV</dt>
               <dd className="text-ink-200">
                 Install the Finesse app, then enter <b className="text-white select-all">{tvAddress}</b>.
+              </dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-white">Android phones and Android Auto</dt>
+              <dd className="text-ink-200">
+                Install{' '}
+                <a href={ANDROID_APP} target="_blank" rel="noreferrer" className="font-semibold text-accent-300 underline-offset-2 hover:underline">
+                  Finesse for Android
+                </a>
+                , then enter <b className="text-white select-all">{androidAddress}</b>. It puts your music in the car
+                too.{' '}
+                <a href={ANDROID_GUIDE} target="_blank" rel="noreferrer" className="font-semibold text-accent-300 underline-offset-2 hover:underline">
+                  How to set up Android Auto
+                </a>
               </dd>
             </div>
             {jellyfin && (
