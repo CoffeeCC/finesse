@@ -12,6 +12,8 @@ name: Release
 # and pushes the multi-arch server image ghcr.io/<owner>/finesse:<v> (+ :latest),
 # which installs and self-updates use, and attaches FinesseSetup.exe (the Windows installer;
 # releases/latest/download/FinesseSetup.exe always points at the newest).
+# The newest Finesse for Android APK (from <owner>/finesse-android's latest release) is
+# attached too, so every download is in one place.
 # Bump "version" to ship; pushes that don't are no-ops. A release made by hand
 # with only one asset gets the missing one uploaded.
 on:
@@ -201,3 +203,29 @@ jobs:
           sha=$(sha256sum "bundle/finesse-windows-$VERSION-x64.zip" | cut -d' ' -f1)
           dotnet build windows/installer/FinesseSetup.csproj -c Release -p:Version="$VERSION" -p:BundleSha256="$sha" -o out
           gh release upload "v$VERSION" out/FinesseSetup.exe --clobber
+
+  android:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attach the newest Finesse for Android APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.release.outputs.version }}
+          ANDROID_REPO: ${{ github.repository_owner }}/finesse-android
+        run: |
+          if ! gh release view --repo "$ANDROID_REPO" --json tagName >/dev/null 2>&1; then
+            echo "::notice::No Finesse for Android release yet — nothing to attach."
+            exit 0
+          fi
+          gh release download --repo "$ANDROID_REPO" -p 'finesse-android-*.apk' -D apk
+          apk=$(ls apk/*.apk | head -n1)
+          if [ -z "$apk" ]; then
+            echo "::notice::The latest Finesse for Android release has no APK — nothing to attach."
+            exit 0
+          fi
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$(basename "$apk")"; then
+            echo "$(basename "$apk") is already attached."
+            exit 0
+          fi
+          gh release upload "$TAG" "$apk" --clobber
