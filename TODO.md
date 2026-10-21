@@ -38,12 +38,19 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
-## Full-screen music — v3.0.2 (unreleased)
+## Full-screen music, easier Groups on Tailscale — v3.0.2 (2026-10-20)
 
 - **Now Playing goes full screen.** The new button in its top corner hides your phone's status
   and navigation bars (and the browser's), so the artwork, lyrics or lyric video get the whole
   screen. Press it again, or close Now Playing, to bring them back. Not on iPhones, whose
   browser only lets videos go full screen.
+- **Groups take Tailscale names.** A friend's address like `http://nas.your-tailnet.ts.net:8080`
+  used to be refused with "use the https:// address (or the Tailscale one)", though it is the
+  Tailscale one. Plain http to a `.ts.net` name only works inside the tailnet, where it's encrypted,
+  so it's allowed now (like Tailscale's 100.x addresses already were).
+- **Which away-from-home option is private, said plainly.** Tailscale Funnel is encrypted all the
+  way to your server; Cloudflare Tunnel is encrypted on the way but Cloudflare unlocks it on its
+  servers. The Groups address field says Tailscale is the most private.
 
 ## Search finds your music — v3.0.1 (2026-10-20)
 
