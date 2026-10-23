@@ -15,6 +15,7 @@ import { registerUploads, Uploads } from './uploads.ts'
 import { Deleter, registerDeletions } from './deletions.ts'
 import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
+import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
@@ -100,6 +101,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
     })
   })
   router.get('/api/health', ({ res }) => sendJson(res, 200, { status: 'ok', version: VERSION }))
+  registerReport(router, { settings, auth, info: () => ({ version: VERSION, web: web.current().version ?? 'unknown', features: features(settings.get()) }) })
 
   registerInvites(router, { store: invites, jf, auth, settings })
   const groups = registerGroups(router, { settings, jf, auth })

@@ -187,6 +187,9 @@ already right. See [ROADMAP.md](ROADMAP.md) for the architecture and the reasoni
 Why it needs the Docker socket, who can do what, opening it to the internet, the LG Developer Mode
 timer and more: see the [FAQ](docs/faq.md).
 
+Something not working? **Settings → About → Report a problem** in Finesse fills in a bug report for
+you, with private details taken out.
+
 ## Contributing
 
 Bug reports and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and
