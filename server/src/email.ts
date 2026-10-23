@@ -110,9 +110,16 @@ class Conversation {
   }
 
   upgrade(socket: TLSSocket) {
-    this.socket.removeAllListeners('data')
-    this.socket.removeAllListeners('error')
-    this.socket.removeAllListeners('close')
+    const plain = this.socket
+    plain.removeAllListeners('data')
+    plain.removeAllListeners('error')
+    plain.removeAllListeners('close')
+    // The plain socket lives on under TLS: its timeout and errors are the TLS socket's business now.
+    // Left as they were, its timeout fired after a failed send with nothing listening, and that
+    // uncaught error took the whole server down.
+    plain.removeAllListeners('timeout')
+    plain.setTimeout(0)
+    plain.on('error', () => {})
     this.socket = socket
     this.buf = ''
     this.failed = null
@@ -148,7 +155,10 @@ class Conversation {
   }
 
   end() {
-    this.socket.end()
+    const s = this.socket
+    s.end()
+    // Some servers never hang up after an error; don't keep their connection around.
+    setTimeout(() => s.destroy(), 2000).unref()
   }
 
   get raw() {
@@ -188,6 +198,7 @@ export async function sendMail(cfg: SmtpConfig, mail: Mail, opts: { timeoutMs?: 
           const t = tlsConnect({ socket: c.raw as Socket, servername: cfg.host, ca: opts.ca }, () => resolve(t))
           t.once('error', (e) => reject(new SmtpError(`Couldn’t secure the connection (${e.message})`)))
         })
+        tls.setTimeout(opts.timeoutMs ?? 20000, () => tls.destroy(new SmtpError('The mail server stopped answering')))
         c.upgrade(tls)
         caps = await c.cmd(`EHLO ${helo}`, [250])
       } else if (cfg.username && !LOCAL.test(cfg.host)) {
