@@ -14,8 +14,8 @@ and looked after for you.
 
 ---
 
-Finesse turns any Linux computer into a Netflix-style service for your household. One command
-installs it. A setup page in your browser then installs and connects everything else:
+Finesse turns a Windows PC, a Linux computer or a NAS into a Netflix-style service for your
+household. One download (Windows) or one command (Linux) installs it. A setup page in your browser then installs and connects everything else:
 [Jellyfin](https://jellyfin.org) for streaming, Sonarr, Radarr and Lidarr for requests,
 Prowlarr for indexers, SABnzbd for Usenet and qBittorrent, which only ever runs behind your
 VPN. Once it's built, Finesse keeps the whole thing healthy, backed up and up to date.
@@ -55,9 +55,9 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.
 - **[Android app and Android Auto](docs/android.md)**: Finesse as an app on Android phones, with your
   music in the car next to Maps.
-- **[Games](docs/games.md)**: turn on the optional retro-games library.
-- **[Game streaming](docs/streaming.md)**: Steam on the TV with Wolf and Moonlight. Finesse sets Wolf up, or works with yours.
-- **[Emulators](docs/emulators.md)**: PS2, GameCube, Wii, PS3, Wii U and Switch as Wolf apps, from your RomM library, or in the browser (Beta).
+- **[Games](docs/games.md)**: turn on the optional retro-games library (Linux and NAS for now).
+- **[Game streaming](docs/streaming.md)**: Steam on the TV with Wolf and Moonlight. Finesse sets Wolf up, or works with yours (Linux).
+- **[Emulators](docs/emulators.md)**: PS2, GameCube, Wii, PS3, Wii U and Switch as Wolf apps, from your RomM library, or in the browser (Beta, Linux).
 - **[Let an AI agent install it](docs/agents/INSTALL.md)**: a runbook written for coding agents,
   with a [setup document](setup.schema.json) they can fill in and apply without a browser.
 
@@ -80,18 +80,21 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **A proper player.** Big, clear controls, a preview as you scrub, chapters and intro/credits
   marks, one menu for audio and subtitles, and a pause screen that shows what's on and what's
   next. The audio and subtitle languages you pick are remembered for the whole series.
-- **Search everything.** Press <kbd>/</kbd> anywhere for movies, shows, episodes and people as
-  you type.
+- **Search everything.** Press <kbd>/</kbd> anywhere for movies, shows, episodes, people, albums
+  and songs as you type.
 - **Browse your way.** Genre filters, watched/unwatched chips, any sort order, an A–Z rail, and
   **Surprise me**.
-- **Music.** Albums and artists, a real music player, synced lyrics (found online when your
-  files don't have them) and a full-screen lyric video.
+- **Music.** Albums and artists, a real music player that goes full screen, synced lyrics (found
+  online when your files don't have them) and a full-screen lyric video.
+- **Moments.** Flag a scene in the player, add a note (hidden as a spoiler if you like) and send
+  it to someone at home or on a friend's server. It pops up when they reach that part.
+  **Recommend…** sends a whole film or show.
 - **Games.** Optional: retro games (NES to PlayStation) that play right in the browser, with the
-  library kept by [RomM](https://romm.app). See [Games](docs/games.md).
+  library kept by [RomM](https://romm.app). Linux and NAS for now. See [Games](docs/games.md).
 - **Game streaming.** One switch sets up [Wolf](https://games-on-whales.github.io/wolf/stable/), which
   runs Steam on your server and streams it to Moonlight on TVs, phones and computers. Finesse
   checks the server first, lists what you can play, and pairs devices with Moonlight's PIN.
-  Already run Wolf? Connect it instead. See [Game streaming](docs/streaming.md).
+  Already run Wolf? Connect it instead. Linux for now. See [Game streaming](docs/streaming.md).
 - **Friends' libraries.** Friends who run Finesse too can share their films, shows and music with
   you, and you with them: watch- and listen-only, with nobody getting an account on anyone's
   server. See [Groups](docs/groups.md).
@@ -100,13 +103,19 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 
 - **Request anything.** If a search finds nothing in your library, press **Request**. Finesse
   finds it, downloads it, renames it and adds it to the library.
+- **Discover movies.** With Movies picked and nothing typed, the Request page shows **Trending
+  this week**, **Popular**, **Recommended for you** (from what you already have) and your lists,
+  ready to request.
+- **Add your own.** Drag files or whole folders onto any page. Finesse shows where each one will
+  go, sorts them into Movies, TV shows, Music and Games, keeps subtitles with their videos, and
+  resumes big files if the connection drops. **Remove** takes one back for a day.
 - **The right language.** Downloads come in the title's original language or yours (the one
   you pick in setup), never one nobody at home speaks. The original or dual audio wins a tie.
   Anime is added as anime, so episodes are found by their absolute numbers.
 - **Follow along.** See requests waiting for a release and live download progress. Pause
   downloads, cap their speed or pick a different quality from inside the app.
-- **Safe by default.** Torrents only ever run inside the VPN's network, with a kill switch.
-  Every API key stays on the server.
+- **Safe by default.** Torrents only ever run behind your VPN, with a kill switch (on Windows,
+  locked to your own VPN app). Every API key stays on the server.
 
 ### Every screen
 
@@ -117,8 +126,9 @@ about ten minutes, and nothing is installed until you press **Build my server**.
   the car screen, next to Maps, with the car's controls.
 - **TVs**: an **LG webOS app** that updates itself, and full D-pad navigation in any TV browser.
   Everything is reachable with the arrows and OK.
-- **Play on another device.** Send what you're watching to the TV, then use your phone as the
-  remote. **Continue here** picks up what's playing elsewhere.
+- **Your phone is the remote.** **Remote** lists every screen in the house that's playing, with
+  play/pause, seeking, volume, audio and subtitle tracks, arrows and typing. Send what you're
+  watching to the TV, or **Continue here** to pick up what's playing elsewhere.
 
 ### Your household
 
@@ -127,6 +137,8 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 - **Invites.** Create a link or QR code, or email it. People create their own account and see
   only the libraries you choose.
 - **Away from home.** Optional Tailscale Funnel or Cloudflare Tunnel, with no router changes.
+  Tailscale is encrypted all the way to your server; with Cloudflare, Cloudflare can see the
+  traffic. (On Windows, use the Tailscale app.)
 - **Make it yours.** Accent colour, display size and interface sounds.
 
 ### It looks after itself
@@ -139,6 +151,8 @@ about ten minutes, and nothing is installed until you press **Build my server**.
   overnight.
 - **Settings → Server** shows each app's health, the VPN's public address, storage, backups
   and logs, with Restart and Pause buttons.
+- **Tidy up.** Admins can **Delete from library**: Finesse says how much space comes back, tells
+  Radarr, Sonarr or Lidarr not to fetch it again, and removes the files.
 
 ## Screenshots
 
@@ -153,17 +167,19 @@ about ten minutes, and nothing is installed until you press **Build my server**.
 
 ## How it's built
 
-Finesse is two things in one Docker image:
+Finesse is two things, shipped as one Docker image on Linux and NAS, and as a Windows service on
+Windows:
 
 - **The app** (`src/`): React 19, TypeScript, Vite and Tailwind. It talks to Jellyfin for media
   and to the Finesse server for everything else. The same code builds the LG TV app, which runs
   on the TV's Chromium 68.
 - **The server** (`server/`): Node 22 with no npm dependencies. It serves the app, proxies
   Jellyfin and the *arr APIs (adding their keys itself), runs invites and updates, and
-  installs, wires and maintains the stack through the Docker Engine API.
+  installs, wires and maintains the stack: through the Docker Engine API on Linux, and as
+  background Windows programs (the apps' own Windows versions) on Windows.
 
-Every app it installs is pinned to a version tested with that Finesse release. Finesse only
-touches containers labelled `finesse.managed`, and re-running setup changes nothing that's
+Every app it installs is pinned to a version tested with that Finesse release. On Docker, Finesse
+only touches containers labelled `finesse.managed`, and re-running setup changes nothing that's
 already right. See [ROADMAP.md](ROADMAP.md) for the architecture and the reasoning behind it.
 
 ## Questions
