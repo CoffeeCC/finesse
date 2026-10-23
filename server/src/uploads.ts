@@ -12,7 +12,7 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import { chownSync, createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
-import { dirname, extname, join } from 'node:path'
+import { dirname, extname, join, sep } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Auth } from './auth.ts'
@@ -55,8 +55,9 @@ export function insideLibrary(library: string, path: string): boolean {
   } catch {
     return false
   }
-  const rel = path.slice(library.length).split('/').filter(Boolean)
-  if (!path.startsWith(library + '/') && path !== library) return false
+  // Windows paths use \ (join() makes them so); a path from elsewhere may still carry /.
+  const rel = path.slice(library.length).split(/[\\/]/).filter(Boolean)
+  if (!path.startsWith(library + sep) && path !== library) return false
   let here = library
   for (const part of rel) {
     here = join(here, part)
@@ -70,7 +71,7 @@ export function insideLibrary(library: string, path: string): boolean {
   }
   try {
     const r = realpathSync(path)
-    return r === real || r.startsWith(real + '/')
+    return r === real || r.startsWith(real + sep)
   } catch {
     return true
   }
@@ -362,7 +363,7 @@ export class Uploads {
     this.receipts.delete(receipt)
     rmSync(r.file, { force: true })
     let dir = dirname(r.file)
-    while (dir.startsWith(r.library + '/')) {
+    while (dir.startsWith(r.library + sep)) {
       try {
         rmdirSync(dir) // only when empty
       } catch {

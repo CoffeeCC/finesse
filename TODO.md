@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Add media works on Windows — v3.0.4 (2026-10-23)
+
+- **Adding films, shows and music works on Windows.** Files that go into a folder of their own (a
+  film's folder, a season, an album) were refused with "That folder is a shortcut to somewhere
+  outside the library": the check looked for `/`, and Windows paths use `\`. Now checked on a real
+  Windows install every time.
+
 ## Finesse for Android — v3.0.3 (2026-10-21)
 
 - **An app for Android phones, with Android Auto.** [Finesse for Android](docs/android.md) is
