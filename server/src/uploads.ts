@@ -12,13 +12,14 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import { chownSync, createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs'
-import { dirname, extname, join } from 'node:path'
+import { dirname, extname, join, sep } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { fingerprintFile } from './fingerprint.ts'
+import { gameLibrary } from './gamelib.ts'
 import { logger } from './log.ts'
 import { jellyfinLibraries, type JellyfinLibraries } from './stack/libraries.ts'
 
@@ -55,8 +56,9 @@ export function insideLibrary(library: string, path: string): boolean {
   } catch {
     return false
   }
-  const rel = path.slice(library.length).split('/').filter(Boolean)
-  if (!path.startsWith(library + '/') && path !== library) return false
+  // Windows paths use \ (join() makes them so); a path from elsewhere may still carry /.
+  const rel = path.slice(library.length).split(/[\\/]/).filter(Boolean)
+  if (!path.startsWith(library + sep) && path !== library) return false
   let here = library
   for (const part of rel) {
     here = join(here, part)
@@ -70,7 +72,7 @@ export function insideLibrary(library: string, path: string): boolean {
   }
   try {
     const r = realpathSync(path)
-    return r === real || r.startsWith(real + '/')
+    return r === real || r.startsWith(real + sep)
   } catch {
     return true
   }
@@ -336,6 +338,7 @@ export class Uploads {
     const placed = target.slice(library.length + 1)
     log.info(`added ${meta.kind}: ${placed} (${Math.round(meta.size / 1e6)} MB)`)
     if (meta.kind !== 'games') this.scanSoon() // RomM: the games nudger registers new console folders by itself
+    else gameLibrary(this.settings).invalidate() // Windows: Finesse's own library looks again
     const receipt = randomBytes(18).toString('base64url')
     for (const [k, r] of this.receipts) if (Date.now() - r.at > UNDO_MS) this.receipts.delete(k)
     const st = statSync(target)
@@ -362,7 +365,7 @@ export class Uploads {
     this.receipts.delete(receipt)
     rmSync(r.file, { force: true })
     let dir = dirname(r.file)
-    while (dir.startsWith(r.library + '/')) {
+    while (dir.startsWith(r.library + sep)) {
       try {
         rmdirSync(dir) // only when empty
       } catch {
@@ -372,6 +375,7 @@ export class Uploads {
     }
     log.info(`removed ${r.kind}: ${r.file.slice(r.library.length + 1)}`)
     if (r.kind !== 'games') this.scanSoon()
+    else gameLibrary(this.settings).invalidate()
   }
 
   cancel(id: string) {

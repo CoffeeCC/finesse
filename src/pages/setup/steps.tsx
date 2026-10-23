@@ -84,9 +84,9 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
       return null
     }
     case 'libraries':
-      if (!(d.libraries.movies || d.libraries.shows || d.libraries.music || (d.libraries.games && !d.native))) return 'Pick at least one library'
+      if (!(d.libraries.movies || d.libraries.shows || d.libraries.music || d.libraries.games)) return 'Pick at least one library'
       if (d.libraries.games && d.games.steamGridDbKey.trim() && !/^[A-Za-z0-9]{16,64}$/.test(d.games.steamGridDbKey.trim())) return 'That SteamGridDB key doesn’t look right'
-      if (d.libraries.games && Boolean(d.games.igdbClientId.trim()) !== Boolean(d.games.igdbClientSecret.trim())) return 'IGDB needs both the Client ID and the Client Secret'
+      if (d.libraries.games && !d.native && Boolean(d.games.igdbClientId.trim()) !== Boolean(d.games.igdbClientSecret.trim())) return 'IGDB needs both the Client ID and the Client Secret'
       return null
     case 'downloads':
       return null
@@ -237,16 +237,14 @@ export function LibrariesStep({ d, set }: StepProps) {
           />
         </div>
       )}
-      {/* Games needs Docker for now (RomM, Wolf): Windows installs don't offer it yet. */}
-      {!d.native && (
-      <>
       <ChoiceCard multi selected={d.libraries.games} onClick={() => toggle('games')} icon={<Icon name="games" />} title="Games">
-        Retro games you play right in the browser: NES, SNES, Game Boy, Genesis, PlayStation and more. Managed by RomM. You add the games yourself.
+        Retro games you play right in the browser: NES, SNES, Game Boy, Genesis, PlayStation and more.{' '}
+        {d.native ? 'Finesse keeps the library from your games folder.' : 'Managed by RomM.'} You add the games yourself.
       </ChoiceCard>
       {d.libraries.games && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
           <p className="text-sm text-ink-300">
-            Box art comes from free sources without an account. For more art and descriptions, add these <b className="text-ink-100">optional</b> keys:
+            Box art comes from free sources without an account. For more{d.native ? '' : ' art and descriptions'}, add {d.native ? 'this' : 'these'} <b className="text-ink-100">optional</b> {d.native ? 'key' : 'keys'}:
           </p>
           <TextField
             label="SteamGridDB API key"
@@ -256,13 +254,14 @@ export function LibrariesStep({ d, set }: StepProps) {
             onChange={(v) => set((x) => void (x.games.steamGridDbKey = v))}
             hint={<>Free: steamgriddb.com → Preferences → API.</>}
           />
+          {/* IGDB feeds RomM; Windows has no RomM. */}
+          {!d.native && (
           <div className="grid sm:grid-cols-2 gap-3">
             <TextField label="IGDB Client ID" optional mono value={d.games.igdbClientId} onChange={(v) => set((x) => void (x.games.igdbClientId = v))} hint={<>Free: create an app at dev.twitch.tv.</>} />
             <TextField label="IGDB Client Secret" optional mono type="password" value={d.games.igdbClientSecret} onChange={(v) => set((x) => void (x.games.igdbClientSecret = v))} />
           </div>
+          )}
         </div>
-      )}
-      </>
       )}
     </div>
   )

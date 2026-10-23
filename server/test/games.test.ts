@@ -102,6 +102,26 @@ test('turning Games off drops RomM from the settings before removing its contain
   assert.ok(!('romm' in s.services))
 })
 
+test('Windows: Games on and off is a setting — the folders are made, nothing is installed or removed', async () => {
+  const { SetupRunner } = await import('../src/setup/apply.ts')
+  const data = mkdtempSync(join(tmpdir(), 'finesse-games-'))
+  const s = { mode: 'bundle', services: {} as Record<string, { url?: string; apiKey?: string }>, stack: { hostData: data, services: ['jellyfin'] } }
+  const settings = { get: () => s, update: (fn: (x: typeof s) => void) => (fn(s), s) } as never
+  const orch = { kind: 'native', removeService: async () => assert.fail('nothing to remove on Windows') } as never
+  const runner = new SetupRunner(settings, orch)
+  runner.setGames(true, { steamGridDbKey: 'k'.repeat(32) })
+  while (runner.gamesJob.state === 'working') await new Promise((r) => setTimeout(r, 5))
+  assert.equal(runner.gamesJob.state, 'done', runner.gamesJob.error)
+  assert.equal(s.services.romm?.url, 'builtin:')
+  assert.equal(s.services.steamgriddb?.apiKey, 'k'.repeat(32))
+  assert.ok(existsSync(join(data, 'media', 'games', 'roms')) && existsSync(join(data, 'media', 'games', 'bios')))
+  assert.deepEqual(s.stack.services, ['jellyfin'])
+  runner.setGames(false)
+  while ((runner.gamesJob.state as string) === 'working') await new Promise((r) => setTimeout(r, 5))
+  assert.equal(runner.gamesJob.state, 'done')
+  assert.ok(!('romm' in s.services))
+})
+
 test('a setup without Games never runs the Games step', async () => {
   const { SetupRunner } = await import('../src/setup/apply.ts')
   const runner = new SetupRunner({ get: () => ({}), update: () => ({}) } as never, {} as never)

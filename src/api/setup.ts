@@ -219,8 +219,10 @@ export interface SystemStatus {
   updates: { auto: boolean; lastStackUpdate: string | null }
   busy: boolean
   previews?: { enabled: boolean; made: number; pending: number; total: number; lastRun: string | null }
-  games?: { enabled: boolean; folder: string | null; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
-  streaming?: { enabled: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
+  /** builtin: Windows, where Finesse keeps the library itself (no RomM). */
+  games?: { enabled: boolean; folder: string | null; builtin?: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
+  /** host: sunshine on Windows (Finesse installs Sunshine), else Wolf. */
+  streaming?: { enabled: boolean; host?: 'sunshine'; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   backup?: { job: { state: 'idle' | 'working' | 'done' | 'error'; step?: string; file?: BackupFile; error?: string } }
   health: {
     checkedAt: string | null
@@ -323,7 +325,10 @@ export interface StreamingCheck {
 export interface StreamingAdmin {
   ok: boolean
   error?: string
-  pending: { id: string; ip: string }[]
+  /** Windows: Sunshine instead of Wolf. */
+  host?: 'sunshine'
+  /** name: what Moonlight calls the device (Sunshine passes it on). */
+  pending: { id: string; ip: string; name?: string }[]
   devices: { id: string; name: string | null; pairedAt: string | null }[]
 }
 

@@ -583,6 +583,14 @@ namespace Finesse.Setup
                 Thread.Sleep(3000);
                 Sc("delete SABnzbd");
             }
+            // Game streaming: Sunshine, if Finesse installed it (its installer is kept for exactly this), goes the way it came.
+            var sunshineDir = Path.Combine(Paths.Data, "apps", "sunshine");
+            if (Directory.Exists(sunshineDir))
+                foreach (var msi in Directory.GetFiles(sunshineDir, "Sunshine-*.msi"))
+                {
+                    var r = Run("msiexec.exe", $"/x \"{msi}\" /qn /norestart", 600000);
+                    Log.Write($"Sunshine removed with its installer → {r.Code}");
+                }
             Run("netsh.exe", "advfirewall firewall delete rule name=\"Finesse\"", 30000);
             foreach (var f in new[] {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), "Finesse.url"),

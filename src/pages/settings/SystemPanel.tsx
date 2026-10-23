@@ -484,7 +484,7 @@ export default function SystemPanel() {
               <>
                 <p className="text-[14px] font-medium text-white">Games is on</p>
                 <p className="text-[12.5px] leading-relaxed text-ink-400">
-                  Put games you own in <code className="rounded bg-white/10 px-1 text-[12px]">{s.games.folder ?? '…/media/games/roms'}/snes</code>, one folder per system (nes, snes, gb, gba, n64, genesis, psx…). They appear under Games within a few minutes.
+                  Put games you own in <code className="rounded bg-white/10 px-1 text-[12px]">{s.games.folder ?? '…/media/games/roms'}{s.games.builtin ? '\\' : '/'}snes</code>, one folder per system (nes, snes, gb, gba, n64, genesis, psx…). They appear under Games within a few minutes.
                 </p>
                 <div className="flex justify-end">
                   <button
@@ -509,11 +509,11 @@ export default function SystemPanel() {
               <>
                 <p className="text-[14px] font-medium text-white">Retro games, right in the browser</p>
                 <p className="text-[12.5px] leading-relaxed text-ink-400">
-                  Adds RomM to keep a library of games you own, from NES to PlayStation, that everyone can play in Finesse. Box art comes from free sources; a SteamGridDB key adds more.
+                  {s.games.builtin ? 'Finesse keeps a library of the games you own from your games folder' : 'Adds RomM to keep a library of games you own'}, from NES to PlayStation, that everyone can play in Finesse. Box art comes from free sources; a SteamGridDB key adds more.
                 </p>
                 <TextField label="SteamGridDB API key" optional mono value={sgdb} onChange={setSgdb} hint="Free: steamgriddb.com → Preferences → API." />
                 <div className="flex justify-end">
-                  <button type="button" className={primaryBtn} disabled={busy === 'games'} onClick={() => act('games', () => systemApi.setGames(true, sgdb.trim() || undefined), 'Adding Games — this takes a few minutes')}>
+                  <button type="button" className={primaryBtn} disabled={busy === 'games'} onClick={() => act('games', () => systemApi.setGames(true, sgdb.trim() || undefined), s.games?.builtin ? 'Adding Games' : 'Adding Games — this takes a few minutes')}>
                     {busy === 'games' && <Spinner className="h-3.5 w-3.5" />}
                     Add Games
                   </button>

@@ -66,6 +66,32 @@ as a **Post Init** command under **System → Advanced → Init/Shutdown Scripts
 - **Turning it off** removes the container. The folder stays, so turning it on again brings back
   your devices and games.
 
+## Windows: Sunshine
+
+Wolf runs on Linux. On a Windows install, Finesse sets up
+[Sunshine](https://github.com/LizardByte/Sunshine) instead, the Moonlight host most Windows gamers
+use:
+
+1. Open **Settings → Server → Game streaming**. Finesse checks for a graphics card with its driver
+   (NVIDIA, AMD or Intel): Sunshine needs one to encode the stream.
+2. Press **Turn on game streaming**. Finesse downloads Sunshine's own installer (checked against the
+   version Finesse was tested with) and installs it quietly: its Windows service, firewall rules and
+   virtual gamepads. Sunshine gets an account only Finesse knows, and its own web page only opens on
+   the PC itself.
+3. [Add a device](#add-a-device) the same way: Moonlight shows a PIN, and you type it in Finesse.
+
+What's different from Wolf:
+
+- Moonlight shows **this PC's own screen**: Desktop and Steam Big Picture to start with. Games run
+  on the PC like you'd play them in front of it, so it's best when nobody's using the PC meanwhile.
+  There's one session at a time.
+- The emulator apps Finesse adds to Wolf aren't there. Install the emulators you like on the PC
+  (or a front end such as ES-DE or RetroArch) and start them from Big Picture or the desktop.
+- Already have Sunshine on the PC? Finesse leaves it alone and says so: keep using it with Moonlight
+  as before, or uninstall it first if you'd like Finesse to manage streaming.
+- **Turn off game streaming** stops Sunshine and keeps its paired devices. Uninstalling Finesse
+  removes the Sunshine it installed.
+
 ## Connect your own Wolf
 
 Finesse talks to Wolf through Wolf's API socket, a file in a folder both can see.

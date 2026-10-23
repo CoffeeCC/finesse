@@ -1,7 +1,8 @@
 # The whole Windows install, for real, on a Windows machine (CI): Finesse Setup installs Finesse as a service
 # from a local bundle, setup runs through Finesse's own API with a Windows document (Jellyfin, Prowlarr, Radarr,
 # SABnzbd and qBittorrent downloaded and started as Windows programs), the apps answer, a service restart brings
-# them back, and uninstalling leaves nothing running.
+# them back, movies and games can be added (Games is Finesse's own library on Windows), and
+# uninstalling leaves nothing running.
 #
 #   pwsh windows/e2e.ps1 -Setup out/FinesseSetup.exe -Bundle finesse-windows-X-x64.zip
 param(
@@ -78,6 +79,11 @@ $apps = @{ 'Jellyfin' = 'http://127.0.0.1:8096/jellyfin/System/Info/Public'; 'Pr
 foreach ($a in $apps.GetEnumerator()) { if (-not (Answers $a.Value)) { throw "$($a.Key) isn't answering at $($a.Value)" } else { Write-Host "$($a.Key) answers" } }
 Get-Process jellyfin, Prowlarr.Console, Radarr.Console, SABnzbd-console, qbittorrent -ErrorAction SilentlyContinue | Format-Table Name, Id, StartTime
 
+Say 'Add media, Games (the library Finesse keeps itself) and game streaming (Sunshine)'
+$node = "$env:ProgramFiles\Finesse\app\$($res.version)\node.exe"
+& $node "$PSScriptRoot\e2e-media.mjs" "http://127.0.0.1:$port" 'http://127.0.0.1:8096/jellyfin' 'ci' 'ci-password-123' $Media
+if ($LASTEXITCODE -ne 0) { throw 'Add media, Games or game streaming failed' }
+
 Say 'Restarting the service: the apps stop with it and come back'
 Restart-Service Finesse
 Until 'Finesse to answer again' { Answers "$base/api/health" } 120
@@ -92,7 +98,8 @@ if ($p.ExitCode -ne 0) { throw "Uninstall exited with $($p.ExitCode)" }
 Start-Sleep -Seconds 5
 if (Get-Service Finesse -ErrorAction SilentlyContinue) { throw 'The Finesse service is still there' }
 if (Get-Service SABnzbd -ErrorAction SilentlyContinue) { throw 'The SABnzbd service Finesse registered is still there' }
-$left = Get-Process node, jellyfin, Prowlarr.Console, Radarr.Console, SABnzbd-console, qbittorrent -ErrorAction SilentlyContinue
+if (Get-Service SunshineService -ErrorAction SilentlyContinue) { throw 'The Sunshine Finesse installed is still there' }
+$left = Get-Process node, jellyfin, Prowlarr.Console, Radarr.Console, SABnzbd-console, qbittorrent, sunshine -ErrorAction SilentlyContinue
 if ($left) { $left | Format-Table Name, Id; throw 'Apps are still running after uninstall' }
 if (-not (Test-Path $Media)) { throw 'Uninstall removed the media folder' }
 Write-Host "`nAll good: installed, set up, restarted and removed."

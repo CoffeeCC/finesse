@@ -203,9 +203,22 @@ describe('setup document', () => {
     d.downloads.torrents = {}
     assert.deepEqual(paths(d), ['downloads.torrents.adapter'])
     d.downloads.torrents = { adapter: 'Mullvad' }
-    d.libraries = { games: true }
     d.remoteAccess = { method: 'tailscale', tailscale: { authKey: 'tskey-auth-abc' } }
-    assert.deepEqual(paths(d).sort(), ['libraries.games', 'remoteAccess.method'])
+    assert.deepEqual(paths(d), ['remoteAccess.method'])
+  })
+
+  test('Windows: Games is Finesse’s own library — no RomM, so no RomM-only keys', () => {
+    const d = base() as Record<string, any>
+    d.remoteAccess = { method: 'none' }
+    d.downloads.torrents = { adapter: 'Mullvad' }
+    d.libraries = { games: true }
+    d.games = { steamGridDbKey: 'a'.repeat(32) }
+    assert.deepEqual(validateSetup(d, { native: true }).problems, [])
+    assert.deepEqual(servicesFor(d as never, true).filter((id) => id.startsWith('romm')), [], 'nothing to install')
+    assert.deepEqual(servicesFor(d as never, false).filter((id) => id.startsWith('romm')), ['romm-db', 'romm'])
+    d.games = { igdb: { clientId: 'x', clientSecret: 'y' }, screenscraper: { username: 'u', password: 'p' } }
+    d.emulators = { apps: [], paths: {} }
+    assert.deepEqual(validateSetup(d, { native: true }).problems.map((p) => p.path).sort(), ['emulators', 'games.igdb', 'games.screenscraper'])
   })
 
   test('games: RomM + its database, with optional artwork keys', () => {

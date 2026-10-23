@@ -12,6 +12,7 @@ import { registerStreaming } from './streaming.ts'
 import { playState, registerPlay } from './play.ts'
 import { InviteStore, registerInvites } from './invites.ts'
 import { registerUploads, Uploads } from './uploads.ts'
+import type { SunshineApi } from './stack/sunshine.ts'
 import { Deleter, registerDeletions } from './deletions.ts'
 import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
@@ -50,7 +51,7 @@ function features(s: Settings) {
     games: Boolean(svc.romm?.url),
     /** SteamGridDB has a key (extra box art); without one the app doesn't ask it. */
     sgdb: Boolean(svc.steamgriddb?.apiKey),
-    streaming: Boolean(s.streaming?.socket),
+    streaming: Boolean(s.streaming?.socket || s.streaming?.sunshine),
     /** Browser play (Selkies): emulators set up and Docker reachable. */
     play: playState.available,
     invites: true,
@@ -64,7 +65,7 @@ function features(s: Settings) {
   }
 }
 
-export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { server: Server; deps: AppDeps } {
+export function createApp(opts: { paths?: Paths; plugins?: Plugin[]; sunshineApi?: SunshineApi } = {}): { server: Server; deps: AppDeps } {
   const settings = new SettingsStore(opts.paths)
   settings.ensureSaved()
   const jf = new Jellyfin(settings)
@@ -104,7 +105,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerInvites(router, { store: invites, jf, auth, settings })
   const groups = registerGroups(router, { settings, jf, auth })
   registerMoments(router, { settings, jf, auth, groups })
-  registerStreaming(router, { settings, auth })
+  registerStreaming(router, { settings, auth, sunshineApi: opts.sunshineApi })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
