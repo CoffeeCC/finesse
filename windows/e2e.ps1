@@ -1,7 +1,7 @@
 # The whole Windows install, for real, on a Windows machine (CI): Finesse Setup installs Finesse as a service
 # from a local bundle, setup runs through Finesse's own API with a Windows document (Jellyfin, Prowlarr, Radarr,
 # SABnzbd and qBittorrent downloaded and started as Windows programs), the apps answer, a service restart brings
-# them back, and uninstalling leaves nothing running.
+# them back, a movie can be added (Add media), and uninstalling leaves nothing running.
 #
 #   pwsh windows/e2e.ps1 -Setup out/FinesseSetup.exe -Bundle finesse-windows-X-x64.zip
 param(
@@ -77,6 +77,11 @@ Say 'The apps answer as Windows programs'
 $apps = @{ 'Jellyfin' = 'http://127.0.0.1:8096/jellyfin/System/Info/Public'; 'Prowlarr' = 'http://127.0.0.1:9696/ping'; 'Radarr' = 'http://127.0.0.1:7878/ping' }
 foreach ($a in $apps.GetEnumerator()) { if (-not (Answers $a.Value)) { throw "$($a.Key) isn't answering at $($a.Value)" } else { Write-Host "$($a.Key) answers" } }
 Get-Process jellyfin, Prowlarr.Console, Radarr.Console, SABnzbd-console, qbittorrent -ErrorAction SilentlyContinue | Format-Table Name, Id, StartTime
+
+Say 'Add media: a movie into a folder of its own'
+$node = "$env:ProgramFiles\Finesse\app\$($res.version)\node.exe"
+& $node "$PSScriptRoot\e2e-media.mjs" "http://127.0.0.1:$port" 'http://127.0.0.1:8096/jellyfin' 'ci' 'ci-password-123' $Media
+if ($LASTEXITCODE -ne 0) { throw 'Add media failed' }
 
 Say 'Restarting the service: the apps stop with it and come back'
 Restart-Service Finesse
