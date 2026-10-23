@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Report a problem — v3.0.5 (2026-10-23)
+
+- **Report a problem, from the app.** Settings → About → **Report a problem**: say what happened and
+  Finesse fills in GitHub's bug form for you, with the app and server versions, the device and
+  browser, and (for administrators) the server's recent warnings and errors. You see exactly what's
+  included first, and passwords, keys, emails, your address and your name in file paths are taken
+  out. Nothing is sent until you post it on GitHub yourself; **Copy** works too.
+
 ## Add media works on Windows — v3.0.4 (2026-10-23)
 
 - **Adding films, shows and music works on Windows.** Files that go into a folder of their own (a

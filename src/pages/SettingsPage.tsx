@@ -16,6 +16,7 @@ import { useFinesse } from '../lib/finesseServer'
 import { DONATE_URL, PROJECT_URL } from '../lib/project'
 import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
 import ConnectDevices from '../components/ConnectDevices'
+import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
 import { StreamingSettings } from './settings/StreamingAdmin'
 import {
@@ -651,6 +652,8 @@ export default function SettingsPage() {
           <section id="settings-about" aria-labelledby="settings-about-title" className="scroll-mt-24">
             {heading('about', 'About')}
             <AboutSection />
+            {/* A TV can't open GitHub or type much: report from a phone or computer instead. */}
+            {!IS_TV && <ReportProblem isAdmin={!!session?.isAdmin} />}
             <TipJar />
           </section>
 

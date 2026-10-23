@@ -234,7 +234,21 @@ export interface SystemStatus {
   }
 }
 
+/** What a server adds to "Report a problem" (administrators only), secrets already taken out. */
+export interface ServerReport {
+  version: string
+  web: string
+  mode: string
+  platform: string
+  node: string
+  setup: string
+  features: string[]
+  uptimeHours: number
+  problems: string[]
+}
+
 export const systemApi = {
+  report: () => call<ServerReport>('GET', '/api/report'),
   status: (refresh = false) => call<SystemStatus>('GET', `/api/system/status${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 60000 }),
   restart: (id: string) => call<{ ok: boolean }>('POST', `/api/system/services/${id}/restart`, undefined, { timeoutMs: 90000 }),
   stop: (id: string) => call<{ ok: boolean }>('POST', `/api/system/services/${id}/stop`, undefined, { timeoutMs: 90000 }),

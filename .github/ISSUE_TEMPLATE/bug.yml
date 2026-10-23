@@ -5,7 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting! Please **remove passwords, API keys and your public address** from anything you paste.
+        Thanks for reporting! **Settings → About → Report a problem** in Finesse fills this in for you.
+        Please **remove passwords, API keys and your public address** from anything you paste.
         Security problems go through [private reporting](https://github.com/CoffeeCC/finesse/security/advisories/new) instead.
   - type: textarea
     id: what
