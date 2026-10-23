@@ -19,9 +19,10 @@ interface Received {
   authOverTls: boolean
 }
 
-function fakeSmtp(opts: { starttls?: { key: string; cert: string }; password?: string } = {}) {
+/** `keepOpen`: like some real servers, don't hang up when the client does (only on QUIT). */
+function fakeSmtp(opts: { starttls?: { key: string; cert: string }; password?: string; keepOpen?: boolean } = {}) {
   const got: Received[] = []
-  const server = createServer((raw) => {
+  const server = createServer({ allowHalfOpen: !!opts.keepOpen }, (raw) => {
     let sock: Socket | TLSSocket = raw
     let tls = false
     let cur: Received = { from: '', to: [], data: '', auth: null, authOverTls: false }
@@ -62,6 +63,7 @@ function fakeSmtp(opts: { starttls?: { key: string; cert: string }; password?: s
           say('220 go ahead')
           raw.removeAllListeners('data')
           const t = new TLSSocket(raw, { isServer: true, key: opts.starttls!.key, cert: opts.starttls!.cert })
+          if (opts.keepOpen) t.on('end', () => {}).allowHalfOpen = true
           sock = t
           tls = true
           buf = ''
@@ -159,6 +161,33 @@ describe('SMTP client', () => {
     const port = await listenTcp(fake.server)
     await assert.rejects(sendMail({ host: '127.0.0.1', port, username: 'u', password: 'wrong', from: 'me@example.com' }, { to: 'a@b.co', subject: 's', text: 't' }), /rejected the username or password/)
     fake.server.close()
+  })
+
+  test('a rejected password after STARTTLS fails cleanly, without crashing the server later', async (t) => {
+    const dir = tmp()
+    try {
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, 'k.pem'), '-out', join(dir, 'c.pem'), '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'], { stdio: 'ignore' })
+    } catch {
+      return t.skip('openssl not available')
+    }
+    const key = readFileSync(join(dir, 'k.pem'), 'utf8')
+    const cert = readFileSync(join(dir, 'c.pem'), 'utf8')
+    const { sendMail } = await import('../src/email.ts')
+    // Like Gmail on 587: STARTTLS, then a wrong password, and the server keeps the connection open.
+    const fake = fakeSmtp({ starttls: { key, cert }, password: 'right', keepOpen: true })
+    const port = await listenTcp(fake.server)
+    const crashes: Error[] = []
+    const onCrash = (e: Error) => void crashes.push(e)
+    process.on('uncaughtException', onCrash)
+    try {
+      await assert.rejects(sendMail({ host: 'localhost', port, username: 'u', password: 'wrong', from: 'me@example.com' }, { to: 'a@b.co', subject: 's', text: 't' }, { ca: cert, timeoutMs: 300 }), /rejected the username or password/)
+      // Past the connection's timeout: nothing may blow up on its own afterwards.
+      await new Promise((r) => setTimeout(r, 800))
+    } finally {
+      process.off('uncaughtException', onCrash)
+      fake.server.close()
+    }
+    assert.deepEqual(crashes.map((e) => e.message), [])
   })
 
   test('explains an unreachable server', async () => {

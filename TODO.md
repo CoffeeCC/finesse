@@ -38,6 +38,13 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Invite emails can't take the server down — v3.0.6 (2026-10-23)
+
+- **A failed invite email no longer crashes Finesse.** On port 587 (Gmail, Outlook and most
+  providers), when the mail server turned the email down (a wrong app password, a sender address it
+  won't accept) and kept the connection open, Finesse stopped about 20 seconds later. Now it says
+  what went wrong and carries on. Checked against a real mail server, with STARTTLS and 465.
+
 ## Report a problem — v3.0.5 (2026-10-23)
 
 - **Report a problem, from the app.** Settings → About → **Report a problem**: say what happened and
