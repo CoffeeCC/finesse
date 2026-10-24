@@ -1,7 +1,11 @@
 # Use Finesse with your existing setup
 
 Already running Jellyfin (and maybe Sonarr, Radarr, Lidarr, SABnzbd)? Finesse can sit in front of
-what you have. It becomes the app everyone uses. Your apps, their settings and your libraries
+what you have.
+
+**The easy way:** install Finesse as usual and pick **Use the apps I already have** on the setup
+page. It finds your apps, reads their keys and connects ([how it works](install.md#already-run-jellyfin-and-the-arr-apps)).
+The rest of this page is the manual way, with environment variables. It becomes the app everyone uses. Your apps, their settings and your libraries
 stay exactly as they are. This is **adopt mode**: Finesse installs nothing and only connects.
 
 In adopt mode you still get:

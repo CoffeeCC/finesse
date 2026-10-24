@@ -7,7 +7,7 @@ import { indexerKey, isBuiltInSite, kept, newServer, vpnDoc, type Draft } from '
 import { countries, LANGUAGES, parseWireGuard, QUALITY_PRESETS, SMTP_PRESETS, timeZones, USENET_PRESETS } from './presets'
 import { Callout, CheckButton, ChoiceCard, ExternalLink, gb, SectionTitle, SelectField, StatusDot, TextField, Toggle } from './ui'
 
-export type StepId = 'welcome' | 'machine' | 'account' | 'libraries' | 'downloads' | 'usenet' | 'vpn' | 'indexers' | 'quality' | 'remote' | 'email' | 'review'
+export type StepId = 'welcome' | 'start' | 'machine' | 'account' | 'libraries' | 'downloads' | 'usenet' | 'vpn' | 'indexers' | 'quality' | 'remote' | 'email' | 'review'
 
 export type Update = (fn: (d: Draft) => void) => void
 
@@ -22,6 +22,7 @@ export interface StepProps {
 
 export const STEP_META: Record<StepId, { nav: string; title: string; lead: ReactNode }> = {
   welcome: { nav: 'Welcome', title: 'Let’s build your media server', lead: 'A few questions, then Finesse installs and connects everything for you — streaming, and downloads if you want them. It takes a few minutes.' },
+  start: { nav: 'Getting started', title: 'New, or what you have?', lead: 'Finesse can set everything up for you, or connect to the Jellyfin and download apps you already run.' },
   machine: { nav: 'This machine', title: 'Checking this machine', lead: 'Finesse runs and looks after every app on this computer. Here’s what it found.' },
   account: { nav: 'Your account', title: 'Create your account', lead: 'You’ll be the administrator: you sign in with this, invite people and approve requests.' },
   libraries: { nav: 'Libraries', title: 'What will you collect?', lead: 'Each library gets its own folder, and its own manager to find new additions if you set up downloads.' },
@@ -71,6 +72,8 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
   switch (step) {
     case 'welcome':
       return ctx.codeOk ? null : 'Enter the setup code'
+    case 'start':
+      return null
     case 'machine':
       if (!ctx.system) return 'Checking…'
       return ctx.system.ok ? null : 'Fix the problems above, then check again'
@@ -830,6 +833,21 @@ export function EmailStep({ d, set }: StepProps) {
           <p className="text-[12.5px] text-ink-400">You can send a test email from Settings → Server once Finesse is running.</p>
         </div>
       )}
+    </div>
+  )
+}
+
+/** The first question: build everything, or connect to the apps someone already runs. */
+export function StartStep({ path, setPath }: { path: 'new' | 'existing'; setPath: (p: 'new' | 'existing') => void }) {
+  return (
+    <div className="space-y-3">
+      <ChoiceCard selected={path === 'new'} onClick={() => setPath('new')} icon={<Icon name="server" />} title="Set it all up for me" badge="New servers">
+        Finesse installs and connects Jellyfin and, if you want them, the apps that find and download what you ask for.
+      </ChoiceCard>
+      <ChoiceCard selected={path === 'existing'} onClick={() => setPath('existing')} icon={<Icon name="link" />} title="Use the apps I already have">
+        Already run Jellyfin (and maybe Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd or qBittorrent)? Finesse finds them, reads their keys
+        itself and connects. Nothing of yours changes.
+      </ChoiceCard>
     </div>
   )
 }

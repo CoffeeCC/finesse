@@ -64,7 +64,7 @@ runs the same, plus the TV build.
 | `server/src/stack/wolf.ts` | Game streaming on full installs: the readiness check (graphics, controllers, socket path). Wolf's container is `CATALOG.wolf`; `SetupRunner.setStreaming` turns it on/off. |
 | `server/src/groups.ts`, `src/lib/peers.ts` | Groups: pairing, the friend proxies and their allow-list; the app's routing of friends' titles (`f-<friend>-<id>` ids) |
 | `server/src/stack/` | `catalog.ts` (pinned images), `orchestrator.ts`, `seed.ts` (pre-seeded configs), `wire.ts` (API wiring), `maintain.ts` (health/repair/nightly backups), `backup.ts` (backup parts + restore), `libraries.ts` (first files into an empty Jellyfin library), `games.ts`, `selfupdate.ts` |
-| `server/src/setup/` | `doc.ts` (setup document + validator), `apply.ts` (the stepped runner), `checks.ts` (live checks), `routes.ts` |
+| `server/src/setup/` | `doc.ts` (setup document + validator), `apply.ts` (the stepped runner), `checks.ts` (live checks), `existing.ts` ("Use the apps I already have": finds someone's own Jellyfin and *arr apps in Docker or on the computer, reads their keys, connects in adopt mode; tests use `server/test/fakeDocker.ts`), `routes.ts` |
 | `server/cli/finesse.ts` | The `finesse` CLI inside the container |
 | `setup.schema.json` | Public schema of the setup document. **Keep it in sync with `server/src/setup/doc.ts`.** `server/test/setup.test.ts` enforces this. |
 | `webos/` | TV packaging and the CSS down-leveller for Chromium 68 |

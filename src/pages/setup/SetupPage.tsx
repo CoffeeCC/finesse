@@ -26,13 +26,15 @@ import {
   UsenetStep,
   VpnStep,
   type StepId,
+  StartStep,
 } from './steps'
 import { Callout, GhostButton, PrimaryButton, Spinner, StatusDot } from './ui'
+import ExistingSetup from './ExistingSetup'
 import { QUALITY_PRESETS } from './presets'
 import { LoFinessaCard, LoFinessaToggle, useLofiWizard } from './LoFinessa'
 import { finishLofi } from './lofi'
 
-type Phase = 'loading' | 'wizard' | 'building' | 'done' | 'already'
+type Phase = 'loading' | 'wizard' | 'building' | 'done' | 'already' | 'existing' | 'connected'
 
 const DOCS = `${DOCS_URL}/install.md`
 
@@ -48,6 +50,8 @@ export default function SetupPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [d, setDraft] = useState<Draft>(() => loadDraft() ?? newDraft())
   const [stepIdx, setStepIdx] = useState(0)
+  const [path, setPath] = useState<'new' | 'existing'>('new')
+  const [connected, setConnected] = useState<{ admin: { username: string; password: string }; apps: { name: string; version?: string }[] } | null>(null)
   // The last result of each test on the page (Usenet accounts, the VPN, search sites).
   const [tests, setTests] = useState<Record<string, { label: string; ok: boolean; message: string }>>({})
   const [warnSkip, setWarnSkip] = useState<{ label: string; message: string }[] | null>(null)
@@ -75,7 +79,7 @@ export default function SetupPage() {
   }, [])
 
   const steps = useMemo(() => {
-    const s: StepId[] = change === 'kept' ? ['libraries', 'downloads'] : change === 'redo' ? ['account', 'libraries', 'downloads'] : ['welcome', 'machine', 'account', 'libraries', 'downloads']
+    const s: StepId[] = change === 'kept' ? ['libraries', 'downloads'] : change === 'redo' ? ['account', 'libraries', 'downloads'] : ['welcome', 'start', 'machine', 'account', 'libraries', 'downloads']
     if (d.usenet) s.push('usenet')
     if (d.torrents) s.push('vpn')
     if (d.usenet || d.torrents) s.push('indexers', 'quality')
@@ -191,6 +195,7 @@ export default function SetupPage() {
     if (step === 'welcome') return void submitCode()
     if (blocker) return
     if (step === 'review') return void build()
+    if (step === 'start' && path === 'existing') return void setPhase('existing')
     // Something here failed its test: fine to carry on, but say what won't work yet and where to fix it.
     const failed = Object.entries(tests).filter(([k, t]) => !t.ok && k.split(':')[0] === step).map(([, t]) => t)
     if (failed.length && !force) return setWarnSkip(failed)
@@ -285,6 +290,27 @@ export default function SetupPage() {
     }
   }
 
+  // Connected to someone's own apps: sign in with their Jellyfin administrator account.
+  const signInAs = async (admin: { username: string; password: string }) => {
+    finishLofi(2)
+    setSigningIn(true)
+    setSignInError('')
+    const info2 = await discover({ force: true })
+    const server = bundledJellyfin(info2 ?? finesse)
+    try {
+      if (!server) throw new Error('manual')
+      await login(server, admin.username.trim(), admin.password)
+      localStorage.setItem('finesse.lastServer', server)
+      localStorage.setItem('finesse.lastUser', admin.username.trim())
+      clearDraft()
+      setSetupCode('')
+      navigate('/', { replace: true })
+    } catch {
+      setSigningIn(false)
+      setSignInError('Couldn’t sign in automatically — use the sign-in page with your Jellyfin account.')
+    }
+  }
+
   // ---------- render ----------
   if (phase === 'loading') {
     return (
@@ -321,6 +347,33 @@ export default function SetupPage() {
             )}
           </div>
         </div>
+      </Backdrop>
+    )
+  }
+
+  if (phase === 'existing') {
+    return (
+      <Backdrop>
+        <ExistingSetup
+          onBack={() => setPhase('wizard')}
+          onConnected={(admin, apps) => {
+            setConnected({ admin, apps })
+            setPhase('connected')
+          }}
+        />
+      </Backdrop>
+    )
+  }
+
+  if (phase === 'connected' && connected) {
+    return (
+      <Backdrop>
+        <ConnectedScreen
+          apps={connected.apps}
+          signingIn={signingIn}
+          error={signInError}
+          onOpen={() => void signInAs(connected.admin)}
+        />
       </Backdrop>
     )
   }
@@ -433,6 +486,7 @@ export default function SetupPage() {
               </p>
               <div className="mt-9">
                 {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} />}
+                {step === 'start' && <StartStep path={path} setPath={setPath} />}
                 {step === 'machine' && <MachineStep {...props} recheck={runSystemCheck} checking={checking} />}
                 {step === 'account' && <AccountStep {...props} />}
                 {step === 'libraries' && <LibrariesStep {...props} />}
@@ -460,7 +514,7 @@ export default function SetupPage() {
           {/* Footer actions */}
           <div className="sticky bottom-0 z-20 border-t border-white/[0.06] bg-ink-950/85 px-5 backdrop-blur pb-safe sm:px-10">
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 py-4">
-              <GhostButton onClick={() => go(-1)} disabled={stepIdx === 0 || step === 'machine'}>
+              <GhostButton onClick={() => go(-1)} disabled={stepIdx === 0 || step === 'start'}>
                 Back
               </GhostButton>
               <div className="flex items-center gap-4">
@@ -876,6 +930,38 @@ function Tip({ icon, title, children }: { icon: 'film' | 'tv' | 'cloud' | 'link'
         <p className="text-[14.5px] font-semibold text-white">{title}</p>
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-ink-400">{children}</p>
+    </div>
+  )
+}
+
+/** Connected to someone's own apps: what's connected, and in. */
+function ConnectedScreen({ apps, onOpen, signingIn, error }: { apps: { name: string; version?: string }[]; onOpen: () => void; signingIn: boolean; error: string }) {
+  return (
+    <div className="flex min-h-[calc(var(--vh)*100)] items-center justify-center px-6 py-12">
+      <div className="card-in w-full max-w-lg text-center">
+        <h1 className="font-display text-5xl text-white">You’re connected</h1>
+        <p className="mt-4 text-[15px] leading-relaxed text-ink-300">Finesse is using your own apps. Everyone signs in with their Jellyfin account.</p>
+        <ul className="mx-auto mt-8 max-w-sm space-y-2 text-left">
+          {apps.map((a) => (
+            <li key={a.name} className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-4 py-2.5 text-[14.5px] text-white">
+              <StatusDot ok />
+              <span className="flex-1">{a.name}</span>
+              {a.version && <span className="text-[12.5px] text-ink-400">{a.version}</span>}
+            </li>
+          ))}
+        </ul>
+        <PrimaryButton className="mt-10" onClick={onOpen} busy={signingIn}>
+          Open Finesse
+        </PrimaryButton>
+        {error && (
+          <p className="mt-4 text-[13.5px] text-red-300">
+            {error}{' '}
+            <a className="font-semibold underline" href="./login">
+              Sign in
+            </a>
+          </p>
+        )}
+      </div>
     </div>
   )
 }

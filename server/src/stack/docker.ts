@@ -30,7 +30,7 @@ export interface ContainerInspect {
   Config: { Image: string; Env: string[] | null; Labels: Record<string, string> | null }
   State: { Status: string; Running: boolean; Restarting: boolean; ExitCode: number; StartedAt: string; Health?: { Status: string } }
   HostConfig: Record<string, unknown>
-  NetworkSettings: { Networks: Record<string, { IPAddress: string }> }
+  NetworkSettings: { Networks: Record<string, { IPAddress: string; Gateway?: string; NetworkID?: string }>; Ports?: Record<string, { HostIp: string; HostPort: string }[] | null> | null }
   Mounts: { Source: string; Destination: string }[]
 }
 
@@ -220,6 +220,33 @@ export class Docker {
     const chunks: Buffer[] = []
     for await (const c of res) chunks.push(c as Buffer)
     if ((res.statusCode ?? 0) >= 400) throw new DockerError(res.statusCode ?? 0, Buffer.concat(chunks).toString('utf8').trim() || 'Docker refused the files')
+  }
+
+  /** One file out of a container (running or not), or null when it isn't there. Capped at `max` bytes. */
+  async readFile(nameOrId: string, path: string, max = 1 << 20): Promise<Buffer | null> {
+    const res = await this.raw('GET', `/containers/${encodeURIComponent(nameOrId)}/archive?path=${encodeURIComponent(path)}`)
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const c of res) {
+      size += (c as Buffer).length
+      if (size > max + 4096) {
+        res.destroy()
+        return null
+      }
+      chunks.push(c as Buffer)
+    }
+    if ((res.statusCode ?? 0) !== 200) return null
+    const { readTar } = await import('../tar.ts')
+    const file = readTar(Buffer.concat(chunks), { gzip: false, maxUnpacked: max + 4096 })[0]
+    return file ? file.data : null
+  }
+
+  /** Joins a container to a network (no-op if it's already on it). */
+  async connect(network: string, container: string) {
+    await this.call('POST', `/networks/${encodeURIComponent(network)}/connect`, { Container: container }).catch((e) => {
+      if (e instanceof DockerError && (e.status === 403 || /already exists|already attached/i.test(e.message))) return
+      throw e
+    })
   }
 
   async rename(nameOrId: string, newName: string) {

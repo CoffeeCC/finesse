@@ -38,6 +38,20 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Use the apps you already have — v3.1.0 (2026-10-24)
+
+- **Already run Jellyfin, Sonarr, Radarr and the rest? Setup connects to them.** The setup page now
+  starts with a choice: **Set it all up for me**, or **Use the apps I already have**. Pick the
+  second and Finesse finds Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd and qBittorrent by
+  itself, in Docker (any Docker host, NAS or TrueNAS) or installed on the computer, reads each
+  app's API key from its own settings file, and checks every connection.
+- **It asks only for what it can't read:** a Jellyfin administrator's sign-in (used once, to make
+  Finesse its own key, and not stored) and qBittorrent's password. Anything it didn't find can be
+  added by its address, with a **Check** button and plain answers ("Radarr didn't accept that API
+  key", "That's Sonarr, not Radarr. Check the port.").
+- **Nothing of yours changes**, and **Connect** saves only when every app you ticked works.
+  Afterwards everyone signs in with their Jellyfin account.
+
 ## TVs are called TVs — v3.0.9 (2026-10-24)
 
 - **Remote and "Play on…" name TVs properly.** Android TV, Google TV, Nvidia Shield and Fire TV

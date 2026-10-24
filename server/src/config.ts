@@ -103,6 +103,8 @@ export interface Settings {
   emulators?: import('./emulators.ts').EmulatorSettings
   /** SMTP for emailing invites (optional). */
   email?: { host: string; port: number; secure?: boolean; username?: string; password?: string; from: string }
+  /** Apps someone already had, connected in setup ("I already have these apps"): where each was found. */
+  existing?: { connectedAt: string; apps: Partial<Record<'jellyfin' | 'sonarr' | 'radarr' | 'lidarr' | 'prowlarr' | 'sabnzbd' | 'qbittorrent', { where: string; container?: string }>> }
   /** The setup samples (libraries.samples) were added once; never again. */
   samplesAdded?: boolean
 }
