@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## TVs are called TVs — v3.0.9 (2026-10-24)
+
+- **Remote and "Play on…" name TVs properly.** Android TV, Google TV, Nvidia Shield and Fire TV
+  run Android, so their browsers showed up as an "Android tablet" (Fire TV's as an "Android
+  phone"). They're now Android TV, Google TV, Shield TV, Fire TV, Chromecast, Sony TV, Hisense
+  TV, Philips TV, Panasonic TV, Sharp TV or Samsung/LG TV. A screen reloads Finesse once to pick
+  up its new name.
+
 ## Smooth full screen on TV browsers — v3.0.8 (2026-10-24)
 
 - **The ambient glow steps aside when a screen can't keep up.** Some TV browsers stuttered in full
