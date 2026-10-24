@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A page for every movie you can request — v3.0.7 (2026-10-23)
+
+- **Tap a poster on the Request page to see the movie.** Trending, Popular, Recommended and search
+  results open a page with the backdrop, poster, year, runtime, rating and genres, the story,
+  IMDb, TMDb and Rotten Tomatoes scores, release dates and studio, and the trailer. **Request** is
+  right there; once it's requested the page shows its download progress, and once it's in your
+  library **Open in Finesse** takes you to it.
+
 ## Invite emails can't take the server down — v3.0.6 (2026-10-23)
 
 - **A failed invite email no longer crashes Finesse.** On port 587 (Gmail, Outlook and most

@@ -48,6 +48,8 @@ export function arrVerdict(method: string, path: string, query: URLSearchParams)
       // Radarr's Discover feed (trending, popular, recommended): titles only. The list settings
       // themselves (importlist, importlist/<id>) can hold other services' tokens and stay admin-only.
       /^importlist\/movie$/,
+      // One movie's details by its TMDb id, for the page a Discover poster or a search result opens.
+      /^movie\/lookup\/tmdb$/,
       // Posters and artist pictures the app's lists show.
       /^mediacover\/((artist|album)\/)?\d+\/[\w-]+\.(jpg|jpeg|png|gif)$/,
     ].some((r) => r.test(path))

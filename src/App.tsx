@@ -14,6 +14,7 @@ import ItemPage from './pages/ItemPage'
 import PlayerPage from './pages/PlayerPage'
 import SearchPage from './pages/SearchPage'
 import RequestPage from './pages/RequestPage'
+import RequestMoviePage from './pages/RequestMoviePage'
 import MyListPage from './pages/MyListPage'
 import LibrariesPage from './pages/LibrariesPage'
 import AddMediaPage from './pages/AddMediaPage'
@@ -173,6 +174,7 @@ export default function App() {
                     <Route path="/games/game/:romId" element={<GameDetailPage />} />
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/request" element={<RequestPage />} />
+                    <Route path="/request/movie/:tmdbId" element={<RequestMoviePage />} />
                     <Route path="/mylist" element={<MyListPage />} />
                     <Route path="/friends" element={<FriendsPage />} />
                     <Route path="/watchlist" element={<Navigate to="/mylist" replace />} />
