@@ -13,6 +13,9 @@ import { CATALOG } from '../stack/catalog.ts'
 import { createHost } from '../stack/hosts.ts'
 import { dockerOf } from '../stack/orchestrator.ts'
 import { SetupRunner, stackBase } from './apply.ts'
+import { connect, EXISTING_IDS, normalizeUrl, scan, verify, type ConnectRequest, type ExistingId, type Secrets } from './existing.ts'
+import { Orchestrator } from '../stack/orchestrator.ts'
+import { selfContainer } from '../stack/selfupdate.ts'
 import { checkIndexer, checkSystem, checkUsenet, checkVpn } from './checks.ts'
 import { fillSecrets, KEEP, maskSecrets, validateSetup, type SetupDoc, VPN_PROVIDERS, type VpnDoc } from './doc.ts'
 import type { IndexerInput, UsenetServer } from '../stack/wire.ts'
@@ -179,6 +182,54 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       if (!doc) throw new ApiError(422, 'The setup has problems', problems)
       if (runner.status.state === 'running') throw new ApiError(409, 'Setup is already running')
       sendJson(res, 202, runner.start(doc))
+    })
+
+    // ---------- "I already have these apps" ----------
+    // Finds the apps someone already runs and connects Finesse to them (adopt mode). Only before
+    // setup: a finished server keeps what it has. The keys a scan reads stay here, never sent out.
+    let found: Secrets = {}
+    const beforeSetup = (req: IncomingMessage) => {
+      if (settings.get().setup.state === 'ready') throw new ApiError(409, 'This server is already set up')
+      requireSetupCode(settings, req)
+    }
+    const dockerHost = async () => {
+      if (!(runner.orch instanceof Orchestrator)) return { docker: null, me: null }
+      const docker = runner.orch.docker
+      if (!(await docker.ping())) return { docker: null, me: null }
+      return { docker, me: await selfContainer(docker) }
+    }
+    const lookHosts = () => [process.env.FINESSE_LAN_HOST, process.env.FINESSE_EXISTING_HOSTS?.split(',')].flat().map((h) => h?.trim()).filter((h): h is string => Boolean(h))
+    const extraDirs = () => (process.env.FINESSE_EXISTING_DIRS ?? '').split(/[;,]/).map((d) => d.trim()).filter(Boolean)
+
+    router.post('/api/setup/existing/scan', async ({ req, res }) => {
+      beforeSetup(req)
+      const { docker, me } = await dockerHost()
+      const { result, secrets } = await scan({ docker, me, hosts: lookHosts(), extraDirs: extraDirs() })
+      found = secrets
+      sendJson(res, 200, result)
+    })
+
+    router.post('/api/setup/existing/check', async ({ req, res }) => {
+      beforeSetup(req)
+      const b = await readJson<{ id?: string; url?: string; apiKey?: string; username?: string; password?: string }>(req)
+      if (!EXISTING_IDS.includes(b.id as ExistingId)) throw new ApiError(400, 'Unknown app')
+      const id = b.id as ExistingId
+      const known = found[id]
+      const same = !b.url || normalizeUrl(b.url) === normalizeUrl(known?.url ?? '')
+      const v = await verify(id, { url: b.url || known?.url || '', apiKey: b.apiKey || (same ? known?.apiKey : undefined), username: b.username || (same ? known?.username : undefined), password: b.password })
+      sendJson(res, 200, { ok: v.ok, message: v.message, version: v.version, url: v.save?.url })
+    })
+
+    router.post('/api/setup/existing/connect', async ({ req, res }) => {
+      beforeSetup(req)
+      if (runner.status.state === 'running') throw new ApiError(409, 'Setup is already running')
+      const body = await readJson<ConnectRequest>(req)
+      const r = await connect(body, found, (fn) => settings.update(fn))
+      if (r.ok) found = {}
+      // Verdicts only: what was saved (keys, passwords) stays here.
+      const results = Object.fromEntries(Object.entries(r.results).map(([id, v]) => [id, { ok: v!.ok, message: v!.message, version: v!.version }]))
+      // 200 either way: the page shows each app's verdict.
+      sendJson(res, 200, { ok: r.ok, results })
     })
 
     router.get('/api/setup/status', async ({ req, res }) => {

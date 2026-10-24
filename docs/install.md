@@ -95,6 +95,7 @@ answer before you press **Build**.
 | Step | What to have ready |
 |---|---|
 | **Setup code** | The code the installer printed. Lost it? `sudo docker exec finesse finesse setup-code` |
+| **Getting started** | **Set it all up for me**, or **Use the apps I already have** ([below](#already-run-jellyfin-and-the-arr-apps)). |
 | **This machine** | Nothing. Finesse checks Docker, disk space, VPN support and graphics. Red items tell you what to fix. |
 | **Your account** | A username and password for you, the administrator. Time zone, country and language are guessed from your browser. The language is also what downloads come in, besides each title's original language. |
 | **Libraries** | Movies, TV shows, music and (optionally) games: pick what you'll collect. |
@@ -109,6 +110,26 @@ answer before you press **Build**.
 
 Building is mostly downloading about 3 GB of apps: under a minute when they're already on the machine, up to about 15 minutes on a slow connection. You can close the page and
 come back. When it's done, press **Start watching** and you're signed in.
+
+### Already run Jellyfin and the *arr apps?
+
+Pick **Use the apps I already have**. Finesse looks for Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr,
+SABnzbd and qBittorrent itself:
+
+- **In Docker** (any Docker host, a NAS, TrueNAS): it finds the containers, reads each app's API
+  key from the app's own settings file, and works out how to reach it (a shared network, a
+  published port, or its own address).
+- **On this computer** (Windows, or apps installed without Docker): it reads the apps' settings
+  files from where their installers put them, and tries their usual ports.
+
+It only asks for what it can't read itself: a **Jellyfin administrator's** username and password
+(used once, to make Finesse its own key; not stored) and, if you use it, **qBittorrent's** Web UI
+password. Anything it didn't find, you can add by its address. **Check** tests one app; **Connect**
+tests them all and connects only when every app you ticked works.
+
+Nothing of yours changes: your apps, their settings and your libraries stay as they are, and
+everyone signs in with their Jellyfin account. Finesse doesn't manage these apps (no health checks,
+repairs or app updates), the same as [adopt mode](adopt.md).
 
 ## 3. After setup
 

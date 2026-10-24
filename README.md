@@ -48,8 +48,8 @@ and prints a setup link. Open that link on any device on your network. The setup
 about ten minutes, and nothing is installed until you press **Build my server**.
 
 - **[Install guide](docs/install.md)**: requirements, every setup step, troubleshooting and security.
-- **[Already run Jellyfin or the *arr apps?](docs/adopt.md)** Finesse can sit in front of what you
-  already have.
+- **[Already run Jellyfin or the *arr apps?](docs/install.md#already-run-jellyfin-and-the-arr-apps)** Pick **Use the apps I
+  already have** in setup: Finesse finds them, reads their keys and connects.
 - **[TrueNAS SCALE](docs/truenas.md)**: install it from the Apps page, listed with your other apps.
 - **[Groups](docs/groups.md)**: share libraries with friends who run Finesse too, and watch and listen to theirs.
 - **[Watch on your TV](docs/tv.md)**: the LG webOS app, and other TVs.

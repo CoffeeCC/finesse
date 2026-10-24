@@ -188,6 +188,34 @@ export const setupApi = {
   validate: (d: SetupDoc) => call<{ ok: boolean; problems: Problem[] }>('POST', '/api/setup/validate', d),
   apply: (d: SetupDoc) => call<RunStatus>('POST', '/api/setup/apply', d),
   status: () => call<RunStatus>('GET', '/api/setup/status'),
+  /** "I already have these apps": find them (keys stay on the server), check one, connect them all. */
+  existingScan: () => call<ExistingScan>('POST', '/api/setup/existing/scan', {}, { admin: false, timeoutMs: 90000 }),
+  existingCheck: (b: { id: ExistingId } & ExistingEntry) => call<Verdict & { version?: string; url?: string }>('POST', '/api/setup/existing/check', b, { admin: false, timeoutMs: 45000 }),
+  existingConnect: (b: Partial<Record<ExistingId, ExistingEntry & { skip?: boolean }>>) =>
+    call<{ ok: boolean; results: Partial<Record<ExistingId, Verdict & { version?: string }>> }>('POST', '/api/setup/existing/connect', b, { admin: false, timeoutMs: 90000 }),
+}
+
+export type ExistingId = 'jellyfin' | 'sonarr' | 'radarr' | 'lidarr' | 'prowlarr' | 'sabnzbd' | 'qbittorrent'
+export interface ExistingEntry {
+  url?: string
+  apiKey?: string
+  username?: string
+  password?: string
+}
+export interface ExistingFound {
+  id: ExistingId
+  name: string
+  state: 'ready' | 'needs-login' | 'needs-key' | 'stopped' | 'unreachable' | 'not-found'
+  message: string
+  where?: string
+  url?: string
+  version?: string
+  username?: string
+  others?: number
+}
+export interface ExistingScan {
+  apps: ExistingFound[]
+  looked: string[]
 }
 
 // ---------- system (admins) ----------
