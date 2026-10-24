@@ -17,6 +17,8 @@ import { useQuery } from '@tanstack/react-query'
 import { goBack, isBackKey, isTypingTarget, pushBackHandler } from '../lib/back'
 import { onRemoteCommand } from '../lib/remoteControl'
 import { setReturnMorph } from '../lib/motion'
+import { struggling, type FrameSample } from '../lib/frameDrops'
+import { useToast } from '../components/Toast'
 import { formatRuntime, secondsToTicks, ticksToSeconds } from '../api/types'
 import type { JfItem, JfMediaStream, JfTrickplayInfo } from '../api/types'
 
@@ -328,6 +330,7 @@ export default function PlayerPage() {
   const { itemId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const toast = useToast()
   const queryClient = useQueryClient()
   const startTicks = Number(searchParams.get('t') ?? 0)
 
@@ -1871,7 +1874,17 @@ export default function PlayerPage() {
       ref={playerRef}
       className={`fixed inset-0 bg-black select-none overflow-hidden ${controlsVisible ? '' : 'cursor-none'}`}
     >
-      {!IS_TV && ambient && <AmbientGlow videoRef={videoRef} />}
+      {!IS_TV && ambient && (
+        <AmbientGlow
+          videoRef={videoRef}
+          onStruggle={() => {
+            // Remembered for this device: it's the screen that can't keep up, not this video.
+            setPrefs({ ambient: false })
+            setAmbient(false)
+            toast('Ambient glow is off so the picture stays smooth on this screen. Turn it back on in the player’s settings.')
+          }}
+        />
+      )}
       <video
         ref={videoRef}
         autoPlay
@@ -2526,8 +2539,41 @@ const REDUCED_MOTION =
  *  films on 16:9 screens, 4:3 shows). Draws ~12×/s, blending over the previous
  *  frames so colour shifts glide instead of flickering at cuts. Only drawn,
  *  never read back — so it works on cross-origin streams too. */
-function AmbientGlow({ videoRef }: { videoRef: React.RefObject<HTMLVideoElement | null> }) {
+function AmbientGlow({ videoRef, onStruggle }: { videoRef: React.RefObject<HTMLVideoElement | null>; onStruggle: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const struggle = useRef(onStruggle)
+  struggle.current = onStruggle
+  // Some screens (TV browsers above all, in full screen) can't keep up with the glow and
+  // drop video frames. Watch for that while playing, and give up the glow if so.
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v?.getVideoPlaybackQuality) return
+    const samples: FrameSample[] = []
+    let quietUntil = performance.now() + 4000
+    const settle = () => {
+      samples.length = 0
+      quietUntil = performance.now() + 4000 // starting, seeking and going full screen drop a few
+    }
+    const id = window.setInterval(() => {
+      if (v.paused || v.readyState < 3 || performance.now() < quietUntil) return
+      const q = v.getVideoPlaybackQuality()
+      if (struggling(samples, { at: performance.now(), dropped: q.droppedVideoFrames, total: q.totalVideoFrames })) {
+        window.clearInterval(id)
+        struggle.current()
+      }
+    }, 1000)
+    v.addEventListener('seeking', settle)
+    v.addEventListener('loadeddata', settle)
+    v.addEventListener('play', settle)
+    document.addEventListener('fullscreenchange', settle)
+    return () => {
+      window.clearInterval(id)
+      v.removeEventListener('seeking', settle)
+      v.removeEventListener('loadeddata', settle)
+      v.removeEventListener('play', settle)
+      document.removeEventListener('fullscreenchange', settle)
+    }
+  }, [videoRef])
   useEffect(() => {
     const v = videoRef.current as
       | (HTMLVideoElement & { requestVideoFrameCallback?: (cb: (now: number) => void) => number; cancelVideoFrameCallback?: (h: number) => void })

@@ -5,7 +5,7 @@
 export const IS_TV: boolean =
   __WEBOS__ ||
   (typeof navigator !== 'undefined' &&
-    /Web0S|webOS|Tizen|SMART-TV|SmartTV|NetCast|HbbTV|BRAVIA|AFT[A-Z]|Android TV|GoogleTV|CrKey/i.test(
+    /Web0S|webOS|Tizen|SMART-TV|SmartTV|NetCast|HbbTV|BRAVIA|AFT[A-Z]|Android TV|GoogleTV|CrKey|VIDAA|Hisense|NETTV|Viera|AQUOSBrowser|Vestel|Opera TV|OPR\/[\d.]+ TV/i.test(
       navigator.userAgent,
     ))
 
