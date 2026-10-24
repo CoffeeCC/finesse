@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Smooth full screen on TV browsers — v3.0.8 (2026-10-24)
+
+- **The ambient glow steps aside when a screen can't keep up.** Some TV browsers stuttered in full
+  screen: the glow behind the picture (the scene, blurred into the bars) is heavy for a TV's
+  graphics chip. Finesse now watches for dropped frames while playing; if the screen is dropping
+  them, it turns the glow off, says so, and remembers that for the device. On a software-rendered
+  browser in testing, playback went from 28% of frames dropped to none.
+- **More TVs are recognized** (Hisense/VIDAA, Philips, Panasonic, Sharp, Vestel, Opera TV), so
+  their browsers get the TV layout and remote controls, without the glow, from the start.
+
 ## A page for every movie you can request — v3.0.7 (2026-10-23)
 
 - **Tap a poster on the Request page to see the movie.** Trending, Popular, Recommended and search
