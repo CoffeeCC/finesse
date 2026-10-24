@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   arrAdd,
@@ -20,6 +20,7 @@ import RequestedSection from '../components/RequestedSection'
 import QualityModal from '../components/QualityModal'
 import SabPanel from '../components/SabPanel'
 import { useToast } from '../components/Toast'
+import { movieHref, movieState } from './RequestMoviePage'
 
 type ItemState = 'idle' | 'adding' | 'requested'
 
@@ -188,10 +189,22 @@ export default function RequestPage() {
                 key={keyOf(r)}
                 className="flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
               >
-                <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
+                {r.kind === 'movie' && r.tmdbId ? (
+                  <Link to={movieHref(r.tmdbId)} state={movieState(r)} aria-label={`${r.title}: details`} className="shrink-0 rounded-lg outline-none ring-accent-400 transition hover:brightness-110 focus-visible:ring-2">
+                    <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
+                  </Link>
+                ) : (
+                  <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
+                )}
                 <div className="min-w-0 flex-1 flex flex-col">
                   <p className="text-sm font-semibold text-white leading-tight">
-                    {r.title}
+                    {r.kind === 'movie' && r.tmdbId ? (
+                      <Link to={movieHref(r.tmdbId)} state={movieState(r)} tabIndex={-1} className="hover:underline">
+                        {r.title}
+                      </Link>
+                    ) : (
+                      r.title
+                    )}
                     {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
                   </p>
                   <p className="mt-1 text-xs text-ink-400 line-clamp-3">{r.overview}</p>
@@ -320,7 +333,13 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
   const [broken, setBroken] = useState(false)
   return (
     <div className="w-32 shrink-0 sm:w-36">
-      <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-ink-800" title={m.overview}>
+      <Link
+        to={movieHref(m.tmdbId!)}
+        state={movieState(m)}
+        aria-label={`${m.title}${m.year ? ` (${m.year})` : ''}: details`}
+        className="relative block aspect-[2/3] overflow-hidden rounded-xl bg-ink-800 outline-none ring-accent-400 transition hover:brightness-110 focus-visible:ring-2"
+        title={m.overview}
+      >
         {m.poster && !broken ? (
           <img src={m.poster} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
         ) : (
@@ -331,10 +350,10 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
             {m.title}
           </div>
         )}
-      </div>
-      <p className="mt-1.5 truncate text-[13px] font-semibold text-white" title={m.title}>
+      </Link>
+      <Link to={movieHref(m.tmdbId!)} state={movieState(m)} tabIndex={-1} className="mt-1.5 block truncate text-[13px] font-semibold text-white hover:underline" title={m.title}>
         {m.title}
-      </p>
+      </Link>
       <p className="text-[11px] text-ink-400">{m.year ?? ''}</p>
       <div className="mt-1.5">
         {m.existing ? (

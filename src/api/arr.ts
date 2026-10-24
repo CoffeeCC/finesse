@@ -232,6 +232,60 @@ export async function arrDiscover(): Promise<DiscoverMovie[]> {
   return out
 }
 
+/** One movie's details, for the page a Discover poster or a search result opens. */
+export interface MovieDetails extends ArrResult {
+  backdrop?: string
+  runtime?: number
+  genres: string[]
+  certification?: string
+  studio?: string
+  originalTitle?: string
+  /** YouTube id of the trailer, when TMDb has one. */
+  trailer?: string
+  imdbId?: string
+  ratings: { label: string; value: string }[]
+  /** When it's out in cinemas, digitally and on disc (ISO dates), when known. */
+  released: { label: string; date: string }[]
+}
+
+export function toMovieDetails(m: Record<string, unknown>): MovieDetails {
+  const base = mapMovie(m)
+  const images = (m.images as ArrImage[] | undefined) ?? []
+  const fanart = images.find((i) => i.coverType === 'fanart')
+  const r = (m.ratings as Record<string, { value?: number } | undefined> | undefined) ?? {}
+  const ratings: { label: string; value: string }[] = []
+  if (r.imdb?.value) ratings.push({ label: 'IMDb', value: r.imdb.value.toFixed(1) })
+  if (r.tmdb?.value) ratings.push({ label: 'TMDb', value: r.tmdb.value.toFixed(1) })
+  if (r.rottenTomatoes?.value) ratings.push({ label: 'Rotten Tomatoes', value: `${Math.round(r.rottenTomatoes.value)}%` })
+  if (r.metacritic?.value) ratings.push({ label: 'Metacritic', value: String(Math.round(r.metacritic.value)) })
+  const released: { label: string; date: string }[] = []
+  for (const [key, label] of [['inCinemas', 'In cinemas'], ['digitalRelease', 'Digital'], ['physicalRelease', 'On disc']] as const) {
+    const d = m[key]
+    if (typeof d === 'string' && d) released.push({ label, date: d })
+  }
+  const title = base.title
+  const original = typeof m.originalTitle === 'string' && m.originalTitle !== title ? m.originalTitle : undefined
+  return {
+    ...base,
+    backdrop: [fanart?.remoteUrl, fanart?.url].find((u) => u && /^https?:\/\//i.test(u)),
+    runtime: typeof m.runtime === 'number' && m.runtime > 0 ? m.runtime : undefined,
+    genres: Array.isArray(m.genres) ? (m.genres as string[]) : [],
+    certification: (m.certification as string) || undefined,
+    studio: (m.studio as string) || undefined,
+    originalTitle: original,
+    trailer: (m.youtubeTrailerId as string) || undefined,
+    imdbId: (m.imdbId as string) || undefined,
+    ratings,
+    released,
+  }
+}
+
+/** Radarr's details for one movie, by TMDb id (whether or not it's in the library). */
+export async function arrMovieDetails(tmdbId: number): Promise<MovieDetails> {
+  const m = await arrFetch<Record<string, unknown>>('movie', `/movie/lookup/tmdb?tmdbId=${tmdbId}`)
+  return toMovieDetails(m)
+}
+
 /** Search TMDb/TVDb via the *arr lookup endpoint. Results flag what's already
  *  in the library (id > 0), so the UI can show In Library / Requested / Add. */
 export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[]> {
