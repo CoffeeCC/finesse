@@ -1,4 +1,5 @@
 import type { JfAuthResult, JfItem, JfItemsResult, JfPlaybackInfo } from './types'
+import { deviceNameFor } from '../lib/deviceName'
 import { getPrefs } from '../lib/settings'
 import { peerBase, peerOf, tagAnswer, untag } from '../lib/peers'
 
@@ -60,41 +61,7 @@ const CLIENT_VERSION = __APP_VERSION__
 /** How this device shows up in Jellyfin's session list — and so in every "Play
  *  on…" menu. Every Finesse used to call itself "Web", so a phone couldn't tell
  *  the TV from the laptop. ASCII only (it goes in an HTTP header). */
-export const DEVICE_NAME = (() => {
-  if (__WEBOS__) return 'LG TV'
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
-  const device = /iPhone/.test(ua)
-    ? 'iPhone'
-    : /iPad|Macintosh.*Mobile/.test(ua)
-      ? 'iPad'
-      : /Android/.test(ua)
-        ? /Mobile/.test(ua) ? 'Android phone' : 'Android tablet'
-        : /Web0S|webOS/.test(ua)
-          ? 'LG TV'
-          : /Tizen/.test(ua)
-            ? 'Samsung TV'
-            : /AFT[A-Z]/.test(ua)
-              ? 'Fire TV'
-              : /CrOS/.test(ua)
-                ? 'Chromebook'
-                : /Windows/.test(ua)
-                  ? 'Windows'
-                  : /Mac OS X/.test(ua)
-                    ? 'Mac'
-                    : /Linux/.test(ua)
-                      ? 'Linux'
-                      : 'Browser'
-  const browser = /Edg\//.test(ua)
-    ? 'Edge'
-    : /Firefox\//.test(ua)
-      ? 'Firefox'
-      : /Chrome\//.test(ua)
-        ? 'Chrome'
-        : /Safari\//.test(ua)
-          ? 'Safari'
-          : ''
-  return /TV$/.test(device) || !browser ? device : `${browser} on ${device}`
-})()
+export const DEVICE_NAME = deviceNameFor(typeof navigator !== 'undefined' ? navigator.userAgent : '', __WEBOS__)
 
 let session: Session | null = loadSession()
 
