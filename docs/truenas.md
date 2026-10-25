@@ -78,6 +78,11 @@ Finesse updates itself: admins get an **Update** dot, and **Settings → Updates
 details. TrueNAS keeps showing the app correctly afterwards. TrueNAS's own **Update** button for
 the app works too.
 
+This needs the published image (`ghcr.io/coffeecc/finesse`, as in the YAML above). If you built
+Finesse on the NAS yourself (`build:` in the YAML, an image like `finesse:2.5.16`), only the
+screens can update; Settings → Updates says so. To fix it, edit the app's YAML: remove `build:`
+and `pull_policy:`, and set `image: ghcr.io/coffeecc/finesse:latest`. Everything else stays.
+
 ## Backups
 
 Finesse backs up its settings nightly. **Settings → Server → Backups → Back up now** can also
