@@ -124,12 +124,17 @@ export function MoonlightSteps({ app, launcher, consoleName }: { app: StreamEmul
 
 /** Start the game in a Moonlight session that's already open (Wolf starts the emulator with it). */
 export function StartOnDevice({ rom, profile }: { rom: number; profile: string | undefined }) {
+  return <SessionPicker start={(session) => streamingApi.play(rom, session, profile)} />
+}
+
+/** The Moonlight sessions open right now, each with a button that starts something on that screen. */
+export function SessionPicker({ start, intro }: { start: (session: string) => Promise<{ app: string }>; intro?: string }) {
   const [state, setState] = useState<{ busy?: string; done?: string; err?: string }>({})
   const { data, isLoading, refetch } = useQuery({ queryKey: ['streaming', 'sessions'], queryFn: streamingApi.sessions, refetchInterval: 5000 })
   const sessions = data?.sessions ?? []
   return (
     <div className="space-y-3">
-      <p className="text-[14px] leading-relaxed text-ink-300">Open Moonlight on the TV first (Wolf UI is fine), then pick it here. The game starts on that screen.</p>
+      <p className="text-[14px] leading-relaxed text-ink-300">{intro ?? 'Open Moonlight on the TV first (Wolf UI is fine), then pick it here. The game starts on that screen.'}</p>
       {isLoading ? (
         <p className="text-[13px] text-ink-400">Looking for open Moonlight sessions…</p>
       ) : !data?.ok ? (
@@ -155,9 +160,8 @@ export function StartOnDevice({ rom, profile }: { rom: number; profile: string |
                 disabled={Boolean(state.busy)}
                 onClick={() => {
                   setState({ busy: s.id })
-                  streamingApi
-                    .play(rom, s.id, profile)
-                    .then((r) => setState({ done: `Starting in ${r.app}. Look at the screen with Moonlight.` }))
+                  start(s.id)
+                    .then((r) => setState({ done: `Starting ${r.app}. Look at the screen with Moonlight.` }))
                     .catch((e: Error) => setState({ err: e.message }))
                 }}
               >

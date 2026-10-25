@@ -49,9 +49,12 @@ async function fakeWolf(socket: string) {
     const url = new URL(req.url ?? '/', 'http://wolf')
     if (req.method === 'GET' && url.pathname === '/api/v1/apps') return send(res, 200, { success: true, apps: [otherApp('Wolf UI', '5')] })
     if (req.method === 'GET' && url.pathname === '/api/v1/profiles') return send(res, 200, { success: true, profiles })
+    if (req.method === 'GET' && url.pathname === '/api/v1/sessions') return send(res, 200, { success: true, sessions: [{ client_id: '555', client_ip: '192.168.1.80', app_id: '5', aes_key: 'SECRET' }] })
     if (req.method === 'POST') {
       const body = await read(req)
       bodies.push({ path: url.pathname, body })
+      // Like Wolf: starts the runner and never answers.
+      if (url.pathname === '/api/v1/runners/start') return
       if (url.pathname === '/api/v1/profiles/remove') {
         profiles = profiles.filter((p) => p.id !== body.id)
         return send(res, 200, { success: true })
@@ -198,6 +201,36 @@ describe('Steam shortcuts in Wolf', () => {
     assert.deepEqual(user.apps.find((a: any) => a.title === 'Path of Exile 2'), { id: 'finesse-steam-2694490', title: 'Path of Exile 2', hdr: false, icon: true, steam: 2694490 })
     const list = await call('GET', '/api/streaming/steam', ADMIN_TOKEN)
     assert.equal(list.data.games.find((g: any) => g.appId === 2694490).added, true)
+  })
+
+  test('anyone at home starts it on a screen with Moonlight open; Wolf UI and unknown apps are refused', async () => {
+    const sessions = await call('GET', '/api/streaming/sessions', USER_TOKEN)
+    const session = sessions.data.sessions[0].id
+    assert.ok(!JSON.stringify(sessions.data).includes('555'), 'Wolf’s own session id stays on the server')
+    const r = await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session })
+    assert.equal(r.status, 202)
+    assert.equal(r.data.app, 'Path of Exile 2')
+    const sent = wolf.bodies.filter((b) => b.path === '/api/v1/runners/start').at(-1)!.body
+    assert.equal(sent.session_id, '555')
+    assert.ok(sent.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
+    assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: '5', session })).status, 404)
+    assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'nope', session })).status, 404)
+    assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'gone' })).status, 404)
+    assert.equal((await call('POST', '/api/streaming/launch', undefined, { app: 'finesse-steam-2694490', session })).status, 401)
+  })
+
+  test('a profile with a PIN: only an administrator starts its apps from here', async () => {
+    const user = wolf.profiles().find((p) => p.id === 'user')!
+    user.pin = [1, 2, 3, 4]
+    try {
+      const session = (await call('GET', '/api/streaming/sessions', USER_TOKEN)).data.sessions[0].id
+      const r = await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session })
+      assert.equal(r.status, 403)
+      assert.match(r.data.message ?? r.data.error ?? '', /PIN/)
+      assert.equal((await call('POST', '/api/streaming/launch', ADMIN_TOKEN, { app: 'finesse-steam-2694490', session })).status, 202)
+    } finally {
+      delete user.pin
+    }
   })
 
   test('removing it takes out only the shortcut', async () => {

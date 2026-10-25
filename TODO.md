@@ -47,6 +47,11 @@
 - **Screens never get ahead of the server.** Web-only updates stop at the server's own x.y
   (2.5.16 takes 2.5.x screens, not 3.2.0), so there are no buttons the server can't answer.
 - docs/truenas.md: how to move a self-built TrueNAS app to the published image.
+- **Click a game to play it.** Tiles in "Stream from your server" (Steam games, Kodi, Firefox…)
+  open a small window: pick the screen that has Moonlight open and the app starts there, like
+  choosing it in Wolf UI. Apps in a Wolf profile with a PIN: administrators only.
+- **Fixed: the Add Steam games window opened far down the page.** It (and the new play window)
+  now always opens over the screen, and the page behind stays put.
 
 ## Steam games get their own tiles — v3.2.0 (2026-10-25)
 
