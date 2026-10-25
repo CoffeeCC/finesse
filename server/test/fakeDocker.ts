@@ -27,11 +27,14 @@ export interface FakeDocker {
   socket: string
   server: Server
   joined: { network: string; container: string }[]
+  /** What Finesse did to containers: "create finesse-sonarr", "stop …", "remove …", "start …". */
+  calls: string[]
   close: () => Promise<void>
 }
 
 export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocker> {
   const joined: { network: string; container: string }[] = []
+  const calls: string[] = []
   const find = (ref: string) => containers.find((c) => c.id === ref || c.name === ref)
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://docker')
@@ -40,6 +43,26 @@ export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocke
       res.end(typeof body === 'string' ? body : JSON.stringify(body))
     }
     if (url.pathname === '/_ping') return void res.end('OK')
+    if (url.pathname.endsWith('/version')) return send(200, { Version: '27.3.1', Os: 'linux', Arch: 'amd64', ApiVersion: '1.47' })
+    if (url.pathname.endsWith('/info')) return send(200, { NCPU: 4, MemTotal: 8e9, OperatingSystem: 'Fake OS' })
+    if (/^\/images\/.+\/json$/.test(url.pathname)) return send(200, { Id: 'sha256:fake' })
+    let a = /^\/containers\/([^/]+)\/(start|stop)$/.exec(url.pathname)
+    if (a && req.method === 'POST') {
+      calls.push(`${a[2]} ${decodeURIComponent(a[1]!)}`)
+      res.writeHead(204)
+      return void res.end()
+    }
+    if (url.pathname === '/containers/create' && req.method === 'POST') {
+      calls.push(`create ${url.searchParams.get('name')}`)
+      req.resume()
+      return void req.on('end', () => send(201, { Id: 'new' }))
+    }
+    a = /^\/containers\/([^/]+)$/.exec(url.pathname)
+    if (a && req.method === 'DELETE') {
+      calls.push(`remove ${decodeURIComponent(a[1]!)}`)
+      res.writeHead(204)
+      return void res.end()
+    }
     if (url.pathname === '/containers/json') {
       return send(200, containers.map((c) => ({ Id: c.id, Names: [`/${c.name}`], Image: c.image, State: c.running === false ? 'exited' : 'running', Status: '', Labels: c.labels ?? {} })))
     }
@@ -94,6 +117,7 @@ export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocke
     socket,
     server,
     joined,
+    calls,
     close: () => new Promise<void>((r) => server.close(() => r())),
   }
 }

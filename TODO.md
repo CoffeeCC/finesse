@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Two Finesses, one Docker — v3.1.1 (2026-10-24)
+
+- **Trying Finesse next to the one you use can't replace its apps.** Every app Finesse makes is now
+  stamped with which Finesse made it (`finesse.instance`, added after the spec hash, so updating
+  doesn't restart anything). A fresh Finesse that finds another Finesse's apps on the same Docker
+  stops at **This machine** and says so, the build refuses too, and Finesse never stops or
+  replaces an app stamped by another Finesse. Apps from before the stamp count as yours once your
+  Finesse has built its stack. **Use the apps I already have** now finds the other Finesse's apps,
+  so a second Finesse can share them without touching them. Tests: `server/test/secondFinesse.test.ts`.
+
 ## Use the apps you already have — v3.1.0 (2026-10-24)
 
 - **Already run Jellyfin, Sonarr, Radarr and the rest? Setup connects to them.** The setup page now

@@ -12,7 +12,7 @@ import { Orchestrator } from './orchestrator.ts'
 export { isNative } from './host.ts'
 
 export function createHost(settings: SettingsStore): StackHost {
-  if (!isNative()) return new Orchestrator()
+  if (!isNative()) return new Orchestrator(undefined, settings.get().instanceId)
   return new NativeHost(stackBase().hostRoot, { askToStop: (id, url) => askToStop(settings, id, url) })
 }
 

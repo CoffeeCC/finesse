@@ -107,7 +107,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
       const base = stackBase()
       // Join the stack network now, so later checks can reach apps on it.
       await runner.orch.prepareNetwork({ ...base, timezone: 'Etc/UTC', exposeJellyfin: false, jellyfinPort: 8096 }).catch(() => {})
-      sendJson(res, 200, await checkSystem(runner.orch, { root: base.hostRoot, data: base.hostData }))
+      sendJson(res, 200, await checkSystem(runner.orch, { root: base.hostRoot, data: base.hostData }, { haveStack: Boolean(settings.get().stack) }))
     })
 
     router.post('/api/setup/check/usenet', async ({ req, res }) => {
@@ -204,7 +204,7 @@ export function setupPlugin(runnerRef: { runner?: SetupRunner } = {}): Plugin {
     router.post('/api/setup/existing/scan', async ({ req, res }) => {
       beforeSetup(req)
       const { docker, me } = await dockerHost()
-      const { result, secrets } = await scan({ docker, me, hosts: lookHosts(), extraDirs: extraDirs() })
+      const { result, secrets } = await scan({ docker, me, hosts: lookHosts(), extraDirs: extraDirs(), instance: settings.get().instanceId })
       found = secrets
       sendJson(res, 200, result)
     })

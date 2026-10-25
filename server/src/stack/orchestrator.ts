@@ -20,6 +20,8 @@ const log = logger('stack')
 export const LABEL_MANAGED = 'finesse.managed'
 export const LABEL_SERVICE = 'finesse.service'
 export const LABEL_SPEC = 'finesse.spec'
+/** Which Finesse made the app (its instanceId), so a second Finesse on the same Docker never takes it over. */
+export const LABEL_INSTANCE = 'finesse.instance'
 
 export function serviceUrl(id: StackServiceId): string {
   const def = CATALOG[id]
@@ -92,8 +94,29 @@ export class Orchestrator implements StackHost {
   readonly kind = 'docker'
   readonly docker: Docker
 
-  constructor(docker = new Docker()) {
+  /** This Finesse's instanceId: stamped on every app it makes, and checked before it touches one. */
+  instance?: string
+
+  constructor(docker = new Docker(), instance?: string) {
     this.docker = docker
+    this.instance = instance
+  }
+
+  /**
+   * Apps another Finesse made on this Docker (container names). Building here would replace them.
+   * An app with no stamp (made before 3.1.1) counts as someone else's only when this Finesse
+   * hasn't built a stack of its own yet.
+   */
+  async foreignApps(haveStack: boolean): Promise<string[]> {
+    const list = await this.docker.list({ label: [`${LABEL_MANAGED}=true`] }, true)
+    const out: string[] = []
+    for (const c of list) {
+      const svc = c.Labels[LABEL_SERVICE]
+      if (c.Labels[LABEL_MANAGED] !== 'true' || !svc || !(svc in CATALOG)) continue
+      const owner = c.Labels[LABEL_INSTANCE]
+      if (owner ? owner !== this.instance : !haveStack) out.push((c.Names[0] ?? containerName(svc as StackServiceId)).replace(/^\//, ''))
+    }
+    return out.sort()
   }
 
   supports(_id: StackServiceId): boolean {
@@ -339,9 +362,15 @@ export class Orchestrator implements StackHost {
     const spec = containerSpec(def, ctx)
     const hash = specHash(spec)
     ;(spec.Labels as Record<string, string>)[LABEL_SPEC] = hash
+    // After the hash, like the spec stamp: adding it never recreates an app that's already right.
+    if (this.instance) (spec.Labels as Record<string, string>)[LABEL_INSTANCE] = this.instance
     const existing = await this.docker.inspect(name)
     if (existing && existing.Config.Labels?.[LABEL_MANAGED] !== 'true') {
       throw new DockerError(409, `A container named "${name}" already exists and isn't managed by Finesse — rename or remove it`)
+    }
+    const owner = existing?.Config.Labels?.[LABEL_INSTANCE]
+    if (owner && this.instance && owner !== this.instance) {
+      throw new DockerError(409, `"${name}" belongs to another Finesse on this Docker — Finesse won't replace it`)
     }
     let created = false
     if (!existing || opts.forceRecreate || existing.Config.Labels?.[LABEL_SPEC] !== hash) {
