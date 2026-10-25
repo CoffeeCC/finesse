@@ -297,6 +297,10 @@ export class SetupRunner {
 
     await this.run('check', async () => {
       if (!(await orch.ping())) throw new Error('Finesse can’t reach Docker — start it with /var/run/docker.sock mounted')
+      if (orch instanceof Orchestrator) {
+        const others = await orch.foreignApps(Boolean(this.settings.get().stack))
+        if (others.length) throw new Error(`Another Finesse already runs its apps on this Docker (${others.join(', ')}) — Finesse won’t replace them. Use that Finesse, or connect to the apps you already have.`)
+      }
       const missing = services.filter((id) => !orch.supports(id))
       if (missing.length) throw new Error(`${missing.map((id) => CATALOG[id].name).join(', ')} can’t run on Windows yet — turn ${missing.length > 1 ? 'them' : 'it'} off and try again`)
       ctx.hostDevices = await orch.hostDevices()

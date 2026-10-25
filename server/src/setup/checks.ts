@@ -29,7 +29,7 @@ export interface Verdict {
 // System
 // ---------------------------------------------------------------------------
 
-export async function checkSystem(host: StackHost, paths: { root: string; data: string }): Promise<{ ok: boolean; items: (Verdict & { id: string; title: string })[] }> {
+export async function checkSystem(host: StackHost, paths: { root: string; data: string }, opts: { haveStack?: boolean } = {}): Promise<{ ok: boolean; items: (Verdict & { id: string; title: string })[] }> {
   const items: (Verdict & { id: string; title: string })[] = []
   const docker = host instanceof Orchestrator ? host.docker : null
   const reachable = await host.ping()
@@ -76,6 +76,18 @@ export async function checkSystem(host: StackHost, paths: { root: string; data: 
       message: free ? 'Port 8096 is free for native Jellyfin apps' : 'Port 8096 is already in use (another Jellyfin?) — Finesse will use the next free port',
     })
   }
+  if (host instanceof Orchestrator && v) {
+    const others = await host.foreignApps(Boolean(opts.haveStack)).catch(() => [] as string[])
+    if (others.length) {
+      items.push({
+        id: 'others',
+        title: 'Another Finesse',
+        ok: false,
+        message: `Another Finesse already runs its apps on this Docker (${others.join(', ')}). Building here would replace them — use that Finesse, or pick “Use the apps I already have”. If they’re left over from a Finesse you removed, delete those containers first.`,
+        detail: { containers: others },
+      })
+    }
+  }
   const info = docker && reachable ? await docker.info().catch(() => null) : null
   items.push({
     id: 'machine',
@@ -83,7 +95,7 @@ export async function checkSystem(host: StackHost, paths: { root: string; data: 
     ok: true,
     message: `${info?.NCPU ?? cpus().length} CPU cores, ${Math.round((info?.MemTotal ?? totalmem()) / 1e9)} GB memory${info?.OperatingSystem ? `, ${info.OperatingSystem}` : ''}`,
   })
-  return { ok: items.filter((i) => ['docker', 'data', 'root'].includes(i.id)).every((i) => i.ok), items }
+  return { ok: items.filter((i) => ['docker', 'data', 'root', 'others'].includes(i.id)).every((i) => i.ok), items }
 }
 
 // ---------------------------------------------------------------------------

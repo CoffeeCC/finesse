@@ -295,13 +295,18 @@ export function appOfImage(image: string): ExistingId | null {
   return EXISTING_IDS.find((id) => DEFS[id].image.test(n)) ?? null
 }
 
-async function fromDocker(docker: Docker, me: ContainerInspect | null, extraHosts: string[]): Promise<Candidate[]> {
+async function fromDocker(docker: Docker, me: ContainerInspect | null, extraHosts: string[], instance?: string): Promise<Candidate[]> {
   const out: Candidate[] = []
   const all = await docker.list()
   const myNets = new Set(Object.keys(me?.NetworkSettings.Networks ?? {}).filter((n) => !['bridge', 'host', 'none'].includes(n)))
   const gateways = [...new Set([...Object.values(me?.NetworkSettings.Networks ?? {}).map((n) => n.Gateway).filter((g): g is string => Boolean(g)), ...extraHosts, 'host.docker.internal', '172.17.0.1'])]
   for (const c of all) {
-    if (c.Labels?.['finesse.managed'] === 'true') continue // Finesse's own apps
+    // This Finesse's own apps are skipped; another Finesse's (stamped with its id, or made before
+    // the stamp existed) are apps like any other, and connecting to them leaves them untouched.
+    if (c.Labels?.['finesse.managed'] === 'true') {
+      const owner = c.Labels['finesse.instance']
+      if (!instance || owner === instance) continue
+    }
     if (me && c.Id === me.Id) continue
     const id = appOfImage(c.Image)
     if (!id) continue
@@ -430,7 +435,7 @@ async function fromComputer(hosts: string[], extraDirs: string[]): Promise<Candi
 }
 
 /** Looks everywhere it can, then checks each find. Secrets go in `secrets`, never in the result. */
-export async function scan(opts: { docker?: Docker | null; me?: ContainerInspect | null; hosts?: string[]; extraDirs?: string[]; joinNetworks?: boolean; computer?: boolean }): Promise<{ result: ScanResult; secrets: Secrets }> {
+export async function scan(opts: { docker?: Docker | null; me?: ContainerInspect | null; hosts?: string[]; extraDirs?: string[]; joinNetworks?: boolean; computer?: boolean; instance?: string }): Promise<{ result: ScanResult; secrets: Secrets }> {
   const looked: string[] = []
   const candidates: Candidate[] = []
   // This computer, plus (in Docker) the host it runs on, where apps installed without Docker live.
@@ -438,7 +443,7 @@ export async function scan(opts: { docker?: Docker | null; me?: ContainerInspect
   const hosts = [...new Set(['127.0.0.1', ...(opts.hosts ?? []), ...gateways])]
   if (opts.docker) {
     try {
-      candidates.push(...(await fromDocker(opts.docker, opts.me ?? null, opts.hosts ?? [])))
+      candidates.push(...(await fromDocker(opts.docker, opts.me ?? null, opts.hosts ?? [], opts.instance)))
       looked.push('in your Docker containers')
     } catch (e) {
       log.warn(`couldn't list containers: ${(e as Error).message}`)

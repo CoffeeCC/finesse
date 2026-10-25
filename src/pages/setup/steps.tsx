@@ -146,7 +146,7 @@ export function stepBlocker(step: StepId, d: Draft, ctx: { codeOk: boolean; syst
 // ---------------------------------------------------------------------------
 
 export function MachineStep({ system, info, recheck, checking }: StepProps & { recheck: () => void; checking: boolean }) {
-  const order = ['docker', 'data', 'root', 'tun', 'gpu', 'ports', 'machine']
+  const order = ['others', 'docker', 'data', 'root', 'tun', 'gpu', 'ports', 'machine']
   const items = [...(system?.items ?? [])].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
   const data = items.find((i) => i.id === 'data')?.detail as { free?: number; path?: string; low?: boolean } | undefined
   return (
@@ -172,7 +172,11 @@ export function MachineStep({ system, info, recheck, checking }: StepProps & { r
           ))}
         </ul>
       )}
-      {system && !system.ok && (
+      {system && !system.ok && items.some((i) => i.id === 'others' && !i.ok) ? (
+        <Callout tone="error" title="Your other Finesse is safe">
+          Finesse stopped here so it doesn’t replace the apps another Finesse runs on this machine. Go <b>Back</b> and pick <b>Use the apps I already have</b> to share them, or keep using that Finesse.
+        </Callout>
+      ) : system && !system.ok && (
         <Callout tone="error" title="Finesse can’t continue yet">
           The problems marked in red need fixing on this machine first — the install guide’s troubleshooting section walks through each one. Then press <b>Check again</b>.
         </Callout>
