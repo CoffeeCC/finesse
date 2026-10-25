@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { streamingApi, type StreamApp, type StreamProfile } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
+import LaunchDialog from './LaunchDialog'
 import SteamGamesDialog from './SteamGamesDialog'
 
 /** A steady colour per app, for apps without an icon. */
@@ -12,13 +13,18 @@ function tint(title: string): string {
   return `linear-gradient(150deg, hsl(${h} 45% 34%), hsl(${(h + 40) % 360} 50% 18%))`
 }
 
-function AppTile({ app }: { app: StreamApp }) {
+function AppTile({ app, onOpen }: { app: StreamApp; onOpen?: (app: StreamApp) => void }) {
   const [broken, setBroken] = useState(false)
   // A Steam game shows its own cover; other apps their Wolf icon.
   const src = app.steam ? streamingApi.steamArtUrl(app.steam) : app.icon ? streamingApi.iconUrl(app.id) : null
+  // Wolf UI is Moonlight's own menu: nothing to start from here.
+  const Tag = onOpen && !app.launcher ? 'button' : 'div'
   return (
-    <div className="w-28 shrink-0">
-      <div className="relative h-28 w-28 overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5" style={src && !broken ? undefined : { background: tint(app.title) }}>
+    <Tag
+      {...(Tag === 'button' ? { type: 'button' as const, onClick: () => onOpen!(app), 'aria-label': `Play ${app.title}` } : {})}
+      className={`w-28 shrink-0 text-left ${Tag === 'button' ? 'group rounded-xl focus-visible:outline-2 focus-visible:outline-accent-400' : ''}`}
+    >
+      <div className="relative h-28 w-28 overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5 transition group-hover:ring-white/30" style={src && !broken ? undefined : { background: tint(app.title) }}>
         {src && !broken ? (
           <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
         ) : (
@@ -28,16 +34,16 @@ function AppTile({ app }: { app: StreamApp }) {
         )}
         {app.hdr && <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">HDR</span>}
       </div>
-      <p className="mt-2 truncate text-sm font-medium text-ink-200">{app.title}</p>
-    </div>
+      <p className="mt-2 truncate text-sm font-medium text-ink-200 group-hover:text-white">{app.title}</p>
+    </Tag>
   )
 }
 
-function Row({ apps }: { apps: StreamApp[] }) {
+function Row({ apps, onOpen }: { apps: StreamApp[]; onOpen: (app: StreamApp) => void }) {
   return (
     <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
       {apps.map((a) => (
-        <AppTile key={a.id} app={a} />
+        <AppTile key={a.id} app={a} onOpen={onOpen} />
       ))}
     </div>
   )
@@ -55,6 +61,7 @@ export default function StreamingSection() {
   const direct = (data?.apps ?? []).filter((a) => !(a.launcher && profiles.length))
   const one = profiles.length === 1 ? profiles[0]! : null
   const [steamOpen, setSteamOpen] = useState(false)
+  const [launch, setLaunch] = useState<StreamApp | null>(null)
   const pill = 'inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.06] px-4 text-[13px] font-medium text-ink-100 hover:border-white/25 hover:text-white transition-colors'
 
   return (
@@ -79,6 +86,7 @@ export default function StreamingSection() {
           </div>
         )}
         {steamOpen && <SteamGamesDialog onClose={() => setSteamOpen(false)} />}
+        {launch && <LaunchDialog app={launch} onClose={() => setLaunch(null)} />}
       </div>
 
       {isLoading ? (
@@ -96,13 +104,13 @@ export default function StreamingSection() {
           {profiles.map((p) => (
             <div key={p.id}>
               {profiles.length > 1 && <p className="mb-2 text-[13px] font-semibold text-ink-300">{p.name}</p>}
-              <Row apps={p.apps} />
+              <Row apps={p.apps} onOpen={setLaunch} />
             </div>
           ))}
           {direct.length > 0 && (
             <div>
               {profiles.length > 0 && <p className="mb-2 text-[13px] font-semibold text-ink-300">Straight from Moonlight</p>}
-              <Row apps={direct} />
+              <Row apps={direct} onOpen={setLaunch} />
             </div>
           )}
         </div>

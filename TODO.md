@@ -38,6 +38,14 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Click a game to play it — v3.2.2 (2026-10-25)
+
+- **Click a game to play it.** Tiles in "Stream from your server" (Steam games, Kodi, Firefox…)
+  open a small window: pick the screen that has Moonlight open and the app starts there, like
+  choosing it in Wolf UI. Apps in a Wolf profile with a PIN: administrators only.
+- **Fixed: the Add Steam games window opened far down the page.** It (and the new play window)
+  now always opens over the screen, and the page behind stays put.
+
 ## Updates say when the server is behind — v3.2.1 (2026-10-25)
 
 - **A server that can only update its screens now says so.** Finesse built on the machine itself
