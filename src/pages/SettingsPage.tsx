@@ -300,6 +300,23 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
                 )}
                 {s?.error && ` · ${s.error}`}
               </p>
+              {s?.serverBehind && (
+                <div role="status" className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] px-4 py-3 text-[13px] leading-relaxed text-amber-100">
+                  <p className="font-semibold text-amber-200">The server is behind{s.server ? ` (it’s on ${s.server})` : ''}</p>
+                  <p className="mt-1 text-amber-100/90">
+                    Only these screens update from here, so newer features won’t work until the server does.{' '}
+                    {s.stuck ? (
+                      <>
+                        This server was built on its own machine, so it can’t update itself. Switch its image to{' '}
+                        <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[12px]">ghcr.io/coffeecc/finesse:latest</code>; after that, updates here
+                        include the server.
+                      </>
+                    ) : (
+                      'Update the server the way it was installed.'
+                    )}
+                  </p>
+                </div>
+              )}
               {s?.available && s.notes && (
                 <p className="mt-2 text-[13px] leading-relaxed text-ink-300 whitespace-pre-line line-clamp-4">{s.notes}</p>
               )}

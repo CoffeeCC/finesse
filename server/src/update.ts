@@ -199,6 +199,14 @@ export function installWebBuild(files: { path: string; data: Buffer }[], dest: s
   }
 }
 
+/** "3.2.1" → "3.2.0": versions in the same x.y work with the same server. */
+const minor = (v: string) => {
+  const [a = '0', b = '0'] = v.split('.')
+  return `${a}.${b}.0`
+}
+/** A web build this server can run: not past the server's x.y (a dev server, 0.0.0, takes any). */
+export const webFits = (web: string, server: string) => server.startsWith('0.0.0') || cmpVersion(minor(web), minor(server)) <= 0
+
 export class WebUpdater {
   private job: Job = { state: 'idle', step: null, message: '', version: null, finishedAt: null }
   private web: WebRoot
@@ -227,7 +235,15 @@ export class WebUpdater {
         out.kind = 'app'
         out.available = cmpVersion(rel.version, this.serverVersion) > 0 || (current !== null && cmpVersion(rel.version, current) > 0)
       } else {
-        out.available = Boolean(rel.asset) && (current === null || cmpVersion(rel.asset!.version, current) > 0)
+        // Only the web app updates here: never past the server's own x.y, or the screens
+        // would offer what the server can't do yet.
+        const fits = rel.asset ? webFits(rel.asset.version, this.serverVersion) : false
+        out.available = Boolean(rel.asset) && fits && (current === null || cmpVersion(rel.asset!.version, current) > 0)
+        out.serverBehind =
+          !this.serverVersion.startsWith('0.0.0') &&
+          (cmpVersion(minor(rel.version || '0.0.0'), minor(this.serverVersion)) > 0 || (current !== null && cmpVersion(minor(current), minor(this.serverVersion)) > 0))
+        // In Docker but not from Finesse's published image (built on the machine): it can't swap itself.
+        if (process.env.FINESSE_IN_DOCKER) out.stuck = true
       }
     } catch (e) {
       out.latest = null
@@ -256,6 +272,8 @@ export class WebUpdater {
       }
       const asset = rel.asset
       if (!asset) throw new ApiError(404, `Release ${rel.version || '(none)'} has no web build to install`)
+      if (!webFits(asset.version, this.serverVersion))
+        throw new ApiError(409, `Finesse ${asset.version} needs a newer server (this one is ${this.serverVersion}). Update the server first.`)
       this.job.step = 'downloading'
       this.job.version = asset.version
       const bundle = await this.gh.download(asset, MAX_WEB_BUNDLE)

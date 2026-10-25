@@ -143,6 +143,10 @@ export interface ServerUpdateStatus {
   version: string | null
   /** GitHub unreachable etc. — the status is still usable. */
   error?: string
+  /** Web-only updates: the server is older than the latest release (or than these screens). */
+  serverBehind?: boolean
+  /** In Docker but built on the machine, so the server can't update itself. */
+  stuck?: boolean
 }
 
 /** `check`: the server asks GitHub now rather than answering from its cache. */

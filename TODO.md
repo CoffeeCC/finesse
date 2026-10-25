@@ -38,6 +38,16 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Updates say when the server is behind — v3.2.1 (2026-10-25)
+
+- **A server that can only update its screens now says so.** Finesse built on the machine itself
+  (not from `ghcr.io/coffeecc/finesse`) can't swap its own server, so updates only changed the
+  web app, silently. Settings → Updates now shows "The server is behind (it's on 2.5.16)" and
+  how to fix it: switch the image to `ghcr.io/coffeecc/finesse:latest`.
+- **Screens never get ahead of the server.** Web-only updates stop at the server's own x.y
+  (2.5.16 takes 2.5.x screens, not 3.2.0), so there are no buttons the server can't answer.
+- docs/truenas.md: how to move a self-built TrueNAS app to the published image.
+
 ## Steam games get their own tiles — v3.2.0 (2026-10-25)
 
 - **Add your Steam games to Games.** On the Games page, administrators get **Add Steam games**:
