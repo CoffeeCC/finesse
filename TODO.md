@@ -38,6 +38,17 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Steam games get their own tiles — v3.2.0 (2026-10-25)
+
+- **Add your Steam games to Games.** On the Games page, administrators get **Add Steam games**:
+  it lists the games installed in Wolf's Steam (Steam's own tools like Proton are left out) with
+  their covers. Add one and it gets its own tile there, and its own app in Moonlight, that opens
+  Steam straight into the game; leaving the game lands in Big Picture. A shortcut shares the
+  Steam app's folder, so it's the same library, sign-in and saves. Remove takes out only the
+  shortcut. See `server/src/steam.ts`; tests in `server/test/steam.test.ts`.
+- Finesse reads the installed games with a short-lived container of its own image that sees just
+  Steam's folder, read-only, with no network. Covers come from Steam's store through Finesse.
+
 ## Two Finesses, one Docker — v3.1.1 (2026-10-24)
 
 - **Trying Finesse next to the one you use can't replace its apps.** Every app Finesse makes is now

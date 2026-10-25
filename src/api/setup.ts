@@ -345,6 +345,16 @@ export interface StreamApp {
   icon: boolean
   /** Wolf UI: what Moonlight opens to reach the profiles' apps. */
   launcher?: true
+  /** A Steam game shortcut: the game's Steam app id (for its artwork). */
+  steam?: number
+}
+
+export interface SteamGame {
+  appId: number
+  name: string
+  size: number
+  /** Already a shortcut in Wolf. */
+  added: boolean
 }
 
 export interface StreamProfile {
@@ -407,8 +417,14 @@ export interface StreamSession {
 
 export const streamingApi = {
   /** Everyone at home: what Wolf can stream. */
-  apps: () => call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; emulators?: StreamEmulator[]; error?: string }>('GET', '/api/streaming'),
+  apps: () => call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; emulators?: StreamEmulator[]; steam?: boolean; error?: string }>('GET', '/api/streaming'),
   iconUrl: (id: string) => withToken(finesseApi(`/api/streaming/apps/${encodeURIComponent(id)}/icon`)),
+  /** A Steam shortcut's cover art. */
+  steamArtUrl: (appId: number) => withToken(finesseApi(`/api/streaming/steam/art/${appId}`)),
+  /** Administrators: the games installed in Wolf's Steam, and which are shortcuts already. */
+  steamGames: () => call<{ ok: boolean; games: SteamGame[]; error?: string }>('GET', '/api/streaming/steam', undefined, { timeoutMs: 60000 }),
+  addSteam: (appId: number) => call<{ ok: boolean; title: string }>('POST', '/api/streaming/steam/shortcuts', { appId }, { timeoutMs: 60000 }),
+  removeSteam: (appId: number) => call<{ ok: boolean }>('DELETE', `/api/streaming/steam/shortcuts/${appId}`, undefined, { timeoutMs: 30000 }),
   admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
   pair: (request: string, pin: string, name: string) =>
     call<{ ok: boolean; error?: string; device?: { id: string; name: string } }>('POST', '/api/streaming/pair', { request, pin, name }, { timeoutMs: 30000 }),
