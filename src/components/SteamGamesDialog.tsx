@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { streamingApi, type SteamGame } from '../api/setup'
 import { pushBackHandler } from '../lib/back'
 import { useToast } from './Toast'
@@ -29,6 +30,22 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
   const { data, isLoading, refetch } = useQuery({ queryKey: ['streaming', 'steam'], queryFn: streamingApi.steamGames, staleTime: 30_000, retry: 0 })
 
   useEffect(() => pushBackHandler(() => (onClose(), true)), [onClose])
+  // The page behind stays put while the list scrolls.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+  // The page behind stays put while the list scrolls.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
     const raf = requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>('input, button[data-first]')?.focus({ preventScroll: true }))
@@ -57,7 +74,8 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  return (
+  // On <body>: inside the page, an animated parent turns "fixed" into "wherever the section is".
+  return createPortal(
     <div ref={dialogRef} className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label="Steam games">
       <button tabIndex={-1} className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-label="Close" onClick={onClose} />
       <div className="relative flex max-h-[calc(var(--vh)*90)] w-full flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-ink-900 shadow-2xl sm:max-w-lg sm:rounded-2xl">
@@ -121,6 +139,7 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

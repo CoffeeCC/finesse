@@ -435,6 +435,8 @@ export const streamingApi = {
     call<{ ok: boolean; error?: string; profiles?: string[]; changed?: boolean; readiness: EmulatorReadiness[] }>('PUT', '/api/streaming/emulators', s, { timeoutMs: 60000 }),
   /** Moonlight sessions open right now. */
   sessions: () => call<{ ok: boolean; sessions: StreamSession[]; error?: string }>('GET', '/api/streaming/sessions'),
+  /** Start one of Wolf's apps (a Steam game, Kodi…) in an open Moonlight session. */
+  launch: (app: string, session: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/launch', { app, session }, { timeoutMs: 30000 }),
   /** Start a RomM game in an open Moonlight session. */
   play: (rom: number, session: string, profile?: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/play', { rom, session, profile }, { timeoutMs: 30000 }),
 }

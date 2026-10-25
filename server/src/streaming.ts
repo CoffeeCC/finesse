@@ -534,6 +534,43 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     }
   })
 
+  // Everyone at home: start one of Wolf's apps (a Steam game, Kodi…) in a Moonlight session that's open,
+  // the way picking it in Wolf UI would. Apps in a profile with a PIN only an administrator starts from here.
+  router.post('/api/streaming/launch', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const socket = need()
+    const body = await readJson<{ app?: unknown; session?: unknown }>(req)
+    const appId = typeof body.app === 'string' ? body.app : ''
+    if (!appId) throw new ApiError(400, 'Which app?')
+    let list: WolfSession[]
+    let found: { apps: RawApp[]; profiles: RawProfile[] }
+    try {
+      const [l, appsR, profR] = await Promise.all([
+        sessions(socket),
+        wolfJson<{ apps?: RawApp[] }>(socket, 'GET', '/api/v1/apps'),
+        wolfJson<{ profiles?: RawProfile[] }>(socket, 'GET', '/api/v1/profiles').catch(() => ({ profiles: [] as RawProfile[] })),
+      ])
+      list = l
+      found = { apps: Array.isArray(appsR.apps) ? appsR.apps : [], profiles: (Array.isArray(profR.profiles) ? profR.profiles : []).filter((p) => typeof p.id === 'string' && Array.isArray(p.apps)) }
+    } catch (e) {
+      throw new ApiError(502, wolfProblem(e, socket))
+    }
+    const inProfile = found.profiles.map((p) => ({ p, a: p.apps.find((a) => a.id === appId) })).find((x) => x.a)
+    const app = inProfile?.a ?? found.apps.find((a) => a.id === appId)
+    if (!app || typeof app.title !== 'string' || LAUNCHER.test(app.title)) throw new ApiError(404, 'That app isn’t in Wolf anymore')
+    if (inProfile && Array.isArray(inProfile.p.pin) && inProfile.p.pin.length > 0 && !user.Policy?.IsAdministrator)
+      throw new ApiError(403, `${inProfile.p.name ?? 'That profile'} has a PIN. Start it in Moonlight, which asks for the PIN.`)
+    const session = list.find((x) => sessionId(x.client_id as string) === String(body.session ?? ''))
+    if (!session) throw new ApiError(404, 'That Moonlight session ended. Open Moonlight on the device, then try again.')
+    // Wolf starts the runner and doesn't answer when it worked; a quiet socket means it's starting.
+    const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner: app.runner, session_id: session.client_id }, { timeoutMs: 4000 })
+      .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
+      .catch((err: { code?: string }) => (err.code === 'ETIMEDOUT' ? null : wolfProblem(err, socket)))
+    if (sent) throw new ApiError(502, `Couldn’t start it: ${sent}`)
+    log.info(`launch: started ${app.title} in a Moonlight session`)
+    sendJson(res, 202, { ok: true, app: app.title })
+  })
+
   // Everyone at home: start a RomM game in an open Moonlight session, with its emulator.
   router.post('/api/streaming/play', async ({ req, res }) => {
     await auth.requireUser(req)
