@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { streamingApi, type StreamApp, type StreamProfile } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
+import SteamGamesDialog from './SteamGamesDialog'
 
 /** A steady colour per app, for apps without an icon. */
 function tint(title: string): string {
@@ -13,11 +14,13 @@ function tint(title: string): string {
 
 function AppTile({ app }: { app: StreamApp }) {
   const [broken, setBroken] = useState(false)
+  // A Steam game shows its own cover; other apps their Wolf icon.
+  const src = app.steam ? streamingApi.steamArtUrl(app.steam) : app.icon ? streamingApi.iconUrl(app.id) : null
   return (
     <div className="w-28 shrink-0">
-      <div className="relative h-28 w-28 overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5" style={app.icon && !broken ? undefined : { background: tint(app.title) }}>
-        {app.icon && !broken ? (
-          <img src={streamingApi.iconUrl(app.id)} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+      <div className="relative h-28 w-28 overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5" style={src && !broken ? undefined : { background: tint(app.title) }}>
+        {src && !broken ? (
+          <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-3xl font-semibold text-white/90" aria-hidden>
             {app.title.slice(0, 1)}
@@ -51,6 +54,8 @@ export default function StreamingSection() {
   const profiles: StreamProfile[] = launcher ? (data?.profiles ?? []) : []
   const direct = (data?.apps ?? []).filter((a) => !(a.launcher && profiles.length))
   const one = profiles.length === 1 ? profiles[0]! : null
+  const [steamOpen, setSteamOpen] = useState(false)
+  const pill = 'inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.06] px-4 text-[13px] font-medium text-ink-100 hover:border-white/25 hover:text-white transition-colors'
 
   return (
     <section className="mb-9" aria-labelledby="streaming-title">
@@ -62,13 +67,18 @@ export default function StreamingSection() {
           <p className="text-[13px] text-ink-400">Steam and more run here on the server, and you play on your TV, phone or computer with Moonlight.</p>
         </div>
         {isAdmin && (
-          <Link
-            to="/settings#settings-streaming"
-            className="inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.06] px-4 text-[13px] font-medium text-ink-100 hover:border-white/25 hover:text-white transition-colors"
-          >
-            Pair a device
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {data?.ok && data.steam && (
+              <button type="button" onClick={() => setSteamOpen(true)} className={pill}>
+                Add Steam games
+              </button>
+            )}
+            <Link to="/settings#settings-streaming" className={pill}>
+              Pair a device
+            </Link>
+          </div>
         )}
+        {steamOpen && <SteamGamesDialog onClose={() => setSteamOpen(false)} />}
       </div>
 
       {isLoading ? (

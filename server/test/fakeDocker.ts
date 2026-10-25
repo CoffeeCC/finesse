@@ -14,6 +14,7 @@ export interface FakeContainer {
   image: string
   running?: boolean
   labels?: Record<string, string>
+  env?: string[]
   networks?: Record<string, { IPAddress: string; Gateway?: string }>
   networkMode?: string
   /** "8989/tcp" → host port */
@@ -29,10 +30,14 @@ export interface FakeDocker {
   joined: { network: string; container: string }[]
   /** What Finesse did to containers: "create finesse-sonarr", "stop …", "remove …", "start …". */
   calls: string[]
+  /** Create bodies, by container name. */
+  created: Record<string, any>
   close: () => Promise<void>
 }
 
-export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocker> {
+/** `run` answers one-off containers (Docker's runOnce): what the command prints, given its create body. */
+export async function fakeDocker(containers: FakeContainer[], opts: { run?: (body: any) => string } = {}): Promise<FakeDocker> {
+  const created: Record<string, any> = {}
   const joined: { network: string; container: string }[] = []
   const calls: string[] = []
   const find = (ref: string) => containers.find((c) => c.id === ref || c.name === ref)
@@ -53,9 +58,21 @@ export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocke
       return void res.end()
     }
     if (url.pathname === '/containers/create' && req.method === 'POST') {
-      calls.push(`create ${url.searchParams.get('name')}`)
-      req.resume()
-      return void req.on('end', () => send(201, { Id: 'new' }))
+      const name = url.searchParams.get('name') ?? 'new'
+      calls.push(`create ${name}`)
+      let body = ''
+      req.on('data', (d) => (body += d))
+      return void req.on('end', () => {
+        created[name] = JSON.parse(body || '{}')
+        send(201, { Id: name })
+      })
+    }
+    let w = /^\/containers\/([^/]+)\/wait$/.exec(url.pathname)
+    if (w && req.method === 'POST') return send(200, { StatusCode: 0 })
+    w = /^\/containers\/([^/]+)\/logs$/.exec(url.pathname)
+    if (w && created[decodeURIComponent(w[1]!)]) {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' })
+      return void res.end(opts.run?.(created[decodeURIComponent(w[1]!)]) ?? '')
     }
     a = /^\/containers\/([^/]+)$/.exec(url.pathname)
     if (a && req.method === 'DELETE') {
@@ -74,7 +91,7 @@ export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocke
         Id: c.id,
         Name: `/${c.name}`,
         Image: c.image,
-        Config: { Image: c.image, Env: [], Labels: c.labels ?? {} },
+        Config: { Image: c.image, Env: c.env ?? [], Labels: c.labels ?? {} },
         State: { Status: c.running === false ? 'exited' : 'running', Running: c.running !== false, Restarting: false, ExitCode: 0, StartedAt: '' },
         HostConfig: { NetworkMode: c.networkMode ?? Object.keys(c.networks ?? {})[0] ?? 'bridge' },
         NetworkSettings: {
@@ -118,6 +135,7 @@ export async function fakeDocker(containers: FakeContainer[]): Promise<FakeDocke
     server,
     joined,
     calls,
+    created,
     close: () => new Promise<void>((r) => server.close(() => r())),
   }
 }
