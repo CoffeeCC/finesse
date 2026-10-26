@@ -75,6 +75,7 @@ let docker: FakeDocker
 let finesse: { url: string; app: Server }
 let stream: { url: string; server: HttpsServer }
 let settingsPath = ''
+let browser: import('../src/browserStream.ts').BrowserStream
 
 before(async () => {
   jf = await fakeJellyfin()
@@ -102,6 +103,7 @@ before(async () => {
   const created = createApp({ paths })
   finesse = { url: await listen(created.server), app: created.server }
   const bs = created.deps.browserStream!
+  browser = bs
   const server = createHttpsServer(selfSignedCert(['127.0.0.1']), (req, res) => bs.handle(req, res))
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   stream = { url: `https://127.0.0.1:${(server.address() as AddressInfo).port}`, server }
@@ -125,6 +127,7 @@ async function api(method: string, path: string, token?: string, body?: unknown)
 describe('Wolf games in Finesse’s page', () => {
   let cookie = ''
   let play = ''
+  let otherPlay = ''
 
   test('a ticket needs a Finesse sign-in, and says to stream Wolf UI for a profile’s game', async () => {
     assert.equal((await api('POST', '/api/streaming/browser', undefined, { app: 'finesse-steam-2694490' })).status, 401)
@@ -143,7 +146,9 @@ describe('Wolf games in Finesse’s page', () => {
     cookie = set.split(';')[0]!
     assert.equal((await fetch(`${stream.url}/__finesse/enter?t=${r.data.ticket}`, { redirect: 'manual' })).status, 403)
     // A top-level app streams itself: nothing to join.
-    assert.equal((await api('POST', '/api/streaming/browser', USER_TOKEN, { app: '6' })).data.join, false)
+    const desktop = await api('POST', '/api/streaming/browser', USER_TOKEN, { app: '6' })
+    assert.equal(desktop.data.join, false)
+    otherPlay = desktop.data.play
   })
 
   test('Moonlight-Web’s page: Finesse’s script in it, framed by Finesse’s https page only, none of Finesse’s cookies passed on', async () => {
@@ -205,6 +210,12 @@ describe('Wolf games in Finesse’s page', () => {
     assert.equal((await api('POST', '/api/streaming/browser/close', USER_TOKEN, { play })).status, 200)
     assert.deepEqual(bodies.find((b) => b.path === '/api/v1/sessions/stop')!.body, { session_id: 'mw' })
     assert.equal((await api('POST', '/api/streaming/browser/alive', USER_TOKEN, { play })).status, 404)
+    await api('POST', '/api/streaming/browser/close', USER_TOKEN, { play: otherPlay })
+    // No page plays through Moonlight-Web's session now: the safety net may end it (it does after 3 minutes)…
+    assert.equal(browser.unusedClient(), 'mw')
+    // …but not while a page is just starting a stream.
+    await api('POST', '/api/streaming/browser', USER_TOKEN, { app: 'finesse-steam-2694490' })
+    assert.equal(browser.unusedClient(), null)
     // Someone else's play id gets nothing.
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'browser:nope' })).status, 404)
   })

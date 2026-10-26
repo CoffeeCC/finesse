@@ -752,6 +752,9 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     sendJson(res, 200, { ok: true })
   })
   // A page that closed without saying so (the tab, the laptop lid): its session ends after a few minutes.
+  // And whatever this Finesse doesn't know about (it restarted mid-game, or an older one left it):
+  // Moonlight-Web's session in Wolf with no page here playing through it for 3 minutes ends too.
+  let unusedSince = 0
   const abandon = setInterval(() => {
     const socket = socketOf()
     if (!socket) return
@@ -759,6 +762,19 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       log.info('stream end: a page playing a game went away')
       void endSession(socket, client)
     }
+    const client = browser.unusedClient()
+    if (!client) return void (unusedSince = 0)
+    void sessions(socket).then(
+      (open) => {
+        if (!open.some((x) => x.client_id === client)) return void (unusedSince = 0)
+        if (!unusedSince) return void (unusedSince = Date.now())
+        if (Date.now() - unusedSince < 3 * 60_000) return
+        unusedSince = 0
+        log.info('stream end: a browser stream nobody is watching')
+        void endSession(socket, client)
+      },
+      () => {},
+    )
   }, 30_000)
   abandon.unref()
 

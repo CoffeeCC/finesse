@@ -138,6 +138,8 @@ export interface BrowserStream {
   finish(play: string, user: string | null): string | null
   /** Plays whose page stopped saying it's there (closed tab, lost Wi-Fi): finished, their clients. */
   abandoned(ms: number): string[]
+  /** Moonlight-Web's Wolf client, when no page here plays through it (or is about to). */
+  unusedClient(): string | null
 }
 
 export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessions: () => Promise<OpenSession[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
@@ -332,5 +334,13 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
     return out
   }
 
-  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf, touch, finish, abandoned }
+  const unusedClient = () => {
+    const known = knownClient()
+    if (!known) return null
+    // A play that hasn't found its session yet may be about to use it.
+    for (const p of plays.values()) if (p.client === known || (!p.client && Date.now() - p.seen < 3 * 60_000)) return null
+    return known
+  }
+
+  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf, touch, finish, abandoned, unusedClient }
 }

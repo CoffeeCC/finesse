@@ -54,7 +54,8 @@
   on Moonlight-Web's page.
 - **Leaving a game ends its stream on the server too.** Wolf kept a closed browser stream's session
   (and its launcher, and the graphics memory both hold) waiting for a reconnect that never came.
-  Finesse now ends it when you leave, and a few minutes after a tab closes without saying so. The
+  Finesse now ends it when you leave, a few minutes after a tab closes without saying so, and (as a
+  safety net that survives Finesse restarts) whenever no page here has played through it for 3 minutes. The
   game itself still waits 10 minutes for you.
 - **Wolf's graphics memory, and a Restart Wolf button.** Wolf can keep hold of the card's memory
   until new games and streams fail with "out of memory". Settings → Game streaming shows how much it
