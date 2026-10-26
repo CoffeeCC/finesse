@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { after, before, describe, test } from 'node:test'
-import { isSteamApp, parseManifest, shortcutAppId, steamShortcut, vdfPairs } from '../src/steam.ts'
+import { gpuPinEnv, isSteamApp, parseManifest, shortcutAppId, steamShortcut, vdfPairs } from '../src/steam.ts'
 import { fakeDocker, type FakeDocker } from './fakeDocker.ts'
 import { ADMIN_TOKEN, API_KEY, USER_TOKEN, fakeJellyfin, listen, tmp, webBuild, type FakeJellyfin } from './helpers.ts'
 
@@ -86,6 +86,13 @@ describe('Steam manifests', () => {
     assert.deepEqual(vdfPairs('"name"\t"A \\"quoted\\" game"'), [['name', 'A "quoted" game']])
   })
 
+  test('two graphics cards: the game is pinned to the one the stream is drawn on; one card: nothing', () => {
+    const cards = { renderD128: '10de:2504', renderD129: '10de:2503' }
+    assert.deepEqual(gpuPinEnv('/dev/dri/renderD129', cards), ['MESA_VK_DEVICE_SELECT=10de:2503!', 'MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1'])
+    assert.deepEqual(gpuPinEnv('/dev/dri/renderD128', { renderD128: '10de:2504' }), [])
+    assert.deepEqual(gpuPinEnv(undefined, cards), [])
+  })
+
   test('a shortcut is the Steam app opening one game, sharing its home folder', () => {
     const s = steamShortcut(steamApp('10'), { appId: 2694490, name: 'Path of Exile 2' }) as any
     assert.equal(s.id, 'finesse-steam-2694490')
@@ -114,7 +121,9 @@ before(async () => {
     [{ id: 'w', name: 'wolf', image: 'ghcr.io/games-on-whales/wolf:stable', env: ['HOST_APPS_STATE_FOLDER=/etc/wolf'], mounts: [{ Source: '/mnt/NVME/wolf', Destination: '/etc/wolf' }] }],
     {
       run: (body) =>
-        body.HostConfig.Binds.includes('/mnt/NVME/wolf/profile-data/user/WolfSteam:/steam:ro')
+        body.HostConfig.Binds.includes('/sys/class/drm:/host/drm:ro')
+          ? 'renderD128 0x10de 0x2504\nrenderD129 0x10de 0x2503\n'
+          : body.HostConfig.Binds.includes('/mnt/NVME/wolf/profile-data/user/WolfSteam:/steam:ro')
           ? JSON.stringify([manifest(2694490, 'Path of Exile 2', 4, 60e9), manifest(2050650, 'Resident Evil 4', 4, 70e9), manifest(2805730, 'Proton 9.0'), manifest(730, 'Counter-Strike 2', 1026)]) + '\n'
           : 'nothing here\n',
     },
@@ -185,6 +194,8 @@ describe('Steam shortcuts in Wolf', () => {
     assert.equal(r.status, 201)
     const added = userApps().find((a) => a.id === 'finesse-steam-2694490')
     assert.equal(added.title, 'Path of Exile 2')
+    // This server has two cards: pinned to the stream's (renderD128).
+    assert.ok(added.runner.env.includes('MESA_VK_DEVICE_SELECT=10de:2504!'))
     assert.ok(added.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
     assert.deepEqual(userApps().map((a) => a.title), ['Steam', 'RetroArch', 'Path of Exile 2'])
     assert.ok(!wolf.bodies.some((b) => b.path === '/api/v1/profiles/add' && b.body.id === 'kids'))
@@ -216,6 +227,9 @@ describe('Steam shortcuts in Wolf', () => {
     const lobby = wolf.bodies.filter((b) => b.path === '/api/v1/lobbies/create').at(-1)!.body
     assert.equal(lobby.profile_id, 'user')
     assert.equal(lobby.runner_state_folder, 'profile-data/user/WolfSteam')
+    // A dropped stream doesn't end the game (Finesse stops it after a while with nobody in it).
+    assert.equal(lobby.stop_when_everyone_leaves, false)
+    assert.equal(lobby.runner.env.filter((e: string) => e.startsWith('MESA_VK_DEVICE_SELECT=')).length, 1)
     assert.ok(lobby.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
     assert.deepEqual(lobby.video_settings, { width: 2560, height: 1440, refresh_rate: 120, wayland_render_node: '/dev/dri/renderD128', runner_render_node: '/dev/dri/renderD128', video_producer_buffer_caps: 'video/x-raw(memory:CUDAMemory)' })
     assert.deepEqual(lobby.audio_settings, { channel_count: 6 })

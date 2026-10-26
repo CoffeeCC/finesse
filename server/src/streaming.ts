@@ -19,7 +19,7 @@ import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
-import { installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
+import { gpuPinEnv, hostRenderCards, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
 import {
   EMULATOR_IDS,
   emulatorCatalog,
@@ -86,6 +86,9 @@ export function wolfProblem(e: unknown, socket: string): string {
 
 class WolfError extends Error {}
 
+/** How long a game Finesse started keeps running with nobody watching it. */
+export const LOBBY_GRACE = 10 * 60_000
+
 /** Wolf's video buffers for the app's encoder: read from the app's own pipeline (Nvidia: CUDA memory). */
 export function bufferCaps(app: RawApp): string {
   const pipe = [app.h264_gst_pipeline, app.hevc_gst_pipeline].filter((x): x is string => typeof x === 'string').join(' ')
@@ -104,7 +107,9 @@ export function lobbyRequest(profileId: string, app: RawApp, session: Record<str
     icon_png_path: typeof app.icon_png_path === 'string' ? app.icon_png_path : null,
     multi_user: false,
     pin: null,
-    stop_when_everyone_leaves: true,
+    // A dropped stream (a browser tab reconnecting, Wi-Fi blinking) mustn't end the game: Finesse
+    // stops the lobby itself once nobody has been in it for a while (see the lobby sweep).
+    stop_when_everyone_leaves: false,
     video_settings: {
       width: num(session.video_width, 1920),
       height: num(session.video_height, 1080),
@@ -575,6 +580,31 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
 
   // Everyone at home: start one of Wolf's apps (a Steam game, Kodi…) in a Moonlight session that's open,
   // the way picking it in Wolf UI would. Apps in a profile with a PIN only an administrator starts from here.
+  // Lobbies Finesse started, and since when nobody's been in each (null: someone is). Stopped after
+  // LOBBY_GRACE with nobody: long enough to reconnect, short enough not to hold the graphics card.
+  const ourLobbies = new Map<string, number | null>()
+  const sweep = setInterval(() => {
+    const socket = socketOf()
+    if (!socket || !ourLobbies.size) return
+    wolfJson<{ lobbies?: { id?: string; connected_sessions?: unknown[] }[] }>(socket, 'GET', '/api/v1/lobbies')
+      .then(async (r) => {
+        const now = Date.now()
+        const live = new Map((r.lobbies ?? []).map((l) => [String(l.id), Array.isArray(l.connected_sessions) ? l.connected_sessions.length : 0]))
+        for (const [id, since] of ourLobbies) {
+          if (!live.has(id)) ourLobbies.delete(id)
+          else if (live.get(id)! > 0) ourLobbies.set(id, null)
+          else if (since === null) ourLobbies.set(id, now)
+          else if (now - since >= LOBBY_GRACE) {
+            ourLobbies.delete(id)
+            await wolfJson(socket, 'POST', '/api/v1/lobbies/stop', { lobby_id: id, pin: null }).catch(() => {})
+            log.info('launch: stopped a game nobody came back to')
+          }
+        }
+      })
+      .catch(() => {})
+  }, 60_000)
+  sweep.unref()
+
   router.post('/api/streaming/launch', async ({ req, res }) => {
     const user = await auth.requireUser(req)
     const socket = need()
@@ -605,12 +635,17 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       // A profile's app runs in a lobby, the way Wolf UI starts it: that's what gives it the profile's
       // own folder (its Steam sign-in, library and saves). Started straight in the session instead,
       // Wolf would hand it the launcher's folder: a fresh Steam asking to sign in.
-      const lobby = lobbyRequest(inProfile.p.id, app, session)
+      const pin = gpuPinEnv(app.render_node, await hostRenderCards(docker).catch(() => ({})))
+      const runner = app.runner as { env?: unknown }
+      const env = Array.isArray(runner.env) ? (runner.env as string[]) : []
+      const pinned = pin.length && !env.some((e) => e.startsWith('MESA_VK_DEVICE_SELECT=')) ? { ...app, runner: { ...runner, env: [...env, ...pin] } } : app
+      const lobby = lobbyRequest(inProfile.p.id, pinned, session)
       let lobbyId: string
       try {
         lobbyId = (await wolfJson<{ lobby_id?: string }>(socket, 'POST', '/api/v1/lobbies/create', lobby)).lobby_id ?? ''
         if (!lobbyId) throw new WolfError('no lobby id')
         await wolfJson(socket, 'POST', '/api/v1/lobbies/join', { lobby_id: lobbyId, moonlight_session_id: session.client_id, pin: null })
+        ourLobbies.set(lobbyId, null)
       } catch (e) {
         throw new ApiError(502, `Couldn’t start it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
       }
@@ -742,14 +777,16 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     // Only games that are really installed, with Steam's own name for them.
     const game = (await steamGames(found.places)).find((g) => g.appId === appId)
     if (!game) throw new ApiError(404, 'That game isn’t installed in Wolf’s Steam')
+    // Two or more graphics cards: pin the game to the one the stream is drawn on.
+    const cards = await hostRenderCards(docker).catch(() => ({}))
     try {
       for (const p of found.profiles) {
         const steam = p.apps.find(isSteamApp)
         if (!steam || p.apps.some((a) => shortcutAppId(a) === appId)) continue
-        await setProfileApps(socket, p, [...p.apps, steamShortcut(steam, game)])
+        await setProfileApps(socket, p, [...p.apps, steamShortcut(steam, game, gpuPinEnv(steam.render_node, cards))])
       }
       const top = found.apps.find(isSteamApp)
-      if (top && !found.apps.some((a) => shortcutAppId(a) === appId)) await wolfJson(socket, 'POST', '/api/v1/apps/add', steamShortcut(top, game))
+      if (top && !found.apps.some((a) => shortcutAppId(a) === appId)) await wolfJson(socket, 'POST', '/api/v1/apps/add', steamShortcut(top, game, gpuPinEnv(top.render_node, cards)))
     } catch (e) {
       throw new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
     }
