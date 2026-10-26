@@ -426,6 +426,10 @@ export const streamingApi = {
   addSteam: (appId: number) => call<{ ok: boolean; title: string }>('POST', '/api/streaming/steam/shortcuts', { appId }, { timeoutMs: 60000 }),
   removeSteam: (appId: number) => call<{ ok: boolean }>('DELETE', `/api/streaming/steam/shortcuts/${appId}`, undefined, { timeoutMs: 30000 }),
   admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
+  /** Administrators: Wolf's graphics memory and what's running in it. */
+  wolf: () =>
+    call<{ container: string | null; gpus: { name: string; used: number; total: number; wolf: number }[] | null; games: number; streams: number }>('GET', '/api/streaming/wolf', undefined, { timeoutMs: 20000 }),
+  restartWolf: () => call<{ ok: boolean }>('POST', '/api/streaming/wolf/restart', undefined, { timeoutMs: 60000 }),
   pair: (request: string, pin: string, name: string) =>
     call<{ ok: boolean; error?: string; device?: { id: string; name: string } }>('POST', '/api/streaming/pair', { request, pin, name }, { timeoutMs: 30000 }),
   remove: (id: string) => call<{ ok: boolean }>('DELETE', `/api/streaming/devices/${encodeURIComponent(id)}`),
@@ -437,6 +441,13 @@ export const streamingApi = {
   sessions: () => call<{ ok: boolean; sessions: StreamSession[]; error?: string }>('GET', '/api/streaming/sessions'),
   /** Start one of Wolf's apps (a Steam game, Kodi…) in an open Moonlight session. */
   launch: (app: string, session: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/launch', { app, session }, { timeoutMs: 30000 }),
+  /** A way into the stream port, to play one of Wolf's apps in this page (Moonlight-Web). */
+  browser: (app: string) => call<{ port: number; ticket: string; play: string; join: boolean }>('POST', '/api/streaming/browser', { app }, { timeoutMs: 30000 }),
+  /** The page still shows this game (every 30 s); and it's done with it (Wolf's session ends). */
+  browserAlive: (play: string) => call<{ ok: boolean }>('POST', '/api/streaming/browser/alive', { play }),
+  closeBrowser: (play: string) => call<{ ok: boolean }>('POST', '/api/streaming/browser/close', { play }, { timeoutMs: 15000 }),
+  /** Quit game, for a game played in this page. */
+  quitBrowser: (play: string) => call<{ ok: boolean }>('POST', '/api/streaming/browser/quit', { play }, { timeoutMs: 30000 }),
   /** Start a RomM game in an open Moonlight session. */
   play: (rom: number, session: string, profile?: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/play', { rom, session, profile }, { timeoutMs: 30000 }),
 }

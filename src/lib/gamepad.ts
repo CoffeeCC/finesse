@@ -156,6 +156,17 @@ export function remoteKey(k: RemoteKey) {
 }
 
 let started = false
+// While a game streams in the page (its own frame reads the controller), the app leaves it alone:
+// B would otherwise close the stream, and the sticks would scroll the page under it.
+let held_by_game = 0
+/** Hand the controller to a game playing in this page until the returned function is called. */
+export function giveControllerToGame(): () => void {
+  held_by_game++
+  let done = false
+  return () => {
+    if (!done) (done = true), held_by_game--
+  }
+}
 // A steady timer, not animation frames: frames slow down while the page is busy
 // drawing (and on a TV's CPU), and a quick tap would slip between two of them.
 let timer = 0
@@ -170,7 +181,7 @@ function poll() {
     timer = 0
     return
   }
-  if (inEmulator() || document.hidden) {
+  if (inEmulator() || document.hidden || held_by_game > 0) {
     held.clear()
     return
   }

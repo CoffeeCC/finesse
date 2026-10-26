@@ -30,6 +30,8 @@ export interface AppDeps {
   releases: GitHubReleases
   invites: InviteStore
   updater?: WebUpdater
+  /** Playing Wolf games in Finesse's page (Moonlight-Web on FINESSE_STREAM_PORT). */
+  browserStream?: import('./browserStream.ts').BrowserStream
 }
 
 /** Hook for later phases (setup, stack, system) to add routes. */
@@ -97,6 +99,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       lanHost,
       /** Finesse's own HTTPS port (FINESSE_HTTPS_PORT), for features that need a secure page. */
       httpsPort: Number(process.env.FINESSE_HTTPS_PORT || 0) || null,
+      /** Where Wolf games play in Finesse's page (FINESSE_STREAM_PORT, https), when it's set up. */
+      streamPort: Number(process.env.FINESSE_STREAM_PORT || 0) || null,
       requests: s.requests ? { profiles: s.requests.profiles } : undefined,
     })
   })
@@ -106,7 +110,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerInvites(router, { store: invites, jf, auth, settings })
   const groups = registerGroups(router, { settings, jf, auth })
   registerMoments(router, { settings, jf, auth, groups })
-  registerStreaming(router, { settings, auth })
+  deps.browserStream = registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })

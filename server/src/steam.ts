@@ -45,13 +45,14 @@ export function isSteamApp(a: RawApp): boolean {
 }
 
 /** A Wolf app that opens Steam straight into one game; everything else is the Steam app's. */
-export function steamShortcut(steam: RawApp, game: { appId: number; name: string }): RawApp {
+export function steamShortcut(steam: RawApp, game: { appId: number; name: string }, gpuEnv: string[] = []): RawApp {
   const copy = JSON.parse(JSON.stringify(steam)) as RawApp
   copy.id = `finesse-steam-${game.appId}`
   copy.title = game.name.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 80) || `Steam game ${game.appId}`
   const r = runnerOf(copy) as Record<string, unknown>
   r.env = [
-    ...envOf(steam).filter((x) => !x.startsWith('STEAM_STARTUP_FLAGS=') && !x.startsWith(`${APPID_ENV}=`)),
+    ...envOf(steam).filter((x) => !x.startsWith('STEAM_STARTUP_FLAGS=') && !x.startsWith(`${APPID_ENV}=`) && !(gpuEnv.length && x.startsWith('MESA_VK_DEVICE_SELECT'))),
+    ...gpuEnv,
     // Big Picture first, so leaving the game lands somewhere a controller can use.
     `STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/${game.appId}`,
     `${APPID_ENV}=${game.appId}`,
@@ -99,11 +100,41 @@ for (const r of roots) { let names=[]; try { names=fs.readdirSync(r) } catch { c
 process.stdout.write(JSON.stringify(out)+'\\n');
 `
 
+/** Wolf's container (games-on-whales/wolf, or one named wolf). */
+export async function findWolf(docker: Docker): Promise<{ Id: string; Names: string[] } | null> {
+  const list = await docker.list({}, true)
+  return list.find((c) => /games-on-whales\/wolf(:|@|$)/i.test(c.Image)) ?? list.find((c) => c.Names.some((n) => n.replace(/^\//, '') === 'wolf')) ?? null
+}
+
+/**
+ * How much graphics memory Wolf holds, per card it uses (MiB), read with nvidia-smi inside its
+ * container. Null without an Nvidia card there. Wolf has been seen to keep growing this until
+ * streams fail with "out of memory"; a restart gives it back.
+ */
+export function parseWolfGpu(apps: string, gpus: string): { name: string; used: number; total: number; wolf: number }[] {
+  const byGpu = new Map<string, number>()
+  for (const line of apps.split('\n')) {
+    const [uuid, name, mem] = line.split(',').map((x) => x.trim())
+    if (uuid && name && /\bwolf\b/i.test(name) && Number(mem) >= 0) byGpu.set(uuid, (byGpu.get(uuid) ?? 0) + Number(mem))
+  }
+  const out: { name: string; used: number; total: number; wolf: number }[] = []
+  for (const line of gpus.split('\n')) {
+    const [uuid, name, used, total] = line.split(',').map((x) => x.trim())
+    if (uuid && byGpu.has(uuid)) out.push({ name: name ?? 'GPU', used: Number(used) || 0, total: Number(total) || 0, wolf: byGpu.get(uuid)! })
+  }
+  return out
+}
+
+export async function wolfGpu(docker: Docker, container: string) {
+  const q = (args: string) => docker.exec(container, ['sh', '-c', `nvidia-smi ${args} --format=csv,noheader,nounits 2>/dev/null`]).then((r) => r.output, () => '')
+  const [apps, gpus] = await Promise.all([q('--query-compute-apps=gpu_uuid,process_name,used_memory'), q('--query-gpu=uuid,name,memory.used,memory.total')])
+  return gpus.trim() ? parseWolfGpu(apps, gpus) : null
+}
+
 /** Where Wolf keeps its apps' home folders on the host (its HOST_APPS_STATE_FOLDER, by the Wolf container's own mount). */
 export async function wolfStateFolder(docker: Docker): Promise<string | null> {
   if (process.env.FINESSE_WOLF_STATE) return process.env.FINESSE_WOLF_STATE.replace(/\/+$/, '')
-  const list = await docker.list({}, true)
-  const wolf = list.find((c) => /games-on-whales\/wolf(:|@|$)/i.test(c.Image)) ?? list.find((c) => c.Names.some((n) => n.replace(/^\//, '') === 'wolf'))
+  const wolf = await findWolf(docker)
   if (!wolf) return null
   const info = await docker.inspect(wolf.Id)
   if (!info) return null
@@ -134,3 +165,31 @@ export const steamArtUrls = (appId: number) => [
   `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`,
   `https://shared.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
 ]
+
+/**
+ * With more than one graphics card, a game can pick the one that can't show the stream's screen
+ * (Vulkan: getSurfaceSupportKHR fails, the game closes at once). Mesa's device-select layer, which
+ * also orders Nvidia's cards, pins it to the card the app renders on: these variables, or none
+ * with one card. `cards` maps render nodes to their PCI "vendor:device".
+ */
+export function gpuPinEnv(renderNode: unknown, cards: Record<string, string>): string[] {
+  const node = typeof renderNode === 'string' ? renderNode.split('/').pop()! : ''
+  const id = cards[node]
+  if (Object.keys(cards).length < 2 || !id) return []
+  return [`MESA_VK_DEVICE_SELECT=${id}!`, 'MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1']
+}
+
+/** The host's render nodes and their PCI ids ("renderD128" → "10de:2504"), read with a one-off container of Finesse's image. */
+export async function hostRenderCards(docker: Docker): Promise<Record<string, string>> {
+  const me = await docker.inspect(process.env.FINESSE_CONTAINER || hostname()).catch(() => null)
+  const image = me?.Config.Image ?? process.env.FINESSE_IMAGE
+  if (!image) return {}
+  const script = 'for d in /host/drm/renderD*; do [ -e "$d/device/vendor" ] && echo "$(basename $d) $(cat $d/device/vendor) $(cat $d/device/device)"; done; true'
+  const r = await docker.runOnce(image, ['sh', '-c', script], ['/sys/class/drm:/host/drm:ro']).catch(() => null)
+  const out: Record<string, string> = {}
+  for (const line of (r?.output ?? '').split('\n')) {
+    const m = /^(renderD\d+) 0x([0-9a-f]{4}) 0x([0-9a-f]{4})$/i.exec(line.trim())
+    if (m) out[m[1]!] = `${m[2]!.toLowerCase()}:${m[3]!.toLowerCase()}`
+  }
+  return out
+}

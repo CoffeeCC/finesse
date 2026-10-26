@@ -38,6 +38,45 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Play Wolf games right in Finesse — v3.2.3 (2026-10-26)
+
+- **Play here, in the Finesse window.** Click a game in "Stream from your server", then **Play
+  here**: it streams into the page (keyboard, mouse or controller), no Moonlight app needed. Finesse
+  serves [Moonlight-Web](https://github.com/linckosz/moonlight-web) on its own https port
+  (`FINESSE_STREAM_PORT`, e.g. 30544; publish it too) behind your Finesse sign-in, and signs in to
+  it for you. Needs `FINESSE_HTTPS_PORT` and Moonlight-Web paired with Wolf. While a game plays,
+  Finesse leaves the controller to it (B no longer means "back").
+- **A menu you can reach with a controller.** Hold **View + Menu** (Select + Start) for a moment, or
+  press Ctrl+Alt+Shift+M: Keep playing, Performance stats (frame rate, bitrate, lost frames,
+  latency), Back to Finesse (the game keeps running for 10 minutes), Quit game. The controller stops
+  reaching the game while it's open. A bar above the stream has Stats, Menu, full screen and
+  **Back to Finesse** (Esc first if the game has the mouse).
+- **Back to Finesse when the game ends.** Quit the game or Steam and you land back in Finesse, not
+  on Moonlight-Web's page.
+- **Leaving a game ends its stream on the server too.** Wolf kept a closed browser stream's session
+  (and its launcher, and the graphics memory both hold) waiting for a reconnect that never came.
+  Finesse now ends it when you leave, a few minutes after a tab closes without saying so, and (as a
+  safety net that survives Finesse restarts) whenever no page here has played through it for 3 minutes. The
+  game itself still waits 10 minutes for you.
+- **Wolf's graphics memory, and a Restart Wolf button.** Wolf can keep hold of the card's memory
+  until new games and streams fail with "out of memory". Settings → Game streaming shows how much it
+  holds (amber when the card is nearly full) and restarts it on request, saying first what that ends.
+  Administrators also get the button when a game in the page fails to start.
+- **Coming back puts you in the same game.** Opening a game that's still running (within the
+  10 minutes) joins it instead of starting a second copy, which Wolf stopped at once.
+- **Fixed: "Play here" started Steam signed out, with no games.** Started straight in the
+  Moonlight session, Wolf gave the app the launcher's folder. Apps in a Wolf profile now start the
+  way Wolf UI starts them, in a lobby with the profile's own folder (`profile-data/<profile>/<app>`),
+  so Steam has your sign-in, library and saves.
+- **Fixed: games closed after a few seconds on servers with two graphics cards.** The game could
+  pick the card that can't show the stream (`getSurfaceSupportKHR` in its log). Steam shortcuts and
+  games started from Finesse are pinned to the card the stream is drawn on (Mesa's device-select).
+- **A dropped stream no longer ends the game.** Finesse stops a game it started after 10 minutes
+  with nobody connected, so reconnecting puts you back in it.
+- **Fixed: "Couldn't start it: socket hang up" when it had started.**
+- Checked on a real Wolf with two RTX 3060s: Path of Exile 2 starts signed in and plays in the
+  Finesse window, with a controller.
+
 ## Click a game to play it — v3.2.2 (2026-10-25)
 
 - **Click a game to play it.** Tiles in "Stream from your server" (Steam games, Kodi, Firefox…)

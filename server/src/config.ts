@@ -98,7 +98,14 @@ export interface Settings {
   /** Moments (server/src/moments.ts): friends' servers may send them here (default yes). */
   momentsFromFriends?: boolean
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */
-  streaming?: { socket?: string; devices?: Record<string, { name: string; pairedAt: string }> }
+  streaming?: {
+    socket?: string
+    devices?: Record<string, { name: string; pairedAt: string }>
+    /** The Wolf client Moonlight-Web streams as (games played in Finesse's page), once seen. */
+    browserClient?: string
+    /** Games (Wolf lobbies) Finesse started, stopped after a while with nobody in them. */
+    lobbies?: string[]
+  }
   /** Emulators as Wolf apps: which ones, and the folders they get (host paths). */
   emulators?: import('./emulators.ts').EmulatorSettings
   /** SMTP for emailing invites (optional). */

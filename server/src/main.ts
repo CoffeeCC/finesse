@@ -41,6 +41,22 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
     }
   }
 
+  // Wolf games in Finesse's page: Moonlight-Web, on a port of its own (it needs a whole address).
+  let stream: HttpsServer | null = null
+  const streamPort = Number(process.env.FINESSE_STREAM_PORT || 0)
+  if (streamPort > 0 && deps.browserStream) {
+    const bs = deps.browserStream
+    try {
+      stream = createHttpsServer(finesseCert(deps.settings.paths.configDir, certNames(s.publicUrl)), (req, res) => bs.handle(req, res))
+      stream.on('upgrade', (req, socket, head) => bs.upgrade(req, socket, head))
+      await new Promise<void>((resolve, reject) => stream!.once('error', reject).listen(streamPort, host, resolve))
+      log.info(`games in the page: https://${host}:${streamPort}`)
+    } catch (e) {
+      log.error(`The game stream port ${streamPort} didn't start`, e)
+      stream = null
+    }
+  }
+
   const code = ensureSetupCode(deps.settings)
   if (code && isNative()) {
     log.info('Finesse isn’t set up yet — open Finesse from the Start menu to finish setting it up')
@@ -58,6 +74,7 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
     stopping = true
     log.info(`${sig} — shutting down`)
     secure?.close()
+    stream?.close()
     // Windows: the apps are Finesse's own children; they close first, cleanly.
     const host = ref.runner?.orch
     const apps = host instanceof NativeHost ? host.stopAll() : Promise.resolve()

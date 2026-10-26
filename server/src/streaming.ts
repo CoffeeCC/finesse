@@ -19,7 +19,8 @@ import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
-import { installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
+import { createBrowserStream, type BrowserStream } from './browserStream.ts'
+import { findWolf, gpuPinEnv, hostRenderCards, wolfGpu, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
 import {
   EMULATOR_IDS,
   emulatorCatalog,
@@ -85,6 +86,50 @@ export function wolfProblem(e: unknown, socket: string): string {
 }
 
 class WolfError extends Error {}
+
+/** How long a game Finesse started keeps running with nobody watching it. */
+export const LOBBY_GRACE = 10 * 60_000
+
+/** Wolf's video buffers for the app's encoder: read from the app's own pipeline (Nvidia: CUDA memory). */
+export function bufferCaps(app: RawApp): string {
+  const pipe = [app.h264_gst_pipeline, app.hevc_gst_pipeline].filter((x): x is string => typeof x === 'string').join(' ')
+  const m = /video\/x-raw\(memory:(\w+)\)/.exec(pipe)
+  return m ? `video/x-raw(memory:${m[1]})` : 'video/x-raw'
+}
+
+/** A lobby for one profile's app in a Moonlight session, as Wolf UI makes them (the profile's own folder for the app). */
+export function lobbyRequest(profileId: string, app: RawApp, session: Record<string, unknown>) {
+  const runner = app.runner as { name?: unknown }
+  const node = typeof app.render_node === 'string' ? app.render_node : '/dev/dri/renderD128'
+  const num = (v: unknown, d: number) => (typeof v === 'number' && v > 0 ? v : d)
+  return {
+    profile_id: profileId,
+    name: String(app.title),
+    icon_png_path: typeof app.icon_png_path === 'string' ? app.icon_png_path : null,
+    multi_user: false,
+    pin: null,
+    // A dropped stream (a browser tab reconnecting, Wi-Fi blinking) mustn't end the game: Finesse
+    // stops the lobby itself once nobody has been in it for a while (see the lobby sweep).
+    stop_when_everyone_leaves: false,
+    video_settings: {
+      width: num(session.video_width, 1920),
+      height: num(session.video_height, 1080),
+      refresh_rate: num(session.video_refresh_rate, 60),
+      wayland_render_node: node,
+      runner_render_node: node,
+      video_producer_buffer_caps: bufferCaps(app),
+    },
+    audio_settings: { channel_count: num(session.audio_channel_count, 2) },
+    client_settings: null,
+    runner_state_folder: `profile-data/${profileId}/${String(runner?.name ?? 'app')}`,
+    runner: app.runner,
+  }
+}
+
+/** Wolf starts a runner without answering: it either holds the request open or hangs up on it once
+ *  the app is starting. Only a refused or missing socket means it didn't get the request. */
+export const runnerAccepted = (err: { code?: string; message?: string }) =>
+  err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET' || /socket hang up/i.test(err.message ?? '')
 
 async function wolfJson<T>(socket: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const r = await wolfCall(socket, method, path, body)
@@ -301,7 +346,7 @@ export const sessionId = (id: string) => createHash('sha256').update(`finesse-se
 /** The browser's stand-in for a pending pair request (Wolf's pair secret never leaves the server). */
 export const pendingId = (secret: string) => createHash('sha256').update(`finesse-pair:${secret}`).digest('hex').slice(0, 16)
 
-export function registerStreaming(router: Router, deps: { settings: SettingsStore; auth: Auth; docker?: Docker }) {
+export function registerStreaming(router: Router, deps: { settings: SettingsStore; auth: Auth; docker?: Docker }): BrowserStream {
   const { settings, auth } = deps
   const docker = deps.docker ?? new Docker()
   const socketOf = () => settings.get().streaming?.socket
@@ -412,6 +457,38 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     }
   })
 
+  // Administrators: Wolf itself: how much graphics memory it holds, and a restart that gives it back.
+  router.get('/api/streaming/wolf', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const wolf = await findWolf(docker).catch(() => null)
+    const lobbies = await wolfJson<{ lobbies?: { connected_sessions?: unknown[] }[] }>(socket, 'GET', '/api/v1/lobbies').then((r) => r.lobbies ?? [], () => [])
+    const sessionsNow = await sessions(socket).catch(() => [])
+    sendJson(res, 200, {
+      container: wolf ? wolf.Names[0]!.replace(/^\//, '') : null,
+      gpus: wolf ? await wolfGpu(docker, wolf.Id).catch(() => null) : null,
+      games: lobbies.length,
+      streams: sessionsNow.length,
+    })
+  })
+
+  router.post('/api/streaming/wolf/restart', async ({ req, res }) => {
+    const user = await auth.requireAdmin(req)
+    const wolf = await findWolf(docker).catch(() => null)
+    if (!wolf) throw new ApiError(404, 'Finesse can’t find Wolf’s container. Restart it where you run it.')
+    try {
+      await docker.restart(wolf.Id, 10)
+    } catch (e) {
+      throw new ApiError(502, `Wolf didn’t restart: ${(e as Error).message}`)
+    }
+    // Wolf numbers its apps afresh when it starts, and every game and stream ended.
+    appsCache = null
+    ourLobbies.clear()
+    saveLobbies()
+    log.info(`wolf: restarted by ${user.Name}`)
+    sendJson(res, 200, { ok: true })
+  })
+
   router.post('/api/streaming/pair', async ({ req, res }) => {
     await auth.requireAdmin(req)
     const socket = need()
@@ -516,8 +593,28 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   })
 
   // Everyone at home: Moonlight sessions open right now, to start a game in (never Wolf's ids or keys).
-  type WolfSession = { client_id?: unknown; client_ip?: unknown; app_id?: unknown }
+  type WolfSession = { client_id?: unknown; client_ip?: unknown; app_id?: unknown; aes_key?: unknown; aes_iv?: unknown }
+  const openSession = (x: WolfSession) => ({ client: x.client_id as string, stream: createHash('sha256').update(`${String(x.client_id)}:${String(x.aes_key)}:${String(x.aes_iv)}`).digest('hex').slice(0, 16) })
   const sessions = async (socket: string) => (await wolfJson<{ sessions?: WolfSession[] }>(socket, 'GET', '/api/v1/sessions')).sessions?.filter((x) => typeof x.client_id === 'string') ?? []
+
+  // Playing in Finesse's own page (Moonlight-Web in a frame): what to stream, and which session it is.
+  const browser = createBrowserStream({
+    auth,
+    settings,
+    docker,
+    sessions: async () => (await sessions(need())).map(openSession),
+    streamFor: async (appId) => {
+      const { raw, profiles } = await wolfLists(need())
+      const inProfile = profiles.some((p) => Array.isArray(p.apps) && (p.apps as RawApp[]).some((a) => a.id === appId))
+      if (inProfile) {
+        const launcher = (raw as RawApp[]).find((a) => typeof a.title === 'string' && LAUNCHER.test(a.title))
+        return launcher ? { title: launcher.title as string, join: true } : null
+      }
+      const app = (raw as RawApp[]).find((a) => a.id === appId)
+      return app && typeof app.title === 'string' ? { title: app.title, join: false } : null
+    },
+  })
+  browser.register(router)
 
   router.get('/api/streaming/sessions', async ({ req, res }) => {
     await auth.requireUser(req)
@@ -536,6 +633,38 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
 
   // Everyone at home: start one of Wolf's apps (a Steam game, Kodi…) in a Moonlight session that's open,
   // the way picking it in Wolf UI would. Apps in a profile with a PIN only an administrator starts from here.
+  // Lobbies Finesse started, and since when nobody's been in each (null: someone is). Stopped after
+  // LOBBY_GRACE with nobody: long enough to reconnect, short enough not to hold the graphics card.
+  // Kept in settings too, so a Finesse restart doesn't leave a game running for good.
+  const ourLobbies = new Map<string, number | null>((settings.get().streaming?.lobbies ?? []).map((id) => [id, null]))
+  const saveLobbies = () => {
+    const ids = [...ourLobbies.keys()]
+    const was = settings.get().streaming?.lobbies ?? []
+    if (ids.length !== was.length || ids.some((id, i) => id !== was[i])) settings.update((x) => void (x.streaming = { ...x.streaming, lobbies: ids }))
+  }
+  const sweep = setInterval(() => {
+    const socket = socketOf()
+    if (!socket || !ourLobbies.size) return
+    wolfJson<{ lobbies?: { id?: string; connected_sessions?: unknown[] }[] }>(socket, 'GET', '/api/v1/lobbies')
+      .then(async (r) => {
+        const now = Date.now()
+        const live = new Map((r.lobbies ?? []).map((l) => [String(l.id), Array.isArray(l.connected_sessions) ? l.connected_sessions.length : 0]))
+        for (const [id, since] of ourLobbies) {
+          if (!live.has(id)) (ourLobbies.delete(id), saveLobbies())
+          else if (live.get(id)! > 0) ourLobbies.set(id, null)
+          else if (since === null) ourLobbies.set(id, now)
+          else if (now - since >= LOBBY_GRACE) {
+            ourLobbies.delete(id)
+            saveLobbies()
+            await wolfJson(socket, 'POST', '/api/v1/lobbies/stop', { lobby_id: id, pin: null }).catch(() => {})
+            log.info('launch: stopped a game nobody came back to')
+          }
+        }
+      })
+      .catch(() => {})
+  }, 60_000)
+  sweep.unref()
+
   router.post('/api/streaming/launch', async ({ req, res }) => {
     const user = await auth.requireUser(req)
     const socket = need()
@@ -560,15 +689,113 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     if (!app || typeof app.title !== 'string' || LAUNCHER.test(app.title)) throw new ApiError(404, 'That app isn’t in Wolf anymore')
     if (inProfile && Array.isArray(inProfile.p.pin) && inProfile.p.pin.length > 0 && !user.Policy?.IsAdministrator)
       throw new ApiError(403, `${inProfile.p.name ?? 'That profile'} has a PIN. Start it in Moonlight, which asks for the PIN.`)
-    const session = list.find((x) => sessionId(x.client_id as string) === String(body.session ?? ''))
-    if (!session) throw new ApiError(404, 'That Moonlight session ended. Open Moonlight on the device, then try again.')
-    // Wolf starts the runner and doesn't answer when it worked; a quiet socket means it's starting.
-    const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner: app.runner, session_id: session.client_id }, { timeoutMs: 4000 })
-      .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
-      .catch((err: { code?: string }) => (err.code === 'ETIMEDOUT' ? null : wolfProblem(err, socket)))
-    if (sent) throw new ApiError(502, `Couldn’t start it: ${sent}`)
+    const wanted = String(body.session ?? '')
+    // Played in Finesse's page: the session Moonlight-Web opened for it.
+    const browserClient = wanted.startsWith('browser:') ? browser.sessionFor(wanted.slice(8), user.Id, list.map(openSession)) : null
+    const session = list.find((x) => (browserClient ? x.client_id === browserClient : sessionId(x.client_id as string) === wanted))
+    if (!session) throw new ApiError(404, wanted.startsWith('browser:') ? 'The stream in this page ended. Start the game again.' : 'That Moonlight session ended. Open Moonlight on the device, then try again.')
+    if (inProfile) {
+      // A profile's app runs in a lobby, the way Wolf UI starts it: that's what gives it the profile's
+      // own folder (its Steam sign-in, library and saves). Started straight in the session instead,
+      // Wolf would hand it the launcher's folder: a fresh Steam asking to sign in.
+      const pin = gpuPinEnv(app.render_node, await hostRenderCards(docker).catch(() => ({})))
+      const runner = app.runner as { env?: unknown }
+      const env = Array.isArray(runner.env) ? (runner.env as string[]) : []
+      const pinned = pin.length && !env.some((e) => e.startsWith('MESA_VK_DEVICE_SELECT=')) ? { ...app, runner: { ...runner, env: [...env, ...pin] } } : app
+      const lobby = lobbyRequest(inProfile.p.id, pinned, session)
+      let lobbyId: string
+      try {
+        // Already running for this profile (left within the last few minutes): back into it. A second
+        // copy would share the profile's folder with the first, and Wolf stops it at once.
+        const running = (await wolfJson<{ lobbies?: { id?: unknown; name?: unknown; started_by_profile_id?: unknown; multi_user?: unknown }[] }>(socket, 'GET', '/api/v1/lobbies').catch(() => ({ lobbies: [] }))).lobbies ?? []
+        lobbyId = String(running.find((l) => l.started_by_profile_id === inProfile.p.id && l.name === app.title)?.id ?? '')
+        if (!lobbyId) lobbyId = (await wolfJson<{ lobby_id?: string }>(socket, 'POST', '/api/v1/lobbies/create', lobby)).lobby_id ?? ''
+        if (!lobbyId) throw new WolfError('no lobby id')
+        await wolfJson(socket, 'POST', '/api/v1/lobbies/join', { lobby_id: lobbyId, moonlight_session_id: session.client_id, pin: null })
+        ourLobbies.set(lobbyId, null)
+        saveLobbies()
+        if (browserClient) browser.noteLobby(wanted.slice(8), lobbyId)
+      } catch (e) {
+        throw new ApiError(502, `Couldn’t start it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
+      }
+    } else {
+      // Moonlight's own list (no profiles): straight in the session. Wolf starts the runner and
+      // doesn't answer when it worked; a quiet socket, or one it hangs up, means it's starting.
+      const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner: app.runner, session_id: session.client_id }, { timeoutMs: 4000 })
+        .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
+        .catch((err: { code?: string }) => (runnerAccepted(err) ? null : wolfProblem(err, socket)))
+      if (sent) throw new ApiError(502, `Couldn’t start it: ${sent}`)
+    }
     log.info(`launch: started ${app.title} in a Moonlight session`)
     sendJson(res, 202, { ok: true, app: app.title })
+  })
+
+  // A stream in Finesse's page ends: end Wolf's session for it too. Left alone, Wolf keeps it (and its
+  // launcher, and the graphics memory both hold) waiting for a Moonlight that isn't coming back.
+  const endSession = async (socket: string, client: string) => {
+    await wolfJson(socket, 'POST', '/api/v1/sessions/stop', { session_id: client }).catch((e) => log.warn(`stream end: ${wolfProblem(e, socket)}`))
+  }
+  router.post('/api/streaming/browser/alive', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const body = await readJson<{ play?: unknown }>(req)
+    sendJson(res, browser.touch(String(body.play ?? ''), user.Id) ? 200 : 404, { ok: true })
+  })
+  router.post('/api/streaming/browser/close', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const socket = need()
+    const body = await readJson<{ play?: unknown }>(req)
+    const play = String(body.play ?? '')
+    // Never launched anything into it (an app streamed on its own): find its session now.
+    browser.sessionFor(play, user.Id, await sessions(socket).then((l) => l.map(openSession), () => []))
+    const client = browser.finish(play, user.Id)
+    if (client) await endSession(socket, client)
+    sendJson(res, 200, { ok: true })
+  })
+  // A page that closed without saying so (the tab, the laptop lid): its session ends after a few minutes.
+  // And whatever this Finesse doesn't know about (it restarted mid-game, or an older one left it):
+  // Moonlight-Web's session in Wolf with no page here playing through it for 3 minutes ends too.
+  let unusedSince = 0
+  const abandon = setInterval(() => {
+    const socket = socketOf()
+    if (!socket) return
+    for (const client of browser.abandoned(3 * 60_000)) {
+      log.info('stream end: a page playing a game went away')
+      void endSession(socket, client)
+    }
+    const client = browser.unusedClient()
+    if (!client) return void (unusedSince = 0)
+    void sessions(socket).then(
+      (open) => {
+        if (!open.some((x) => x.client_id === client)) return void (unusedSince = 0)
+        if (!unusedSince) return void (unusedSince = Date.now())
+        if (Date.now() - unusedSince < 3 * 60_000) return
+        unusedSince = 0
+        log.info('stream end: a browser stream nobody is watching')
+        void endSession(socket, client)
+      },
+      () => {},
+    )
+  }, 30_000)
+  abandon.unref()
+
+  // Quit game, from the menu of a game played in Finesse's page: stop the game that play started.
+  router.post('/api/streaming/browser/quit', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const socket = need()
+    const body = await readJson<{ play?: unknown }>(req)
+    const lobby = browser.lobbyOf(String(body.play ?? ''), user.Id)
+    if (!lobby) throw new ApiError(404, 'That game isn’t running from here')
+    try {
+      await wolfJson(socket, 'POST', '/api/v1/lobbies/stop', { lobby_id: lobby, pin: null })
+    } catch (e) {
+      throw new ApiError(502, `Couldn’t close it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
+    }
+    ourLobbies.delete(lobby)
+    saveLobbies()
+    const client = browser.finish(String(body.play ?? ''), user.Id)
+    if (client) await endSession(socket, client)
+    log.info('launch: closed a game played in the page')
+    sendJson(res, 200, { ok: true })
   })
 
   // Everyone at home: start a RomM game in an open Moonlight session, with its emulator.
@@ -606,7 +833,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     // Wolf starts the runner and doesn't answer when it worked; a quiet socket means it's starting.
     const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner, session_id: session.client_id }, { timeoutMs: 4000 })
       .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
-      .catch((err: { code?: string }) => (err.code === 'ETIMEDOUT' ? null : wolfProblem(err, socket)))
+      .catch((err: { code?: string }) => (runnerAccepted(err) ? null : wolfProblem(err, socket)))
     if (sent) throw new ApiError(502, `Couldn’t start the game: ${sent}`)
     log.info(`play: started a ${emulatorCatalog(e.switchEmulator)[emu].name} game in a Moonlight session`)
     sendJson(res, 202, { ok: true, app: app.title })
@@ -687,14 +914,16 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     // Only games that are really installed, with Steam's own name for them.
     const game = (await steamGames(found.places)).find((g) => g.appId === appId)
     if (!game) throw new ApiError(404, 'That game isn’t installed in Wolf’s Steam')
+    // Two or more graphics cards: pin the game to the one the stream is drawn on.
+    const cards = await hostRenderCards(docker).catch(() => ({}))
     try {
       for (const p of found.profiles) {
         const steam = p.apps.find(isSteamApp)
         if (!steam || p.apps.some((a) => shortcutAppId(a) === appId)) continue
-        await setProfileApps(socket, p, [...p.apps, steamShortcut(steam, game)])
+        await setProfileApps(socket, p, [...p.apps, steamShortcut(steam, game, gpuPinEnv(steam.render_node, cards))])
       }
       const top = found.apps.find(isSteamApp)
-      if (top && !found.apps.some((a) => shortcutAppId(a) === appId)) await wolfJson(socket, 'POST', '/api/v1/apps/add', steamShortcut(top, game))
+      if (top && !found.apps.some((a) => shortcutAppId(a) === appId)) await wolfJson(socket, 'POST', '/api/v1/apps/add', steamShortcut(top, game, gpuPinEnv(top.render_node, cards)))
     } catch (e) {
       throw new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
     }
@@ -758,4 +987,5 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     res.writeHead(200, { 'Content-Type': a.type, 'Content-Length': String(a.body.length), 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' })
     res.end(a.body)
   })
+  return browser
 }

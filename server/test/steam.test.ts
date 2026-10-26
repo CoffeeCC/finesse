@@ -9,11 +9,11 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { after, before, describe, test } from 'node:test'
-import { isSteamApp, parseManifest, shortcutAppId, steamShortcut, vdfPairs } from '../src/steam.ts'
+import { gpuPinEnv, isSteamApp, parseWolfGpu, parseManifest, shortcutAppId, steamShortcut, vdfPairs } from '../src/steam.ts'
 import { fakeDocker, type FakeDocker } from './fakeDocker.ts'
 import { ADMIN_TOKEN, API_KEY, USER_TOKEN, fakeJellyfin, listen, tmp, webBuild, type FakeJellyfin } from './helpers.ts'
 
-const BASE = { h264_gst_pipeline: 'h264 ! sink', hevc_gst_pipeline: 'h265 ! sink', av1_gst_pipeline: 'av1 ! sink', render_node: '/dev/dri/renderD128', opus_gst_pipeline: 'opus ! sink' }
+const BASE = { h264_gst_pipeline: 'cudaupload ! video/x-raw(memory:CUDAMemory),format=NV12 ! nvh264enc ! sink', hevc_gst_pipeline: 'h265 ! sink', av1_gst_pipeline: 'av1 ! sink', render_node: '/dev/dri/renderD128', opus_gst_pipeline: 'opus ! sink' }
 const STEAM_ENV = ['PROTON_LOG=1', 'RUN_SWAY=true', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*']
 const steamApp = (id: string) => ({
   title: 'Steam',
@@ -47,14 +47,16 @@ async function fakeWolf(socket: string) {
   }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://wolf')
-    if (req.method === 'GET' && url.pathname === '/api/v1/apps') return send(res, 200, { success: true, apps: [otherApp('Wolf UI', '5')] })
+    if (req.method === 'GET' && url.pathname === '/api/v1/apps') return send(res, 200, { success: true, apps: [otherApp('Wolf UI', '5'), otherApp('Desktop', '6')] })
     if (req.method === 'GET' && url.pathname === '/api/v1/profiles') return send(res, 200, { success: true, profiles })
-    if (req.method === 'GET' && url.pathname === '/api/v1/sessions') return send(res, 200, { success: true, sessions: [{ client_id: '555', client_ip: '192.168.1.80', app_id: '5', aes_key: 'SECRET' }] })
+    if (req.method === 'GET' && url.pathname === '/api/v1/sessions') return send(res, 200, { success: true, sessions: [{ client_id: '555', client_ip: '192.168.1.80', app_id: '5', aes_key: 'SECRET', video_width: 2560, video_height: 1440, video_refresh_rate: 120, audio_channel_count: 6 }] })
     if (req.method === 'POST') {
       const body = await read(req)
       bodies.push({ path: url.pathname, body })
-      // Like Wolf: starts the runner and never answers.
-      if (url.pathname === '/api/v1/runners/start') return
+      // Like Wolf: starts the runner and never answers; the real one hangs up once the app is starting.
+      if (url.pathname === '/api/v1/runners/start') return void req.socket.destroy()
+      if (url.pathname === '/api/v1/lobbies/create') return send(res, 200, { success: true, lobby_id: 'lobby-1' })
+      if (url.pathname === '/api/v1/lobbies/join') return send(res, 200, { success: true })
       if (url.pathname === '/api/v1/profiles/remove') {
         profiles = profiles.filter((p) => p.id !== body.id)
         return send(res, 200, { success: true })
@@ -82,6 +84,20 @@ describe('Steam manifests', () => {
     assert.equal(parseManifest(manifest(1628350, 'Steam Linux Runtime 3.0 (sniper)')), null)
     assert.equal(parseManifest('"AppState" { "name" "no id" }'), null)
     assert.deepEqual(vdfPairs('"name"\t"A \\"quoted\\" game"'), [['name', 'A "quoted" game']])
+  })
+
+  test('two graphics cards: the game is pinned to the one the stream is drawn on; one card: nothing', () => {
+    const cards = { renderD128: '10de:2504', renderD129: '10de:2503' }
+    assert.deepEqual(gpuPinEnv('/dev/dri/renderD129', cards), ['MESA_VK_DEVICE_SELECT=10de:2503!', 'MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1'])
+    assert.deepEqual(gpuPinEnv('/dev/dri/renderD128', { renderD128: '10de:2504' }), [])
+    assert.deepEqual(gpuPinEnv(undefined, cards), [])
+  })
+
+  test('Wolf’s graphics memory, per card it uses, from nvidia-smi', () => {
+    const apps = 'GPU-a, /wolf/wolf, 11065\nGPU-a, wolf-ui, 179\nGPU-a, PathOfExileSteam.exe, 341\nGPU-b, llama-server, 9000\n'
+    const gpus = 'GPU-a, NVIDIA GeForce RTX 3060, 11840, 12288\nGPU-b, NVIDIA GeForce RTX 3060, 9100, 12288\n'
+    assert.deepEqual(parseWolfGpu(apps, gpus), [{ name: 'NVIDIA GeForce RTX 3060', used: 11840, total: 12288, wolf: 11244 }])
+    assert.deepEqual(parseWolfGpu('', gpus), [])
   })
 
   test('a shortcut is the Steam app opening one game, sharing its home folder', () => {
@@ -112,7 +128,9 @@ before(async () => {
     [{ id: 'w', name: 'wolf', image: 'ghcr.io/games-on-whales/wolf:stable', env: ['HOST_APPS_STATE_FOLDER=/etc/wolf'], mounts: [{ Source: '/mnt/NVME/wolf', Destination: '/etc/wolf' }] }],
     {
       run: (body) =>
-        body.HostConfig.Binds.includes('/mnt/NVME/wolf/profile-data/user/WolfSteam:/steam:ro')
+        body.HostConfig.Binds.includes('/sys/class/drm:/host/drm:ro')
+          ? 'renderD128 0x10de 0x2504\nrenderD129 0x10de 0x2503\n'
+          : body.HostConfig.Binds.includes('/mnt/NVME/wolf/profile-data/user/WolfSteam:/steam:ro')
           ? JSON.stringify([manifest(2694490, 'Path of Exile 2', 4, 60e9), manifest(2050650, 'Resident Evil 4', 4, 70e9), manifest(2805730, 'Proton 9.0'), manifest(730, 'Counter-Strike 2', 1026)]) + '\n'
           : 'nothing here\n',
     },
@@ -158,6 +176,18 @@ async function call(method: string, path: string, token?: string, body?: unknown
 }
 const userApps = () => wolf.profiles().find((p) => p.id === 'user')!.apps as any[]
 
+describe('Wolf itself', () => {
+  test('administrators see what Wolf holds and can restart it; nobody else can', async () => {
+    assert.equal((await call('GET', '/api/streaming/wolf', USER_TOKEN)).status, 403)
+    const r = await call('GET', '/api/streaming/wolf', ADMIN_TOKEN)
+    assert.equal(r.status, 200)
+    assert.equal(r.data.container, 'wolf')
+    assert.equal((await call('POST', '/api/streaming/wolf/restart', USER_TOKEN)).status, 403)
+    assert.equal((await call('POST', '/api/streaming/wolf/restart', ADMIN_TOKEN)).status, 200)
+    assert.ok(docker.calls.includes('restart w'))
+  })
+})
+
 describe('Steam shortcuts in Wolf', () => {
   test('everyone sees that Steam is there; only administrators see the games', async () => {
     const all = await call('GET', '/api/streaming', USER_TOKEN)
@@ -183,6 +213,8 @@ describe('Steam shortcuts in Wolf', () => {
     assert.equal(r.status, 201)
     const added = userApps().find((a) => a.id === 'finesse-steam-2694490')
     assert.equal(added.title, 'Path of Exile 2')
+    // This server has two cards: pinned to the stream's (renderD128).
+    assert.ok(added.runner.env.includes('MESA_VK_DEVICE_SELECT=10de:2504!'))
     assert.ok(added.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
     assert.deepEqual(userApps().map((a) => a.title), ['Steam', 'RetroArch', 'Path of Exile 2'])
     assert.ok(!wolf.bodies.some((b) => b.path === '/api/v1/profiles/add' && b.body.id === 'kids'))
@@ -210,9 +242,20 @@ describe('Steam shortcuts in Wolf', () => {
     const r = await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session })
     assert.equal(r.status, 202)
     assert.equal(r.data.app, 'Path of Exile 2')
-    const sent = wolf.bodies.filter((b) => b.path === '/api/v1/runners/start').at(-1)!.body
-    assert.equal(sent.session_id, '555')
-    assert.ok(sent.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
+    // A profile's app goes in a lobby, with the profile's own folder for it (its Steam sign-in and library).
+    const lobby = wolf.bodies.filter((b) => b.path === '/api/v1/lobbies/create').at(-1)!.body
+    assert.equal(lobby.profile_id, 'user')
+    assert.equal(lobby.runner_state_folder, 'profile-data/user/WolfSteam')
+    // A dropped stream doesn't end the game (Finesse stops it after a while with nobody in it).
+    assert.equal(lobby.stop_when_everyone_leaves, false)
+    assert.equal(lobby.runner.env.filter((e: string) => e.startsWith('MESA_VK_DEVICE_SELECT=')).length, 1)
+    assert.ok(lobby.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
+    assert.deepEqual(lobby.video_settings, { width: 2560, height: 1440, refresh_rate: 120, wayland_render_node: '/dev/dri/renderD128', runner_render_node: '/dev/dri/renderD128', video_producer_buffer_caps: 'video/x-raw(memory:CUDAMemory)' })
+    assert.deepEqual(lobby.audio_settings, { channel_count: 6 })
+    assert.deepEqual(wolf.bodies.filter((b) => b.path === '/api/v1/lobbies/join').at(-1)!.body, { lobby_id: 'lobby-1', moonlight_session_id: '555', pin: null })
+    // Moonlight's own list (no profile): straight into the session; Wolf hanging up on it means it's starting.
+    assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: '6', session })).status, 202)
+    assert.equal(wolf.bodies.filter((b) => b.path === '/api/v1/runners/start').at(-1)!.body.session_id, '555')
     assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: '5', session })).status, 404)
     assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'nope', session })).status, 404)
     assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'gone' })).status, 404)

@@ -63,6 +63,7 @@ you need to expose, and browsers never see Jellyfin's address or any API key.
 | `QBIT_URL`, `QBIT_USERNAME`, `QBIT_PASSWORD` | qBittorrent Web UI. |
 | `ROMM_URL`, `ROMM_USERNAME`, `ROMM_PASSWORD`, `STEAMGRIDDB_API_KEY` | Games (RomM). |
 | `FINESSE_HTTPS_PORT` | Finesse also serves https on this port, with a certificate it makes for itself (kept in `/config/tls`). Browser play needs https. Publish the same port. `FINESSE_HTTPS_NAMES`: the server's addresses for the certificate, comma separated. |
+| `FINESSE_STREAM_PORT` | Wolf games played inside Finesse's page (**Play here** on a game). Finesse serves [Moonlight-Web](https://github.com/linckosz/moonlight-web) on this https port, behind your Finesse sign-in, and signs in to it for you. Needs `FINESSE_HTTPS_PORT` too, Moonlight-Web running and paired with Wolf, and Finesse able to reach Docker. Publish the same port (e.g. 30544). Found by itself; `FINESSE_MOONLIGHT_WEB` (its https URL) and `FINESSE_MOONLIGHT_WEB_CONTAINER` override. |
 | `WOLF_SOCKET` | Game streaming: where Wolf's API socket is, e.g. `/var/run/wolf/wolf.sock`. Share its folder too. See [Game streaming](streaming.md). Emulator apps (PS2, GameCube, PS3, Wii U, Switch): see [Emulators](emulators.md). Browser play also needs Docker's socket shared (`/var/run/docker.sock`). |
 | `FINESSE_PUBLIC_URL` | Where people reach Finesse from outside, used in invite links. |
 | `FINESSE_REPO`, `FINESSE_GITHUB_TOKEN` | Update from a fork / a private repo. |
