@@ -103,6 +103,8 @@ export interface Settings {
     devices?: Record<string, { name: string; pairedAt: string }>
     /** The Wolf client Moonlight-Web streams as (games played in Finesse's page), once seen. */
     browserClient?: string
+    /** Games (Wolf lobbies) Finesse started, stopped after a while with nobody in them. */
+    lobbies?: string[]
   }
   /** Emulators as Wolf apps: which ones, and the folders they get (host paths). */
   emulators?: import('./emulators.ts').EmulatorSettings

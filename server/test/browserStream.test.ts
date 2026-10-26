@@ -7,7 +7,7 @@
 // (https) stand in for the real ones.
 
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import type { AddressInfo } from 'node:net'
@@ -74,6 +74,7 @@ let mw: HttpsServer
 let docker: FakeDocker
 let finesse: { url: string; app: Server }
 let stream: { url: string; server: HttpsServer }
+let settingsPath = ''
 
 before(async () => {
   jf = await fakeJellyfin()
@@ -92,6 +93,7 @@ before(async () => {
     writeFileSync(join(dir, 'web', rel), c)
   }
   const settingsFile = join(config, 'finesse.json')
+  settingsPath = settingsFile
   writeFileSync(settingsFile, JSON.stringify({ version: 1, instanceId: 'bstream-test', mode: 'adopt', setup: { state: 'ready' }, jellyfin: { url: jf.url, apiKey: API_KEY, basePath: '' }, services: {} }))
   process.env.WOLF_SOCKET = join(dir, 'wolf.sock')
   process.env.DOCKER_SOCKET = docker.socket
@@ -182,6 +184,8 @@ describe('Wolf games in Finesse’s page', () => {
     assert.equal(r.status, 202)
     const join = bodies.find((b) => b.path === '/api/v1/lobbies/join')!
     assert.equal(join.body.moonlight_session_id, 'mw')
+    // Remembered across a Finesse restart, so it's still stopped after a while with nobody in it.
+    assert.deepEqual(JSON.parse(readFileSync(settingsPath, 'utf8')).streaming.lobbies, ['lobby-1'])
     // Next time Moonlight-Web picks up the session it already had: still the right one (remembered).
     const again = await api('POST', '/api/streaming/browser', USER_TOKEN, { app: 'finesse-steam-2694490' })
     bodies.length = 0

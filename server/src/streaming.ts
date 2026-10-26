@@ -484,6 +484,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     // Wolf numbers its apps afresh when it starts, and every game and stream ended.
     appsCache = null
     ourLobbies.clear()
+    saveLobbies()
     log.info(`wolf: restarted by ${user.Name}`)
     sendJson(res, 200, { ok: true })
   })
@@ -634,7 +635,13 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   // the way picking it in Wolf UI would. Apps in a profile with a PIN only an administrator starts from here.
   // Lobbies Finesse started, and since when nobody's been in each (null: someone is). Stopped after
   // LOBBY_GRACE with nobody: long enough to reconnect, short enough not to hold the graphics card.
-  const ourLobbies = new Map<string, number | null>()
+  // Kept in settings too, so a Finesse restart doesn't leave a game running for good.
+  const ourLobbies = new Map<string, number | null>((settings.get().streaming?.lobbies ?? []).map((id) => [id, null]))
+  const saveLobbies = () => {
+    const ids = [...ourLobbies.keys()]
+    const was = settings.get().streaming?.lobbies ?? []
+    if (ids.length !== was.length || ids.some((id, i) => id !== was[i])) settings.update((x) => void (x.streaming = { ...x.streaming, lobbies: ids }))
+  }
   const sweep = setInterval(() => {
     const socket = socketOf()
     if (!socket || !ourLobbies.size) return
@@ -643,11 +650,12 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
         const now = Date.now()
         const live = new Map((r.lobbies ?? []).map((l) => [String(l.id), Array.isArray(l.connected_sessions) ? l.connected_sessions.length : 0]))
         for (const [id, since] of ourLobbies) {
-          if (!live.has(id)) ourLobbies.delete(id)
+          if (!live.has(id)) (ourLobbies.delete(id), saveLobbies())
           else if (live.get(id)! > 0) ourLobbies.set(id, null)
           else if (since === null) ourLobbies.set(id, now)
           else if (now - since >= LOBBY_GRACE) {
             ourLobbies.delete(id)
+            saveLobbies()
             await wolfJson(socket, 'POST', '/api/v1/lobbies/stop', { lobby_id: id, pin: null }).catch(() => {})
             log.info('launch: stopped a game nobody came back to')
           }
@@ -705,6 +713,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
         if (!lobbyId) throw new WolfError('no lobby id')
         await wolfJson(socket, 'POST', '/api/v1/lobbies/join', { lobby_id: lobbyId, moonlight_session_id: session.client_id, pin: null })
         ourLobbies.set(lobbyId, null)
+        saveLobbies()
         if (browserClient) browser.noteLobby(wanted.slice(8), lobbyId)
       } catch (e) {
         throw new ApiError(502, `Couldn’t start it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
@@ -734,6 +743,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       throw new ApiError(502, `Couldn’t close it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
     }
     ourLobbies.delete(lobby)
+    saveLobbies()
     log.info('launch: closed a game played in the page')
     sendJson(res, 200, { ok: true })
   })
