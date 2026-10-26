@@ -131,11 +131,12 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
           title={app.title}
           allow="fullscreen; gamepad; autoplay; clipboard-read; clipboard-write; keyboard-map"
           allowFullScreen
-          className={`absolute inset-0 h-full w-full border-0 transition-opacity duration-500 ${phase === 'playing' ? 'opacity-100' : 'opacity-0'}`}
+          className="absolute inset-0 h-full w-full border-0"
         />
       )}
       {phase !== 'playing' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
+        // Over the stream, not instead of it: a frame hidden from the browser falls behind decoding.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/90 p-6 text-center">
           <p className="text-xl font-semibold text-white">{app.title}</p>
           {busy ? (
             <>
