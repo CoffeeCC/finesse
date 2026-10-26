@@ -26,6 +26,7 @@ const app = (title: string, id: string, env: string[] = []) => ({ title, id, ...
 
 let sessions: any[] = [{ client_id: 'tv', client_ip: '192.168.1.80', app_id: '5', aes_key: 'k1' }, { client_id: 'mw', client_ip: '192.168.1.2', app_id: '5', aes_key: 'old' }]
 const bodies: { path: string; body: any }[] = []
+let lobbies: any[] = []
 
 async function fakeWolf(socket: string) {
   const send = (res: ServerResponse, data: unknown) => {
@@ -37,10 +38,14 @@ async function fakeWolf(socket: string) {
     if (url.pathname === '/api/v1/apps') return send(res, { success: true, apps: [app('Wolf UI', '5'), app('Desktop', '6')] })
     if (url.pathname === '/api/v1/profiles') return send(res, { success: true, profiles: [{ id: 'user', name: 'User', apps: [app('Path of Exile 2', 'finesse-steam-2694490', ['FINESSE_STEAM_APPID=2694490'])] }] })
     if (url.pathname === '/api/v1/sessions') return send(res, { success: true, sessions })
+    if (url.pathname === '/api/v1/lobbies') return send(res, { success: true, lobbies })
     const chunks: Buffer[] = []
     for await (const c of req) chunks.push(c as Buffer)
     bodies.push({ path: url.pathname, body: JSON.parse(Buffer.concat(chunks).toString() || '{}') })
-    if (url.pathname === '/api/v1/lobbies/create') return send(res, { success: true, lobby_id: 'lobby-1' })
+    if (url.pathname === '/api/v1/lobbies/create') {
+      lobbies.push({ id: 'lobby-1', name: bodies.at(-1)!.body.name, started_by_profile_id: bodies.at(-1)!.body.profile_id, connected_sessions: [] })
+      return send(res, { success: true, lobby_id: 'lobby-1' })
+    }
     send(res, { success: true })
   })
   await new Promise<void>((r) => server.listen(socket, r))
@@ -176,6 +181,9 @@ describe('Wolf games in Finesse’s page', () => {
     bodies.length = 0
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: `browser:${again.data.play}` })).status, 202)
     assert.equal(bodies.find((b) => b.path === '/api/v1/lobbies/join')!.body.moonlight_session_id, 'mw')
+    // …and back into the game that's still running, not a second copy of it.
+    assert.equal(bodies.filter((b) => b.path === '/api/v1/lobbies/create').length, 0)
+    assert.equal(bodies.find((b) => b.path === '/api/v1/lobbies/join')!.body.lobby_id, 'lobby-1')
     // Someone else's play id gets nothing.
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'browser:nope' })).status, 404)
   })

@@ -666,7 +666,11 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       const lobby = lobbyRequest(inProfile.p.id, pinned, session)
       let lobbyId: string
       try {
-        lobbyId = (await wolfJson<{ lobby_id?: string }>(socket, 'POST', '/api/v1/lobbies/create', lobby)).lobby_id ?? ''
+        // Already running for this profile (left within the last few minutes): back into it. A second
+        // copy would share the profile's folder with the first, and Wolf stops it at once.
+        const running = (await wolfJson<{ lobbies?: { id?: unknown; name?: unknown; started_by_profile_id?: unknown; multi_user?: unknown }[] }>(socket, 'GET', '/api/v1/lobbies').catch(() => ({ lobbies: [] }))).lobbies ?? []
+        lobbyId = String(running.find((l) => l.started_by_profile_id === inProfile.p.id && l.name === app.title)?.id ?? '')
+        if (!lobbyId) lobbyId = (await wolfJson<{ lobby_id?: string }>(socket, 'POST', '/api/v1/lobbies/create', lobby)).lobby_id ?? ''
         if (!lobbyId) throw new WolfError('no lobby id')
         await wolfJson(socket, 'POST', '/api/v1/lobbies/join', { lobby_id: lobbyId, moonlight_session_id: session.client_id, pin: null })
         ourLobbies.set(lobbyId, null)
