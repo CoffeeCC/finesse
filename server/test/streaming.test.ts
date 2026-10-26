@@ -130,17 +130,17 @@ test('everyone at home sees the apps, and nothing of their settings', async () =
   const r = await call('GET', '/api/streaming', USER_TOKEN)
   assert.equal(r.status, 200)
   assert.deepEqual(r.data.apps, [
-    { id: '1', title: 'Steam', hdr: true, icon: true },
-    { id: '2', title: 'Firefox', hdr: false, icon: false },
-    { id: '3', title: 'Desktop', hdr: false, icon: false },
-    { id: '5', title: 'Wolf UI', hdr: false, icon: false, launcher: true },
+    { id: '1', title: 'Steam', hdr: true, icon: true, kind: 'app' },
+    { id: '2', title: 'Firefox', hdr: false, icon: false, kind: 'app' },
+    { id: '3', title: 'Desktop', hdr: false, icon: false, kind: 'app' },
+    { id: '5', title: 'Wolf UI', hdr: false, icon: false, launcher: true, kind: 'app' },
   ])
   assert.doesNotMatch(r.text, /SECRET_TOKEN|hunter2|mnt\/private|gst|runner|icon_png_path/)
 })
 
 test('the apps inside Wolf UI’s profiles show too, never a profile’s PIN', async () => {
   const r = await call('GET', '/api/streaming', USER_TOKEN)
-  assert.deepEqual(r.data.profiles, [{ id: 'user', name: 'User', apps: [{ id: '10', title: 'RetroArch', hdr: false, icon: true }] }])
+  assert.deepEqual(r.data.profiles, [{ id: 'user', name: 'User', apps: [{ id: '10', title: 'RetroArch', hdr: false, icon: true, kind: 'emulator' }] }])
   assert.doesNotMatch(r.text, /PROFILE_SECRET|"pin"|Test ball/)
   const icon = await fetch(`${finesse.url}/api/streaming/apps/10/icon?ApiKey=${USER_TOKEN}`)
   assert.equal(icon.status, 200)

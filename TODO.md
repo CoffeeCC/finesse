@@ -38,6 +38,19 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## A tidier game library — v3.2.4 (2026-10-26)
+
+- **Add all your Steam games at once.** Games → Steam games → **Add all**: every installed game gets
+  its tile in one go (one change to Wolf, not one per game).
+- **Keep in sync with Steam.** Turn it on and games you install show up by themselves, and
+  uninstalled ones go (checked every few minutes). If Steam's folder can't be read, nothing is
+  taken away.
+- **Rows that make sense.** Your Steam games get a row of their own with tall covers, recently
+  played first (Steam's own record), and a search box once there are more than eight. Emulators
+  and other apps (Firefox, Kodi, Desktop…) sit in smaller rows underneath.
+- **Hide what you don't use.** Administrators hover a tile and hide it; it's gone from the Games
+  page but still in Moonlight. "Show hidden" brings it back.
+
 ## Play Wolf games right in Finesse — v3.2.3 (2026-10-26)
 
 - **Play here, in the Finesse window.** Click a game in "Stream from your server", then **Play

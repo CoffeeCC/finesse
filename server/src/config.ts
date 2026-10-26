@@ -105,6 +105,10 @@ export interface Settings {
     browserClient?: string
     /** Games (Wolf lobbies) Finesse started, stopped after a while with nobody in them. */
     lobbies?: string[]
+    /** Apps an administrator hid from the Games page (titles; Moonlight still lists them). */
+    hidden?: string[]
+    /** Keep Steam games in step with what's installed: new installs added, uninstalled ones removed. */
+    steamSync?: boolean
   }
   /** Emulators as Wolf apps: which ones, and the folders they get (host paths). */
   emulators?: import('./emulators.ts').EmulatorSettings

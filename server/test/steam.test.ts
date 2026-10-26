@@ -27,7 +27,10 @@ const steamApp = (id: string) => ({
 })
 const otherApp = (title: string, id: string) => ({ title, id, support_hdr: false, ...BASE, start_virtual_compositor: true, start_audio_server: true, runner: { type: 'docker', name: `Wolf${title}`, image: 'x', mounts: [], env: [], devices: [], ports: [], base_create_json: '{}' } })
 
-const manifest = (appid: number, name: string, flags = 4, size = 0) => `"AppState"\n{\n\t"appid"\t\t"${appid}"\n\t"name"\t\t"${name}"\n\t"StateFlags"\t\t"${flags}"\n\t"SizeOnDisk"\t\t"${size}"\n}\n`
+const manifest = (appid: number, name: string, flags = 4, size = 0, lastPlayed = 0) =>
+  `"AppState"\n{\n\t"appid"\t\t"${appid}"\n\t"name"\t\t"${name}"\n\t"StateFlags"\t\t"${flags}"\n\t"LastPlayed"\t\t"${lastPlayed}"\n\t"SizeOnDisk"\t\t"${size}"\n}\n`
+/** What's installed in the fake Steam folder (tests change it). */
+let installed = [manifest(2694490, 'Path of Exile 2', 4, 60e9, 1792982328), manifest(2050650, 'Resident Evil 4', 4, 70e9, 1700000000), manifest(2805730, 'Proton 9.0'), manifest(730, 'Counter-Strike 2', 1026)]
 
 async function fakeWolf(socket: string) {
   const bodies: { path: string; body: any }[] = []
@@ -75,7 +78,7 @@ async function fakeWolf(socket: string) {
 
 describe('Steam manifests', () => {
   test('installed games only; Steam’s own tools and unfinished downloads are left out', () => {
-    assert.deepEqual(parseManifest(manifest(2694490, 'Path of Exile 2', 4, 123)), { appId: 2694490, name: 'Path of Exile 2', size: 123 })
+    assert.deepEqual(parseManifest(manifest(2694490, 'Path of Exile 2', 4, 123, 1792982328)), { appId: 2694490, name: 'Path of Exile 2', size: 123, lastPlayed: 1792982328 })
     // Updating still plays: other bits next to "installed".
     assert.equal(parseManifest(manifest(2050650, 'Resident Evil 4', 6))?.name, 'Resident Evil 4')
     assert.equal(parseManifest(manifest(10, 'Half-Life', 1026)), null)
@@ -131,7 +134,7 @@ before(async () => {
         body.HostConfig.Binds.includes('/sys/class/drm:/host/drm:ro')
           ? 'renderD128 0x10de 0x2504\nrenderD129 0x10de 0x2503\n'
           : body.HostConfig.Binds.includes('/mnt/NVME/wolf/profile-data/user/WolfSteam:/steam:ro')
-          ? JSON.stringify([manifest(2694490, 'Path of Exile 2', 4, 60e9), manifest(2050650, 'Resident Evil 4', 4, 70e9), manifest(2805730, 'Proton 9.0'), manifest(730, 'Counter-Strike 2', 1026)]) + '\n'
+          ? JSON.stringify(installed) + '\n'
           : 'nothing here\n',
     },
   )
@@ -230,7 +233,10 @@ describe('Steam shortcuts in Wolf', () => {
   test('the Games page gets the shortcut with its Steam id (for the cover); the list marks it added', async () => {
     const all = await call('GET', '/api/streaming', USER_TOKEN)
     const user = all.data.profiles.find((p: any) => p.id === 'user')
-    assert.deepEqual(user.apps.find((a: any) => a.title === 'Path of Exile 2'), { id: 'finesse-steam-2694490', title: 'Path of Exile 2', hdr: false, icon: true, steam: 2694490 })
+    // Its row (Steam games) and when it was last played, for the order.
+    assert.deepEqual(user.apps.find((a: any) => a.title === 'Path of Exile 2'), { id: 'finesse-steam-2694490', title: 'Path of Exile 2', hdr: false, icon: true, steam: 2694490, kind: 'steam', lastPlayed: 1792982328 })
+    assert.equal(user.apps.find((a: any) => a.title === 'RetroArch').kind, 'emulator')
+    assert.equal(user.apps.find((a: any) => a.title === 'Steam').kind, 'app')
     const list = await call('GET', '/api/streaming/steam', ADMIN_TOKEN)
     assert.equal(list.data.games.find((g: any) => g.appId === 2694490).added, true)
   })
@@ -282,6 +288,44 @@ describe('Steam shortcuts in Wolf', () => {
     assert.equal(r.data.removed, 1)
     assert.deepEqual(userApps().map((a) => a.title), ['Steam', 'RetroArch'])
     assert.deepEqual(userApps()[0].runner.env, STEAM_ENV)
+  })
+
+  test('add all: every installed game in one change to the profile', async () => {
+    const before = wolf.bodies.filter((b) => b.path === '/api/v1/profiles/add').length
+    const r = await call('POST', '/api/streaming/steam/shortcuts', ADMIN_TOKEN, { all: true })
+    assert.equal(r.status, 201)
+    assert.equal(r.data.added, 2)
+    assert.deepEqual(userApps().map((a) => a.title), ['Steam', 'RetroArch', 'Path of Exile 2', 'Resident Evil 4'])
+    assert.equal(wolf.bodies.filter((b) => b.path === '/api/v1/profiles/add').length - before, 1)
+    assert.equal((await call('POST', '/api/streaming/steam/shortcuts', ADMIN_TOKEN, { all: true })).data.added, 0)
+    assert.equal((await call('POST', '/api/streaming/steam/shortcuts', USER_TOKEN, { all: true })).status, 403)
+  })
+
+  test('keep in sync: new installs get a tile, uninstalled games lose theirs', async () => {
+    assert.equal((await call('PUT', '/api/streaming/steam/sync', USER_TOKEN, { on: true })).status, 403)
+    installed = [manifest(2694490, 'Path of Exile 2', 4, 60e9, 1792982328), manifest(1145360, 'Hades', 4, 15e9)]
+    const r = await call('PUT', '/api/streaming/steam/sync', ADMIN_TOKEN, { on: true })
+    assert.equal(r.status, 200)
+    assert.deepEqual([r.data.on, r.data.added, r.data.removed], [true, 1, 1])
+    assert.deepEqual(userApps().map((a) => a.title), ['Steam', 'RetroArch', 'Path of Exile 2', 'Hades'])
+    assert.equal((await call('GET', '/api/streaming/steam', ADMIN_TOKEN)).data.sync, true)
+    // Steam's folder unreadable or empty: nothing is taken away.
+    installed = []
+    assert.equal((await call('PUT', '/api/streaming/steam/sync', ADMIN_TOKEN, { on: true })).data.removed, 0)
+    assert.equal(userApps().length, 4)
+    assert.equal((await call('PUT', '/api/streaming/steam/sync', ADMIN_TOKEN, { on: false })).data.on, false)
+  })
+
+  test('hide: administrators tidy the Games page (Moonlight still lists it)', async () => {
+    assert.equal((await call('PUT', '/api/streaming/hidden', USER_TOKEN, { title: 'RetroArch', hidden: true })).status, 403)
+    assert.equal((await call('PUT', '/api/streaming/hidden', ADMIN_TOKEN, { title: 'RetroArch', hidden: true })).status, 200)
+    const user = (await call('GET', '/api/streaming', USER_TOKEN)).data.profiles.find((p: any) => p.id === 'user')
+    assert.equal(user.apps.find((a: any) => a.title === 'RetroArch').hidden, true)
+    assert.equal(user.apps.find((a: any) => a.title === 'Steam').hidden, undefined)
+    await call('PUT', '/api/streaming/hidden', ADMIN_TOKEN, { title: 'retroarch', hidden: false })
+    const again = (await call('GET', '/api/streaming', USER_TOKEN)).data.profiles.find((p: any) => p.id === 'user')
+    assert.equal(again.apps.find((a: any) => a.title === 'RetroArch').hidden, undefined)
+    assert.ok(userApps().some((a) => a.title === 'RetroArch'), 'Wolf keeps it')
   })
 
   test('artwork needs a sign-in and a real app id', async () => {

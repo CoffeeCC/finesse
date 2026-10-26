@@ -17,6 +17,8 @@ export interface SteamGame {
   name: string
   /** Bytes on disk (0 when Steam didn't say). */
   size: number
+  /** When it was last played (Unix seconds; 0 when never or Steam didn't say). */
+  lastPlayed: number
 }
 
 type RawApp = Record<string, unknown>
@@ -82,7 +84,7 @@ export function parseManifest(text: string): SteamGame | null {
   if (TOOL_IDS.has(appId) || TOOL_NAME.test(name)) return null
   // 4: fully installed (other bits: updating, validating; it still plays).
   if (!(flags & 4)) return null
-  return { appId, name, size: Number(kv.get('sizeondisk')) || 0 }
+  return { appId, name, size: Number(kv.get('sizeondisk')) || 0, lastPlayed: Number(kv.get('lastplayed')) || 0 }
 }
 
 // Runs inside the probe container: Steam's manifests in every library under /steam, as one JSON line.
@@ -157,6 +159,16 @@ export async function installedGames(docker: Docker, home: string): Promise<Stea
     if (g) games.set(g.appId, g)
   }
   return [...games.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// Emulators and their front ends: a row of their own, under the games.
+const EMULATOR = /retroarch|emulationstation|es-de|pegasus|pcsx2|dolphin|rpcs3|cemu|yuzu|ryujinx|\beden\b|xemu|ppsspp|duckstation|melonds|azahar|citra|mame/i
+
+/** What a Wolf app is, for the Games page's rows: a Steam game, an emulator, or another app. */
+export function appKind(a: RawApp): 'steam' | 'emulator' | 'app' {
+  if (shortcutAppId(a) !== null) return 'steam'
+  const r = runnerOf(a)
+  return EMULATOR.test(`${String(a.title ?? '')} ${String(r.image ?? '')}`) ? 'emulator' : 'app'
 }
 
 /** Steam's store artwork for a game: the tall cover, then the wide header. */
