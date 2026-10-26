@@ -730,6 +730,38 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     sendJson(res, 202, { ok: true, app: app.title })
   })
 
+  // A stream in Finesse's page ends: end Wolf's session for it too. Left alone, Wolf keeps it (and its
+  // launcher, and the graphics memory both hold) waiting for a Moonlight that isn't coming back.
+  const endSession = async (socket: string, client: string) => {
+    await wolfJson(socket, 'POST', '/api/v1/sessions/stop', { session_id: client }).catch((e) => log.warn(`stream end: ${wolfProblem(e, socket)}`))
+  }
+  router.post('/api/streaming/browser/alive', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const body = await readJson<{ play?: unknown }>(req)
+    sendJson(res, browser.touch(String(body.play ?? ''), user.Id) ? 200 : 404, { ok: true })
+  })
+  router.post('/api/streaming/browser/close', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const socket = need()
+    const body = await readJson<{ play?: unknown }>(req)
+    const play = String(body.play ?? '')
+    // Never launched anything into it (an app streamed on its own): find its session now.
+    browser.sessionFor(play, user.Id, await sessions(socket).then((l) => l.map(openSession), () => []))
+    const client = browser.finish(play, user.Id)
+    if (client) await endSession(socket, client)
+    sendJson(res, 200, { ok: true })
+  })
+  // A page that closed without saying so (the tab, the laptop lid): its session ends after a few minutes.
+  const abandon = setInterval(() => {
+    const socket = socketOf()
+    if (!socket) return
+    for (const client of browser.abandoned(3 * 60_000)) {
+      log.info('stream end: a page playing a game went away')
+      void endSession(socket, client)
+    }
+  }, 30_000)
+  abandon.unref()
+
   // Quit game, from the menu of a game played in Finesse's page: stop the game that play started.
   router.post('/api/streaming/browser/quit', async ({ req, res }) => {
     const user = await auth.requireUser(req)
@@ -744,6 +776,8 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     }
     ourLobbies.delete(lobby)
     saveLobbies()
+    const client = browser.finish(String(body.play ?? ''), user.Id)
+    if (client) await endSession(socket, client)
     log.info('launch: closed a game played in the page')
     sendJson(res, 200, { ok: true })
   })

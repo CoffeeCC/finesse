@@ -132,6 +132,12 @@ export interface BrowserStream {
   /** The game (Wolf lobby) a play started or joined, for Quit game. */
   noteLobby(play: string, lobby: string): void
   lobbyOf(play: string, user: string): string | null
+  /** The page is still showing this play (it says so every 30 s). */
+  touch(play: string, user: string): boolean
+  /** This play is over: its Wolf client, if it had one and no other open play shares it. */
+  finish(play: string, user: string | null): string | null
+  /** Plays whose page stopped saying it's there (closed tab, lost Wi-Fi): finished, their clients. */
+  abandoned(ms: number): string[]
 }
 
 export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessions: () => Promise<OpenSession[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
@@ -140,7 +146,7 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
   const tickets = new Map<string, { user: string; app: string; until: number }>()
   const visits = new Map<string, { user: string; until: number }>()
   // A play: the sessions that were open before it started, and the one it turned out to be.
-  const plays = new Map<string, { user: string; before: string[]; client?: string; lobby?: string; until: number }>()
+  const plays = new Map<string, { user: string; before: string[]; client?: string; lobby?: string; until: number; seen: number }>()
   /** The Wolf client id Moonlight-Web streams as (it's one paired client), once seen. Kept across restarts. */
   const knownClient = () => deps.settings.get().streaming?.browserClient ?? null
   const remember = (id: string) => {
@@ -176,7 +182,7 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
       const ticket = randomBytes(24).toString('hex')
       const play = randomBytes(12).toString('hex')
       tickets.set(ticket, { user: user.Id, app: what.title, until: Date.now() + TICKET_MS })
-      plays.set(play, { user: user.Id, before: (await deps.sessions().catch(() => [])).map((x) => x.stream), until: Date.now() + VISIT_MS })
+      plays.set(play, { user: user.Id, before: (await deps.sessions().catch(() => [])).map((x) => x.stream), until: Date.now() + VISIT_MS, seen: Date.now() })
       sendJson(res, 200, { port: STREAM_PORT, ticket, play, join: what.join })
     })
   }
@@ -304,5 +310,27 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
     return p && p.user === user ? (p.lobby ?? null) : null
   }
 
-  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf }
+  const touch = (play: string, user: string) => {
+    const p = plays.get(play)
+    if (!p || p.user !== user) return false
+    p.seen = Date.now()
+    return true
+  }
+  const finish = (play: string, user: string | null) => {
+    const p = plays.get(play)
+    if (!p || (user !== null && p.user !== user)) return null
+    plays.delete(play)
+    // Moonlight-Web is one Wolf client: leave it alone while another page still plays through it.
+    return p.client && ![...plays.values()].some((o) => o.client === p.client) ? p.client : null
+  }
+  const abandoned = (ms: number) => {
+    const out: string[] = []
+    for (const [id, p] of plays) if (p.client && Date.now() - p.seen > ms) {
+      const c = finish(id, null)
+      if (c) out.push(c)
+    }
+    return out
+  }
+
+  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf, touch, finish, abandoned }
 }

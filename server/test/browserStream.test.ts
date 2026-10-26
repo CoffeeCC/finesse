@@ -198,6 +198,13 @@ describe('Wolf games in Finesse’s page', () => {
     assert.equal((await api('POST', '/api/streaming/browser/quit', USER_TOKEN, { play: 'nope' })).status, 404)
     assert.equal((await api('POST', '/api/streaming/browser/quit', USER_TOKEN, { play: again.data.play })).status, 200)
     assert.deepEqual(bodies.find((b) => b.path === '/api/v1/lobbies/stop')!.body, { lobby_id: 'lobby-1', pin: null })
+    // The first page still plays through Moonlight-Web's session: it stays…
+    assert.equal(bodies.filter((b) => b.path === '/api/v1/sessions/stop').length, 0)
+    assert.equal((await api('POST', '/api/streaming/browser/alive', USER_TOKEN, { play })).status, 200)
+    // …until that page is done too: then Wolf's session ends (or it holds the graphics memory, waiting).
+    assert.equal((await api('POST', '/api/streaming/browser/close', USER_TOKEN, { play })).status, 200)
+    assert.deepEqual(bodies.find((b) => b.path === '/api/v1/sessions/stop')!.body, { session_id: 'mw' })
+    assert.equal((await api('POST', '/api/streaming/browser/alive', USER_TOKEN, { play })).status, 404)
     // Someone else's play id gets nothing.
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'browser:nope' })).status, 404)
   })

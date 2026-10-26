@@ -100,9 +100,14 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
         setSrc(`${origin}/__finesse/enter?t=${encodeURIComponent(t.ticket)}`)
       })
       .catch((e: Error) => fail(e.message))
+    // Say every 30 s that this page still shows the game; Finesse ends Wolf's session for a page that stops saying so.
+    const beat = window.setInterval(() => ticket && void streamingApi.browserAlive(ticket.play).catch(() => {}), 30_000)
     return () => {
       alive = false
+      window.clearInterval(beat)
       window.removeEventListener('message', onMessage)
+      // Done here (Back to Finesse, Quit, closed): end the stream on the server too, or Wolf keeps it, and the memory it holds.
+      if (ticket) void streamingApi.closeBrowser(ticket.play).catch(() => {})
     }
   }, [app.id, host])
 
