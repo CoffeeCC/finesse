@@ -52,7 +52,7 @@ export async function fakeDocker(containers: FakeContainer[], opts: { run?: (bod
     if (url.pathname.endsWith('/version')) return send(200, { Version: '27.3.1', Os: 'linux', Arch: 'amd64', ApiVersion: '1.47' })
     if (url.pathname.endsWith('/info')) return send(200, { NCPU: 4, MemTotal: 8e9, OperatingSystem: 'Fake OS' })
     if (/^\/images\/.+\/json$/.test(url.pathname)) return send(200, { Id: 'sha256:fake' })
-    let a = /^\/containers\/([^/]+)\/(start|stop)$/.exec(url.pathname)
+    let a = /^\/containers\/([^/]+)\/(start|stop|restart)$/.exec(url.pathname)
     if (a && req.method === 'POST') {
       calls.push(`${a[2]} ${decodeURIComponent(a[1]!)}`)
       res.writeHead(204)

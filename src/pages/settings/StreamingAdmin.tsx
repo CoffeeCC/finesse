@@ -11,6 +11,69 @@ const primaryBtn = 'inline-flex h-10 items-center gap-2 rounded-lg bg-accent-fil
 const input = 'h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-sm text-white placeholder:text-ink-500 outline-none focus:border-accent-500'
 const label = 'block text-[11px] font-semibold uppercase tracking-wider text-ink-400'
 
+const gb = (mib: number) => `${(mib / 1024).toFixed(mib >= 10240 ? 0 : 1)} GB`
+
+/** Wolf itself: the graphics memory it holds (it can keep growing until streams fail), and a restart. */
+function WolfHealth() {
+  const toast = useToast()
+  const { data, refetch } = useQuery({ queryKey: ['streaming', 'wolf'], queryFn: streamingApi.wolf, refetchInterval: 15000, retry: false })
+  const [armed, setArmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 5000)
+    return () => clearTimeout(t)
+  }, [armed])
+  if (!data?.container) return null
+  const live = data.games + data.streams
+  const restart = async () => {
+    setBusy(true)
+    try {
+      await streamingApi.restartWolf()
+      toast('Wolf is restarting. It’s ready again in a few seconds.')
+      window.setTimeout(() => void refetch(), 8000)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+      setArmed(false)
+    }
+  }
+  return (
+    <div className="space-y-2 border-t border-white/5 pt-5">
+      <p className="text-[13px] font-semibold text-white">Wolf</p>
+      {(data.gpus ?? []).map((g, i) => {
+        const high = g.total > 0 && g.used / g.total > 0.8
+        return (
+          <div key={i} className="space-y-1.5">
+            <div className="flex items-baseline justify-between gap-3 text-[12.5px]">
+              <span className="text-ink-300">
+                Wolf holds <b className={high ? 'text-amber-200' : 'text-white'}>{gb(g.wolf)}</b> of {g.name.replace(/^NVIDIA (GeForce )?/, '')}’s memory
+              </span>
+              <span className="text-ink-400">
+                {gb(g.used)} / {gb(g.total)} in use
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
+              <div className={`h-full rounded-full ${high ? 'bg-amber-300' : 'bg-accent-400'}`} style={{ width: `${g.total ? Math.min(100, (g.used / g.total) * 100) : 0}%` }} />
+            </div>
+            {high && <p className="text-[12.5px] text-amber-100">That card is nearly full. New games and streams can fail with “out of memory”. Restarting Wolf gives the memory back.</p>}
+          </div>
+        )
+      })}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <p className="text-[12.5px] text-ink-400">
+          {live ? `${data.games} game${data.games === 1 ? '' : 's'} and ${data.streams} stream${data.streams === 1 ? '' : 's'} running. A restart ends them.` : 'Nothing is playing right now.'}
+        </p>
+        <button type="button" className={smallBtn} disabled={busy} onClick={() => (armed || !live ? void restart() : setArmed(true))}>
+          {busy && <Spinner className="h-3 w-3" />}
+          {armed ? 'End them and restart?' : 'Restart Wolf'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** One Moonlight device waiting to pair: its PIN and a name for it. */
 function PendingDevice({ id, ip, onPaired }: { id: string; ip: string; onPaired: () => void }) {
   const toast = useToast()
@@ -394,6 +457,7 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
                 </ul>
               )}
             </div>
+            <WolfHealth />
             <Emulators />
           </>
         )}

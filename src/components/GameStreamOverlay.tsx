@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { streamingApi, type StreamApp } from '../api/setup'
+import { useAuth } from '../auth/AuthContext'
 import { pushBackHandler } from '../lib/back'
 import { finesseRoot } from '../lib/finesseServer'
 import { giveControllerToGame } from '../lib/gamepad'
@@ -25,6 +26,8 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
   const [src, setSrc] = useState<string | null>(null)
   const [stats, setStats] = useState(false)
   const [hint, setHint] = useState(false)
+  const { session } = useAuth()
+  const [restarting, setRestarting] = useState<string | null>(null)
   const playId = useRef<string | null>(null)
   const frameOrigin = useRef('')
   // The parent's onClose changes with its renders; the stream mustn't restart for that.
@@ -144,7 +147,27 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
               <p className="text-[14px] text-ink-300">{SAY[phase]}</p>
             </>
           ) : (
-            <p className="max-w-md text-[14px] text-red-300">{error}</p>
+            <>
+              <p className="max-w-md text-[14px] text-red-300">{error}</p>
+              {session?.isAdmin && (
+                // Wolf can hold on to the graphics card's memory until streams fail; a restart gives it back.
+                <button
+                  type="button"
+                  disabled={Boolean(restarting)}
+                  className="rounded-full bg-white/10 px-4 py-2 text-[13px] font-medium text-white ring-1 ring-white/15 hover:bg-white/20 disabled:opacity-60"
+                  onClick={() => {
+                    setRestarting('Restarting Wolf…')
+                    streamingApi.restartWolf().then(
+                      () => setRestarting('Wolf restarted. Close this and play again in a few seconds.'),
+                      (e: Error) => setRestarting(e.message),
+                    )
+                  }}
+                >
+                  Restart Wolf
+                </button>
+              )}
+              {restarting && <p className="text-[13px] text-ink-300">{restarting}</p>}
+            </>
           )}
         </div>
       )}

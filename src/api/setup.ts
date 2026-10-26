@@ -426,6 +426,10 @@ export const streamingApi = {
   addSteam: (appId: number) => call<{ ok: boolean; title: string }>('POST', '/api/streaming/steam/shortcuts', { appId }, { timeoutMs: 60000 }),
   removeSteam: (appId: number) => call<{ ok: boolean }>('DELETE', `/api/streaming/steam/shortcuts/${appId}`, undefined, { timeoutMs: 30000 }),
   admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
+  /** Administrators: Wolf's graphics memory and what's running in it. */
+  wolf: () =>
+    call<{ container: string | null; gpus: { name: string; used: number; total: number; wolf: number }[] | null; games: number; streams: number }>('GET', '/api/streaming/wolf', undefined, { timeoutMs: 20000 }),
+  restartWolf: () => call<{ ok: boolean }>('POST', '/api/streaming/wolf/restart', undefined, { timeoutMs: 60000 }),
   pair: (request: string, pin: string, name: string) =>
     call<{ ok: boolean; error?: string; device?: { id: string; name: string } }>('POST', '/api/streaming/pair', { request, pin, name }, { timeoutMs: 30000 }),
   remove: (id: string) => call<{ ok: boolean }>('DELETE', `/api/streaming/devices/${encodeURIComponent(id)}`),

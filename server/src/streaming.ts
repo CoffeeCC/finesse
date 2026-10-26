@@ -20,7 +20,7 @@ import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
 import { createBrowserStream, type BrowserStream } from './browserStream.ts'
-import { gpuPinEnv, hostRenderCards, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
+import { findWolf, gpuPinEnv, hostRenderCards, wolfGpu, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
 import {
   EMULATOR_IDS,
   emulatorCatalog,
@@ -455,6 +455,37 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     } catch (e) {
       sendJson(res, 200, { ok: false, error: wolfProblem(e, socket), pending: [], devices: [] })
     }
+  })
+
+  // Administrators: Wolf itself: how much graphics memory it holds, and a restart that gives it back.
+  router.get('/api/streaming/wolf', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const wolf = await findWolf(docker).catch(() => null)
+    const lobbies = await wolfJson<{ lobbies?: { connected_sessions?: unknown[] }[] }>(socket, 'GET', '/api/v1/lobbies').then((r) => r.lobbies ?? [], () => [])
+    const sessionsNow = await sessions(socket).catch(() => [])
+    sendJson(res, 200, {
+      container: wolf ? wolf.Names[0]!.replace(/^\//, '') : null,
+      gpus: wolf ? await wolfGpu(docker, wolf.Id).catch(() => null) : null,
+      games: lobbies.length,
+      streams: sessionsNow.length,
+    })
+  })
+
+  router.post('/api/streaming/wolf/restart', async ({ req, res }) => {
+    const user = await auth.requireAdmin(req)
+    const wolf = await findWolf(docker).catch(() => null)
+    if (!wolf) throw new ApiError(404, 'Finesse can’t find Wolf’s container. Restart it where you run it.')
+    try {
+      await docker.restart(wolf.Id, 10)
+    } catch (e) {
+      throw new ApiError(502, `Wolf didn’t restart: ${(e as Error).message}`)
+    }
+    // Wolf numbers its apps afresh when it starts, and every game and stream ended.
+    appsCache = null
+    ourLobbies.clear()
+    log.info(`wolf: restarted by ${user.Name}`)
+    sendJson(res, 200, { ok: true })
   })
 
   router.post('/api/streaming/pair', async ({ req, res }) => {

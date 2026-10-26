@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { after, before, describe, test } from 'node:test'
-import { gpuPinEnv, isSteamApp, parseManifest, shortcutAppId, steamShortcut, vdfPairs } from '../src/steam.ts'
+import { gpuPinEnv, isSteamApp, parseWolfGpu, parseManifest, shortcutAppId, steamShortcut, vdfPairs } from '../src/steam.ts'
 import { fakeDocker, type FakeDocker } from './fakeDocker.ts'
 import { ADMIN_TOKEN, API_KEY, USER_TOKEN, fakeJellyfin, listen, tmp, webBuild, type FakeJellyfin } from './helpers.ts'
 
@@ -93,6 +93,13 @@ describe('Steam manifests', () => {
     assert.deepEqual(gpuPinEnv(undefined, cards), [])
   })
 
+  test('Wolf’s graphics memory, per card it uses, from nvidia-smi', () => {
+    const apps = 'GPU-a, /wolf/wolf, 11065\nGPU-a, wolf-ui, 179\nGPU-a, PathOfExileSteam.exe, 341\nGPU-b, llama-server, 9000\n'
+    const gpus = 'GPU-a, NVIDIA GeForce RTX 3060, 11840, 12288\nGPU-b, NVIDIA GeForce RTX 3060, 9100, 12288\n'
+    assert.deepEqual(parseWolfGpu(apps, gpus), [{ name: 'NVIDIA GeForce RTX 3060', used: 11840, total: 12288, wolf: 11244 }])
+    assert.deepEqual(parseWolfGpu('', gpus), [])
+  })
+
   test('a shortcut is the Steam app opening one game, sharing its home folder', () => {
     const s = steamShortcut(steamApp('10'), { appId: 2694490, name: 'Path of Exile 2' }) as any
     assert.equal(s.id, 'finesse-steam-2694490')
@@ -168,6 +175,18 @@ async function call(method: string, path: string, token?: string, body?: unknown
   return { status: r.status, data }
 }
 const userApps = () => wolf.profiles().find((p) => p.id === 'user')!.apps as any[]
+
+describe('Wolf itself', () => {
+  test('administrators see what Wolf holds and can restart it; nobody else can', async () => {
+    assert.equal((await call('GET', '/api/streaming/wolf', USER_TOKEN)).status, 403)
+    const r = await call('GET', '/api/streaming/wolf', ADMIN_TOKEN)
+    assert.equal(r.status, 200)
+    assert.equal(r.data.container, 'wolf')
+    assert.equal((await call('POST', '/api/streaming/wolf/restart', USER_TOKEN)).status, 403)
+    assert.equal((await call('POST', '/api/streaming/wolf/restart', ADMIN_TOKEN)).status, 200)
+    assert.ok(docker.calls.includes('restart w'))
+  })
+})
 
 describe('Steam shortcuts in Wolf', () => {
   test('everyone sees that Steam is there; only administrators see the games', async () => {
