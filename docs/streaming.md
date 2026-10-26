@@ -102,6 +102,61 @@ setup), Moonlight shows only **Wolf UI**, and the games sit inside Wolf UI's pro
 shows the profiles' apps (Steam, RetroArch, EmulationStation…), and the steps say which to pick:
 **Wolf UI**, then your profile, then the app. Wolf's "Test ball" test pattern isn't listed.
 
+## Your games, tidied
+
+- **Games → Stream from your server → Steam games** adds Steam games one by one or **Add all**.
+  **Keep in sync** adds what you install in Steam (or Lutris) and removes what you uninstall,
+  every few minutes.
+- **Lutris** games work the same way: Finesse reads Lutris's own library, and each game opens
+  Lutris straight into it.
+- Games sit in their own row with tall covers, **running** ones first, then the most recently
+  played (Steam's and Lutris's records, and the time Finesse saw you play). Each shows the hours
+  played. A game still running shows a green **Running** badge, and **Playing now → Resume** at
+  the top takes you back in.
+- Emulators and other apps (Firefox, Kodi…) get smaller rows. With a SteamGridDB key (Settings
+  → Server), they get proper icons; Lutris games get covers from SteamGridDB or Lutris.
+- Administrators can **Hide** a tile they never use (it stays in Moonlight); **Show hidden**
+  brings it back.
+
+## Play in Finesse (no Moonlight app)
+
+**Play here** streams the game into the Finesse page itself, with keyboard, mouse or controller.
+Finesse serves [Moonlight-Web](https://github.com/linckosz/moonlight-web) on a port of its own,
+behind your Finesse sign-in, and signs in to it for you.
+
+What it needs (Settings → Server → Game streaming → **Playing in Finesse** checks each one):
+
+1. `FINESSE_HTTPS_PORT` (e.g. 30543) and `FINESSE_STREAM_PORT` (e.g. 30544) on Finesse's
+   container, both ports published.
+2. Moonlight-Web running in Docker with host networking, `MW_HTTPS_PORT` set (e.g. 30600) and
+   Wolf's `/var/run/wolf` mounted. Finesse finds it by its image; or set
+   `FINESSE_MOONLIGHT_WEB=https://<address>:<port>` and `FINESSE_MOONLIGHT_WEB_CONTAINER`.
+3. Moonlight-Web paired with Wolf once: open its own page, add the server, and enter the PIN it
+   shows under Settings → Game streaming.
+
+In the game: **View + Menu + LB + RB** (Moonlight's own combo), holding the **Guide** button, or
+Ctrl+Alt+Shift+M opens a menu: Keep playing, Performance stats, Back to Finesse (the game keeps
+running for 10 minutes), Quit game. The bar above the stream has the same, and **Esc** frees the
+mouse. **Stream quality** (Settings) fixes the resolution and frame rate for the whole game, or
+leaves it to Moonlight-Web.
+
+Wolf can hold on to the graphics card's memory until new games fail to start. Finesse shows how
+much it holds (Settings, and a warning on Games for administrators), has a **Restart Wolf**
+button, and restarts Wolf by itself when the card is nearly full and nothing is playing (you can
+turn that off).
+
+## No https warnings
+
+Browsers warn about Finesse's https until they know its certificate. Two safe ways, once per
+device (Settings → Account → **Secure connection**):
+
+- **Tailscale:** with Tailscale running in Docker on the server and HTTPS certificates turned on
+  for your tailnet, Finesse fetches a real certificate for its Tailscale name and renews it.
+  Open `https://<machine>.<tailnet>.ts.net:<https port>/finesse/` on any device with Tailscale.
+- **Finesse's own certificate authority:** download it and install it on the device (the card
+  shows the steps for Windows, Mac, iPhone, Android and Linux). It can only vouch for this
+  server's names and private network addresses, never for other websites.
+
 ## Emulators
 
 Finesse can add emulators to Wolf as apps: PCSX2 (PS2), Dolphin (GameCube and Wii), RPCS3 (PS3),

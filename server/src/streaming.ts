@@ -13,6 +13,7 @@
 // the browser gets a stand-in id.
 
 import { createHash } from 'node:crypto'
+import { hostname } from 'node:os'
 import { request } from 'node:http'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
@@ -20,6 +21,7 @@ import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
 import { createBrowserStream, type BrowserStream } from './browserStream.ts'
+import { isLutrisApp, installedLutrisGames, lutrisShortcut, lutrisShortcutId, type LutrisGame } from './lutris.ts'
 import { appKind, findWolf, gpuPinEnv, hostRenderCards, wolfGpu, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
 import {
   EMULATOR_IDS,
@@ -159,19 +161,39 @@ export interface StreamApp {
   launcher?: true
   /** A Steam game shortcut: the game's Steam app id (for its artwork). */
   steam?: number
+  /** A Lutris game shortcut: its id in Lutris. */
+  lutris?: number
+  /** Artwork beyond Wolf's icon may be had (/api/streaming/apps/<id>/art). */
+  art?: true
   /** Which row it goes in on the Games page. */
-  kind: 'steam' | 'emulator' | 'app'
-  /** A Steam game's last play (Unix seconds), when Steam recorded one. */
+  kind: 'steam' | 'lutris' | 'emulator' | 'app'
+  /** Last played (Unix seconds): Steam's or Lutris's record, or Finesse's own, whichever is later. */
   lastPlayed?: number
+  /** Time played that Finesse saw (seconds), plus what Lutris counted. */
+  playtime?: number
+  /** Running right now (a game waiting in Wolf, or a stream open on it). */
+  running?: true
   /** An administrator hid it from the Games page (Moonlight still lists it). */
   hidden?: true
 }
 
-/** What the Games page also knows: hidden apps (by title) and Steam's last-played times. */
+/** What the Games page also knows about the apps. */
 export interface AppExtras {
+  /** Hidden titles (lower case). */
   hidden?: Set<string>
-  played?: Map<number, number>
+  /** Last played by the launcher's own record: "steam:<id>" / "lutris:<id>" → Unix seconds. */
+  played?: Map<string, number>
+  /** Hours Lutris counted: "lutris:<id>" → seconds. */
+  launcherTime?: Map<string, number>
+  /** Finesse's play history: "<profile>|<title>" (lower case) → seconds and last time. */
+  history?: Record<string, { s: number; last: number }>
+  /** What's running: "<profile>|<title>" (lower case); top-level apps by id: "|#<id>". */
+  running?: Set<string>
+  /** SteamGridDB has a key: every app may have artwork. */
+  art?: boolean
 }
+
+export const historyKey = (profile: string | null, title: string) => `${profile ?? ''}|${title.toLowerCase()}`
 
 export interface StreamProfile {
   id: string
@@ -194,22 +216,32 @@ const LAUNCHER = /^wolf ui$/i
 const SAFE_ICON = /^[\w./:-]{1,300}$/
 
 /** Only what the app shows: Wolf's app entries also carry pipelines and runner settings (Docker images, mounts, environment). */
-export function publicApps(raw: WolfAppRaw[], extras: AppExtras = {}): StreamApp[] {
+export function publicApps(raw: WolfAppRaw[], extras: AppExtras = {}, profile: string | null = null): StreamApp[] {
   return raw
     .filter((a) => typeof a.id === 'string' && typeof a.title === 'string' && !TEST_APP.test(a.title))
     .map((a) => {
+      const title = a.title as string
       const steam = shortcutAppId(a as RawApp)
-      const played = steam ? extras.played?.get(steam) : undefined
+      const lutris = lutrisShortcutId(a as RawApp)
+      const key = steam ? `steam:${steam}` : lutris ? `lutris:${lutris}` : null
+      const mine = extras.history?.[historyKey(profile, title)]
+      const last = Math.max(key ? (extras.played?.get(key) ?? 0) : 0, mine?.last ?? 0)
+      const time = (mine?.s ?? 0) + (key ? (extras.launcherTime?.get(key) ?? 0) : 0)
+      const running = extras.running?.has(historyKey(profile, title)) || (profile === null && extras.running?.has(`|#${a.id as string}`))
       return {
         id: a.id as string,
-        title: a.title as string,
+        title,
         hdr: a.support_hdr === true,
         icon: typeof a.icon_png_path === 'string' && SAFE_ICON.test(a.icon_png_path),
-        ...(LAUNCHER.test(a.title as string) ? { launcher: true as const } : {}),
+        ...(LAUNCHER.test(title) ? { launcher: true as const } : {}),
         ...(steam ? { steam } : {}),
+        ...(lutris ? { lutris } : {}),
+        ...(!steam && (extras.art || lutris) && !LAUNCHER.test(title) ? { art: true as const } : {}),
         kind: appKind(a as RawApp),
-        ...(played ? { lastPlayed: played } : {}),
-        ...(extras.hidden?.has((a.title as string).toLowerCase()) ? { hidden: true as const } : {}),
+        ...(last ? { lastPlayed: last } : {}),
+        ...(time >= 60 ? { playtime: Math.round(time) } : {}),
+        ...(running ? { running: true as const } : {}),
+        ...(extras.hidden?.has(title.toLowerCase()) ? { hidden: true as const } : {}),
       }
     })
 }
@@ -218,7 +250,7 @@ export function publicApps(raw: WolfAppRaw[], extras: AppExtras = {}): StreamApp
 export function publicProfiles(raw: WolfProfileRaw[], extras: AppExtras = {}): StreamProfile[] {
   return raw
     .filter((p) => typeof p.id === 'string' && Array.isArray(p.apps))
-    .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name ? p.name : (p.id as string), apps: publicApps(p.apps as WolfAppRaw[], extras) }))
+    .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name ? p.name : (p.id as string), apps: publicApps(p.apps as WolfAppRaw[], extras, p.id as string) }))
     .filter((p) => p.apps.length > 0)
 }
 
@@ -433,27 +465,161 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       .filter((p) => typeof p.pair_secret === 'string' && p.pair_secret)
       .map((p) => ({ secret: p.pair_secret as string, ip: String(p.client_ip ?? '') }))
 
-  /** Hidden apps, and Steam's last-played times when there are Steam games to sort (from the cached read; never waits long). */
+  /** Hidden apps, play history, what's running, and the launchers' last-played times (cached reads; never waits long). */
   async function appExtras(raw: WolfAppRaw[], profiles: WolfProfileRaw[]): Promise<AppExtras> {
-    const hidden = new Set((settings.get().streaming?.hidden ?? []).map((t) => t.toLowerCase()))
+    const st = settings.get().streaming
+    const hidden = new Set((st?.hidden ?? []).map((t) => t.toLowerCase()))
+    const socket = need()
     const all = [...(raw as RawApp[]), ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))]
-    if (!all.some((a) => shortcutAppId(a) !== null)) return { hidden }
-    const games = await Promise.race([
-      steamPlaces(need()).then((f) => steamGames(f.places, 5 * 60_000)),
-      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
-    ]).catch(() => null)
-    return { hidden, played: new Map((games ?? []).map((g) => [g.appId, g.lastPlayed])) }
+    const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]).catch(() => null)
+    const [steamList, lutrisList, live] = await Promise.all([
+      all.some((a) => shortcutAppId(a) !== null) ? within(steamPlaces(socket).then((f) => steamGames(f.places, 5 * 60_000)), 4000) : null,
+      all.some((a) => lutrisShortcutId(a) !== null) ? within(steamPlaces(socket).then((f) => lutrisGames(f, 5 * 60_000)), 4000) : null,
+      within(runningNow(socket, raw), 3000),
+    ])
+    const played = new Map<string, number>()
+    const launcherTime = new Map<string, number>()
+    for (const g of steamList ?? []) if (g.lastPlayed) played.set(`steam:${g.appId}`, g.lastPlayed)
+    for (const g of lutrisList ?? []) {
+      if (g.lastPlayed) played.set(`lutris:${g.id}`, g.lastPlayed)
+      if (g.playtime) launcherTime.set(`lutris:${g.id}`, g.playtime * 3600)
+    }
+    return { hidden, played, launcherTime, history: st?.history ?? {}, running: live ?? new Set(), art: Boolean(settings.get().services.steamgriddb?.apiKey) }
   }
+
+  /** What's running in Wolf: games waiting or played in a lobby, and apps open in a Moonlight stream. */
+  async function runningNow(socket: string, raw: WolfAppRaw[]): Promise<Set<string>> {
+    const [lobbies, open] = await Promise.all([
+      wolfJson<{ lobbies?: { name?: unknown; started_by_profile_id?: unknown }[] }>(socket, 'GET', '/api/v1/lobbies').then((r) => r.lobbies ?? [], () => []),
+      sessions(socket).catch(() => []),
+    ])
+    const out = new Set<string>()
+    for (const l of lobbies) if (typeof l.name === 'string') out.add(historyKey(typeof l.started_by_profile_id === 'string' ? l.started_by_profile_id : null, l.name))
+    for (const x of open) {
+      const app = (raw as RawApp[]).find((a) => a.id === x.app_id)
+      if (app && typeof app.title === 'string' && !LAUNCHER.test(app.title)) out.add(`|#${String(app.id)}`)
+    }
+    return out
+  }
+
+  // ---------- Watching Wolf: play history, its graphics memory, a restart when it's idle and full ----------
+  /** Wolf's graphics memory at the last look (every 2 minutes), for administrators' warning. */
+  let gpuSeen: { at: number; gpus: { name: string; used: number; total: number; wolf: number }[] } | null = null
+  let lastAutoRestart = 0
+  let tick = 0
+  const WATCH_MS = Number(process.env.FINESSE_WATCH_MS) || 60_000
+  const watch = setInterval(() => {
+    const socket = socketOf()
+    if (!socket) return
+    tick++
+    void (async () => {
+      const [lobbies, open, lists] = await Promise.all([
+        wolfJson<{ lobbies?: { name?: unknown; started_by_profile_id?: unknown; connected_sessions?: unknown[] }[] }>(socket, 'GET', '/api/v1/lobbies').then((r) => r.lobbies ?? []),
+        sessions(socket),
+        wolfLists(socket),
+      ])
+      // Play history: a minute for every game someone is in (a lobby with people, or an app open in a stream).
+      const add = new Set<string>()
+      for (const l of lobbies) if (typeof l.name === 'string' && Array.isArray(l.connected_sessions) && l.connected_sessions.length) add.add(historyKey(typeof l.started_by_profile_id === 'string' ? l.started_by_profile_id : null, l.name))
+      for (const x of open) {
+        const app = (lists.raw as RawApp[]).find((a) => a.id === x.app_id)
+        if (app && typeof app.title === 'string' && !LAUNCHER.test(app.title)) add.add(historyKey(null, app.title))
+      }
+      if (add.size) {
+        const now = Math.floor(Date.now() / 1000)
+        settings.update((x) => {
+          const h = { ...(x.streaming?.history ?? {}) }
+          for (const k of add) h[k] = { s: (h[k]?.s ?? 0) + WATCH_MS / 1000, last: now }
+          x.streaming = { ...x.streaming, history: h }
+        })
+      }
+      if (tick % 2) return
+      // Wolf's graphics memory; and when it holds most of a card with nothing playing, a restart gives it back.
+      const wolf = await findWolf(docker).catch(() => null)
+      const gpus = wolf ? await wolfGpu(docker, wolf.Id).catch(() => null) : null
+      gpuSeen = gpus ? { at: Date.now(), gpus } : null
+      const full = (gpus ?? []).some((g) => g.total > 0 && g.used / g.total > 0.85 && g.wolf > g.total * 0.4)
+      if (full && wolf && settings.get().streaming?.autoRestartWolf !== false && !lobbies.length && !open.length && Date.now() - lastAutoRestart > 30 * 60_000) {
+        lastAutoRestart = Date.now()
+        log.warn('wolf: it held most of the graphics card’s memory with nothing playing; restarting it')
+        await docker.restart(wolf.Id, 10)
+        appsCache = null
+        gpuSeen = null
+      }
+    })().catch(() => {})
+  }, WATCH_MS)
+  watch.unref()
+
+  // Administrators: what playing in Finesse's page needs, part by part, and how to fix what's missing.
+  router.get('/api/streaming/browser/check', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const httpsPort = Number(process.env.FINESSE_HTTPS_PORT || 0) || null
+    const streamPort = Number(process.env.FINESSE_STREAM_PORT || 0) || null
+    const mw = await browser.target().catch(() => null)
+    const known = settings.get().streaming?.browserClient
+    const paired = known ? (await clientIds(socket).catch(() => [] as string[])).includes(known) : null
+    const items = [
+      { id: 'https', ok: Boolean(httpsPort), title: 'Finesse on https', detail: httpsPort ? `Port ${httpsPort}.` : 'Browsers only play games on a secure page.', fix: httpsPort ? [] : ['Set FINESSE_HTTPS_PORT (e.g. 30543) on Finesse’s container and publish that port.'] },
+      { id: 'port', ok: Boolean(streamPort), title: 'A port for the game stream', detail: streamPort ? `Port ${streamPort}.` : 'Moonlight-Web needs an address of its own.', fix: streamPort ? [] : ['Set FINESSE_STREAM_PORT (e.g. 30544) on Finesse’s container and publish that port.'] },
+      {
+        id: 'mw',
+        ok: Boolean(mw),
+        title: 'Moonlight-Web',
+        detail: mw ? `Found (${mw.container}).` : 'Finesse can’t find it running in Docker here.',
+        fix: mw ? [] : ['Run ghcr.io/linckosz/moonlight-web with host networking and MW_HTTPS_PORT set (e.g. 30600), and Wolf’s socket folder /var/run/wolf mounted.', 'Or tell Finesse where it is: FINESSE_MOONLIGHT_WEB=https://<address>:<port> and FINESSE_MOONLIGHT_WEB_CONTAINER=<name>.'],
+      },
+      {
+        id: 'paired',
+        ok: paired !== false,
+        title: 'Paired with Wolf',
+        detail: paired === true ? 'Yes.' : paired === false ? 'Wolf doesn’t know it any more.' : 'Checked after the first game you play here.',
+        fix: paired === false ? ['Open Moonlight-Web’s own page once, add this server, and enter the PIN it shows under Settings → Game streaming.'] : [],
+      },
+    ]
+    sendJson(res, 200, { ready: items.every((i) => i.ok), items })
+  })
+
+  // Administrators: the stream quality for games played in Finesse's page, and Wolf's self-restart.
+  const QUALITY = /^(auto|(720|1080|1440|2160)p(30|60|120))$/
+  router.put('/api/streaming/settings', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const body = await readJson<{ quality?: unknown; autoRestartWolf?: unknown }>(req)
+    if (body.quality !== undefined && (typeof body.quality !== 'string' || !QUALITY.test(body.quality))) throw new ApiError(400, 'Pick a quality from the list')
+    settings.update((x) => {
+      x.streaming = {
+        ...x.streaming,
+        ...(typeof body.quality === 'string' ? { browserQuality: body.quality } : {}),
+        ...(typeof body.autoRestartWolf === 'boolean' ? { autoRestartWolf: body.autoRestartWolf } : {}),
+      }
+    })
+    const st = settings.get().streaming
+    sendJson(res, 200, { ok: true, quality: st?.browserQuality ?? 'auto', autoRestartWolf: st?.autoRestartWolf !== false })
+  })
+  router.get('/api/streaming/settings', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const st = settings.get().streaming
+    sendJson(res, 200, { quality: st?.browserQuality ?? 'auto', autoRestartWolf: st?.autoRestartWolf !== false })
+  })
 
   // Everyone at home: what can be streamed.
   router.get('/api/streaming', async ({ req, res }) => {
-    await auth.requireUser(req)
+    const user = await auth.requireUser(req)
     const socket = need()
     try {
       const { raw, profiles } = await wolfLists(socket)
       const hasSteam = [...(raw as RawApp[]), ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))].some(isSteamApp)
       const extras = await appExtras(raw, profiles)
-      sendJson(res, 200, { ok: true, apps: publicApps(raw, extras), profiles: publicProfiles(profiles, extras), emulators: publicEmulators(raw, profiles), steam: hasSteam })
+      const isAdmin = user.Policy?.IsAdministrator === true
+      const high = isAdmin && gpuSeen && Date.now() - gpuSeen.at < 10 * 60_000 ? gpuSeen.gpus.find((g) => g.total > 0 && g.used / g.total > 0.8) : undefined
+      sendJson(res, 200, {
+        ok: true,
+        apps: publicApps(raw, extras),
+        profiles: publicProfiles(profiles, extras),
+        emulators: publicEmulators(raw, profiles),
+        steam: hasSteam,
+        ...(high ? { gpuWarning: { used: high.used, total: high.total, wolf: high.wolf } } : {}),
+      })
     } catch (e) {
       log.warn(`apps: ${wolfProblem(e, socket)}`)
       sendJson(res, 200, { ok: false, apps: [], error: 'Game streaming isn’t answering right now. Try again in a minute.' })
@@ -484,6 +650,67 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(r.body.length), 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' })
     res.end(r.body)
   })
+
+  // Everyone at home: artwork for apps that aren't Steam games: SteamGridDB (when it has a key) by
+  // the app's name, square icons for apps and tall covers for Lutris games; for Lutris, its own cover
+  // file as a fallback. Fetched here, so the page only talks to Finesse; misses are kept a while.
+  const sgdbArt = new Map<string, { at: number; got: { type: string; body: Buffer } | null }>()
+  async function sgdbFor(title: string, cover: boolean): Promise<{ type: string; body: Buffer } | null> {
+    const key = settings.get().services.steamgriddb?.apiKey
+    if (!key) return null
+    const api = (path: string) =>
+      fetch(`https://www.steamgriddb.com/api/v2${path}`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? (r.json() as Promise<{ data?: unknown }>) : null))
+    // Finesse's own names carry a console or a note in brackets: "PCSX2 (PS2)" is PCSX2.
+    const name = title.replace(/\s*\(.*?\)\s*/g, ' ').trim() || title
+    const found = (await api(`/search/autocomplete/${encodeURIComponent(name)}`).catch(() => null))?.data as { id?: number }[] | undefined
+    const id = found?.[0]?.id
+    if (!id) return null
+    const list = (await api(cover ? `/grids/game/${id}?dimensions=600x900` : `/icons/game/${id}`).catch(() => null))?.data as { url?: string }[] | undefined
+    const url = list?.find((x) => typeof x.url === 'string' && /^https:\/\//.test(x.url))?.url
+    if (!url) return null
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) }).catch(() => null)
+    const type = r?.headers.get('content-type') ?? ''
+    if (!r?.ok || !type.startsWith('image/')) return null
+    const body = Buffer.from(await r.arrayBuffer())
+    return body.length < 4_000_000 ? { type, body } : null
+  }
+  router.get('/api/streaming/apps/:id/art', async ({ req, res, params, url }) => {
+    await auth.requireUser(req, { query: url.searchParams })
+    const socket = need()
+    const app = (await allAppsRaw(socket).catch(() => [] as WolfAppRaw[])).find((a) => a.id === params.id) as RawApp | undefined
+    if (!app || typeof app.title !== 'string') throw new ApiError(404, 'No artwork')
+    const lutris = lutrisShortcutId(app)
+    const key = `${lutris ? 'cover' : 'icon'}:${app.title.toLowerCase()}`
+    let hit = sgdbArt.get(key)
+    if (!hit || (!hit.got && Date.now() - hit.at > 3600_000)) {
+      let got = await sgdbFor(app.title, Boolean(lutris)).catch(() => null)
+      if (!got && lutris) got = await lutrisCover(app).catch(() => null)
+      if (sgdbArt.size > 300) sgdbArt.delete(sgdbArt.keys().next().value!)
+      sgdbArt.set(key, (hit = { at: Date.now(), got }))
+    }
+    if (!hit.got) throw new ApiError(404, 'No artwork')
+    res.writeHead(200, { 'Content-Type': hit.got.type, 'Content-Length': String(hit.got.body.length), 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' })
+    res.end(hit.got.body)
+  })
+  /** Lutris's own cover for a shortcut's game (coverart/<slug>.jpg in the profile's Lutris folder). */
+  async function lutrisCover(app: RawApp): Promise<{ type: string; body: Buffer } | null> {
+    const id = lutrisShortcutId(app)
+    const found = await steamPlaces(need())
+    const game = (await lutrisGames(found, 10 * 60_000)).find((g) => g.id === id)
+    if (!game?.slug || !/^[\w.-]+$/.test(game.slug)) return null
+    const state = await wolfStateFolder(docker)
+    const p = found.profiles.find((x) => x.apps.some((a) => lutrisShortcutId(a) === id))
+    const base = p?.apps.find(isLutrisApp)
+    if (!state || !p || !base) return null
+    const me = await docker.inspect(process.env.FINESSE_CONTAINER || hostname()).catch(() => null)
+    const image = me?.Config.Image ?? process.env.FINESSE_IMAGE
+    if (!image) return null
+    const home = `${state}/profile-data/${p.id}/${String((base.runner as { name: string }).name)}`
+    const r = await docker.runOnce(image, ['sh', '-c', `f=/lutris/.local/share/lutris/coverart/${game.slug}.jpg; [ -f "$f" ] && base64 -w0 "$f"; echo`], [`${home}:/lutris:ro`])
+    const b64 = r.output.trim().split('\n').pop() ?? ''
+    if (!b64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) return null
+    return { type: 'image/jpeg', body: Buffer.from(b64, 'base64') }
+  }
 
   // Administrators: pairing and paired devices.
   router.get('/api/streaming/admin', async ({ req, res }) => {
@@ -927,6 +1154,94 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     }
   }
 
+  // ---------- Lutris games, the same way ----------
+  let lutrisCache: { at: number; games: LutrisGame[] } | null = null
+  /** The installed games in Wolf's Lutris apps (by profile), cached like Steam's. */
+  async function lutrisGames(found: Awaited<ReturnType<typeof steamPlaces>>, maxAge = 60_000): Promise<LutrisGame[]> {
+    if (lutrisCache && Date.now() - lutrisCache.at < maxAge) return lutrisCache.games
+    const state = await wolfStateFolder(docker)
+    if (!state) throw new ApiError(502, 'Finesse can’t find the folder Wolf keeps its apps in. Is Wolf running in Docker here?')
+    const homes = [...new Set(found.profiles.flatMap((p) => p.apps.filter(isLutrisApp).map((a) => `${state}/profile-data/${p.id}/${String((a.runner as { name: string }).name)}`)))]
+    const all = new Map<number, LutrisGame>()
+    for (const home of homes) for (const g of await installedLutrisGames(docker, home)) all.set(g.id, g)
+    const games = [...all.values()].sort((a, b) => a.name.localeCompare(b.name))
+    lutrisCache = { at: Date.now(), games }
+    return games
+  }
+  const hasLutris = (found: Awaited<ReturnType<typeof steamPlaces>>) => found.profiles.some((p) => p.apps.some(isLutrisApp))
+  const lutrisIds = (found: Awaited<ReturnType<typeof steamPlaces>>) =>
+    new Set(found.profiles.flatMap((p) => p.apps).map(lutrisShortcutId).filter((x): x is number => x !== null))
+  async function addLutris(socket: string, found: Awaited<ReturnType<typeof steamPlaces>>, games: LutrisGame[]) {
+    for (const p of found.profiles) {
+      const lutris = p.apps.find(isLutrisApp)
+      if (!lutris) continue
+      const fresh = games.filter((g) => !p.apps.some((a) => lutrisShortcutId(a) === g.id))
+      if (fresh.length) await setProfileApps(socket, p, [...p.apps, ...fresh.map((g) => lutrisShortcut(lutris, g))])
+    }
+    appsCache = null
+  }
+  async function removeLutris(socket: string, found: Awaited<ReturnType<typeof steamPlaces>>, ids: Set<number>) {
+    let removed = 0
+    for (const p of found.profiles) {
+      const keep = p.apps.filter((a) => !ids.has(lutrisShortcutId(a) ?? -1))
+      if (keep.length === p.apps.length) continue
+      await setProfileApps(socket, p, keep)
+      removed += p.apps.length - keep.length
+    }
+    appsCache = null
+    return removed
+  }
+
+  // Administrators: Lutris's installed games, and which have tiles.
+  router.get('/api/streaming/lutris', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const found = await steamPlaces(socket).catch(() => null)
+    if (!found || !hasLutris(found)) return sendJson(res, 200, { ok: false, games: [] })
+    try {
+      const have = lutrisIds(found)
+      sendJson(res, 200, { ok: true, games: (await lutrisGames(found)).map((g) => ({ ...g, added: have.has(g.id) })) })
+    } catch (e) {
+      sendJson(res, 200, { ok: false, games: [], error: (e as Error).message })
+    }
+  })
+  router.post('/api/streaming/lutris/shortcuts', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const body = await readJson<{ id?: unknown; all?: unknown }>(req)
+    const id = Number(body.id)
+    if (body.all !== true && (!Number.isInteger(id) || id <= 0)) throw new ApiError(400, 'Which game?')
+    const found = await steamPlaces(socket).catch((e) => {
+      throw new ApiError(502, wolfProblem(e, socket))
+    })
+    if (!hasLutris(found)) throw new ApiError(404, 'Wolf has no Lutris app in a profile')
+    const installed = await lutrisGames(found)
+    const games = body.all === true ? installed : installed.filter((g) => g.id === id)
+    if (!games.length) throw new ApiError(404, body.all === true ? 'No games are installed in Lutris' : 'That game isn’t installed in Lutris')
+    const have = lutrisIds(found)
+    try {
+      await addLutris(socket, found, games)
+    } catch (e) {
+      throw new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
+    }
+    log.info(`lutris: added ${games.length === 1 ? games[0]!.name : `${games.length} games`}`)
+    sendJson(res, 201, { ok: true, title: games[0]!.name, added: games.filter((g) => !have.has(g.id)).length })
+  })
+  router.delete('/api/streaming/lutris/shortcuts/:id', async ({ req, res, params }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const id = Number(params.id)
+    if (!Number.isInteger(id) || id <= 0) throw new ApiError(400, 'Which game?')
+    const found = await steamPlaces(socket).catch((e) => {
+      throw new ApiError(502, wolfProblem(e, socket))
+    })
+    try {
+      sendJson(res, 200, { ok: true, removed: await removeLutris(socket, found, new Set([id])) })
+    } catch (e) {
+      throw new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
+    }
+  })
+
   router.get('/api/streaming/steam', async ({ req, res }) => {
     await auth.requireAdmin(req)
     const socket = need()
@@ -1033,6 +1348,27 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   // Keep in sync: games installed in Steam get their tile, uninstalled ones lose it. Checked every
   // few minutes while it's on (reading Steam's folder starts a small container, so not more often).
   async function syncSteam(socket: string) {
+    const lut = await syncLutris(socket).catch((e) => {
+      log.warn(`lutris sync: ${(e as Error).message}`)
+      return { added: 0, removed: 0 }
+    })
+    const st = await syncSteamOnly(socket)
+    return { added: st.added + lut.added, removed: st.removed + lut.removed }
+  }
+  async function syncLutris(socket: string) {
+    const found = await steamPlaces(socket)
+    if (!hasLutris(found)) return { added: 0, removed: 0 }
+    lutrisCache = null
+    const installed = await lutrisGames(found)
+    const have = lutrisIds(found)
+    const missing = installed.filter((g) => !have.has(g.id))
+    const gone = installed.length ? new Set([...have].filter((id) => !installed.some((g) => g.id === id))) : new Set<number>()
+    if (missing.length) await addLutris(socket, found, missing)
+    if (gone.size) await removeLutris(socket, await steamPlaces(socket), gone)
+    if (missing.length || gone.size) log.info(`lutris sync: ${missing.length} added, ${gone.size} removed`)
+    return { added: missing.length, removed: gone.size }
+  }
+  async function syncSteamOnly(socket: string) {
     const found = await steamPlaces(socket)
     if (!found.places.length) return { added: 0, removed: 0 }
     gamesCache = null

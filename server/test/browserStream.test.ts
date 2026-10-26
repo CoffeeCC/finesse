@@ -140,7 +140,7 @@ describe('Wolf games in Finesse’s page', () => {
     assert.equal((await fetch(`${stream.url}/`)).status, 403)
     const enter = await fetch(`${stream.url}/__finesse/enter?t=${r.data.ticket}`, { redirect: 'manual' })
     assert.equal(enter.status, 302)
-    assert.equal(enter.headers.get('location'), '/?app=Wolf%20UI')
+    assert.equal(enter.headers.get('location'), '/?app=Wolf%20UI&q=auto')
     const set = enter.headers.get('set-cookie') ?? ''
     assert.match(set, /^finesse_stream=[0-9a-f]{48}; Path=\/; Secure; HttpOnly; SameSite=Strict/)
     cookie = set.split(';')[0]!

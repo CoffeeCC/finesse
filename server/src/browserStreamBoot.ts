@@ -3,9 +3,13 @@
 //
 // - signs in with an access PIN Finesse fetches, and starts the app Finesse named;
 // - tells the Finesse page how that goes (postMessage, source 'finesse-stream');
-// - gives the stream a menu a controller can reach: hold View + Menu (Select +
-//   Start), or Ctrl+Alt+Shift+M. While it's open the controller no longer
-//   reaches the game. Keep playing / Performance stats / Back to Finesse / Quit game.
+// - sets the stream quality Finesse chose (?q=1080p60…; "auto" leaves it to
+//   Moonlight-Web), and with a fixed one keeps Moonlight-Web from changing it
+//   mid-game (each change restarts the stream in Wolf);
+// - gives the stream a menu a controller can reach: View + Menu + LB + RB
+//   (Moonlight's own combo, no game uses it), holding the Guide button, or
+//   Ctrl+Alt+Shift+M. While it's open the controller no longer reaches the
+//   game. Keep playing / Performance stats / Back to Finesse / Quit game.
 //
 // It leans on Moonlight-Web 0.4's own pieces (MoonlightApp, its streamView's pad
 // hold and stats card), which is why Finesse pins that version.
@@ -16,7 +20,25 @@ export const BOOT_JS = `// Finesse: sign in, start one app, and a menu for the c
 const tell = (msg) => window.parent !== window && window.parent.postMessage({ source: 'finesse-stream', ...msg }, '*')
 const want = new URLSearchParams(location.search).get('app') || ''
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-const CHORD_MS = 800
+const GUIDE_MS = 800
+const QUALITY = /^(720|1080|1440|2160)p(30|60|120)$/.exec(new URLSearchParams(location.search).get('q') || '')
+const MW_KEY = 'mw-streaming-settings'
+// Bitrates in kbps for 60 fps (more frames, more bits).
+const BITRATE = { 720: 10000, 1080: 20000, 1440: 35000, 2160: 60000 }
+function applyQuality() {
+  let s = {}
+  try { s = JSON.parse(localStorage.getItem(MW_KEY) || '{}') || {} } catch {}
+  if (QUALITY) {
+    const h = Number(QUALITY[1]), fps = Number(QUALITY[2])
+    Object.assign(s, { stream_resolution: 'fixed', stream_height: h, stream_fps: fps, stream_bitrate: Math.round(BITRATE[h] * Math.max(0.6, fps / 60)), stream_bitrate_auto: false, finesse_quality: QUALITY[0] })
+  } else if (s.finesse_quality) {
+    // Back to Moonlight-Web's own choice: undo what Finesse set.
+    Object.assign(s, { stream_resolution: 'auto', stream_fps: 0, stream_bitrate_auto: true })
+    delete s.finesse_quality
+  } else return
+  try { localStorage.setItem(MW_KEY, JSON.stringify(s)) } catch {}
+}
+applyQuality()
 let App = null
 
 function view() {
@@ -130,10 +152,12 @@ function edge(key, now) {
 }
 setInterval(() => {
   const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((p) => p && p.connected) : []
-  let chord = false
+  let chord = ''
   let up = false, down = false, a = false, b = false, start = false
   for (const gp of pads) {
-    if (pressed(gp, 8) && pressed(gp, 9)) chord = true
+    // View + Menu + LB + RB at once, or the Guide button held.
+    if (pressed(gp, 8) && pressed(gp, 9) && pressed(gp, 4) && pressed(gp, 5)) chord = 'now'
+    else if (pressed(gp, 16) && !chord) chord = 'hold'
     const ay = gp.axes[1] || 0
     up = up || pressed(gp, 12) || ay < -0.6
     down = down || pressed(gp, 13) || ay > 0.6
@@ -144,7 +168,7 @@ setInterval(() => {
   const now = performance.now()
   if (chord) {
     if (!chordSince) chordSince = now
-    if (!chordFired && now - chordSince >= CHORD_MS && view()) {
+    if (!chordFired && (chord === 'now' || now - chordSince >= GUIDE_MS) && view()) {
       chordFired = true
       if (menu) closeMenu()
       else openMenu()
@@ -194,6 +218,12 @@ async function main() {
   const src = document.querySelector('script[type="module"][src^="/js/app.js"]')?.getAttribute('src') ?? '/js/app.js'
   const { MoonlightApp } = await import(src)
   App = MoonlightApp
+  // A fixed quality stays fixed: no stepping down on a busy network, no stepping back up (each step
+  // restarts the stream in Wolf, which has been seen to keep the old one's graphics memory).
+  if (QUALITY) {
+    MoonlightApp._onStreamCongested = function () {}
+    MoonlightApp._maybeUpgradeQuality = function () {}
+  }
   const { BackendClient } = await import('/js/api/BackendClient.js')
   async function signIn() {
     tell({ state: 'signing-in' })

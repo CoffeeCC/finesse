@@ -165,8 +165,9 @@ export async function installedGames(docker: Docker, home: string): Promise<Stea
 const EMULATOR = /retroarch|emulationstation|es-de|pegasus|pcsx2|dolphin|rpcs3|cemu|yuzu|ryujinx|\beden\b|xemu|ppsspp|duckstation|melonds|azahar|citra|mame/i
 
 /** What a Wolf app is, for the Games page's rows: a Steam game, an emulator, or another app. */
-export function appKind(a: RawApp): 'steam' | 'emulator' | 'app' {
+export function appKind(a: RawApp): 'steam' | 'lutris' | 'emulator' | 'app' {
   if (shortcutAppId(a) !== null) return 'steam'
+  if (envOf(a).some((x) => x.startsWith('FINESSE_LUTRIS_ID='))) return 'lutris'
   const r = runnerOf(a)
   return EMULATOR.test(`${String(a.title ?? '')} ${String(r.image ?? '')}`) ? 'emulator' : 'app'
 }

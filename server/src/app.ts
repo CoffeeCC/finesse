@@ -9,6 +9,8 @@ import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
 import { registerStreaming } from './streaming.ts'
+import { caPem } from './tls.ts'
+import { savedTailscaleCert } from './tailscale.ts'
 import { playState, registerPlay } from './play.ts'
 import { InviteStore, registerInvites } from './invites.ts'
 import { registerUploads, Uploads } from './uploads.ts'
@@ -105,6 +107,19 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
     })
   })
   router.get('/api/health', ({ res }) => sendJson(res, 200, { status: 'ok', version: VERSION }))
+  // Secure connection: Finesse's certificate authority (a public certificate: safe to hand to anyone at
+  // home; it's what a device installs to trust Finesse), and the Tailscale address with a real certificate.
+  router.get('/api/tls', ({ res }) => {
+    const port = Number(process.env.FINESSE_HTTPS_PORT || 0) || null
+    const ts = savedTailscaleCert(settings.paths.configDir)
+    sendJson(res, 200, { httpsPort: port, ca: Boolean(port && caPem(settings.paths.configDir)), tailscaleUrl: port && ts ? `https://${ts.name}:${port}/finesse/` : null })
+  })
+  router.get('/api/tls/ca.crt', ({ res }) => {
+    const ca = caPem(settings.paths.configDir)
+    if (!ca) throw new ApiError(404, 'Finesse hasn’t made its certificate yet (FINESSE_HTTPS_PORT isn’t set)')
+    res.writeHead(200, { 'Content-Type': 'application/x-x509-ca-cert', 'Content-Disposition': 'attachment; filename="finesse-ca.crt"', 'Cache-Control': 'no-store' })
+    res.end(ca)
+  })
   registerReport(router, { settings, auth, info: () => ({ version: VERSION, web: web.current().version ?? 'unknown', features: features(settings.get()) }) })
 
   registerInvites(router, { store: invites, jf, auth, settings })

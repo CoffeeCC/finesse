@@ -317,7 +317,7 @@ describe('emulators in Wolf', () => {
   })
 
   test('Finesse only makes its own calls to Wolf', () => {
-    const allowed = /^(GET \/api\/v1\/(apps|profiles|sessions|clients|pair\/pending)|POST \/api\/v1\/(profiles\/(add|remove)|runners\/start))$/
+    const allowed = /^(GET \/api\/v1\/(apps|profiles|sessions|lobbies|clients|pair\/pending)|POST \/api\/v1\/(profiles\/(add|remove)|runners\/start))$/
     for (const c of wolf.calls) assert.match(c, allowed)
   })
 })
