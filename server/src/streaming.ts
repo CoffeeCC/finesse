@@ -86,6 +86,45 @@ export function wolfProblem(e: unknown, socket: string): string {
 
 class WolfError extends Error {}
 
+/** Wolf's video buffers for the app's encoder: read from the app's own pipeline (Nvidia: CUDA memory). */
+export function bufferCaps(app: RawApp): string {
+  const pipe = [app.h264_gst_pipeline, app.hevc_gst_pipeline].filter((x): x is string => typeof x === 'string').join(' ')
+  const m = /video\/x-raw\(memory:(\w+)\)/.exec(pipe)
+  return m ? `video/x-raw(memory:${m[1]})` : 'video/x-raw'
+}
+
+/** A lobby for one profile's app in a Moonlight session, as Wolf UI makes them (the profile's own folder for the app). */
+export function lobbyRequest(profileId: string, app: RawApp, session: Record<string, unknown>) {
+  const runner = app.runner as { name?: unknown }
+  const node = typeof app.render_node === 'string' ? app.render_node : '/dev/dri/renderD128'
+  const num = (v: unknown, d: number) => (typeof v === 'number' && v > 0 ? v : d)
+  return {
+    profile_id: profileId,
+    name: String(app.title),
+    icon_png_path: typeof app.icon_png_path === 'string' ? app.icon_png_path : null,
+    multi_user: false,
+    pin: null,
+    stop_when_everyone_leaves: true,
+    video_settings: {
+      width: num(session.video_width, 1920),
+      height: num(session.video_height, 1080),
+      refresh_rate: num(session.video_refresh_rate, 60),
+      wayland_render_node: node,
+      runner_render_node: node,
+      video_producer_buffer_caps: bufferCaps(app),
+    },
+    audio_settings: { channel_count: num(session.audio_channel_count, 2) },
+    client_settings: null,
+    runner_state_folder: `profile-data/${profileId}/${String(runner?.name ?? 'app')}`,
+    runner: app.runner,
+  }
+}
+
+/** Wolf starts a runner without answering: it either holds the request open or hangs up on it once
+ *  the app is starting. Only a refused or missing socket means it didn't get the request. */
+export const runnerAccepted = (err: { code?: string; message?: string }) =>
+  err.code === 'ETIMEDOUT' || err.code === 'ECONNRESET' || /socket hang up/i.test(err.message ?? '')
+
 async function wolfJson<T>(socket: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const r = await wolfCall(socket, method, path, body)
   let data: { success?: boolean; error?: string } | null = null
@@ -562,11 +601,27 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       throw new ApiError(403, `${inProfile.p.name ?? 'That profile'} has a PIN. Start it in Moonlight, which asks for the PIN.`)
     const session = list.find((x) => sessionId(x.client_id as string) === String(body.session ?? ''))
     if (!session) throw new ApiError(404, 'That Moonlight session ended. Open Moonlight on the device, then try again.')
-    // Wolf starts the runner and doesn't answer when it worked; a quiet socket means it's starting.
-    const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner: app.runner, session_id: session.client_id }, { timeoutMs: 4000 })
-      .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
-      .catch((err: { code?: string }) => (err.code === 'ETIMEDOUT' ? null : wolfProblem(err, socket)))
-    if (sent) throw new ApiError(502, `Couldn’t start it: ${sent}`)
+    if (inProfile) {
+      // A profile's app runs in a lobby, the way Wolf UI starts it: that's what gives it the profile's
+      // own folder (its Steam sign-in, library and saves). Started straight in the session instead,
+      // Wolf would hand it the launcher's folder: a fresh Steam asking to sign in.
+      const lobby = lobbyRequest(inProfile.p.id, app, session)
+      let lobbyId: string
+      try {
+        lobbyId = (await wolfJson<{ lobby_id?: string }>(socket, 'POST', '/api/v1/lobbies/create', lobby)).lobby_id ?? ''
+        if (!lobbyId) throw new WolfError('no lobby id')
+        await wolfJson(socket, 'POST', '/api/v1/lobbies/join', { lobby_id: lobbyId, moonlight_session_id: session.client_id, pin: null })
+      } catch (e) {
+        throw new ApiError(502, `Couldn’t start it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
+      }
+    } else {
+      // Moonlight's own list (no profiles): straight in the session. Wolf starts the runner and
+      // doesn't answer when it worked; a quiet socket, or one it hangs up, means it's starting.
+      const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner: app.runner, session_id: session.client_id }, { timeoutMs: 4000 })
+        .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
+        .catch((err: { code?: string }) => (runnerAccepted(err) ? null : wolfProblem(err, socket)))
+      if (sent) throw new ApiError(502, `Couldn’t start it: ${sent}`)
+    }
     log.info(`launch: started ${app.title} in a Moonlight session`)
     sendJson(res, 202, { ok: true, app: app.title })
   })
@@ -606,7 +661,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     // Wolf starts the runner and doesn't answer when it worked; a quiet socket means it's starting.
     const sent = await wolfCall(socket, 'POST', '/api/v1/runners/start', { stop_stream_when_over: false, runner, session_id: session.client_id }, { timeoutMs: 4000 })
       .then((x) => (x.status >= 400 ? `Wolf answered ${x.status}` : null))
-      .catch((err: { code?: string }) => (err.code === 'ETIMEDOUT' ? null : wolfProblem(err, socket)))
+      .catch((err: { code?: string }) => (runnerAccepted(err) ? null : wolfProblem(err, socket)))
     if (sent) throw new ApiError(502, `Couldn’t start the game: ${sent}`)
     log.info(`play: started a ${emulatorCatalog(e.switchEmulator)[emu].name} game in a Moonlight session`)
     sendJson(res, 202, { ok: true, app: app.title })

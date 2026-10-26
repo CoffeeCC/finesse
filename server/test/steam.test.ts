@@ -13,7 +13,7 @@ import { isSteamApp, parseManifest, shortcutAppId, steamShortcut, vdfPairs } fro
 import { fakeDocker, type FakeDocker } from './fakeDocker.ts'
 import { ADMIN_TOKEN, API_KEY, USER_TOKEN, fakeJellyfin, listen, tmp, webBuild, type FakeJellyfin } from './helpers.ts'
 
-const BASE = { h264_gst_pipeline: 'h264 ! sink', hevc_gst_pipeline: 'h265 ! sink', av1_gst_pipeline: 'av1 ! sink', render_node: '/dev/dri/renderD128', opus_gst_pipeline: 'opus ! sink' }
+const BASE = { h264_gst_pipeline: 'cudaupload ! video/x-raw(memory:CUDAMemory),format=NV12 ! nvh264enc ! sink', hevc_gst_pipeline: 'h265 ! sink', av1_gst_pipeline: 'av1 ! sink', render_node: '/dev/dri/renderD128', opus_gst_pipeline: 'opus ! sink' }
 const STEAM_ENV = ['PROTON_LOG=1', 'RUN_SWAY=true', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*']
 const steamApp = (id: string) => ({
   title: 'Steam',
@@ -47,14 +47,16 @@ async function fakeWolf(socket: string) {
   }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://wolf')
-    if (req.method === 'GET' && url.pathname === '/api/v1/apps') return send(res, 200, { success: true, apps: [otherApp('Wolf UI', '5')] })
+    if (req.method === 'GET' && url.pathname === '/api/v1/apps') return send(res, 200, { success: true, apps: [otherApp('Wolf UI', '5'), otherApp('Desktop', '6')] })
     if (req.method === 'GET' && url.pathname === '/api/v1/profiles') return send(res, 200, { success: true, profiles })
-    if (req.method === 'GET' && url.pathname === '/api/v1/sessions') return send(res, 200, { success: true, sessions: [{ client_id: '555', client_ip: '192.168.1.80', app_id: '5', aes_key: 'SECRET' }] })
+    if (req.method === 'GET' && url.pathname === '/api/v1/sessions') return send(res, 200, { success: true, sessions: [{ client_id: '555', client_ip: '192.168.1.80', app_id: '5', aes_key: 'SECRET', video_width: 2560, video_height: 1440, video_refresh_rate: 120, audio_channel_count: 6 }] })
     if (req.method === 'POST') {
       const body = await read(req)
       bodies.push({ path: url.pathname, body })
-      // Like Wolf: starts the runner and never answers.
-      if (url.pathname === '/api/v1/runners/start') return
+      // Like Wolf: starts the runner and never answers; the real one hangs up once the app is starting.
+      if (url.pathname === '/api/v1/runners/start') return void req.socket.destroy()
+      if (url.pathname === '/api/v1/lobbies/create') return send(res, 200, { success: true, lobby_id: 'lobby-1' })
+      if (url.pathname === '/api/v1/lobbies/join') return send(res, 200, { success: true })
       if (url.pathname === '/api/v1/profiles/remove') {
         profiles = profiles.filter((p) => p.id !== body.id)
         return send(res, 200, { success: true })
@@ -210,9 +212,17 @@ describe('Steam shortcuts in Wolf', () => {
     const r = await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session })
     assert.equal(r.status, 202)
     assert.equal(r.data.app, 'Path of Exile 2')
-    const sent = wolf.bodies.filter((b) => b.path === '/api/v1/runners/start').at(-1)!.body
-    assert.equal(sent.session_id, '555')
-    assert.ok(sent.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
+    // A profile's app goes in a lobby, with the profile's own folder for it (its Steam sign-in and library).
+    const lobby = wolf.bodies.filter((b) => b.path === '/api/v1/lobbies/create').at(-1)!.body
+    assert.equal(lobby.profile_id, 'user')
+    assert.equal(lobby.runner_state_folder, 'profile-data/user/WolfSteam')
+    assert.ok(lobby.runner.env.includes('STEAM_STARTUP_FLAGS=-bigpicture steam://rungameid/2694490'))
+    assert.deepEqual(lobby.video_settings, { width: 2560, height: 1440, refresh_rate: 120, wayland_render_node: '/dev/dri/renderD128', runner_render_node: '/dev/dri/renderD128', video_producer_buffer_caps: 'video/x-raw(memory:CUDAMemory)' })
+    assert.deepEqual(lobby.audio_settings, { channel_count: 6 })
+    assert.deepEqual(wolf.bodies.filter((b) => b.path === '/api/v1/lobbies/join').at(-1)!.body, { lobby_id: 'lobby-1', moonlight_session_id: '555', pin: null })
+    // Moonlight's own list (no profile): straight into the session; Wolf hanging up on it means it's starting.
+    assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: '6', session })).status, 202)
+    assert.equal(wolf.bodies.filter((b) => b.path === '/api/v1/runners/start').at(-1)!.body.session_id, '555')
     assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: '5', session })).status, 404)
     assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'nope', session })).status, 404)
     assert.equal((await call('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'gone' })).status, 404)
