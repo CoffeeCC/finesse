@@ -139,7 +139,7 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
           title={app.title}
           allow="fullscreen; gamepad; autoplay; clipboard-read; clipboard-write; keyboard-map"
           allowFullScreen
-          className="absolute inset-0 h-full w-full border-0"
+          className="absolute inset-x-0 bottom-0 top-11 h-[calc(100%-2.75rem)] w-full border-0"
         />
       )}
       {phase !== 'playing' && (
@@ -176,24 +176,30 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
           )}
         </div>
       )}
-      <div className="group absolute right-3 top-3 z-10 flex gap-2 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
+      {/* A bar of its own above the stream: over the stream it sat on Moonlight-Web's buttons, and a
+          stream that has the mouse (pointer lock) takes every click. */}
+      <div className="absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 border-b border-white/10 bg-ink-950 px-3">
+        <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-white">
+          {app.title}
+          {phase === 'playing' && <span className="ml-2 hidden text-ink-400 sm:inline">Esc frees the mouse · hold View + Menu for the menu</span>}
+        </p>
         {phase === 'playing' && (
           <>
             <button
               type="button"
               onClick={() => toFrame('stats')}
               aria-pressed={stats}
-              className={`rounded-full px-3 py-2 text-[12px] font-semibold ring-1 ring-white/15 ${stats ? 'bg-white text-ink-950' : 'bg-black/60 text-white hover:bg-black/80'}`}
+              className={`rounded-full px-3 py-1.5 text-[12px] font-semibold ring-1 ring-white/15 ${stats ? 'bg-white text-ink-950' : 'bg-white/5 text-white hover:bg-white/15'}`}
               title="Performance stats: frame rate, bitrate, lost frames, latency"
             >
               Stats
             </button>
-            <button type="button" onClick={() => toFrame('menu')} className="rounded-full bg-black/60 px-3 py-2 text-[12px] font-semibold text-white ring-1 ring-white/15 hover:bg-black/80" title="Menu (hold View + Menu on a controller)">
+            <button type="button" onClick={() => toFrame('menu')} className="rounded-full bg-white/5 px-3 py-1.5 text-[12px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/15" title="Menu (hold View + Menu on a controller)">
               Menu
             </button>
           </>
         )}
-        <button type="button" onClick={fullscreen} className="rounded-full bg-black/60 p-2 text-white ring-1 ring-white/15 hover:bg-black/80" aria-label="Full screen" title="Full screen">
+        <button type="button" onClick={fullscreen} className="rounded-full bg-white/5 p-1.5 text-white ring-1 ring-white/15 hover:bg-white/15" aria-label="Full screen" title="Full screen">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
           </svg>
@@ -201,13 +207,14 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full bg-black/60 p-2 text-white ring-1 ring-white/15 hover:bg-black/80"
+          className="flex items-center gap-1.5 rounded-full bg-white/5 py-1.5 pl-2 pr-3 text-[12px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/15"
           aria-label="Stop watching"
           title="Close (the game keeps running for 10 minutes, so you can come back)"
         >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
+          Back to Finesse
         </button>
       </div>
       {hint && (

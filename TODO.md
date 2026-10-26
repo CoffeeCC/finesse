@@ -49,7 +49,8 @@
 - **A menu you can reach with a controller.** Hold **View + Menu** (Select + Start) for a moment, or
   press Ctrl+Alt+Shift+M: Keep playing, Performance stats (frame rate, bitrate, lost frames,
   latency), Back to Finesse (the game keeps running for 10 minutes), Quit game. The controller stops
-  reaching the game while it's open. There are Stats and Menu buttons at the top of the stream too.
+  reaching the game while it's open. A bar above the stream has Stats, Menu, full screen and
+  **Back to Finesse** (Esc first if the game has the mouse).
 - **Back to Finesse when the game ends.** Quit the game or Steam and you land back in Finesse, not
   on Moonlight-Web's page.
 - **Leaving a game ends its stream on the server too.** Wolf kept a closed browser stream's session
