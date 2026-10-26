@@ -24,7 +24,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 const BASE = { h264_gst_pipeline: 'cudaupload ! video/x-raw(memory:CUDAMemory),format=NV12 ! nvh264enc ! sink', hevc_gst_pipeline: 'h265 ! sink', render_node: '/dev/dri/renderD128' }
 const app = (title: string, id: string, env: string[] = []) => ({ title, id, ...BASE, runner: { type: 'docker', name: `Wolf${title.replace(/\W/g, '')}`, image: 'x', env } })
 
-let sessions: any[] = [{ client_id: 'tv', client_ip: '192.168.1.80', app_id: '5' }]
+let sessions: any[] = [{ client_id: 'tv', client_ip: '192.168.1.80', app_id: '5', aes_key: 'k1' }, { client_id: 'mw', client_ip: '192.168.1.2', app_id: '5', aes_key: 'old' }]
 const bodies: { path: string; body: any }[] = []
 
 async function fakeWolf(socket: string) {
@@ -165,7 +165,8 @@ describe('Wolf games in Finesse’s page', () => {
   test('the game starts in the session this page’s stream opened, not the TV’s', async () => {
     // Before the stream opens: nothing to start it in.
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: `browser:${play}` })).status, 404)
-    sessions = [...sessions, { client_id: 'mw', client_ip: '192.168.1.2', app_id: '5', video_width: 1920, video_height: 1080 }]
+    // Moonlight-Web's stream from before, picked up again with new keys.
+    sessions = [sessions[0], { client_id: 'mw', client_ip: '192.168.1.2', app_id: '5', aes_key: 'new', video_width: 1920, video_height: 1080 }]
     const r = await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: `browser:${play}` })
     assert.equal(r.status, 202)
     const join = bodies.find((b) => b.path === '/api/v1/lobbies/join')!

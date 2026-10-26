@@ -161,6 +161,12 @@ export function frameHeaders(h: Record<string, string | string[] | undefined>, h
   return out
 }
 
+/** A Wolf session open now: its client, and what changes when that client starts a new stream (a hash of its keys). */
+export interface OpenSession {
+  client: string
+  stream: string
+}
+
 export interface BrowserStream {
   /** Finesse's routes for it (ticket). */
   register(router: Router): void
@@ -168,10 +174,10 @@ export interface BrowserStream {
   handle(req: IncomingMessage, res: ServerResponse): void
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void
   /** The Wolf session (client id) the browser play `play` streams in, from the session ids open now. */
-  sessionFor(play: string, user: string, open: string[]): string | null
+  sessionFor(play: string, user: string, open: OpenSession[]): string | null
 }
 
-export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessionIds: () => Promise<string[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
+export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessions: () => Promise<OpenSession[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
   const docker = deps.docker ?? new Docker()
   const finessePort = Number(process.env.FINESSE_HTTPS_PORT || 0) || null
   const tickets = new Map<string, { user: string; app: string; until: number }>()
@@ -213,22 +219,21 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
       const ticket = randomBytes(24).toString('hex')
       const play = randomBytes(12).toString('hex')
       tickets.set(ticket, { user: user.Id, app: what.title, until: Date.now() + TICKET_MS })
-      plays.set(play, { user: user.Id, before: await deps.sessionIds().catch(() => []), until: Date.now() + VISIT_MS })
+      plays.set(play, { user: user.Id, before: (await deps.sessions().catch(() => [])).map((x) => x.stream), until: Date.now() + VISIT_MS })
       sendJson(res, 200, { port: STREAM_PORT, ticket, play, join: what.join })
     })
   }
 
-  function sessionFor(play: string, user: string, open: string[]) {
+  function sessionFor(play: string, user: string, open: OpenSession[]) {
     const p = plays.get(play)
     if (!p || p.user !== user) return null
-    if (p.client && open.includes(p.client)) return p.client
-    const fresh = open.filter((id) => !p.before.includes(id))
+    const clients = open.map((x) => x.client)
+    if (p.client && clients.includes(p.client)) return p.client
+    // The stream this page started: new since the ticket (a client starting a stream again gets new keys).
+    const fresh = [...new Set(open.filter((x) => !p.before.includes(x.stream)).map((x) => x.client))]
     if (fresh.length === 1) return (p.client = remember(fresh[0]!))
-    // Moonlight-Web picked up a session it already had (a stream that came back).
     const known = knownClient()
-    if (known && open.includes(known)) return (p.client = known)
-    // Nothing to tell them apart by, and only one stream open: this one.
-    if (!known && open.length === 1) return (p.client = remember(open[0]!))
+    if (known && clients.includes(known) && (!fresh.length || fresh.includes(known))) return (p.client = known)
     return null
   }
 

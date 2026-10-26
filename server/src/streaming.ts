@@ -561,7 +561,8 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   })
 
   // Everyone at home: Moonlight sessions open right now, to start a game in (never Wolf's ids or keys).
-  type WolfSession = { client_id?: unknown; client_ip?: unknown; app_id?: unknown }
+  type WolfSession = { client_id?: unknown; client_ip?: unknown; app_id?: unknown; aes_key?: unknown; aes_iv?: unknown }
+  const openSession = (x: WolfSession) => ({ client: x.client_id as string, stream: createHash('sha256').update(`${String(x.client_id)}:${String(x.aes_key)}:${String(x.aes_iv)}`).digest('hex').slice(0, 16) })
   const sessions = async (socket: string) => (await wolfJson<{ sessions?: WolfSession[] }>(socket, 'GET', '/api/v1/sessions')).sessions?.filter((x) => typeof x.client_id === 'string') ?? []
 
   // Playing in Finesse's own page (Moonlight-Web in a frame): what to stream, and which session it is.
@@ -569,7 +570,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     auth,
     settings,
     docker,
-    sessionIds: async () => (await sessions(need())).map((x) => x.client_id as string),
+    sessions: async () => (await sessions(need())).map(openSession),
     streamFor: async (appId) => {
       const { raw, profiles } = await wolfLists(need())
       const inProfile = profiles.some((p) => Array.isArray(p.apps) && (p.apps as RawApp[]).some((a) => a.id === appId))
@@ -651,7 +652,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       throw new ApiError(403, `${inProfile.p.name ?? 'That profile'} has a PIN. Start it in Moonlight, which asks for the PIN.`)
     const wanted = String(body.session ?? '')
     // Played in Finesse's page: the session Moonlight-Web opened for it.
-    const browserClient = wanted.startsWith('browser:') ? browser.sessionFor(wanted.slice(8), user.Id, list.map((x) => x.client_id as string)) : null
+    const browserClient = wanted.startsWith('browser:') ? browser.sessionFor(wanted.slice(8), user.Id, list.map(openSession)) : null
     const session = list.find((x) => (browserClient ? x.client_id === browserClient : sessionId(x.client_id as string) === wanted))
     if (!session) throw new ApiError(404, wanted.startsWith('browser:') ? 'The stream in this page ended. Start the game again.' : 'That Moonlight session ended. Open Moonlight on the device, then try again.')
     if (inProfile) {
