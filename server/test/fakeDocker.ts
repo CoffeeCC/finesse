@@ -36,7 +36,8 @@ export interface FakeDocker {
 }
 
 /** `run` answers one-off containers (Docker's runOnce): what the command prints, given its create body. */
-export async function fakeDocker(containers: FakeContainer[], opts: { run?: (body: any) => string } = {}): Promise<FakeDocker> {
+export async function fakeDocker(containers: FakeContainer[], opts: { run?: (body: any) => string; exec?: (container: string, cmd: string[]) => string } = {}): Promise<FakeDocker> {
+  const execs = new Map<string, { container: string; cmd: string[] }>()
   const created: Record<string, any> = {}
   const joined: { network: string; container: string }[] = []
   const calls: string[] = []
@@ -67,6 +68,29 @@ export async function fakeDocker(containers: FakeContainer[], opts: { run?: (bod
         send(201, { Id: name })
       })
     }
+    let x = /^\/containers\/([^/]+)\/exec$/.exec(url.pathname)
+    if (x && req.method === 'POST') {
+      let body = ''
+      req.on('data', (d) => (body += d))
+      return void req.on('end', () => {
+        const id = `exec${execs.size + 1}`
+        execs.set(id, { container: decodeURIComponent(x![1]!), cmd: JSON.parse(body || '{}').Cmd ?? [] })
+        calls.push(`exec ${decodeURIComponent(x![1]!)} ${(JSON.parse(body || '{}').Cmd ?? []).join(' ')}`)
+        send(201, { Id: id })
+      })
+    }
+    x = /^\/exec\/([^/]+)\/start$/.exec(url.pathname)
+    if (x && req.method === 'POST') {
+      const e = execs.get(x[1]!)
+      const out = Buffer.from(e ? (opts.exec?.(e.container, e.cmd) ?? '') : '')
+      const head = Buffer.alloc(8)
+      head[0] = 1
+      head.writeUInt32BE(out.length, 4)
+      res.writeHead(200, { 'Content-Type': 'application/vnd.docker.raw-stream' })
+      return void res.end(Buffer.concat([head, out]))
+    }
+    x = /^\/exec\/([^/]+)\/json$/.exec(url.pathname)
+    if (x) return send(200, { ExitCode: 0 })
     let w = /^\/containers\/([^/]+)\/wait$/.exec(url.pathname)
     if (w && req.method === 'POST') return send(200, { StatusCode: 0 })
     w = /^\/containers\/([^/]+)\/logs$/.exec(url.pathname)

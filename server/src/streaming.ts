@@ -19,6 +19,7 @@ import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
+import { createBrowserStream, type BrowserStream } from './browserStream.ts'
 import { gpuPinEnv, hostRenderCards, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
 import {
   EMULATOR_IDS,
@@ -345,7 +346,7 @@ export const sessionId = (id: string) => createHash('sha256').update(`finesse-se
 /** The browser's stand-in for a pending pair request (Wolf's pair secret never leaves the server). */
 export const pendingId = (secret: string) => createHash('sha256').update(`finesse-pair:${secret}`).digest('hex').slice(0, 16)
 
-export function registerStreaming(router: Router, deps: { settings: SettingsStore; auth: Auth; docker?: Docker }) {
+export function registerStreaming(router: Router, deps: { settings: SettingsStore; auth: Auth; docker?: Docker }): BrowserStream {
   const { settings, auth } = deps
   const docker = deps.docker ?? new Docker()
   const socketOf = () => settings.get().streaming?.socket
@@ -563,6 +564,24 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   type WolfSession = { client_id?: unknown; client_ip?: unknown; app_id?: unknown }
   const sessions = async (socket: string) => (await wolfJson<{ sessions?: WolfSession[] }>(socket, 'GET', '/api/v1/sessions')).sessions?.filter((x) => typeof x.client_id === 'string') ?? []
 
+  // Playing in Finesse's own page (Moonlight-Web in a frame): what to stream, and which session it is.
+  const browser = createBrowserStream({
+    auth,
+    docker,
+    sessionIds: async () => (await sessions(need())).map((x) => x.client_id as string),
+    streamFor: async (appId) => {
+      const { raw, profiles } = await wolfLists(need())
+      const inProfile = profiles.some((p) => Array.isArray(p.apps) && (p.apps as RawApp[]).some((a) => a.id === appId))
+      if (inProfile) {
+        const launcher = (raw as RawApp[]).find((a) => typeof a.title === 'string' && LAUNCHER.test(a.title))
+        return launcher ? { title: launcher.title as string, join: true } : null
+      }
+      const app = (raw as RawApp[]).find((a) => a.id === appId)
+      return app && typeof app.title === 'string' ? { title: app.title, join: false } : null
+    },
+  })
+  browser.register(router)
+
   router.get('/api/streaming/sessions', async ({ req, res }) => {
     await auth.requireUser(req)
     const socket = need()
@@ -629,8 +648,11 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     if (!app || typeof app.title !== 'string' || LAUNCHER.test(app.title)) throw new ApiError(404, 'That app isn’t in Wolf anymore')
     if (inProfile && Array.isArray(inProfile.p.pin) && inProfile.p.pin.length > 0 && !user.Policy?.IsAdministrator)
       throw new ApiError(403, `${inProfile.p.name ?? 'That profile'} has a PIN. Start it in Moonlight, which asks for the PIN.`)
-    const session = list.find((x) => sessionId(x.client_id as string) === String(body.session ?? ''))
-    if (!session) throw new ApiError(404, 'That Moonlight session ended. Open Moonlight on the device, then try again.')
+    const wanted = String(body.session ?? '')
+    // Played in Finesse's page: the session Moonlight-Web opened for it.
+    const browserClient = wanted.startsWith('browser:') ? browser.sessionFor(wanted.slice(8), user.Id, list.map((x) => x.client_id as string)) : null
+    const session = list.find((x) => (browserClient ? x.client_id === browserClient : sessionId(x.client_id as string) === wanted))
+    if (!session) throw new ApiError(404, wanted.startsWith('browser:') ? 'The stream in this page ended. Start the game again.' : 'That Moonlight session ended. Open Moonlight on the device, then try again.')
     if (inProfile) {
       // A profile's app runs in a lobby, the way Wolf UI starts it: that's what gives it the profile's
       // own folder (its Steam sign-in, library and saves). Started straight in the session instead,
@@ -850,4 +872,5 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     res.writeHead(200, { 'Content-Type': a.type, 'Content-Length': String(a.body.length), 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' })
     res.end(a.body)
   })
+  return browser
 }

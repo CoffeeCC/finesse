@@ -21,6 +21,8 @@ export interface FinesseInfo {
   lanHost?: string | null
   /** Finesse's own HTTPS port, when it has one (FINESSE_HTTPS_PORT). */
   httpsPort?: number | null
+  /** Where Wolf games play inside Finesse's page (FINESSE_STREAM_PORT, https), when set up. */
+  streamPort?: number | null
   requests?: { profiles?: Record<string, string> }
 }
 
