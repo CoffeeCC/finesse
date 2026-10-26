@@ -38,7 +38,7 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
-## Play Wolf games right in Finesse — v3.2.3 (2026-10-25)
+## Play Wolf games right in Finesse — v3.2.3 (2026-10-26)
 
 - **Play here, in the Finesse window.** Click a game in "Stream from your server", then **Play
   here**: it streams into the page (keyboard, mouse or controller), no Moonlight app needed. Finesse
@@ -74,7 +74,8 @@
 - **A dropped stream no longer ends the game.** Finesse stops a game it started after 10 minutes
   with nobody connected, so reconnecting puts you back in it.
 - **Fixed: "Couldn't start it: socket hang up" when it had started.**
-- Checked on a real Wolf with two RTX 3060s: Path of Exile 2 starts signed in and runs.
+- Checked on a real Wolf with two RTX 3060s: Path of Exile 2 starts signed in and plays in the
+  Finesse window, with a controller.
 
 ## Click a game to play it — v3.2.2 (2026-10-25)
 
