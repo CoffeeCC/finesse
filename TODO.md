@@ -46,6 +46,12 @@
   (`FINESSE_STREAM_PORT`, e.g. 30544; publish it too) behind your Finesse sign-in, and signs in to
   it for you. Needs `FINESSE_HTTPS_PORT` and Moonlight-Web paired with Wolf. While a game plays,
   Finesse leaves the controller to it (B no longer means "back").
+- **A menu you can reach with a controller.** Hold **View + Menu** (Select + Start) for a moment, or
+  press Ctrl+Alt+Shift+M: Keep playing, Performance stats (frame rate, bitrate, lost frames,
+  latency), Back to Finesse (the game keeps running for 10 minutes), Quit game. The controller stops
+  reaching the game while it's open. There are Stats and Menu buttons at the top of the stream too.
+- **Back to Finesse when the game ends.** Quit the game or Steam and you land back in Finesse, not
+  on Moonlight-Web's page.
 - **Coming back puts you in the same game.** Opening a game that's still running (within the
   10 minutes) joins it instead of starting a second copy, which Wolf stopped at once.
 - **Fixed: "Play here" started Steam signed out, with no games.** Started straight in the
