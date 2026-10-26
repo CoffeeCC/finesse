@@ -674,6 +674,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
         if (!lobbyId) throw new WolfError('no lobby id')
         await wolfJson(socket, 'POST', '/api/v1/lobbies/join', { lobby_id: lobbyId, moonlight_session_id: session.client_id, pin: null })
         ourLobbies.set(lobbyId, null)
+        if (browserClient) browser.noteLobby(wanted.slice(8), lobbyId)
       } catch (e) {
         throw new ApiError(502, `Couldn’t start it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
       }
@@ -687,6 +688,23 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     }
     log.info(`launch: started ${app.title} in a Moonlight session`)
     sendJson(res, 202, { ok: true, app: app.title })
+  })
+
+  // Quit game, from the menu of a game played in Finesse's page: stop the game that play started.
+  router.post('/api/streaming/browser/quit', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const socket = need()
+    const body = await readJson<{ play?: unknown }>(req)
+    const lobby = browser.lobbyOf(String(body.play ?? ''), user.Id)
+    if (!lobby) throw new ApiError(404, 'That game isn’t running from here')
+    try {
+      await wolfJson(socket, 'POST', '/api/v1/lobbies/stop', { lobby_id: lobby, pin: null })
+    } catch (e) {
+      throw new ApiError(502, `Couldn’t close it: ${e instanceof WolfError ? e.message : wolfProblem(e, socket)}`)
+    }
+    ourLobbies.delete(lobby)
+    log.info('launch: closed a game played in the page')
+    sendJson(res, 200, { ok: true })
   })
 
   // Everyone at home: start a RomM game in an open Moonlight session, with its emulator.

@@ -157,7 +157,13 @@ describe('Wolf games in Finesse’s page', () => {
     assert.equal(up.headers['x-forwarded-for'], undefined)
     assert.equal(up.headers.host, new URL(process.env.FINESSE_MOONLIGHT_WEB!).host)
     const boot = await fetch(`${stream.url}/__finesse/boot.js`, { headers: { cookie } })
-    assert.match(await boot.text(), /skipSelfStreamWarn: true/)
+    const js = await boot.text()
+    assert.match(js, /skipSelfStreamWarn: true/)
+    // The controller's way out: a menu on View + Menu.
+    assert.match(js, /Back to Finesse/)
+    assert.match(js, /Quit game/)
+    // It's valid JavaScript (it's one big template string in the server).
+    assert.doesNotThrow(() => new Function(js.replace(/^\s*const \{ MoonlightApp \} = await import\(src\)$/m, '')))
   })
 
   test('the access PIN comes from Moonlight-Web’s container, for the page with the cookie only', async () => {
@@ -184,6 +190,10 @@ describe('Wolf games in Finesse’s page', () => {
     // …and back into the game that's still running, not a second copy of it.
     assert.equal(bodies.filter((b) => b.path === '/api/v1/lobbies/create').length, 0)
     assert.equal(bodies.find((b) => b.path === '/api/v1/lobbies/join')!.body.lobby_id, 'lobby-1')
+    // Quit game: stops the game this play joined, and only for whoever started it.
+    assert.equal((await api('POST', '/api/streaming/browser/quit', USER_TOKEN, { play: 'nope' })).status, 404)
+    assert.equal((await api('POST', '/api/streaming/browser/quit', USER_TOKEN, { play: again.data.play })).status, 200)
+    assert.deepEqual(bodies.find((b) => b.path === '/api/v1/lobbies/stop')!.body, { lobby_id: 'lobby-1', pin: null })
     // Someone else's play id gets nothing.
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'browser:nope' })).status, 404)
   })

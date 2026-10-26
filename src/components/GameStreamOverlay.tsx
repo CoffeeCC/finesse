@@ -5,7 +5,7 @@ import { pushBackHandler } from '../lib/back'
 import { finesseRoot } from '../lib/finesseServer'
 import { giveControllerToGame } from '../lib/gamepad'
 
-type Phase = 'ticket' | 'signing-in' | 'starting' | 'launching' | 'playing' | 'ended' | 'error'
+type Phase = 'ticket' | 'signing-in' | 'starting' | 'launching' | 'playing' | 'ended' | 'quitting' | 'error'
 
 const SAY: Record<Phase, string> = {
   ticket: 'Getting ready…',
@@ -13,7 +13,8 @@ const SAY: Record<Phase, string> = {
   starting: 'Connecting to the server…',
   launching: 'Starting the game…',
   playing: '',
-  ended: 'The stream ended.',
+  ended: 'The game ended. Back to Finesse…',
+  quitting: 'Closing the game…',
   error: '',
 }
 
@@ -22,6 +23,13 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
   const [phase, setPhase] = useState<Phase>('ticket')
   const [error, setError] = useState<string | null>(null)
   const [src, setSrc] = useState<string | null>(null)
+  const [stats, setStats] = useState(false)
+  const [hint, setHint] = useState(false)
+  const playId = useRef<string | null>(null)
+  const frameOrigin = useRef('')
+  // The parent's onClose changes with its renders; the stream mustn't restart for that.
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
   const box = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   const host = new URL(finesseRoot(), window.location.href).hostname
@@ -60,11 +68,22 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
       if (state === 'signing-in' || state === 'starting') setPhase(state)
       else if (state === 'streaming') {
         frame.current?.focus()
+        setStats(Boolean(e.data.stats))
         if (ticket?.join) {
           setPhase('launching')
           void launch()
         } else setPhase('playing')
-      } else if (state === 'ended') setPhase('ended')
+      } else if (state === 'ended') {
+        // Steam or the game closed: back to Finesse by itself.
+        setPhase('ended')
+        window.setTimeout(() => alive && closeRef.current(), 2500)
+      } else if (state === 'leave') closeRef.current()
+      else if (state === 'quit') {
+        setPhase('quitting')
+        const close = () => alive && closeRef.current()
+        if (ticket) void streamingApi.quitBrowser(ticket.play).then(close, close)
+        else close()
+      } else if (state === 'stats') setStats(Boolean(e.data.on))
       else if (state === 'error') fail(String(e.data.error ?? 'The stream didn’t start'))
     }
     window.addEventListener('message', onMessage)
@@ -73,7 +92,8 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
       .then((t) => {
         if (!alive) return
         ticket = t
-        origin = `https://${host}:${t.port}`
+        playId.current = t.play
+        origin = frameOrigin.current = `https://${host}:${t.port}`
         setSrc(`${origin}/__finesse/enter?t=${encodeURIComponent(t.ticket)}`)
       })
       .catch((e: Error) => fail(e.message))
@@ -83,12 +103,24 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
     }
   }, [app.id, host])
 
+  // How to get out, shown for a few seconds once the game is up.
+  useEffect(() => {
+    if (phase !== 'playing') return
+    setHint(true)
+    const t = window.setTimeout(() => setHint(false), 7000)
+    return () => window.clearTimeout(t)
+  }, [phase])
+  const toFrame = (cmd: string) => {
+    frame.current?.contentWindow?.postMessage({ source: 'finesse', cmd }, frameOrigin.current || '*')
+    frame.current?.focus()
+  }
+
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void box.current?.requestFullscreen().catch(() => {})
     frame.current?.focus()
   }
-  const busy = phase !== 'playing' && phase !== 'error' && phase !== 'ended'
+  const busy = phase !== 'playing' && phase !== 'error'
 
   return createPortal(
     <div ref={box} className="fixed inset-0 z-[100] bg-black" role="dialog" aria-modal="true" aria-label={`Playing ${app.title}`}>
@@ -111,11 +143,27 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
               <p className="text-[14px] text-ink-300">{SAY[phase]}</p>
             </>
           ) : (
-            <p className={`max-w-md text-[14px] ${phase === 'error' ? 'text-red-300' : 'text-ink-300'}`}>{phase === 'error' ? error : 'The stream ended. The game keeps running for 10 minutes: open it again to pick up where you were.'}</p>
+            <p className="max-w-md text-[14px] text-red-300">{error}</p>
           )}
         </div>
       )}
       <div className="group absolute right-3 top-3 z-10 flex gap-2 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
+        {phase === 'playing' && (
+          <>
+            <button
+              type="button"
+              onClick={() => toFrame('stats')}
+              aria-pressed={stats}
+              className={`rounded-full px-3 py-2 text-[12px] font-semibold ring-1 ring-white/15 ${stats ? 'bg-white text-ink-950' : 'bg-black/60 text-white hover:bg-black/80'}`}
+              title="Performance stats: frame rate, bitrate, lost frames, latency"
+            >
+              Stats
+            </button>
+            <button type="button" onClick={() => toFrame('menu')} className="rounded-full bg-black/60 px-3 py-2 text-[12px] font-semibold text-white ring-1 ring-white/15 hover:bg-black/80" title="Menu (hold View + Menu on a controller)">
+              Menu
+            </button>
+          </>
+        )}
         <button type="button" onClick={fullscreen} className="rounded-full bg-black/60 p-2 text-white ring-1 ring-white/15 hover:bg-black/80" aria-label="Full screen" title="Full screen">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
@@ -133,6 +181,11 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
           </svg>
         </button>
       </div>
+      {hint && (
+        <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-4 py-2 text-[13px] text-white ring-1 ring-white/15">
+          Hold <b>View + Menu</b> on your controller (or Ctrl+Alt+Shift+M) for the menu
+        </div>
+      )}
     </div>,
     document.body,
   )

@@ -439,6 +439,8 @@ export const streamingApi = {
   launch: (app: string, session: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/launch', { app, session }, { timeoutMs: 30000 }),
   /** A way into the stream port, to play one of Wolf's apps in this page (Moonlight-Web). */
   browser: (app: string) => call<{ port: number; ticket: string; play: string; join: boolean }>('POST', '/api/streaming/browser', { app }, { timeoutMs: 30000 }),
+  /** Quit game, for a game played in this page. */
+  quitBrowser: (play: string) => call<{ ok: boolean }>('POST', '/api/streaming/browser/quit', { play }, { timeoutMs: 30000 }),
   /** Start a RomM game in an open Moonlight session. */
   play: (rom: number, session: string, profile?: string) => call<{ ok: boolean; app: string }>('POST', '/api/streaming/play', { rom, session, profile }, { timeoutMs: 30000 }),
 }

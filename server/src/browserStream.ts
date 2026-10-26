@@ -29,6 +29,9 @@ import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
+import { BOOT_JS } from './browserStreamBoot.ts'
+
+export { BOOT_JS }
 
 const log = logger('browser-stream')
 
@@ -84,55 +87,6 @@ export async function findMoonlightWeb(docker: Docker): Promise<MoonlightWeb | n
   return null
 }
 
-/** The script put into Moonlight-Web's page: sign in with a PIN from Finesse, start one app, tell the Finesse page how it went. */
-export const BOOT_JS = `// Finesse: sign in to Moonlight-Web and start one app, then tell the Finesse page.
-const tell = (msg) => window.parent !== window && window.parent.postMessage({ source: 'finesse-stream', ...msg }, '*')
-const want = new URLSearchParams(location.search).get('app') || ''
-const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-async function main() {
-  const src = document.querySelector('script[type="module"][src^="/js/app.js"]')?.getAttribute('src') ?? '/js/app.js'
-  const { MoonlightApp } = await import(src)
-  const { BackendClient } = await import('/js/api/BackendClient.js')
-  async function signIn() {
-    tell({ state: 'signing-in' })
-    const r = await fetch('/__finesse/pin', { method: 'POST', cache: 'no-store' })
-    if (!r.ok) throw new Error((await r.text()) || 'Finesse couldn’t sign in to Moonlight-Web')
-    await BackendClient.validatePin((await r.text()).trim(), 'Finesse', true)
-    location.reload()
-  }
-  const status = await BackendClient.getAuthStatus().catch(() => ({}))
-  if (!status.authenticated && !status.is_localhost) return signIn()
-  tell({ state: 'starting' })
-  const hosts = await BackendClient.getHosts()
-  for (const host of Array.isArray(hosts) ? hosts : hosts.hosts ?? []) {
-    const r = await BackendClient.getAppList(host.uuid).catch(() => null)
-    const app = (Array.isArray(r) ? r : r?.apps ?? []).find((a) => a.name === want || a.title === want)
-    if (!app) continue
-    for (let i = 0; i < 100 && MoonlightApp.state === 'loading'; i++) await wait(100)
-    await MoonlightApp.launchApp(host, app, undefined, undefined, { skipSelfStreamWarn: true })
-    for (let i = 0; i < 300; i++) {
-      if (MoonlightApp.state === 'streaming') {
-        sessionStorage.removeItem('finesse-signed-in-again')
-        tell({ state: 'streaming' })
-        // Afterwards: say when the stream ends.
-        for (;;) {
-          await wait(1000)
-          if (MoonlightApp.state !== 'streaming' && MoonlightApp.state !== 'launching') return tell({ state: 'ended' })
-        }
-      }
-      await wait(200)
-    }
-    // A sign-in from another page isn't bound to this page's key: sign in again here, once.
-    if (!sessionStorage.getItem('finesse-signed-in-again')) {
-      sessionStorage.setItem('finesse-signed-in-again', '1')
-      return signIn()
-    }
-    return tell({ state: 'error', error: 'The stream didn’t start. Is the graphics card busy?' })
-  }
-  tell({ state: 'error', error: 'Moonlight-Web has no server with "' + want + '". Is it paired with Wolf?' })
-}
-main().catch((e) => tell({ state: 'error', error: String(e?.message ?? e) }))
-`
 
 const cookieOf = (req: IncomingMessage, name: string) => {
   for (const part of String(req.headers.cookie ?? '').split(';')) {
@@ -175,6 +129,9 @@ export interface BrowserStream {
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void
   /** The Wolf session (client id) the browser play `play` streams in, from the session ids open now. */
   sessionFor(play: string, user: string, open: OpenSession[]): string | null
+  /** The game (Wolf lobby) a play started or joined, for Quit game. */
+  noteLobby(play: string, lobby: string): void
+  lobbyOf(play: string, user: string): string | null
 }
 
 export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessions: () => Promise<OpenSession[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
@@ -183,7 +140,7 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
   const tickets = new Map<string, { user: string; app: string; until: number }>()
   const visits = new Map<string, { user: string; until: number }>()
   // A play: the sessions that were open before it started, and the one it turned out to be.
-  const plays = new Map<string, { user: string; before: string[]; client?: string; until: number }>()
+  const plays = new Map<string, { user: string; before: string[]; client?: string; lobby?: string; until: number }>()
   /** The Wolf client id Moonlight-Web streams as (it's one paired client), once seen. Kept across restarts. */
   const knownClient = () => deps.settings.get().streaming?.browserClient ?? null
   const remember = (id: string) => {
@@ -338,5 +295,14 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
     })
   }
 
-  return { register, handle, upgrade, sessionFor }
+  const noteLobby = (play: string, lobby: string) => {
+    const p = plays.get(play)
+    if (p) p.lobby = lobby
+  }
+  const lobbyOf = (play: string, user: string) => {
+    const p = plays.get(play)
+    return p && p.user === user ? (p.lobby ?? null) : null
+  }
+
+  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf }
 }
