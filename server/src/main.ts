@@ -6,6 +6,9 @@ import { systemPlugin, type StackRef } from './system/routes.ts'
 import { VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
+import { createSecureContext, type SecureContext } from 'node:tls'
+import { tailscaleCert, savedTailscaleCert } from './tailscale.ts'
+import { Docker } from './stack/docker.ts'
 import { certNames, finesseCert } from './tls.ts'
 import { isNative } from './stack/hosts.ts'
 import { NativeHost } from './stack/native.ts'
@@ -25,16 +28,25 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
   await new Promise<void>((resolve) => server.listen(port, host, resolve))
   log.info(`Finesse ${VERSION} listening on http://${host}:${port} (mode ${s.mode}, web ${deps.web.current().version ?? 'none'})`)
 
-  // HTTPS too, with Finesse's own certificate (browser play needs a secure page).
+  // HTTPS too: Finesse's certificate (signed by its own authority) for its addresses, and Tailscale's
+  // real one for its Tailscale name when there is one. Both renewed twice a day, without a restart.
   let secure: HttpsServer | null = null
   const httpsPort = Number(process.env.FINESSE_HTTPS_PORT || 0)
+  const configDir = deps.settings.paths.configDir
+  let own = httpsPort > 0 || Number(process.env.FINESSE_STREAM_PORT || 0) > 0 ? finesseCert(configDir, certNames(s.publicUrl)) : null
+  let ts = savedTailscaleCert(configDir)
+  let tsCtx: SecureContext | null = ts ? createSecureContext({ key: ts.key, cert: ts.cert }) : null
+  const tlsOptions = () => ({
+    ...own!,
+    SNICallback: (name: string, cb: (err: Error | null, ctx?: SecureContext) => void) => cb(null, ts && tsCtx && name.toLowerCase() === ts.name ? tsCtx : undefined),
+  })
   if (httpsPort > 0) {
     try {
-      secure = createHttpsServer(finesseCert(deps.settings.paths.configDir, certNames(s.publicUrl)))
+      secure = createHttpsServer(tlsOptions())
       for (const ev of ['request', 'upgrade'] as const) for (const fn of server.listeners(ev)) secure.on(ev, fn as (...a: unknown[]) => void)
       secure.keepAliveTimeout = server.keepAliveTimeout
       await new Promise<void>((resolve, reject) => secure!.once('error', reject).listen(httpsPort, host, resolve))
-      log.info(`and on https://${host}:${httpsPort} (Finesse's own certificate)`)
+      log.info(`and on https://${host}:${httpsPort} (Finesse's own certificate${ts ? `, and Tailscale's for ${ts.name}` : ''})`)
     } catch (e) {
       log.error(`HTTPS on port ${httpsPort} didn't start`, e)
       secure = null
@@ -47,7 +59,7 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
   if (streamPort > 0 && deps.browserStream) {
     const bs = deps.browserStream
     try {
-      stream = createHttpsServer(finesseCert(deps.settings.paths.configDir, certNames(s.publicUrl)), (req, res) => bs.handle(req, res))
+      stream = createHttpsServer(tlsOptions(), (req, res) => bs.handle(req, res))
       stream.on('upgrade', (req, socket, head) => bs.upgrade(req, socket, head))
       await new Promise<void>((resolve, reject) => stream!.once('error', reject).listen(streamPort, host, resolve))
       log.info(`games in the page: https://${host}:${streamPort}`)
@@ -56,6 +68,24 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
       stream = null
     }
   }
+
+  // Certificates: Tailscale's fetched (or renewed) now and twice a day; Finesse's own renewed when near its end.
+  const refreshTls = async () => {
+    if (!secure && !stream) return
+    try {
+      own = finesseCert(configDir, certNames(deps.settings.get().publicUrl))
+      const next = await tailscaleCert(new Docker(), configDir)
+      if (next && (next.cert !== ts?.cert || next.name !== ts?.name)) {
+        ts = next
+        tsCtx = createSecureContext({ key: next.key, cert: next.cert })
+      }
+      for (const srv of [secure, stream]) srv?.setSecureContext(own)
+    } catch (e) {
+      log.warn(`certificates: ${(e as Error).message}`)
+    }
+  }
+  setTimeout(() => void refreshTls(), 5000).unref()
+  setInterval(() => void refreshTls(), 12 * 3600_000).unref()
 
   const code = ensureSetupCode(deps.settings)
   if (code && isNative()) {

@@ -209,7 +209,7 @@ test('removing a device unpairs it in Wolf, and only devices Wolf knows', async 
 })
 
 test('Finesse only ever makes its own calls to Wolf', () => {
-  const allowed = /^(GET \/api\/v1\/(apps|profiles|clients|pair\/pending|utils\/get-icon\?icon_path=\/etc\/wolf\/icons\/(steam|ra)\.png)|POST \/api\/v1\/(pair|unpair)\/client)$/
+  const allowed = /^(GET \/api\/v1\/(apps|profiles|clients|lobbies|sessions|pair\/pending|utils\/get-icon\?icon_path=\/etc\/wolf\/icons\/(steam|ra)\.png)|POST \/api\/v1\/(pair|unpair)\/client)$/
   for (const c of wolf.calls) assert.match(c, allowed)
 })
 

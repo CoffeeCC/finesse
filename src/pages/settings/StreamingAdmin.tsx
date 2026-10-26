@@ -74,6 +74,88 @@ function WolfHealth() {
   )
 }
 
+const QUALITIES: [string, string][] = [
+  ['auto', 'Automatic (Moonlight-Web decides, and adjusts)'],
+  ['720p60', '720p · 60 fps'],
+  ['1080p60', '1080p · 60 fps'],
+  ['1080p120', '1080p · 120 fps'],
+  ['1440p60', '1440p · 60 fps'],
+  ['1440p120', '1440p · 120 fps'],
+  ['2160p60', '4K · 60 fps'],
+]
+
+/** Playing in Finesse's own page: is everything there, and at what quality. */
+function PlayInFinesse() {
+  const toast = useToast()
+  const check = useQuery({ queryKey: ['streaming', 'browser-check'], queryFn: streamingApi.browserCheck, staleTime: 30_000, retry: false })
+  const prefs = useQuery({ queryKey: ['streaming', 'settings'], queryFn: streamingApi.streamSettings, retry: false })
+  const save = (s: { quality?: string; autoRestartWolf?: boolean }) =>
+    streamingApi
+      .saveStreamSettings(s)
+      .then(() => prefs.refetch())
+      .then(() => toast('Saved'))
+      .catch((e: Error) => toast(e.message, 'error'))
+  if (!check.data) return null
+  return (
+    <div className="space-y-3 border-t border-white/5 pt-5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[13px] font-semibold text-white">Playing in Finesse</p>
+        <span className={`rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ${check.data.ready ? 'bg-emerald-400/15 text-emerald-300' : 'bg-amber-300/15 text-amber-200'}`}>
+          {check.data.ready ? 'Ready' : 'Needs setting up'}
+        </span>
+      </div>
+      <p className="text-[12.5px] leading-relaxed text-ink-400">Games play right in the page (Play here), through Moonlight-Web on this server.</p>
+      {!check.data.ready && (
+        <ul className="space-y-2">
+          {check.data.items.map((i) => (
+            <li key={i.id} className="flex gap-3">
+              <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${i.ok ? 'bg-emerald-400/15 text-emerald-300' : 'bg-amber-300/15 text-amber-200'}`} aria-hidden>
+                {i.ok ? '✓' : '!'}
+              </span>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-[13px] font-medium text-white">
+                  {i.title}
+                  <span className="sr-only">{i.ok ? ' (ready)' : ' (needs attention)'}</span>
+                </p>
+                <p className="text-[12.5px] text-ink-400">{i.detail}</p>
+                {i.fix.map((f) => (
+                  <p key={f} className="text-[12.5px] leading-relaxed text-ink-300">
+                    {f}
+                  </p>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {prefs.data && (
+        <div className="space-y-3">
+          <label className="block space-y-1.5">
+            <span className={label}>Stream quality</span>
+            <select className={input} value={prefs.data.quality} onChange={(e) => void save({ quality: e.target.value })}>
+              {QUALITIES.map(([v, t]) => (
+                <option key={v} value={v}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <span className="block text-[12px] leading-relaxed text-ink-400">
+              A fixed quality stays put for the whole game. Automatic steps down on a busy network and back up later, and each step restarts the stream.
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-accent-400" checked={prefs.data.autoRestartWolf} onChange={(e) => void save({ autoRestartWolf: e.target.checked })} />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-white">Restart Wolf by itself when it’s holding too much memory</span>
+              <span className="block text-[12px] leading-relaxed text-ink-400">Only when nothing is playing, and at most every half hour.</span>
+            </span>
+          </label>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** One Moonlight device waiting to pair: its PIN and a name for it. */
 function PendingDevice({ id, ip, onPaired }: { id: string; ip: string; onPaired: () => void }) {
   const toast = useToast()
@@ -458,6 +540,7 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
               )}
             </div>
             <WolfHealth />
+            <PlayInFinesse />
             <Emulators />
           </>
         )}

@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext'
 import LaunchDialog from './LaunchDialog'
 import { useToast } from './Toast'
 import SteamGamesDialog from './SteamGamesDialog'
+import { playedLabel, tileImages } from '../lib/streamTiles'
 
 /** A steady colour per app, for apps without an icon. */
 function tint(title: string): string {
@@ -15,30 +16,38 @@ function tint(title: string): string {
 }
 
 function AppTile({ app, onOpen, cover, onHide }: { app: StreamApp; onOpen?: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
-  const [broken, setBroken] = useState(false)
-  // A Steam game shows its own cover; other apps their Wolf icon.
-  const src = app.steam ? streamingApi.steamArtUrl(app.steam) : app.icon ? streamingApi.iconUrl(app.id) : null
+  const images = tileImages(app)
+  const [n, setN] = useState(0)
+  const src = images[n] ?? null
   // Wolf UI is Moonlight's own menu: nothing to start from here.
   const Tag = onOpen && !app.launcher ? 'button' : 'div'
-  // Steam games: tall covers (Steam's library art is 2:3). Apps and emulators: smaller squares.
+  // Games: tall covers (Steam's library art is 2:3). Apps and emulators: smaller squares.
   const size = cover ? 'h-48 w-32' : 'h-24 w-24'
+  const played = cover ? playedLabel(app.playtime) : null
   return (
     <div className={`group/tile relative shrink-0 ${cover ? 'w-32' : 'w-24'} ${app.hidden ? 'opacity-50' : ''}`}>
       <Tag
-        {...(Tag === 'button' ? { type: 'button' as const, onClick: () => onOpen!(app), 'aria-label': `Play ${app.title}` } : {})}
+        {...(Tag === 'button' ? { type: 'button' as const, onClick: () => onOpen!(app), 'aria-label': `${app.running ? 'Resume' : 'Play'} ${app.title}` } : {})}
         className={`block w-full text-left ${Tag === 'button' ? 'group rounded-xl focus-visible:outline-2 focus-visible:outline-accent-400' : ''}`}
       >
-        <div className={`relative ${size} overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5 transition group-hover:ring-white/30`} style={src && !broken ? undefined : { background: tint(app.title) }}>
-          {src && !broken ? (
-            <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+        <div className={`relative ${size} overflow-hidden rounded-xl bg-ink-800 ring-1 transition group-hover:ring-white/30 ${app.running ? 'ring-2 ring-emerald-400/70' : 'ring-white/5'}`} style={src ? undefined : { background: tint(app.title) }}>
+          {src ? (
+            <img key={src} src={src} alt="" loading="lazy" onError={() => setN((i) => i + 1)} className={`h-full w-full ${cover ? 'object-cover' : 'object-contain p-1'}`} />
           ) : (
             <span className="flex h-full w-full items-center justify-center p-2 text-center text-2xl font-semibold text-white/90" aria-hidden>
               {cover ? app.title : app.title.slice(0, 1)}
             </span>
           )}
           {app.hdr && <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">HDR</span>}
+          {app.running && (
+            <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-full bg-black/75 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+              Running
+            </span>
+          )}
         </div>
         <p className="mt-2 truncate text-sm font-medium text-ink-200 group-hover:text-white">{app.title}</p>
+        {played && <p className="truncate text-[11.5px] text-ink-500">{played}</p>}
       </Tag>
       {onHide && (
         <button
@@ -64,7 +73,7 @@ function Row({ apps, onOpen, cover, onHide }: { apps: StreamApp[]; onOpen: (app:
   )
 }
 
-/** Recently played first (Steam's record), then by name. */
+/** Recently played first (the launcher's record or Finesse's), then by name. */
 const byPlayed = (a: StreamApp, b: StreamApp) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0) || a.title.localeCompare(b.title)
 
 /** One set of apps (a profile's, or Moonlight's own list), in rows: Steam games, emulators, other apps. */
@@ -72,17 +81,20 @@ function Library({ apps, onOpen, onHide, showHidden }: { apps: StreamApp[]; onOp
   const [q, setQ] = useState('')
   const shown = apps.filter((a) => showHidden || !a.hidden)
   const kind = (a: StreamApp) => a.kind ?? (a.steam ? 'steam' : 'app')
-  const steam = shown.filter((a) => kind(a) === 'steam').sort(byPlayed)
+  // Steam and Lutris games together; what's running first, then the most recently played.
+  const steam = shown.filter((a) => kind(a) === 'steam' || kind(a) === 'lutris').sort((a, b) => Number(Boolean(b.running)) - Number(Boolean(a.running)) || byPlayed(a, b))
+  const gamesLabel = steam.some((a) => kind(a) === 'lutris') ? 'Games' : 'Steam games'
   const found = q.trim() ? steam.filter((a) => a.title.toLowerCase().includes(q.trim().toLowerCase())) : steam
-  const emulators = shown.filter((a) => kind(a) === 'emulator')
-  const other = shown.filter((a) => kind(a) === 'app')
+  const live = (a: StreamApp, b: StreamApp) => Number(Boolean(b.running)) - Number(Boolean(a.running))
+  const emulators = shown.filter((a) => kind(a) === 'emulator').sort(live)
+  const other = shown.filter((a) => kind(a) === 'app').sort(live)
   const label = 'mb-2 text-[13px] font-semibold text-ink-300'
   return (
     <div className="space-y-5">
       {steam.length > 0 && (
         <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[13px] font-semibold text-ink-300">Steam games</p>
+            <p className="text-[13px] font-semibold text-ink-300">{gamesLabel}</p>
             {steam.length > 8 && (
               <input
                 value={q}
@@ -129,6 +141,7 @@ export default function StreamingSection() {
   const qc = useQueryClient()
   const toast = useToast()
   const allApps = [...profiles.flatMap((p) => p.apps), ...direct]
+  const running = allApps.filter((a) => a.running && !a.launcher)
   const hiddenCount = new Set(allApps.filter((a) => a.hidden).map((a) => a.title.toLowerCase())).size
   // Administrators tidy the page: hidden here, still in Moonlight.
   const onHide = isAdmin
@@ -178,6 +191,53 @@ export default function StreamingSection() {
         <p className="text-sm text-ink-400">Wolf has no apps to stream yet.</p>
       ) : (
         <div className="space-y-5">
+          {isAdmin && data.gpuWarning && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-[13px] text-amber-100">
+              <span>
+                Wolf holds {(data.gpuWarning.wolf / 1024).toFixed(1)} GB of the graphics card’s {(data.gpuWarning.total / 1024).toFixed(0)} GB. New games may fail to start until it’s restarted.
+              </span>
+              <button
+                type="button"
+                className="rounded-full bg-amber-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-950 hover:bg-amber-100"
+                onClick={() =>
+                  void streamingApi.restartWolf().then(
+                    () => {
+                      toast('Wolf is restarting. It’s ready again in a few seconds.')
+                      window.setTimeout(() => void qc.invalidateQueries({ queryKey: ['streaming', 'apps'] }), 8000)
+                    },
+                    (e: Error) => toast(e.message, 'error'),
+                  )
+                }
+              >
+                Restart Wolf
+              </button>
+            </div>
+          )}
+          {running.length > 0 && (
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3">
+              <p className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-emerald-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" aria-hidden />
+                Playing now
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {running.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setLaunch(a)}
+                    className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-ink-950 hover:bg-ink-200"
+                    aria-label={`Resume ${a.title}`}
+                  >
+                    <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                    Resume {a.title}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[12px] text-ink-400">Left alone, a game stops by itself after 10 minutes with nobody in it.</p>
+            </div>
+          )}
           {profiles.map((p) => (
             <div key={p.id}>
               {profiles.length > 1 && <p className="mb-3 text-[15px] font-semibold text-white">{p.name}</p>}

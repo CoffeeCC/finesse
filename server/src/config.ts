@@ -109,6 +109,12 @@ export interface Settings {
     hidden?: string[]
     /** Keep Steam games in step with what's installed: new installs added, uninstalled ones removed. */
     steamSync?: boolean
+    /** Time played per game that Finesse saw: "<profile>|<title>" → seconds and last time (Unix seconds). */
+    history?: Record<string, { s: number; last: number }>
+    /** Games played in Finesse's page: a fixed stream quality ("1080p60"…), or Moonlight-Web's own choice ("auto"). */
+    browserQuality?: string
+    /** Restart Wolf by itself when it holds most of the graphics card's memory and nothing is playing (default on). */
+    autoRestartWolf?: boolean
   }
   /** Emulators as Wolf apps: which ones, and the folders they get (host paths). */
   emulators?: import('./emulators.ts').EmulatorSettings

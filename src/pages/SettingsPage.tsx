@@ -19,6 +19,7 @@ import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
 import { StreamingSettings } from './settings/StreamingAdmin'
+import SecureConnection from './settings/SecureConnection'
 import {
   createInvite,
   deleteInvite,
@@ -659,6 +660,7 @@ export default function SettingsPage() {
             </div>
             {/* TV app: anyone can point it at a different server, not just admins. */}
             <TvServerAddress className="mt-3" />
+            {!IS_TV && <SecureConnection className="mt-3" />}
           </section>
 
           <section id="settings-updates" aria-labelledby="settings-updates-title" className="scroll-mt-24">

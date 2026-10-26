@@ -132,6 +132,8 @@ export interface BrowserStream {
   /** The game (Wolf lobby) a play started or joined, for Quit game. */
   noteLobby(play: string, lobby: string): void
   lobbyOf(play: string, user: string): string | null
+  /** Moonlight-Web as Finesse sees it now (for the setup check). */
+  target(): Promise<MoonlightWeb | null>
   /** The page is still showing this play (it says so every 30 s). */
   touch(play: string, user: string): boolean
   /** This play is over: its Wolf client, if it had one and no other open play shares it. */
@@ -145,7 +147,7 @@ export interface BrowserStream {
 export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessions: () => Promise<OpenSession[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
   const docker = deps.docker ?? new Docker()
   const finessePort = Number(process.env.FINESSE_HTTPS_PORT || 0) || null
-  const tickets = new Map<string, { user: string; app: string; until: number }>()
+  const tickets = new Map<string, { user: string; app: string; quality: string; until: number }>()
   const visits = new Map<string, { user: string; until: number }>()
   // A play: the sessions that were open before it started, and the one it turned out to be.
   const plays = new Map<string, { user: string; before: string[]; client?: string; lobby?: string; until: number; seen: number }>()
@@ -183,7 +185,7 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
       if (!what) throw new ApiError(404, 'That app isn’t in Wolf anymore')
       const ticket = randomBytes(24).toString('hex')
       const play = randomBytes(12).toString('hex')
-      tickets.set(ticket, { user: user.Id, app: what.title, until: Date.now() + TICKET_MS })
+      tickets.set(ticket, { user: user.Id, app: what.title, quality: deps.settings.get().streaming?.browserQuality ?? 'auto', until: Date.now() + TICKET_MS })
       plays.set(play, { user: user.Id, before: (await deps.sessions().catch(() => [])).map((x) => x.stream), until: Date.now() + VISIT_MS, seen: Date.now() })
       sendJson(res, 200, { port: STREAM_PORT, ticket, play, join: what.join })
     })
@@ -220,7 +222,7 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
         visits.set(id, { user: t.user, until: Date.now() + VISIT_MS })
         res.writeHead(302, {
           'Set-Cookie': `${COOKIE}=${id}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${VISIT_MS / 1000}`,
-          Location: `/?app=${encodeURIComponent(t.app)}`,
+          Location: `/?app=${encodeURIComponent(t.app)}&q=${encodeURIComponent(t.quality)}`,
           'Cache-Control': 'no-store',
         })
         return res.end()
@@ -342,5 +344,5 @@ export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore;
     return known
   }
 
-  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf, touch, finish, abandoned, unusedClient }
+  return { register, handle, upgrade, sessionFor, noteLobby, lobbyOf, touch, finish, abandoned, unusedClient, target: () => ((mw = null), target()) }
 }

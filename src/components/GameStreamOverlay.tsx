@@ -181,7 +181,7 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
       <div className="absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-2 border-b border-white/10 bg-ink-950 px-3">
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-white">
           {app.title}
-          {phase === 'playing' && <span className="ml-2 hidden text-ink-400 sm:inline">Esc frees the mouse · hold View + Menu for the menu</span>}
+          {phase === 'playing' && <span className="ml-2 hidden text-ink-400 sm:inline">Esc frees the mouse · View + Menu + LB + RB (or hold Guide) for the menu</span>}
         </p>
         {phase === 'playing' && (
           <>
@@ -194,7 +194,7 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
             >
               Stats
             </button>
-            <button type="button" onClick={() => toFrame('menu')} className="rounded-full bg-white/5 px-3 py-1.5 text-[12px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/15" title="Menu (hold View + Menu on a controller)">
+            <button type="button" onClick={() => toFrame('menu')} className="rounded-full bg-white/5 px-3 py-1.5 text-[12px] font-semibold text-white ring-1 ring-white/15 hover:bg-white/15" title="Menu (View + Menu + LB + RB, or hold the Guide button)">
               Menu
             </button>
           </>
@@ -219,7 +219,7 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
       </div>
       {hint && (
         <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/75 px-4 py-2 text-[13px] text-white ring-1 ring-white/15">
-          Hold <b>View + Menu</b> on your controller (or Ctrl+Alt+Shift+M) for the menu
+          Press <b>View + Menu + LB + RB</b> (or hold the <b>Guide</b> button) for the menu · Ctrl+Alt+Shift+M on a keyboard
         </div>
       )}
     </div>,

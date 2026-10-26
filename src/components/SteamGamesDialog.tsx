@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { streamingApi, type SteamGame } from '../api/setup'
+import { streamingApi, type LutrisGame, type SteamGame } from '../api/setup'
 import { pushBackHandler } from '../lib/back'
 import { useToast } from './Toast'
 
@@ -28,6 +28,28 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState<number | null>(null)
   const [filter, setFilter] = useState('')
   const { data, isLoading, refetch } = useQuery({ queryKey: ['streaming', 'steam'], queryFn: streamingApi.steamGames, staleTime: 30_000, retry: 0 })
+  const lutris = useQuery({ queryKey: ['streaming', 'lutris'], queryFn: streamingApi.lutrisGames, staleTime: 30_000, retry: 0 })
+  const [lBusy, setLBusy] = useState<number | 'all' | null>(null)
+  const lutrisToggle = async (g: LutrisGame | 'all') => {
+    setLBusy(g === 'all' ? 'all' : g.id)
+    try {
+      if (g === 'all') {
+        const r = await streamingApi.addLutris('all')
+        toast(r.added ? `Added ${r.added} Lutris game${r.added === 1 ? '' : 's'}` : 'They’re all here already')
+      } else if (g.added) {
+        await streamingApi.removeLutris(g.id)
+        toast(`${g.name} removed`)
+      } else {
+        await streamingApi.addLutris(g.id)
+        toast(`${g.name} added — it’s in Moonlight too`)
+      }
+      await Promise.all([lutris.refetch(), qc.invalidateQueries({ queryKey: ['streaming', 'apps'] })])
+    } catch (e) {
+      toast((e as Error).message || 'That didn’t work', 'error')
+    } finally {
+      setLBusy(null)
+    }
+  }
 
   useEffect(() => pushBackHandler(() => (onClose(), true)), [onClose])
   // The page behind stays put while the list scrolls.
@@ -102,7 +124,7 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
         <div className="border-b border-white/5 p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-white">Steam games</h2>
+              <h2 className="text-lg font-semibold text-white">Your games</h2>
               <p className="mt-0.5 text-[13px] leading-relaxed text-ink-400">Add a game and it gets its own tile here and in Moonlight. It opens Steam straight into the game.</p>
             </div>
             <button type="button" onClick={onClose} className="rounded-full p-1.5 text-ink-400 hover:bg-white/10 hover:text-white" aria-label="Close">
@@ -117,7 +139,7 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
                 <input type="checkbox" className="mt-0.5 h-4 w-4 accent-accent-400" checked={data.sync === true} disabled={bulk !== null} onChange={(e) => void setSync(e.target.checked)} />
                 <span className="min-w-0">
                   <span className="block text-[13.5px] font-medium text-white">{bulk === 'sync' ? 'Syncing…' : 'Keep in sync with Steam'}</span>
-                  <span className="block text-[12px] leading-relaxed text-ink-400">Games you install get a tile by themselves, and uninstalled ones go. Checked every few minutes.</span>
+                  <span className="block text-[12px] leading-relaxed text-ink-400">Games you install in Steam or Lutris get a tile by themselves, and uninstalled ones go. Checked every few minutes.</span>
                 </span>
               </label>
               {data.sync !== true && missing > 0 && (
@@ -172,6 +194,39 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
                 </li>
               ))}
             </ul>
+          )}
+          {lutris.data?.ok && lutris.data.games.length > 0 && (
+            <div className="mt-3 border-t border-white/5 pt-3">
+              <div className="flex items-center justify-between gap-3 px-2 pb-1">
+                <p className="text-[13px] font-semibold text-ink-300">Lutris</p>
+                {lutris.data.games.some((g) => !g.added) && (
+                  <button type="button" disabled={lBusy !== null} onClick={() => void lutrisToggle('all')} className="text-[12.5px] font-semibold text-accent-300 hover:underline disabled:opacity-50">
+                    {lBusy === 'all' ? 'Adding…' : 'Add all'}
+                  </button>
+                )}
+              </div>
+              <ul>
+                {lutris.data.games.map((g) => (
+                  <li key={g.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-white/[0.03]">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14.5px] font-medium text-white">{g.name}</p>
+                      {g.playtime > 0 && <p className="text-[12px] text-ink-500">{g.playtime >= 1 ? `${Math.round(g.playtime)} h played` : 'Played a little'}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={lBusy !== null}
+                      onClick={() => void lutrisToggle(g)}
+                      aria-pressed={g.added}
+                      className={`h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold transition-colors disabled:opacity-50 ${
+                        g.added ? 'border border-white/15 bg-transparent text-ink-200 hover:border-white/30 hover:text-white' : 'bg-accent-500 text-white hover:bg-accent-400'
+                      }`}
+                    >
+                      {lBusy === g.id ? '…' : g.added ? 'Remove' : 'Add'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       </div>

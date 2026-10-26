@@ -38,6 +38,34 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## No more https warnings, and a smarter game library — v3.2.5 (2026-10-26)
+
+- **No more https warnings.** Finesse now signs its certificate with its own certificate
+  authority: install it once per device (Settings → Account → **Secure connection** has the steps
+  for Windows, Mac, iPhone, Android and Linux) and the warning is gone for good, renewals
+  included. The authority can only vouch for this server's names and private network addresses
+  (X.509 name constraints), so it can't be used to pass off other websites. With Tailscale in
+  Docker and HTTPS certificates on for the tailnet, Finesse also fetches a real certificate for
+  its Tailscale name and renews it: open `https://<machine>.<tailnet>.ts.net:<port>/finesse/`
+  with nothing to install.
+- **Playing now.** Games still running show a green **Running** badge, come first in their row,
+  and **Playing now → Resume** at the top takes you back in.
+- **Hours played.** Finesse counts the time you spend in each game (and adds what Lutris counted);
+  tiles show it, and "recently played" uses it too.
+- **Lutris games** get tiles like Steam games: add one, add all, or let **Keep in sync** do it.
+- **Covers for everything.** With a SteamGridDB key, apps and emulators get proper icons and
+  Lutris games get covers (or Lutris's own).
+- **A controller combo games don't use.** The in-game menu now opens with **View + Menu + LB +
+  RB** (Moonlight's own combo) or by holding the **Guide** button, so the game never sees it.
+- **Stream quality.** Settings → Game streaming → **Stream quality** fixes resolution and frame
+  rate for games played in Finesse (720p to 4K, 60 or 120 fps), so the stream no longer restarts
+  itself mid-game to change quality. Automatic stays available.
+- **Wolf's memory, looked after.** Administrators see a warning on Games when Wolf holds most of
+  the graphics card, with **Restart Wolf** right there; and Finesse restarts Wolf by itself when
+  the card is nearly full and nothing is playing (at most every half hour; can be turned off).
+- **Setup check for playing in Finesse.** Settings → Game streaming → **Playing in Finesse** says
+  what's ready (https port, stream port, Moonlight-Web, pairing) and how to fix the rest.
+
 ## A tidier game library — v3.2.4 (2026-10-26)
 
 - **Add all your Steam games at once.** Games → Steam games → **Add all**: every installed game gets

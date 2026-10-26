@@ -6,16 +6,17 @@ import { useFinesse } from '../lib/finesseServer'
 import { PLAY_BTN } from './ActionButton'
 import GameStreamOverlay from './GameStreamOverlay'
 import { PlayIcon, SessionPicker } from './MoonlightPlay'
+import { tileImages } from '../lib/streamTiles'
 
 /** Start one of Wolf's apps on a screen that has Moonlight open. */
 export default function LaunchDialog({ app, onClose }: { app: StreamApp; onClose: () => void }) {
-  const [broken, setBroken] = useState(false)
+  const [n, setN] = useState(0)
   const [playing, setPlaying] = useState(false)
   const { info } = useFinesse()
   // In this page: Moonlight-Web on Finesse's stream port. It decodes video only on an https page.
   const here = Boolean(info?.streamPort && info?.httpsPort) && window.location.protocol !== 'file:'
   const httpsHere = info?.httpsPort ? `https://${window.location.hostname}:${info.httpsPort}${window.location.pathname}${window.location.search}` : null
-  const src = app.steam ? streamingApi.steamArtUrl(app.steam) : app.icon ? streamingApi.iconUrl(app.id) : null
+  const src = tileImages(app)[n] ?? null
   useEffect(() => (playing ? undefined : pushBackHandler(() => (onClose(), true))), [onClose, playing])
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -32,7 +33,7 @@ export default function LaunchDialog({ app, onClose }: { app: StreamApp; onClose
       <div className="relative w-full overflow-hidden rounded-t-2xl border border-white/10 bg-ink-900 shadow-2xl sm:max-w-md sm:rounded-2xl">
         <div className="flex items-start gap-4 border-b border-white/5 p-4 sm:p-5">
           <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-ink-800">
-            {src && !broken && <img src={src} alt="" onError={() => setBroken(true)} className="h-full w-full object-cover" />}
+            {src && <img key={src} src={src} alt="" onError={() => setN((i) => i + 1)} className="h-full w-full object-cover" />}
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold text-white">{app.title}</h2>
@@ -50,7 +51,7 @@ export default function LaunchDialog({ app, onClose }: { app: StreamApp; onClose
               // eslint-disable-next-line jsx-a11y/no-autofocus
               <button type="button" autoFocus className={`${PLAY_BTN} w-full justify-center`} onClick={() => setPlaying(true)}>
                 <PlayIcon />
-                Play here
+                {app.running ? 'Resume here' : 'Play here'}
               </button>
             ) : (
               <a href={httpsHere!} className={`${PLAY_BTN} w-full justify-center`} title="Browsers only play games on a secure (https) page">

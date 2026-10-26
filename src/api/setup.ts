@@ -347,12 +347,33 @@ export interface StreamApp {
   launcher?: true
   /** A Steam game shortcut: the game's Steam app id (for its artwork). */
   steam?: number
+  /** A Lutris game shortcut: its id in Lutris. */
+  lutris?: number
+  /** Artwork beyond Wolf's icon may be had (SteamGridDB, Lutris's cover). */
+  art?: true
   /** Which row it goes in. */
-  kind?: 'steam' | 'emulator' | 'app'
-  /** A Steam game's last play (Unix seconds). */
+  kind?: 'steam' | 'lutris' | 'emulator' | 'app'
+  /** Last played (Unix seconds). */
   lastPlayed?: number
+  /** Time played (seconds). */
+  playtime?: number
+  /** Running now: a game waiting in Wolf, or an app open in a stream. */
+  running?: true
   /** Hidden from the Games page by an administrator. */
   hidden?: true
+}
+
+export interface LutrisGame {
+  id: number
+  name: string
+  lastPlayed: number
+  playtime: number
+  added: boolean
+}
+
+export interface BrowserCheck {
+  ready: boolean
+  items: { id: string; ok: boolean; title: string; detail: string; fix: string[] }[]
 }
 
 export interface SteamGame {
@@ -423,8 +444,22 @@ export interface StreamSession {
 
 export const streamingApi = {
   /** Everyone at home: what Wolf can stream. */
-  apps: () => call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; emulators?: StreamEmulator[]; steam?: boolean; error?: string }>('GET', '/api/streaming'),
+  apps: () =>
+    call<{ ok: boolean; apps: StreamApp[]; profiles?: StreamProfile[]; emulators?: StreamEmulator[]; steam?: boolean; error?: string; gpuWarning?: { used: number; total: number; wolf: number } }>(
+      'GET',
+      '/api/streaming',
+    ),
   iconUrl: (id: string) => withToken(finesseApi(`/api/streaming/apps/${encodeURIComponent(id)}/icon`)),
+  /** SteamGridDB art or Lutris's cover, for apps that aren't Steam games. */
+  artUrl: (id: string) => withToken(finesseApi(`/api/streaming/apps/${encodeURIComponent(id)}/art`)),
+  lutrisGames: () => call<{ ok: boolean; games: LutrisGame[]; error?: string }>('GET', '/api/streaming/lutris', undefined, { timeoutMs: 60000 }),
+  addLutris: (id: number | 'all') => call<{ ok: boolean; added: number; title: string }>('POST', '/api/streaming/lutris/shortcuts', id === 'all' ? { all: true } : { id }, { timeoutMs: 120000 }),
+  removeLutris: (id: number) => call<{ ok: boolean }>('DELETE', `/api/streaming/lutris/shortcuts/${id}`, undefined, { timeoutMs: 30000 }),
+  /** Administrators: the stream quality for games in Finesse's page, and Wolf's self-restart. */
+  streamSettings: () => call<{ quality: string; autoRestartWolf: boolean }>('GET', '/api/streaming/settings'),
+  saveStreamSettings: (s: { quality?: string; autoRestartWolf?: boolean }) => call<{ quality: string; autoRestartWolf: boolean }>('PUT', '/api/streaming/settings', s),
+  /** Administrators: what playing in Finesse's page needs. */
+  browserCheck: () => call<BrowserCheck>('GET', '/api/streaming/browser/check', undefined, { timeoutMs: 20000 }),
   /** A Steam shortcut's cover art. */
   steamArtUrl: (appId: number) => withToken(finesseApi(`/api/streaming/steam/art/${appId}`)),
   /** Administrators: the games installed in Wolf's Steam, and which are shortcuts already. */
