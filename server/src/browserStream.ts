@@ -25,6 +25,7 @@ import { connect as netConnect } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { connect as tlsConnect } from 'node:tls'
 import type { Auth } from './auth.ts'
+import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
@@ -170,15 +171,19 @@ export interface BrowserStream {
   sessionFor(play: string, user: string, open: string[]): string | null
 }
 
-export function createBrowserStream(deps: { auth: Auth; docker?: Docker; sessionIds: () => Promise<string[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
+export function createBrowserStream(deps: { auth: Auth; settings: SettingsStore; docker?: Docker; sessionIds: () => Promise<string[]>; streamFor: (app: string) => Promise<{ title: string; join: boolean } | null> }): BrowserStream {
   const docker = deps.docker ?? new Docker()
   const finessePort = Number(process.env.FINESSE_HTTPS_PORT || 0) || null
   const tickets = new Map<string, { user: string; app: string; until: number }>()
   const visits = new Map<string, { user: string; until: number }>()
   // A play: the sessions that were open before it started, and the one it turned out to be.
   const plays = new Map<string, { user: string; before: string[]; client?: string; until: number }>()
-  /** The Wolf client id Moonlight-Web streams as (it's one paired client), once seen. */
-  let known: string | null = null
+  /** The Wolf client id Moonlight-Web streams as (it's one paired client), once seen. Kept across restarts. */
+  const knownClient = () => deps.settings.get().streaming?.browserClient ?? null
+  const remember = (id: string) => {
+    if (knownClient() !== id) deps.settings.update((s) => void (s.streaming = { ...s.streaming, browserClient: id }))
+    return id
+  }
   let mw: { at: number; v: MoonlightWeb | null } | null = null
   const target = async () => {
     if (!mw || Date.now() - mw.at > (mw.v ? 5 * 60_000 : 15_000)) mw = { at: Date.now(), v: await findMoonlightWeb(docker) }
@@ -218,12 +223,12 @@ export function createBrowserStream(deps: { auth: Auth; docker?: Docker; session
     if (!p || p.user !== user) return null
     if (p.client && open.includes(p.client)) return p.client
     const fresh = open.filter((id) => !p.before.includes(id))
-    if (fresh.length === 1) {
-      p.client = known = fresh[0]!
-      return p.client
-    }
+    if (fresh.length === 1) return (p.client = remember(fresh[0]!))
     // Moonlight-Web picked up a session it already had (a stream that came back).
+    const known = knownClient()
     if (known && open.includes(known)) return (p.client = known)
+    // Nothing to tell them apart by, and only one stream open: this one.
+    if (!known && open.length === 1) return (p.client = remember(open[0]!))
     return null
   }
 

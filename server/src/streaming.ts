@@ -567,6 +567,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   // Playing in Finesse's own page (Moonlight-Web in a frame): what to stream, and which session it is.
   const browser = createBrowserStream({
     auth,
+    settings,
     docker,
     sessionIds: async () => (await sessions(need())).map((x) => x.client_id as string),
     streamFor: async (appId) => {

@@ -170,6 +170,11 @@ describe('Wolf games in Finesse’s page', () => {
     assert.equal(r.status, 202)
     const join = bodies.find((b) => b.path === '/api/v1/lobbies/join')!
     assert.equal(join.body.moonlight_session_id, 'mw')
+    // Next time Moonlight-Web picks up the session it already had: still the right one (remembered).
+    const again = await api('POST', '/api/streaming/browser', USER_TOKEN, { app: 'finesse-steam-2694490' })
+    bodies.length = 0
+    assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: `browser:${again.data.play}` })).status, 202)
+    assert.equal(bodies.find((b) => b.path === '/api/v1/lobbies/join')!.body.moonlight_session_id, 'mw')
     // Someone else's play id gets nothing.
     assert.equal((await api('POST', '/api/streaming/launch', USER_TOKEN, { app: 'finesse-steam-2694490', session: 'browser:nope' })).status, 404)
   })
