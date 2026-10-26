@@ -347,6 +347,12 @@ export interface StreamApp {
   launcher?: true
   /** A Steam game shortcut: the game's Steam app id (for its artwork). */
   steam?: number
+  /** Which row it goes in. */
+  kind?: 'steam' | 'emulator' | 'app'
+  /** A Steam game's last play (Unix seconds). */
+  lastPlayed?: number
+  /** Hidden from the Games page by an administrator. */
+  hidden?: true
 }
 
 export interface SteamGame {
@@ -422,8 +428,14 @@ export const streamingApi = {
   /** A Steam shortcut's cover art. */
   steamArtUrl: (appId: number) => withToken(finesseApi(`/api/streaming/steam/art/${appId}`)),
   /** Administrators: the games installed in Wolf's Steam, and which are shortcuts already. */
-  steamGames: () => call<{ ok: boolean; games: SteamGame[]; error?: string }>('GET', '/api/streaming/steam', undefined, { timeoutMs: 60000 }),
+  steamGames: () => call<{ ok: boolean; games: SteamGame[]; sync?: boolean; error?: string }>('GET', '/api/streaming/steam', undefined, { timeoutMs: 60000 }),
   addSteam: (appId: number) => call<{ ok: boolean; title: string }>('POST', '/api/streaming/steam/shortcuts', { appId }, { timeoutMs: 60000 }),
+  /** Every installed game that isn't a tile yet. */
+  addAllSteam: () => call<{ ok: boolean; added: number }>('POST', '/api/streaming/steam/shortcuts', { all: true }, { timeoutMs: 120000 }),
+  /** Keep tiles in step with what's installed (checked every few minutes; once now when turned on). */
+  steamSync: (on: boolean) => call<{ ok: boolean; on: boolean; added: number; removed: number }>('PUT', '/api/streaming/steam/sync', { on }, { timeoutMs: 120000 }),
+  /** Administrators: hide an app from the Games page, or show it again. */
+  setHidden: (title: string, hidden: boolean) => call<{ ok: boolean }>('PUT', '/api/streaming/hidden', { title, hidden }),
   removeSteam: (appId: number) => call<{ ok: boolean }>('DELETE', `/api/streaming/steam/shortcuts/${appId}`, undefined, { timeoutMs: 30000 }),
   admin: () => call<StreamingAdmin>('GET', '/api/streaming/admin'),
   /** Administrators: Wolf's graphics memory and what's running in it. */

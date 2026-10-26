@@ -38,14 +38,6 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
       document.body.style.overflow = prev
     }
   }, [])
-  // The page behind stays put while the list scrolls.
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [])
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
     const raf = requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>('input, button[data-first]')?.focus({ preventScroll: true }))
@@ -59,6 +51,34 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
     const q = filter.trim().toLowerCase()
     return (data?.games ?? []).filter((g) => !q || g.name.toLowerCase().includes(q))
   }, [data, filter])
+
+  const [bulk, setBulk] = useState<'all' | 'sync' | null>(null)
+  const missing = (data?.games ?? []).filter((g) => !g.added).length
+  const refresh = () => Promise.all([refetch(), qc.invalidateQueries({ queryKey: ['streaming', 'apps'] })])
+  const addAll = async () => {
+    setBulk('all')
+    try {
+      const r = await streamingApi.addAllSteam()
+      toast(r.added ? `Added ${r.added} game${r.added === 1 ? '' : 's'}` : 'They’re all here already')
+      await refresh()
+    } catch (e) {
+      toast((e as Error).message || 'That didn’t work', 'error')
+    } finally {
+      setBulk(null)
+    }
+  }
+  const setSync = async (on: boolean) => {
+    setBulk('sync')
+    try {
+      const r = await streamingApi.steamSync(on)
+      toast(on ? (r.added || r.removed ? `In sync: ${r.added} added, ${r.removed} removed` : 'In sync. New installs show up by themselves.') : 'Sync off. Add games yourself.')
+      await refresh()
+    } catch (e) {
+      toast((e as Error).message || 'That didn’t work', 'error')
+    } finally {
+      setBulk(null)
+    }
+  }
 
   const toggle = async (g: SteamGame) => {
     setBusy(g.appId)
@@ -91,6 +111,22 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
               </svg>
             </button>
           </div>
+          {data?.ok && data.games.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-accent-400" checked={data.sync === true} disabled={bulk !== null} onChange={(e) => void setSync(e.target.checked)} />
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-medium text-white">{bulk === 'sync' ? 'Syncing…' : 'Keep in sync with Steam'}</span>
+                  <span className="block text-[12px] leading-relaxed text-ink-400">Games you install get a tile by themselves, and uninstalled ones go. Checked every few minutes.</span>
+                </span>
+              </label>
+              {data.sync !== true && missing > 0 && (
+                <button type="button" data-first="" disabled={bulk !== null} onClick={() => void addAll()} className="h-9 w-full rounded-full bg-accent-500 px-4 text-[13px] font-semibold text-white hover:bg-accent-400 disabled:opacity-50">
+                  {bulk === 'all' ? 'Adding…' : `Add all ${missing} game${missing === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </div>
+          )}
           {(data?.games.length ?? 0) > 8 && (
             <input
               value={filter}
@@ -124,7 +160,7 @@ export default function SteamGamesDialog({ onClose }: { onClose: () => void }) {
                   <button
                     type="button"
                     data-first={i === 0 ? '' : undefined}
-                    disabled={busy !== null}
+                    disabled={busy !== null || bulk !== null}
                     onClick={() => toggle(g)}
                     aria-pressed={g.added}
                     className={`h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold transition-colors disabled:opacity-50 ${

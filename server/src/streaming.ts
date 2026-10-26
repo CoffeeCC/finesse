@@ -20,7 +20,7 @@ import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
 import { Docker } from './stack/docker.ts'
 import { createBrowserStream, type BrowserStream } from './browserStream.ts'
-import { findWolf, gpuPinEnv, hostRenderCards, wolfGpu, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
+import { appKind, findWolf, gpuPinEnv, hostRenderCards, wolfGpu, installedGames, isSteamApp, shortcutAppId, steamArtUrls, steamShortcut, wolfStateFolder, type SteamGame } from './steam.ts'
 import {
   EMULATOR_IDS,
   emulatorCatalog,
@@ -159,6 +159,18 @@ export interface StreamApp {
   launcher?: true
   /** A Steam game shortcut: the game's Steam app id (for its artwork). */
   steam?: number
+  /** Which row it goes in on the Games page. */
+  kind: 'steam' | 'emulator' | 'app'
+  /** A Steam game's last play (Unix seconds), when Steam recorded one. */
+  lastPlayed?: number
+  /** An administrator hid it from the Games page (Moonlight still lists it). */
+  hidden?: true
+}
+
+/** What the Games page also knows: hidden apps (by title) and Steam's last-played times. */
+export interface AppExtras {
+  hidden?: Set<string>
+  played?: Map<number, number>
 }
 
 export interface StreamProfile {
@@ -182,24 +194,31 @@ const LAUNCHER = /^wolf ui$/i
 const SAFE_ICON = /^[\w./:-]{1,300}$/
 
 /** Only what the app shows: Wolf's app entries also carry pipelines and runner settings (Docker images, mounts, environment). */
-export function publicApps(raw: WolfAppRaw[]): StreamApp[] {
+export function publicApps(raw: WolfAppRaw[], extras: AppExtras = {}): StreamApp[] {
   return raw
     .filter((a) => typeof a.id === 'string' && typeof a.title === 'string' && !TEST_APP.test(a.title))
-    .map((a) => ({
-      id: a.id as string,
-      title: a.title as string,
-      hdr: a.support_hdr === true,
-      icon: typeof a.icon_png_path === 'string' && SAFE_ICON.test(a.icon_png_path),
-      ...(LAUNCHER.test(a.title as string) ? { launcher: true as const } : {}),
-      ...(shortcutAppId(a as RawApp) ? { steam: shortcutAppId(a as RawApp)! } : {}),
-    }))
+    .map((a) => {
+      const steam = shortcutAppId(a as RawApp)
+      const played = steam ? extras.played?.get(steam) : undefined
+      return {
+        id: a.id as string,
+        title: a.title as string,
+        hdr: a.support_hdr === true,
+        icon: typeof a.icon_png_path === 'string' && SAFE_ICON.test(a.icon_png_path),
+        ...(LAUNCHER.test(a.title as string) ? { launcher: true as const } : {}),
+        ...(steam ? { steam } : {}),
+        kind: appKind(a as RawApp),
+        ...(played ? { lastPlayed: played } : {}),
+        ...(extras.hidden?.has((a.title as string).toLowerCase()) ? { hidden: true as const } : {}),
+      }
+    })
 }
 
 /** Wolf's profiles (Wolf UI's "who's playing"), with only their names and apps: never their PINs. */
-export function publicProfiles(raw: WolfProfileRaw[]): StreamProfile[] {
+export function publicProfiles(raw: WolfProfileRaw[], extras: AppExtras = {}): StreamProfile[] {
   return raw
     .filter((p) => typeof p.id === 'string' && Array.isArray(p.apps))
-    .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name ? p.name : (p.id as string), apps: publicApps(p.apps as WolfAppRaw[]) }))
+    .map((p) => ({ id: p.id as string, name: typeof p.name === 'string' && p.name ? p.name : (p.id as string), apps: publicApps(p.apps as WolfAppRaw[], extras) }))
     .filter((p) => p.apps.length > 0)
 }
 
@@ -414,6 +433,18 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       .filter((p) => typeof p.pair_secret === 'string' && p.pair_secret)
       .map((p) => ({ secret: p.pair_secret as string, ip: String(p.client_ip ?? '') }))
 
+  /** Hidden apps, and Steam's last-played times when there are Steam games to sort (from the cached read; never waits long). */
+  async function appExtras(raw: WolfAppRaw[], profiles: WolfProfileRaw[]): Promise<AppExtras> {
+    const hidden = new Set((settings.get().streaming?.hidden ?? []).map((t) => t.toLowerCase()))
+    const all = [...(raw as RawApp[]), ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))]
+    if (!all.some((a) => shortcutAppId(a) !== null)) return { hidden }
+    const games = await Promise.race([
+      steamPlaces(need()).then((f) => steamGames(f.places, 5 * 60_000)),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]).catch(() => null)
+    return { hidden, played: new Map((games ?? []).map((g) => [g.appId, g.lastPlayed])) }
+  }
+
   // Everyone at home: what can be streamed.
   router.get('/api/streaming', async ({ req, res }) => {
     await auth.requireUser(req)
@@ -421,11 +452,25 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     try {
       const { raw, profiles } = await wolfLists(socket)
       const hasSteam = [...(raw as RawApp[]), ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))].some(isSteamApp)
-      sendJson(res, 200, { ok: true, apps: publicApps(raw), profiles: publicProfiles(profiles), emulators: publicEmulators(raw, profiles), steam: hasSteam })
+      const extras = await appExtras(raw, profiles)
+      sendJson(res, 200, { ok: true, apps: publicApps(raw, extras), profiles: publicProfiles(profiles, extras), emulators: publicEmulators(raw, profiles), steam: hasSteam })
     } catch (e) {
       log.warn(`apps: ${wolfProblem(e, socket)}`)
       sendJson(res, 200, { ok: false, apps: [], error: 'Game streaming isn’t answering right now. Try again in a minute.' })
     }
+  })
+
+  // Administrators: hide an app from the Games page, or show it again (by title: Wolf renumbers its apps).
+  router.put('/api/streaming/hidden', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const body = await readJson<{ title?: unknown; hidden?: unknown }>(req)
+    const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : ''
+    if (!title) throw new ApiError(400, 'Which app?')
+    settings.update((x) => {
+      const rest = (x.streaming?.hidden ?? []).filter((t) => t.toLowerCase() !== title.toLowerCase())
+      x.streaming = { ...x.streaming, hidden: body.hidden === true ? [...rest, title] : rest }
+    })
+    sendJson(res, 200, { ok: true })
   })
 
   router.get('/api/streaming/apps/:id/icon', async ({ req, res, params, url }) => {
@@ -858,8 +903,8 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
 
   let gamesCache: { at: number; games: SteamGame[] } | null = null
   /** The games installed in Wolf's Steam apps (cached a minute; reading them starts a container). */
-  async function steamGames(places: SteamPlace[]): Promise<SteamGame[]> {
-    if (gamesCache && Date.now() - gamesCache.at < 60_000) return gamesCache.games
+  async function steamGames(places: SteamPlace[], maxAge = 60_000): Promise<SteamGame[]> {
+    if (gamesCache && Date.now() - gamesCache.at < maxAge) return gamesCache.games
     const state = await wolfStateFolder(docker)
     if (!state) throw new ApiError(502, 'Finesse can’t find the folder Wolf keeps its apps in. Is Wolf running in Docker here?')
     const homes = [...new Set(places.filter((p) => p.profile).map((p) => `${state}/profile-data/${p.profile!.id}/${String((p.app.runner as { name: string }).name)}`))]
@@ -895,41 +940,79 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     const added = new Set([...found.apps, ...found.profiles.flatMap((p) => p.apps)].map(shortcutAppId).filter((x): x is number => x !== null))
     try {
       const games = await steamGames(found.places)
-      sendJson(res, 200, { ok: true, games: games.map((g) => ({ ...g, added: added.has(g.appId) })) })
+      sendJson(res, 200, { ok: true, sync: settings.get().streaming?.steamSync === true, games: games.map((g) => ({ ...g, added: added.has(g.appId) })) })
     } catch (e) {
       sendJson(res, 200, { ok: false, games: [], error: (e as Error).message })
     }
   })
 
+  /** Adds shortcuts for these games next to every Steam app that lacks them: one change per profile. */
+  async function addShortcuts(socket: string, found: Awaited<ReturnType<typeof steamPlaces>>, games: SteamGame[]) {
+    if (!games.length) return
+    // Two or more graphics cards: pin the game to the one the stream is drawn on.
+    const cards = await hostRenderCards(docker).catch(() => ({}))
+    for (const p of found.profiles) {
+      const steam = p.apps.find(isSteamApp)
+      if (!steam) continue
+      const fresh = games.filter((g) => !p.apps.some((a) => shortcutAppId(a) === g.appId))
+      if (fresh.length) await setProfileApps(socket, p, [...p.apps, ...fresh.map((g) => steamShortcut(steam, g, gpuPinEnv(steam.render_node, cards)))])
+    }
+    const top = found.apps.find(isSteamApp)
+    if (top) {
+      for (const g of games.filter((g) => !found.apps.some((a) => shortcutAppId(a) === g.appId)))
+        await wolfJson(socket, 'POST', '/api/v1/apps/add', steamShortcut(top, g, gpuPinEnv(top.render_node, cards)))
+    }
+    appsCache = null
+  }
+
+  const shortcutIds = (found: Awaited<ReturnType<typeof steamPlaces>>) =>
+    new Set([...found.apps, ...found.profiles.flatMap((p) => p.apps)].map(shortcutAppId).filter((x): x is number => x !== null))
+
+  /** Removes these games' shortcuts everywhere: one change per profile. */
+  async function removeShortcuts(socket: string, found: Awaited<ReturnType<typeof steamPlaces>>, appIds: Set<number>) {
+    let removed = 0
+    for (const p of found.profiles) {
+      const keep = p.apps.filter((a) => !appIds.has(shortcutAppId(a) ?? -1))
+      if (keep.length === p.apps.length) continue
+      await setProfileApps(socket, p, keep)
+      removed += p.apps.length - keep.length
+    }
+    for (const a of found.apps.filter((x) => appIds.has(shortcutAppId(x) ?? -1))) {
+      await wolfJson(socket, 'POST', '/api/v1/apps/delete', { id: a.id })
+      removed++
+    }
+    appsCache = null
+    return removed
+  }
+
+  const wolfFail = (e: unknown, socket: string) => new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
+  const placesOr502 = (socket: string) =>
+    steamPlaces(socket).catch((e) => {
+      throw new ApiError(502, wolfProblem(e, socket))
+    })
+
+  // One game ({ appId }), or every installed game that isn't there yet ({ all: true }).
   router.post('/api/streaming/steam/shortcuts', async ({ req, res }) => {
     await auth.requireAdmin(req)
     const socket = need()
-    const body = await readJson<{ appId?: unknown }>(req)
+    const body = await readJson<{ appId?: unknown; all?: unknown }>(req)
     const appId = Number(body.appId)
-    if (!Number.isInteger(appId) || appId <= 0) throw new ApiError(400, 'Which game?')
-    const found = await steamPlaces(socket).catch((e) => {
-      throw new ApiError(502, wolfProblem(e, socket))
-    })
+    if (body.all !== true && (!Number.isInteger(appId) || appId <= 0)) throw new ApiError(400, 'Which game?')
+    const found = await placesOr502(socket)
     if (!found.places.length) throw new ApiError(404, 'Wolf has no Steam app')
     // Only games that are really installed, with Steam's own name for them.
-    const game = (await steamGames(found.places)).find((g) => g.appId === appId)
-    if (!game) throw new ApiError(404, 'That game isn’t installed in Wolf’s Steam')
-    // Two or more graphics cards: pin the game to the one the stream is drawn on.
-    const cards = await hostRenderCards(docker).catch(() => ({}))
+    const installed = await steamGames(found.places)
+    const games = body.all === true ? installed : installed.filter((g) => g.appId === appId)
+    if (!games.length) throw new ApiError(404, body.all === true ? 'No games are installed in Wolf’s Steam' : 'That game isn’t installed in Wolf’s Steam')
+    const have = shortcutIds(found)
+    const added = games.filter((g) => !have.has(g.appId)).length
     try {
-      for (const p of found.profiles) {
-        const steam = p.apps.find(isSteamApp)
-        if (!steam || p.apps.some((a) => shortcutAppId(a) === appId)) continue
-        await setProfileApps(socket, p, [...p.apps, steamShortcut(steam, game, gpuPinEnv(steam.render_node, cards))])
-      }
-      const top = found.apps.find(isSteamApp)
-      if (top && !found.apps.some((a) => shortcutAppId(a) === appId)) await wolfJson(socket, 'POST', '/api/v1/apps/add', steamShortcut(top, game, gpuPinEnv(top.render_node, cards)))
+      await addShortcuts(socket, found, games)
     } catch (e) {
-      throw new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
+      throw wolfFail(e, socket)
     }
-    appsCache = null
-    log.info(`steam: added ${game.name}`)
-    sendJson(res, 201, { ok: true, title: game.name })
+    log.info(body.all === true ? `steam: added ${added} games` : `steam: added ${games[0]!.name}`)
+    sendJson(res, 201, { ok: true, title: games[0]!.name, added })
   })
 
   router.delete('/api/streaming/steam/shortcuts/:appId', async ({ req, res, params }) => {
@@ -937,26 +1020,58 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     const socket = need()
     const appId = Number(params.appId)
     if (!Number.isInteger(appId) || appId <= 0) throw new ApiError(400, 'Which game?')
-    const found = await steamPlaces(socket).catch((e) => {
-      throw new ApiError(502, wolfProblem(e, socket))
-    })
-    let removed = 0
+    const found = await placesOr502(socket)
+    let removed: number
     try {
-      for (const p of found.profiles) {
-        const keep = p.apps.filter((a) => shortcutAppId(a) !== appId)
-        if (keep.length === p.apps.length) continue
-        await setProfileApps(socket, p, keep)
-        removed++
-      }
-      for (const a of found.apps.filter((x) => shortcutAppId(x) === appId)) {
-        await wolfJson(socket, 'POST', '/api/v1/apps/delete', { id: a.id })
-        removed++
-      }
+      removed = await removeShortcuts(socket, found, new Set([appId]))
     } catch (e) {
-      throw new ApiError(502, e instanceof WolfError ? `Wolf didn’t take it: ${e.message}` : wolfProblem(e, socket))
+      throw wolfFail(e, socket)
     }
-    appsCache = null
     sendJson(res, 200, { ok: true, removed })
+  })
+
+  // Keep in sync: games installed in Steam get their tile, uninstalled ones lose it. Checked every
+  // few minutes while it's on (reading Steam's folder starts a small container, so not more often).
+  async function syncSteam(socket: string) {
+    const found = await steamPlaces(socket)
+    if (!found.places.length) return { added: 0, removed: 0 }
+    gamesCache = null
+    const installed = await steamGames(found.places)
+    const have = shortcutIds(found)
+    const missing = installed.filter((g) => !have.has(g.appId))
+    // Nothing installed at all is more likely a Steam folder Finesse couldn't read than a library emptied: leave the tiles.
+    const gone = installed.length ? new Set([...have].filter((id) => !installed.some((g) => g.appId === id))) : new Set<number>()
+    if (missing.length) await addShortcuts(socket, found, missing)
+    if (gone.size) await removeShortcuts(socket, await steamPlaces(socket), gone)
+    if (missing.length || gone.size) log.info(`steam sync: ${missing.length} added, ${gone.size} removed`)
+    return { added: missing.length, removed: gone.size }
+  }
+  let syncing = false
+  const steamSync = setInterval(() => {
+    const socket = socketOf()
+    if (!socket || !settings.get().streaming?.steamSync || syncing) return
+    syncing = true
+    syncSteam(socket)
+      .catch((e) => log.warn(`steam sync: ${e instanceof ApiError || e instanceof WolfError ? e.message : wolfProblem(e, socket)}`))
+      .finally(() => (syncing = false))
+  }, 5 * 60_000)
+  steamSync.unref()
+
+  router.put('/api/streaming/steam/sync', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const body = await readJson<{ on?: unknown }>(req)
+    const on = body.on === true
+    settings.update((x) => void (x.streaming = { ...x.streaming, steamSync: on }))
+    let r = { added: 0, removed: 0 }
+    if (on) {
+      try {
+        r = await syncSteam(socket)
+      } catch (e) {
+        throw e instanceof ApiError ? e : wolfFail(e, socket)
+      }
+    }
+    sendJson(res, 200, { ok: true, on, ...r })
   })
 
   // Everyone at home: a shortcut's artwork, from Steam's store (fetched here, so the page only talks to Finesse).

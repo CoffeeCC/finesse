@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { streamingApi, type StreamApp, type StreamProfile } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 import LaunchDialog from './LaunchDialog'
+import { useToast } from './Toast'
 import SteamGamesDialog from './SteamGamesDialog'
 
 /** A steady colour per app, for apps without an icon. */
@@ -13,38 +14,100 @@ function tint(title: string): string {
   return `linear-gradient(150deg, hsl(${h} 45% 34%), hsl(${(h + 40) % 360} 50% 18%))`
 }
 
-function AppTile({ app, onOpen }: { app: StreamApp; onOpen?: (app: StreamApp) => void }) {
+function AppTile({ app, onOpen, cover, onHide }: { app: StreamApp; onOpen?: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
   const [broken, setBroken] = useState(false)
   // A Steam game shows its own cover; other apps their Wolf icon.
   const src = app.steam ? streamingApi.steamArtUrl(app.steam) : app.icon ? streamingApi.iconUrl(app.id) : null
   // Wolf UI is Moonlight's own menu: nothing to start from here.
   const Tag = onOpen && !app.launcher ? 'button' : 'div'
+  // Steam games: tall covers (Steam's library art is 2:3). Apps and emulators: smaller squares.
+  const size = cover ? 'h-48 w-32' : 'h-24 w-24'
   return (
-    <Tag
-      {...(Tag === 'button' ? { type: 'button' as const, onClick: () => onOpen!(app), 'aria-label': `Play ${app.title}` } : {})}
-      className={`w-28 shrink-0 text-left ${Tag === 'button' ? 'group rounded-xl focus-visible:outline-2 focus-visible:outline-accent-400' : ''}`}
-    >
-      <div className="relative h-28 w-28 overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5 transition group-hover:ring-white/30" style={src && !broken ? undefined : { background: tint(app.title) }}>
-        {src && !broken ? (
-          <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
-        ) : (
-          <span className="flex h-full w-full items-center justify-center text-3xl font-semibold text-white/90" aria-hidden>
-            {app.title.slice(0, 1)}
-          </span>
-        )}
-        {app.hdr && <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">HDR</span>}
-      </div>
-      <p className="mt-2 truncate text-sm font-medium text-ink-200 group-hover:text-white">{app.title}</p>
-    </Tag>
+    <div className={`group/tile relative shrink-0 ${cover ? 'w-32' : 'w-24'} ${app.hidden ? 'opacity-50' : ''}`}>
+      <Tag
+        {...(Tag === 'button' ? { type: 'button' as const, onClick: () => onOpen!(app), 'aria-label': `Play ${app.title}` } : {})}
+        className={`block w-full text-left ${Tag === 'button' ? 'group rounded-xl focus-visible:outline-2 focus-visible:outline-accent-400' : ''}`}
+      >
+        <div className={`relative ${size} overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5 transition group-hover:ring-white/30`} style={src && !broken ? undefined : { background: tint(app.title) }}>
+          {src && !broken ? (
+            <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center p-2 text-center text-2xl font-semibold text-white/90" aria-hidden>
+              {cover ? app.title : app.title.slice(0, 1)}
+            </span>
+          )}
+          {app.hdr && <span className="absolute right-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">HDR</span>}
+        </div>
+        <p className="mt-2 truncate text-sm font-medium text-ink-200 group-hover:text-white">{app.title}</p>
+      </Tag>
+      {onHide && (
+        <button
+          type="button"
+          onClick={() => onHide(app)}
+          className="absolute left-1.5 top-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-white opacity-0 ring-1 ring-white/15 transition-opacity hover:bg-black/90 focus-visible:opacity-100 group-hover/tile:opacity-100"
+          aria-label={app.hidden ? `Show ${app.title} again` : `Hide ${app.title}`}
+        >
+          {app.hidden ? 'Show' : 'Hide'}
+        </button>
+      )}
+    </div>
   )
 }
 
-function Row({ apps, onOpen }: { apps: StreamApp[]; onOpen: (app: StreamApp) => void }) {
+function Row({ apps, onOpen, cover, onHide }: { apps: StreamApp[]; onOpen: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
   return (
     <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
       {apps.map((a) => (
-        <AppTile key={a.id} app={a} onOpen={onOpen} />
+        <AppTile key={a.id} app={a} onOpen={onOpen} cover={cover} onHide={onHide} />
       ))}
+    </div>
+  )
+}
+
+/** Recently played first (Steam's record), then by name. */
+const byPlayed = (a: StreamApp, b: StreamApp) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0) || a.title.localeCompare(b.title)
+
+/** One set of apps (a profile's, or Moonlight's own list), in rows: Steam games, emulators, other apps. */
+function Library({ apps, onOpen, onHide, showHidden }: { apps: StreamApp[]; onOpen: (app: StreamApp) => void; onHide?: (app: StreamApp) => void; showHidden: boolean }) {
+  const [q, setQ] = useState('')
+  const shown = apps.filter((a) => showHidden || !a.hidden)
+  const kind = (a: StreamApp) => a.kind ?? (a.steam ? 'steam' : 'app')
+  const steam = shown.filter((a) => kind(a) === 'steam').sort(byPlayed)
+  const found = q.trim() ? steam.filter((a) => a.title.toLowerCase().includes(q.trim().toLowerCase())) : steam
+  const emulators = shown.filter((a) => kind(a) === 'emulator')
+  const other = shown.filter((a) => kind(a) === 'app')
+  const label = 'mb-2 text-[13px] font-semibold text-ink-300'
+  return (
+    <div className="space-y-5">
+      {steam.length > 0 && (
+        <div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] font-semibold text-ink-300">Steam games</p>
+            {steam.length > 8 && (
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={`Find one of ${steam.length} games`}
+                aria-label="Find a Steam game"
+                className="h-8 w-56 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[13px] text-white placeholder:text-ink-500 focus:border-accent-400 focus:outline-none"
+              />
+            )}
+          </div>
+          {found.length ? <Row apps={found} onOpen={onOpen} onHide={onHide} cover /> : <p className="text-[13px] text-ink-400">No game called that.</p>}
+        </div>
+      )}
+      {emulators.length > 0 && (
+        <div>
+          <p className={label}>Emulators</p>
+          <Row apps={emulators} onOpen={onOpen} onHide={onHide} />
+        </div>
+      )}
+      {other.length > 0 && (
+        <div>
+          <p className={label}>Apps</p>
+          <Row apps={other} onOpen={onOpen} onHide={onHide} />
+        </div>
+      )}
     </div>
   )
 }
@@ -62,6 +125,20 @@ export default function StreamingSection() {
   const one = profiles.length === 1 ? profiles[0]! : null
   const [steamOpen, setSteamOpen] = useState(false)
   const [launch, setLaunch] = useState<StreamApp | null>(null)
+  const [showHidden, setShowHidden] = useState(false)
+  const qc = useQueryClient()
+  const toast = useToast()
+  const allApps = [...profiles.flatMap((p) => p.apps), ...direct]
+  const hiddenCount = new Set(allApps.filter((a) => a.hidden).map((a) => a.title.toLowerCase())).size
+  // Administrators tidy the page: hidden here, still in Moonlight.
+  const onHide = isAdmin
+    ? (app: StreamApp) =>
+        void streamingApi
+          .setHidden(app.title, !app.hidden)
+          .then(() => qc.invalidateQueries({ queryKey: ['streaming', 'apps'] }))
+          .then(() => toast(app.hidden ? `${app.title} is back` : `${app.title} hidden. It’s still in Moonlight.`))
+          .catch((e: Error) => toast(e.message, 'error'))
+    : undefined
   const pill = 'inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.06] px-4 text-[13px] font-medium text-ink-100 hover:border-white/25 hover:text-white transition-colors'
 
   return (
@@ -77,7 +154,7 @@ export default function StreamingSection() {
           <div className="flex flex-wrap gap-2">
             {data?.ok && data.steam && (
               <button type="button" onClick={() => setSteamOpen(true)} className={pill}>
-                Add Steam games
+                Steam games
               </button>
             )}
             <Link to="/settings#settings-streaming" className={pill}>
@@ -103,15 +180,20 @@ export default function StreamingSection() {
         <div className="space-y-5">
           {profiles.map((p) => (
             <div key={p.id}>
-              {profiles.length > 1 && <p className="mb-2 text-[13px] font-semibold text-ink-300">{p.name}</p>}
-              <Row apps={p.apps} onOpen={setLaunch} />
+              {profiles.length > 1 && <p className="mb-3 text-[15px] font-semibold text-white">{p.name}</p>}
+              <Library apps={p.apps} onOpen={setLaunch} onHide={onHide} showHidden={showHidden} />
             </div>
           ))}
           {direct.length > 0 && (
             <div>
-              {profiles.length > 0 && <p className="mb-2 text-[13px] font-semibold text-ink-300">Straight from Moonlight</p>}
-              <Row apps={direct} onOpen={setLaunch} />
+              {profiles.length > 0 && <p className="mb-3 text-[15px] font-semibold text-white">Straight from Moonlight</p>}
+              <Library apps={direct} onOpen={setLaunch} onHide={onHide} showHidden={showHidden} />
             </div>
+          )}
+          {isAdmin && hiddenCount > 0 && (
+            <button type="button" onClick={() => setShowHidden((v) => !v)} className="text-[13px] text-ink-400 underline-offset-2 hover:text-white hover:underline">
+              {showHidden ? 'Done' : `Show ${hiddenCount} hidden`}
+            </button>
           )}
         </div>
       )}
