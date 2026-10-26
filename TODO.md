@@ -38,6 +38,28 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Play Wolf games right in Finesse — v3.2.3 (2026-10-25)
+
+- **Play here, in the Finesse window.** Click a game in "Stream from your server", then **Play
+  here**: it streams into the page (keyboard, mouse or controller), no Moonlight app needed. Finesse
+  serves [Moonlight-Web](https://github.com/linckosz/moonlight-web) on its own https port
+  (`FINESSE_STREAM_PORT`, e.g. 30544; publish it too) behind your Finesse sign-in, and signs in to
+  it for you. Needs `FINESSE_HTTPS_PORT` and Moonlight-Web paired with Wolf. While a game plays,
+  Finesse leaves the controller to it (B no longer means "back").
+- **Coming back puts you in the same game.** Opening a game that's still running (within the
+  10 minutes) joins it instead of starting a second copy, which Wolf stopped at once.
+- **Fixed: "Play here" started Steam signed out, with no games.** Started straight in the
+  Moonlight session, Wolf gave the app the launcher's folder. Apps in a Wolf profile now start the
+  way Wolf UI starts them, in a lobby with the profile's own folder (`profile-data/<profile>/<app>`),
+  so Steam has your sign-in, library and saves.
+- **Fixed: games closed after a few seconds on servers with two graphics cards.** The game could
+  pick the card that can't show the stream (`getSurfaceSupportKHR` in its log). Steam shortcuts and
+  games started from Finesse are pinned to the card the stream is drawn on (Mesa's device-select).
+- **A dropped stream no longer ends the game.** Finesse stops a game it started after 10 minutes
+  with nobody connected, so reconnecting puts you back in it.
+- **Fixed: "Couldn't start it: socket hang up" when it had started.**
+- Checked on a real Wolf with two RTX 3060s: Path of Exile 2 starts signed in and runs.
+
 ## Click a game to play it — v3.2.2 (2026-10-25)
 
 - **Click a game to play it.** Tiles in "Stream from your server" (Steam games, Kodi, Firefox…)
