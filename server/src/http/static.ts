@@ -2,16 +2,22 @@
 //   • hashed /assets/* cache forever; index.html / version.json never cache
 //   • SPA fallback to index.html for app routes (but a missing /assets/ file
 //     is a real 404 — never HTML served as JavaScript)
-//   • gzip / brotli for text, cached in memory per file version
+//   • gzip / brotli for text, compressed off the event loop (zlib's thread pool) once per
+//     file version and encoding, then cached in memory
 //   • byte ranges (Safari won't play <video> without them)
 //   • conditional requests (ETag / If-Modified-Since → 304)
 // Path traversal is impossible by construction: every request path is
 // resolved and must stay inside its root.
 
 import { createReadStream, existsSync, readFileSync, statSync, type Stats } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, join, resolve, sep } from 'node:path'
-import { brotliCompressSync, gzipSync, constants as zc } from 'node:zlib'
+import { promisify } from 'node:util'
+import { brotliCompress, gzip, constants as zc } from 'node:zlib'
+
+const brotliAsync = promisify(brotliCompress)
+const gzipAsync = promisify(gzip)
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -71,30 +77,42 @@ export function safeFile(root: string, rel: string): { file: string; stat: Stats
 }
 
 const compressedCache = new Map<string, { br?: Buffer; gz?: Buffer }>()
+const compressing = new Map<string, Promise<Buffer>>()
 let cacheBytes = 0
 const CACHE_LIMIT = 64 << 20
 
-function compressed(file: string, stat: Stats, enc: 'br' | 'gzip'): Buffer {
+/**
+ * A text file, compressed. Brotli at quality 9 takes about 0.1 s for the TV's 1.6 MB app.js
+ * on a fast CPU (several times that on a small NAS), so it runs on zlib's thread pool, not
+ * the event loop that serves everyone else; requests arriving meanwhile share the one job.
+ */
+export async function compressed(file: string, stat: Stats, enc: 'br' | 'gzip'): Promise<Buffer> {
   const key = `${file}:${stat.size}:${stat.mtimeMs}`
-  let entry = compressedCache.get(key)
-  if (!entry) {
-    entry = {}
-    compressedCache.set(key, entry)
-  }
   const slot = enc === 'br' ? 'br' : 'gz'
-  if (!entry[slot]) {
-    const raw = readFileSync(file)
-    entry[slot] =
-      enc === 'br'
-        ? brotliCompressSync(raw, { params: { [zc.BROTLI_PARAM_QUALITY]: 9, [zc.BROTLI_PARAM_SIZE_HINT]: raw.length } })
-        : gzipSync(raw, { level: 9 })
-    cacheBytes += entry[slot]!.length
-    if (cacheBytes > CACHE_LIMIT) {
-      compressedCache.clear()
-      cacheBytes = 0
-    }
+  const done = compressedCache.get(key)?.[slot]
+  if (done) return done
+  const jobKey = `${key}:${slot}`
+  let job = compressing.get(jobKey)
+  if (!job) {
+    job = (async () => {
+      const raw = await readFile(file)
+      const body =
+        enc === 'br'
+          ? await brotliAsync(raw, { params: { [zc.BROTLI_PARAM_QUALITY]: 9, [zc.BROTLI_PARAM_SIZE_HINT]: raw.length } })
+          : await gzipAsync(raw, { level: 9 })
+      if (cacheBytes + body.length > CACHE_LIMIT) {
+        compressedCache.clear()
+        cacheBytes = 0
+      }
+      const entry = compressedCache.get(key) ?? {}
+      entry[slot] = body
+      compressedCache.set(key, entry)
+      cacheBytes += body.length
+      return body
+    })().finally(() => compressing.delete(jobKey))
+    compressing.set(jobKey, job)
   }
-  return entry[slot]!
+  return job
 }
 
 function cacheControl(rel: string): string {
@@ -156,9 +174,20 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
   if (COMPRESSIBLE.has(extname(file).toLowerCase()) && stat.size > 512) {
     const enc = /\bbr\b/.test(accept) ? 'br' : /\bgzip\b/.test(accept) ? 'gzip' : null
     if (enc) {
-      const body = compressed(file, stat, enc)
-      res.writeHead(200, { ...headers, 'Content-Encoding': enc, 'Content-Length': String(body.length), Vary: 'Accept-Encoding' })
-      res.end(head ? undefined : body)
+      compressed(file, stat, enc).then(
+        (body) => {
+          if (res.headersSent || res.destroyed) return
+          res.writeHead(200, { ...headers, 'Content-Encoding': enc, 'Content-Length': String(body.length), Vary: 'Accept-Encoding' })
+          res.end(head ? undefined : body)
+        },
+        () => {
+          // Couldn't compress (the file changed under us): send it as it is.
+          if (res.headersSent || res.destroyed) return
+          res.writeHead(200, { ...headers, 'Content-Length': String(stat.size) })
+          if (head) return void res.end()
+          createReadStream(file).on('error', () => res.destroy()).pipe(res)
+        },
+      )
       return
     }
   }
