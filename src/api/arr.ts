@@ -2,6 +2,7 @@ import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { discover, knownFinesse } from '../lib/finesseServer'
 import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot } from '../lib/arrProfiles'
+import { requestKey } from '../lib/requestState'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
 // (music) through the Finesse server, which proxies /arr/{app}/* to the *arr APIs
@@ -366,20 +367,36 @@ export function isAnime(raw: Record<string, unknown>): boolean {
   return genres.some((g) => typeof g === 'string' && g.toLowerCase() === 'anime')
 }
 
-/** Add the chosen result to Radarr/Sonarr/Lidarr and kick off a search for it. */
-export async function arrAdd(result: ArrResult): Promise<void> {
-  try {
-    await addWith(result, await resolveConfig(result.kind))
-  } catch (e) {
-    // The profile or folder may have just been removed: look again next time.
-    forgetArrConfig(result.kind)
-    throw e
-  }
+/** Requests on their way, so a second tap (or another page) waits for the first instead of adding twice. */
+const adding = new Map<string, Promise<number>>()
+
+/**
+ * Add the chosen result to Radarr/Sonarr/Lidarr and kick off a search for it.
+ * Resolves to the app's id for it (0 if the app didn't say).
+ */
+export function arrAdd(result: ArrResult): Promise<number> {
+  const key = requestKey(result)
+  const busy = adding.get(key)
+  if (busy) return busy
+  const p = (async () => {
+    try {
+      const added = await addWith(result, await resolveConfig(result.kind))
+      return typeof added?.id === 'number' ? added.id : 0
+    } catch (e) {
+      // The profile or folder may have just been removed: look again next time.
+      forgetArrConfig(result.kind)
+      throw e
+    } finally {
+      adding.delete(key)
+    }
+  })()
+  adding.set(key, p)
+  return p
 }
 
-async function addWith(result: ArrResult, cfg: ArrConfig): Promise<void> {
+async function addWith(result: ArrResult, cfg: ArrConfig): Promise<{ id?: number } | undefined> {
   if (result.kind === 'artist') {
-    await arrFetch('artist', '/artist', {
+    return arrFetch<{ id?: number }>('artist', '/artist', {
       method: 'POST',
       body: {
         ...result.raw,
@@ -390,10 +407,9 @@ async function addWith(result: ArrResult, cfg: ArrConfig): Promise<void> {
         addOptions: { monitor: 'all', searchForMissingAlbums: true },
       },
     })
-    return
   }
   if (result.kind === 'movie') {
-    await arrFetch('movie', '/movie', {
+    return arrFetch<{ id?: number }>('movie', '/movie', {
       method: 'POST',
       body: {
         ...result.raw,
@@ -404,23 +420,22 @@ async function addWith(result: ArrResult, cfg: ArrConfig): Promise<void> {
         addOptions: { searchForMovie: true },
       },
     })
-  } else {
-    await arrFetch('series', '/series', {
-      method: 'POST',
-      body: {
-        ...result.raw,
-        // Sonarr looks every show up as "standard"; anime is released with
-        // absolute episode numbers ("Show - 38"), which Sonarr only searches
-        // for and matches on an anime series (as Overseerr/Jellyseerr do).
-        seriesType: isAnime(result.raw) ? 'anime' : result.raw.seriesType,
-        qualityProfileId: cfg.qualityProfileId,
-        rootFolderPath: cfg.rootFolderPath,
-        monitored: true,
-        seasonFolder: true,
-        addOptions: { monitor: 'all', searchForMissingEpisodes: true },
-      },
-    })
   }
+  return arrFetch<{ id?: number }>('series', '/series', {
+    method: 'POST',
+    body: {
+      ...result.raw,
+      // Sonarr looks every show up as "standard"; anime is released with
+      // absolute episode numbers ("Show - 38"), which Sonarr only searches
+      // for and matches on an anime series (as Overseerr/Jellyseerr do).
+      seriesType: isAnime(result.raw) ? 'anime' : result.raw.seriesType,
+      qualityProfileId: cfg.qualityProfileId,
+      rootFolderPath: cfg.rootFolderPath,
+      monitored: true,
+      seasonFolder: true,
+      addOptions: { monitor: 'all', searchForMissingEpisodes: true },
+    },
+  })
 }
 
 // ---------- Download queue (request status) ----------

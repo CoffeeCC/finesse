@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueries } from '@tanstack/react-query'
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
 import {
   arrAdd,
   arrDiscover,
@@ -13,7 +13,7 @@ import {
   type DiscoverMovie,
   type DiscoverSection,
 } from '../api/arr'
-import { useArrQueue } from '../api/queries'
+import { noteRequested, useArrQueue } from '../api/queries'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
@@ -37,6 +37,7 @@ export default function RequestPage() {
   const kind = KINDS.some((k) => k.kind === kindParam) ? kindParam : 'movie'
   const [input, setInput] = useState(term)
   const toast = useToast()
+  const qc = useQueryClient()
   // Per-result override so a freshly-requested item flips state immediately.
   const [overrides, setOverrides] = useState<Record<string, ItemState>>({})
   /** Open quality/upgrade modal for an in-library title. */
@@ -91,10 +92,12 @@ export default function RequestPage() {
 
   const request = async (r: ArrResult) => {
     const k = keyOf(r)
+    if (overrides[k] === 'adding' || overrides[k] === 'requested') return
     setOverrides((o) => ({ ...o, [k]: 'adding' }))
     try {
-      await arrAdd(r)
+      const id = await arrAdd(r)
       setOverrides((o) => ({ ...o, [k]: 'requested' }))
+      noteRequested(qc, r, id)
       toast(`Added “${r.title}” — Radarr/Sonarr is searching for a release`)
     } catch (e) {
       setOverrides((o) => ({ ...o, [k]: 'idle' }))

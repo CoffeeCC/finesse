@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  noteRequested,
   useArrQueue,
   useGenres,
   useRequestLookup,
@@ -512,15 +513,16 @@ function MissingRow({ r }: { r: ArrResult }) {
   const dl = r.id > 0 ? queue?.find((q) => q.kind === r.kind && q.refId === r.id) : undefined
 
   const request = async () => {
+    if (state !== 'idle') return
     setState('adding')
     try {
-      await arrAdd(r)
+      const id = await arrAdd(r)
       setState('requested')
       toast(`Requested “${r.title}”. It'll appear in My List while it downloads.`)
-      qc.invalidateQueries({ queryKey: ['arrQueue'] })
+      noteRequested(qc, r, id)
     } catch (e) {
       setState('idle')
-      toast(e instanceof ArrError && e.status === 401 ? 'Sign in again to request' : `Couldn't request “${r.title}”`, 'error')
+      toast(e instanceof ArrError && e.status === 401 ? 'Sign in again to request' : e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn't request “${r.title}”`, 'error')
     }
   }
 

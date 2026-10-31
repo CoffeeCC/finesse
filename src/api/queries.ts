@@ -1,6 +1,7 @@
 import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import * as api from './client'
 import { arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
+import { markRequested } from '../lib/requestState'
 import { sabStatus } from './sab'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { type ClipManifest } from '../lib/preview'
@@ -248,6 +249,19 @@ export function useArrQueue(enabled = true) {
     staleTime: 5_000,
     retry: false,
   })
+}
+
+/**
+ * A title was just requested: every list that shows it (Request search, global search,
+ * Discover, the movie's own page) says so at once, and each is fetched again for the truth.
+ * Without this, a cached search kept offering Request for something already requested.
+ */
+export function noteRequested(qc: QueryClient, r: ArrResult, id: number): void {
+  const mark = <T extends ArrResult>(x: T): T => markRequested(x, r, id)
+  const patchList = (old: unknown) => (Array.isArray(old) ? (old as ArrResult[]).map(mark) : old)
+  for (const key of [['arrLookup'], ['arrLookupAll'], ['arrDiscover']]) qc.setQueriesData({ queryKey: key }, patchList)
+  if (r.kind === 'movie' && r.tmdbId) qc.setQueryData(['arrMovieDetails', r.tmdbId], (old: ArrResult | undefined) => (old ? mark(old) : old))
+  for (const key of [['arrLookup'], ['arrLookupAll'], ['arrDiscover'], ['arrMovieDetails'], ['arrRequested'], ['arrQueue']]) void qc.invalidateQueries({ queryKey: key })
 }
 
 /** Recent requests still waiting for a release (nothing on disk yet). */
