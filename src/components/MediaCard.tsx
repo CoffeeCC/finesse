@@ -16,6 +16,7 @@ import {
 import { useTvLazy } from '../lib/tvLazy'
 import { morphNavigate, posterMorphName } from '../lib/motion'
 import { formatRuntime } from '../api/types'
+import { playChoice } from '../lib/playChoice'
 import type { JfItem } from '../api/types'
 
 const REDUCED_MOTION = typeof window !== 'undefined' && reducedMotion()
@@ -290,9 +291,7 @@ export default function MediaCard({
 
 /** Where "play" should start for an item: its resume point, unless finished. */
 export function playHref(item: JfItem): string {
-  const ud = item.UserData
-  const t = !ud?.Played && ud?.PlaybackPositionTicks ? ud.PlaybackPositionTicks : 0
-  return `/play/${item.Id}${t > 0 ? `?t=${t}` : ''}`
+  return playChoice(item).href
 }
 
 /** Landscape "keep watching" tile (Continue Watching / Next Up): the episode

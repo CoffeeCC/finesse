@@ -14,7 +14,8 @@ import {
 } from '../api/queries'
 import { imageUrl, posterUrl, backdropUrl } from '../api/client'
 import { arrAdd, ArrError, type ArrResult } from '../api/arr'
-import { playHref } from './MediaCard'
+import { playChoice } from '../lib/playChoice'
+import { RestartIcon } from './ActionButton'
 import { useToast } from './Toast'
 import { browseHref } from '../pages/BrowsePage'
 import { DiceIcon, useSurprise } from '../lib/surprise'
@@ -469,7 +470,7 @@ function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
 function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
   const art = backdropUrl(item, 640) ?? posterUrl(item, 300)
   const playable = item.Type === 'Movie' || item.Type === 'Episode'
-  const resuming = !!item.UserData?.PlaybackPositionTicks && !item.UserData.Played
+  const choice = playChoice(item)
   return (
     <>
       <p className={SECTION}>Top result</p>
@@ -483,12 +484,23 @@ function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
           <div className="mt-2.5 flex flex-wrap gap-2">
             {playable && (
               <Link
-                to={playHref(item)}
+                to={choice.href}
                 onClick={onOpen}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
               >
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-                {resuming ? 'Resume' : 'Play'}
+                {choice.label}
+              </Link>
+            )}
+            {playable && choice.startOver && (
+              <Link
+                to={choice.startOver}
+                onClick={onOpen}
+                aria-label={`Start ${item.Name} over from the beginning`}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/10 border border-white/15 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+              >
+                <RestartIcon className="h-3.5 w-3.5" />
+                Start over
               </Link>
             )}
             <Link

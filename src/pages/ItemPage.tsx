@@ -34,7 +34,8 @@ import { peerOf } from '../lib/peers'
 import { useFriends } from '../api/queries'
 import { ActionMenu, type ActionItem } from '../components/Menu'
 import { DELETABLE, DeleteFromLibrary, useCanDelete } from '../components/DeleteFromLibrary'
-import { ACTION_BTN, ActionButton, PLAY_BTN, actionCircle } from '../components/ActionButton'
+import { ACTION_BTN, ActionButton, PLAY_BTN, RestartIcon, START_OVER_BTN, actionCircle } from '../components/ActionButton'
+import { playChoice } from '../lib/playChoice'
 import WatchlistButton from '../components/WatchlistButton'
 import TrailerHero from '../components/TrailerHero'
 import VideoClipHero from '../components/VideoClipHero'
@@ -81,33 +82,44 @@ function ResumeMeta({ item, episodeName }: { item: JfItem; episodeName?: string 
   )
 }
 
-function PlayLink({ item }: { item: JfItem }) {
+/** Play, or Resume from the saved position with Start over beside it. */
+function PlayChoices({ item, word = 'Play', suffix = '', episodeName }: { item: JfItem; word?: string; suffix?: string; episodeName?: string }) {
   const navigate = useNavigate()
-  const resumeTicks = item.UserData?.PlaybackPositionTicks ?? 0
-  const canResume = resumeTicks > 0 && !item.UserData?.Played
-  const href = `/play/${item.Id}${canResume ? `?t=${resumeTicks}` : ''}`
+  const choice = playChoice(item, word)
+  const go = (href: string) => (e: React.MouseEvent) => morphNavigate(() => navigate(href), { event: e })
   return (
     <div className="w-full sm:w-auto min-w-0">
-      <Link
-        to={href}
-        // The backdrop (data-vt-static="vt-hero") morphs into the player's video.
-        onClick={(e) => morphNavigate(() => navigate(href), { event: e })}
-        data-autofocus
-        className={PLAY_BTN}
-      >
-        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        {canResume ? 'Resume' : 'Play'}
-      </Link>
-      <ResumeMeta item={item} />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Link
+          to={choice.href}
+          // The backdrop (data-vt-static="vt-hero") morphs into the player's video.
+          onClick={go(choice.href)}
+          data-autofocus
+          className={PLAY_BTN}
+        >
+          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          {choice.resuming ? ['Resume', suffix, 'from', choice.at].filter(Boolean).join(' ') : [word, suffix].filter(Boolean).join(' ')}
+        </Link>
+        {choice.startOver && (
+          <Link to={choice.startOver} onClick={go(choice.startOver)} className={START_OVER_BTN} aria-label={`Start ${suffix ? `${suffix} ` : ''}over from the beginning`}>
+            <RestartIcon />
+            Start over
+          </Link>
+        )}
+      </div>
+      <ResumeMeta item={item} episodeName={episodeName} />
     </div>
   )
 }
 
+function PlayLink({ item }: { item: JfItem }) {
+  return <PlayChoices item={item} />
+}
+
 /** Series pages play the next-up episode directly, matching the big streaming apps. */
 function SeriesPlayLink({ seriesId }: { seriesId: string }) {
-  const navigate = useNavigate()
   const { data } = useQuery({
     queryKey: ['seriesNextUp', seriesId],
     queryFn: () => getSeriesNextUp(seriesId),
@@ -115,25 +127,8 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
   })
   const ep = data?.Items?.[0]
   if (!ep) return null
-  const resumeTicks = ep.UserData?.PlaybackPositionTicks ?? 0
-  const code = episodeCode(ep)
-  const href = `/play/${ep.Id}${resumeTicks > 0 ? `?t=${resumeTicks}` : ''}`
-  return (
-    <div className="w-full sm:w-auto min-w-0">
-      <Link
-        to={href}
-        onClick={(e) => morphNavigate(() => navigate(href), { event: e })}
-        data-autofocus
-        className={PLAY_BTN}
-      >
-        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        {[resumeTicks > 0 ? 'Resume' : 'Play', code].filter(Boolean).join(' ')}
-      </Link>
-      <ResumeMeta item={ep} episodeName={ep.Name} />
-    </div>
-  )
+  // "Play S2:E3", or "Resume S2:E3 from 12:40" with Start over beside it.
+  return <PlayChoices item={ep} suffix={episodeCode(ep)} episodeName={ep.Name} />
 }
 
 function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {

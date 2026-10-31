@@ -1135,6 +1135,8 @@ html.tv .lv-line.leaving {
 .os-btn.primary:hover { background: #fff; }
 .os-btn.icon { width: 48px; padding: 0; }
 @media (min-width: 640px) { .os-btn.icon { width: 56px; } }
+/* Start over next to Resume: a round icon on a phone (the row is full there), words from sm up. */
+@media (max-width: 639px) { .os-btn.os-restart { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
 @keyframes os-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 18px 50px -14px rgba(var(--tint-rgb), 0.95); }
   50% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0), 0 22px 70px -8px rgba(var(--tint-rgb), 0.95); }
