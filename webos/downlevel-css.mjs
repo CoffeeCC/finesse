@@ -66,6 +66,53 @@ function oklchToRgb(args) {
   return alpha >= 1 ? `rgb(${r},${g},${bb})` : `rgba(${r},${g},${bb},${alpha})`
 }
 
+/** Splits on top-level commas (not inside parentheses or brackets). */
+function splitTop(list) {
+  const out = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]
+    if (c === '(' || c === '[') depth++
+    else if (c === ')' || c === ']') depth--
+    else if (c === ',' && depth === 0) {
+      out.push(list.slice(start, i))
+      start = i + 1
+    }
+  }
+  out.push(list.slice(start))
+  return out.map((x) => x.trim()).filter(Boolean)
+}
+
+/** One selector with :where(…) → the plain selectors it stands for. */
+function expandSelector(sel) {
+  const at = sel.indexOf(':where(')
+  if (at === -1) return [sel]
+  let depth = 0
+  let end = -1
+  for (let i = at + 6; i < sel.length; i++) {
+    if (sel[i] === '(') depth++
+    else if (sel[i] === ')') {
+      depth--
+      if (depth === 0) { end = i; break }
+    }
+  }
+  if (end === -1) return [sel]
+  const before = sel.slice(0, at)
+  const after = sel.slice(end + 1)
+  const out = []
+  for (const alt of splitTop(sel.slice(at + 7, end))) for (const rest of expandSelector(after)) out.push(...expandSelector(before + alt + rest))
+  return out
+}
+
+/** :where(…) out of every rule's selector list (at-rule preludes and declarations untouched). */
+export function expandWhere(css) {
+  return css.replace(/(^|[{};])([^{};@]*:where\([^{};]*)\{/g, (_, pre, prelude) => {
+    const sels = splitTop(prelude).flatMap(expandSelector)
+    return `${pre}${[...new Set(sels)].join(',')}{`
+  })
+}
+
 export function downlevelCss(css) {
   // 1. Drop `@layer a, b, c;` ordering statements.
   css = css.replace(/@layer[^{};]*;/g, '')
@@ -154,6 +201,15 @@ export function downlevelCss(css) {
     /(\.(?:\\.|[\w-])+):is\(:where\((\.group(?:\\\/[\w-]+)?)\)(:[\w-]+) \*\)/g,
     '$2$3 $1',
   )
+
+  // 8b. Every other :where(…) (Chromium <88 drops the whole rule): Tailwind's
+  //     space-y-*/divide-* (so stacked cards lost their spacing on the TV), the
+  //     preflight resets, and the app's own focus rules. Expand each :where(a,b)
+  //     into plain selectors (`x:where(a,b) y` → `xa y, xb y`). Specificity rises
+  //     from zero to the plain selector's; the rules that would then beat a
+  //     component's own classes are written so they don't apply there
+  //     (index.css: the focus corners skip [class*=rounded]).
+  css = expandWhere(css)
 
   // 9. Flex `gap` does nothing on Chromium <84 (property parses — grid-era —
   //    but flex layout ignores it), which squishes every toolbar/row together.

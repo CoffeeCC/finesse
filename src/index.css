@@ -58,20 +58,20 @@ html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, texta
   outline-offset: 2px;
 }
 
-/* The ring's corners: 8px for a control that has none of its own, and never
-   over a control's own shape (pills, circles, rounded inputs keep theirs). In
-   the base layer, and with no more weight than a class, so any rounded-*
-   class wins, on the web (layers) and on TVs (where layers are unwrapped and
-   source order decides). */
-@layer base {
-  :where(a, button, input, select, textarea, [tabindex]):focus-visible,
-  :where(html[data-nav-mode="spatial"]) :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
-    border-radius: 8px;
-    /* A dark band between the control and its ring, so the ring shows on
-       accent-coloured buttons and bright artwork too. Base layer: a
-       component's own ring/shadow classes still win. */
-    box-shadow: 0 0 0 2px var(--color-ink-950);
-  }
+/* The ring's corners: 8px for a control that has none of its own; never over a
+   control's own shape (pills, circles, rounded inputs keep theirs: those carry a
+   rounded-* class, which the :not() leaves alone). The dark band between the
+   control and its ring makes the ring show on accent buttons and bright art; it
+   skips controls with their own ring or shadow. Written with :not() rather than
+   relying on layers/zero specificity, so the TV sheet (layers unwrapped, :where()
+   expanded by webos/downlevel-css.mjs) behaves the same. */
+:where(a, button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus {
+  border-radius: 8px;
+}
+:where(a, button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus {
+  box-shadow: 0 0 0 2px var(--color-ink-950);
 }
 
 /* No body background: html already paints ink-950, and an opaque body would
