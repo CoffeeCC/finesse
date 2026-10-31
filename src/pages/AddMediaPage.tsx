@@ -255,6 +255,8 @@ function Row({ j, games }: { j: Job; games: boolean }) {
   const at = j.placed ?? j.path
   const name = at.slice(at.lastIndexOf('/') + 1)
   const where = at.includes('/') ? at.slice(0, at.lastIndexOf('/')).replace(/\//g, ' › ') : ''
+  // Say it's a folder: a loose song's folder is called "Added", which read as "already added".
+  const whereLabel = where ? `${j.status === 'done' ? 'In folder' : 'Goes in folder'} ${where}` : ''
   const pct = j.file.size ? (j.status === 'done' ? 100 : (j.sent / j.file.size) * 100) : 100
   const editable = j.status === 'review' || j.status === 'waiting' || j.status === 'skipped' || j.status === 'failed'
   const gone = j.status === 'removed'
@@ -264,8 +266,8 @@ function Row({ j, games }: { j: Job; games: boolean }) {
         <div className="min-w-0 flex-1">
           <p className={`truncate text-[14px] text-white ${gone ? 'line-through' : ''}`} title={j.file.name}>{name}</p>
           <p className="truncate text-[12.5px] text-ink-400">
-            {j.error ? <span className="text-red-300">{j.error}</span> : j.note ? <span className={j.kind === 'skip' || j.note.startsWith('Already') ? '' : 'text-amber-200'}>{j.note}</span> : where}
-            {!j.error && !j.note && where && ' · '}
+            {j.error ? <span className="text-red-300">{j.error}</span> : j.note ? <span className={j.kind === 'skip' || j.note.startsWith('Already') ? '' : 'text-amber-200'}>{j.note}</span> : whereLabel}
+            {!j.error && !j.note && whereLabel && ' · '}
             {!j.error && !j.note && size(j.file.size)}
           </p>
         </div>
