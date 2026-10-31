@@ -345,6 +345,8 @@ export default function PlayerPage() {
   const streamRef = useRef<StreamInfo | null>(null)
   /** Bumped per loadStream — a superseded PlaybackInfo reply must not attach. */
   const loadGenRef = useRef(0)
+  /** While a new stream is loading: whether it should stay paused once it's up (null when not loading). */
+  const loadPausedRef = useRef<boolean | null>(null)
 
   const [error, setError] = useState('')
   const [buffering, setBuffering] = useState(true)
@@ -558,10 +560,18 @@ export default function PlayerPage() {
   }, [])
 
   const loadStream = useCallback(
-    async (atTicks: number, audio?: number, sub?: number) => {
+    async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean } = {}) => {
       const video = videoRef.current
       if (!video || !itemId) return
       const gen = ++loadGenRef.current
+      // Replacing the stream of a paused video (quality, audio, subtitles) keeps it paused:
+      // the new stream shows the same frame and waits. <video autoPlay> would start it.
+      const stayPaused = opts.paused === true
+      loadPausedRef.current = stayPaused
+      video.autoplay = !stayPaused
+      const loaded = () => {
+        if (gen === loadGenRef.current) loadPausedRef.current = null
+      }
       // Capture resume BEFORE teardown so subtitle toggles don't lose place.
       const resumeSec = Math.max(0, ticksToSeconds(atTicks))
       if (atTicks > 0) lastTicks.current = atTicks
@@ -665,7 +675,8 @@ export default function PlayerPage() {
             applyResumeSeek()
             repaintOverlay()
             setBuffering(false)
-            video.play().catch(() => {})
+            loaded()
+            if (!stayPaused) video.play().catch(() => {})
           })
           hls.on(Hls.Events.FRAG_BUFFERED, () => {
             const s = streamRef.current
@@ -678,13 +689,15 @@ export default function PlayerPage() {
             video.addEventListener('loadedmetadata', applyResumeSeek, { once: true })
             video.addEventListener('canplay', applyResumeSeek, { once: true })
           }
-          await video.play().catch(() => {})
+          if (!stayPaused) await video.play().catch(() => {})
           if (gen === loadGenRef.current) setBuffering(false)
+          loaded()
         }
 
         report(api.reportPlaybackStart)
       } catch (e) {
         if (gen !== loadGenRef.current) return
+        loaded()
         setError(e instanceof Error ? e.message : 'Could not start playback')
         setBuffering(false)
       }
@@ -949,6 +962,13 @@ export default function PlayerPage() {
     localStorage.setItem('finesse.muted', muted ? '1' : '0')
   }, [volume, muted])
 
+  /** Paused (or about to be: a stream loading for a paused video), so a new stream should wait too. */
+  const pausedNow = useCallback(() => {
+    if (loadPausedRef.current !== null) return loadPausedRef.current
+    const v = videoRef.current
+    return Boolean(v && v.paused && !v.ended)
+  }, [])
+
   // ---------- Actions ----------
   const togglePlay = useCallback(() => {
     const v = videoRef.current
@@ -972,7 +992,7 @@ export default function PlayerPage() {
       const subArg = burnedInSubRef.current && subIndex !== -1 ? subIndex : undefined
       const renegotiate = () => {
         setBuffering(true)
-        loadStream(secondsToTicks(absSec), audioIndex, subArg)
+        loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
       }
 
       // ----- Direct play: full media timeline -----
@@ -990,7 +1010,7 @@ export default function PlayerPage() {
             if (!vv || !ss || ss.transcoding) return
             // Seek was ignored (common on some mkv remuxes) → new stream at target.
             if (Math.abs(vv.currentTime - absSec) > 5) {
-              loadStream(secondsToTicks(absSec), audioIndex, subArg)
+              loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
             }
           }, 400)
         }
@@ -1013,12 +1033,12 @@ export default function PlayerPage() {
           if (!vv || !ss) return
           const now = ss.offsetSec + vv.currentTime
           if (Math.abs(now - absSec) > 10) {
-            loadStream(secondsToTicks(absSec), audioIndex, subArg)
+            loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
           }
         }, 500)
       }
     },
-    [durationSec, loadStream, audioIndex, subIndex],
+    [durationSec, loadStream, audioIndex, subIndex, pausedNow],
   )
   const seekToRef = useRef(seekTo)
   seekToRef.current = seekTo
@@ -1110,7 +1130,7 @@ export default function PlayerPage() {
         if (overlayForRef.current !== chosen.Index) return
         // Fallback: burn-in (no client-side delay on that path).
         burnedInSubRef.current = true
-        loadStream(secondsToTicks(atSec), audio, chosen.Index)
+        loadStream(secondsToTicks(atSec), audio, chosen.Index, { paused: pausedNow() })
       })
   }
 
@@ -1133,7 +1153,7 @@ export default function PlayerPage() {
     const at = liveAbsSec()
     setAudioIndex(idx)
     setAbsTime(at)
-    loadStream(secondsToTicks(at), idx, burnedSub())
+    loadStream(secondsToTicks(at), idx, burnedSub(), { paused: pausedNow() })
     rememberTrack({ audioLang: langOfStream(idx) })
   }
   const changeSub = (idx: number) => {
@@ -1156,7 +1176,7 @@ export default function PlayerPage() {
     if (idx === -1) {
       if (wasBurnedIn) {
         burnedInSubRef.current = false
-        loadStream(secondsToTicks(at), audioIndex, undefined)
+        loadStream(secondsToTicks(at), audioIndex, undefined, { paused: pausedNow() })
       } else {
         requestAnimationFrame(() => {
           const v = videoRef.current
@@ -1171,7 +1191,7 @@ export default function PlayerPage() {
     // even during HLS transcode — no restart, and delay slider works.
     if (isImageSubtitle(chosen) || !s || !itemId || !chosen) {
       burnedInSubRef.current = true
-      loadStream(secondsToTicks(at), audioIndex, idx)
+      loadStream(secondsToTicks(at), audioIndex, idx, { paused: pausedNow() })
       return
     }
 
@@ -1182,8 +1202,8 @@ export default function PlayerPage() {
     setPrefs({ maxBitrate: bitrate })
     setMaxBitrate(bitrate)
     setAbsTime(at)
-    // Re-negotiate the stream at the new cap from the current position
-    loadStream(secondsToTicks(at), audioIndex, burnedSub())
+    // Re-negotiate the stream at the new cap from the current position (paused stays paused)
+    loadStream(secondsToTicks(at), audioIndex, burnedSub(), { paused: pausedNow() })
   }
 
   // ---------- Panels (Audio & subtitles / Settings) ----------
