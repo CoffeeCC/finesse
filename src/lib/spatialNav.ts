@@ -294,6 +294,44 @@ function dirFor(e: KeyboardEvent): Dir | null {
 
 let lastNavAt = 0
 
+/** The open modal on top (the last one in the page, which renders above the others), if any. */
+export function topModal(): HTMLElement | null {
+  const all = [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].filter(isVisible)
+  return all[all.length - 1] ?? null
+}
+
+// What had focus when the D-pad first went into a dialog, so focus can go back there when it
+// closes (dialogs that manage their own focus do this too; this covers the ones that don't).
+let modalOpener: { el: HTMLElement; route: string } | null = null
+
+/**
+ * A dialog is open but focus is still on the page behind it (a dialog that doesn't move focus
+ * itself): the D-pad and A go into the dialog first, to its marked action or first control,
+ * never to the page underneath. True if focus moved.
+ */
+export function focusIntoModal(): boolean {
+  const modal = topModal()
+  const active = document.activeElement as HTMLElement | null
+  if (!modal || (active && modal.contains(active))) return false
+  // Straight from the dialog (the TV's cached candidate list can predate it).
+  const inside = [...modal.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisible)
+  const target = modal.querySelector<HTMLElement>('[data-autofocus]') ?? inside[0] ?? null
+  if (!target) return false
+  if (active && active !== document.body && !modalOpener) modalOpener = { el: active, route: route() }
+  target.focus({ preventScroll: true })
+  target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' })
+  rememberFocus(target)
+  return true
+}
+
+/** After a dialog closed and dropped focus: the control that had it before, if it's still here. */
+function backToOpener(els: HTMLElement[]): HTMLElement | null {
+  const o = modalOpener
+  if (!o || topModal()) return null
+  modalOpener = null
+  return o.route === route() && o.el.isConnected && els.includes(o.el) ? o.el : null
+}
+
 function onKeyDown(e: KeyboardEvent) {
   if (e.altKey || e.ctrlKey || e.metaKey) return
   const dir = dirFor(e)
@@ -322,12 +360,22 @@ function onKeyDown(e: KeyboardEvent) {
   // In a text field, left/right move the caret; up/down may escape the field.
   if (isTextField && (dir === 'left' || dir === 'right')) return
 
+  // A dialog is open over the page: go into it first.
+  if (focusIntoModal()) {
+    e.preventDefault()
+    enterSpatialMode()
+    return
+  }
+
   const els = candidates()
   if (els.length === 0) return
 
   let next: HTMLElement | null
   const from = active && active !== document.body && els.includes(active) ? active : null
-  if (!from) {
+  const opener = from ? null : backToOpener(els)
+  if (opener) {
+    next = opener
+  } else if (!from) {
     // Focus was dropped (a row re-rendered under it): carry on from where it
     // was. Nothing focused yet: start in the page content (its primary action
     // if it marks one), not on the navbar logo that happens to be first.

@@ -10,7 +10,8 @@
 
 import { useSyncExternalStore } from 'react'
 import { toggleQuickMenu } from './quickMenu'
-import { jumpRow } from './spatialNav'
+import { focusIntoModal, jumpRow } from './spatialNav'
+import { nextTabIndex } from './tabStep'
 
 export type PadKind = 'xbox' | 'playstation' | 'nintendo' | 'generic'
 
@@ -74,6 +75,8 @@ function key(k: string, keyCode = 0): boolean {
 }
 
 function activate() {
+  // A dialog is open but focus is behind it: A goes into the dialog, it never presses the page.
+  if (focusIntoModal()) return
   const el = document.activeElement as HTMLElement | null
   // Handlers that treat Enter as OK (the player, menus) take it first.
   if (key('Enter', 13)) return
@@ -92,12 +95,13 @@ function clickFirst(selectors: string[]): boolean {
   return false
 }
 
-/** LB/RB: the previous or next tab of the top bar (Home, Movies, Shows…). */
+/** LB/RB: the previous or next tab: the top bar's (Home, Movies, Shows…), or the phone's bottom tabs. */
 function stepTab(dir: 1 | -1) {
-  const tabs = [...document.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Main"] a')]
-  if (!tabs.length) return
+  const visible = (sel: string) => [...document.querySelectorAll<HTMLAnchorElement>(sel)].filter((a) => a.offsetParent !== null)
+  const tabs = visible('nav[aria-label="Main"] a').length ? visible('nav[aria-label="Main"] a') : visible('nav[aria-label="Tabs"] a')
   const here = tabs.findIndex((a) => a.getAttribute('aria-current') === 'page')
-  const next = tabs[(here + dir + tabs.length) % tabs.length]
+  const next = tabs[nextTabIndex(here, dir, tabs.length)]
+  if (!next) return
   next.click()
   next.focus()
 }
