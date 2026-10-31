@@ -46,7 +46,7 @@ export default function PersonPage() {
       <section className="mt-10 px-4 sm:px-6 lg:px-12">
         <h2 className="text-lg font-semibold text-white tracking-tight mb-4">In your library</h2>
         <div
-          className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
+          className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
         >
           {itemsLoading
             ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)

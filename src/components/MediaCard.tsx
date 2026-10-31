@@ -276,7 +276,7 @@ export default function MediaCard({
       </div>
 
       <div className="mt-2 px-0.5">
-        <p className="text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">
+        <p title={item.Name} className="text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">
           {item.Name}
         </p>
         {/* Quiet captions: posters already carry their title, so the year /

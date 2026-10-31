@@ -160,13 +160,15 @@ export default function LibraryPage() {
     return () => ro.disconnect()
   }, [])
 
-  // Phones get 3 compact columns (2 giant posters wasted the screen); larger
-  // screens keep ~180px cards.
+  // Phones in portrait get 2 columns, so titles stay readable (about the 180px cards larger
+  // screens get); wider phones and small tablets 3 compact ones; larger screens ~180px cards.
+  // Same steps as the CSS grids elsewhere (grid-cols-2 min-[480px]:grid-cols-3).
   const compact = gridWidth > 0 && gridWidth < 600
+  const narrow = gridWidth > 0 && gridWidth < 450
   const GAP = compact ? 10 : 16
   const minCard = compact ? 104 : 180
   const listMode = layout === 'list'
-  const columns = listMode ? 1 : Math.max(compact ? 3 : 2, Math.floor((gridWidth + GAP) / (minCard + GAP)))
+  const columns = listMode ? 1 : narrow ? 2 : Math.max(compact ? 3 : 2, Math.floor((gridWidth + GAP) / (minCard + GAP)))
   const cardWidth = columns > 0 ? (gridWidth - (columns - 1) * GAP) / columns : minCard
   const rowHeight = listMode ? LIST_ROW : cardWidth * 1.5 + TEXT_BLOCK + ROW_GAP
   const rowCount = Math.ceil(total / columns)
@@ -343,7 +345,7 @@ export default function LibraryPage() {
 
       {searching ? (
         // Same Grid / List choice as the whole library.
-        <div className={listMode ? 'grid gap-2.5' : 'grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]'}>
+        <div className={listMode ? 'grid gap-2.5' : 'grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]'}>
           {searchLoading
             ? Array.from({ length: 12 }).map((_, i) => (listMode ? <div key={i} className="h-[96px] w-full rounded-xl shimmer" /> : <CardSkeleton key={i} />))
             : searchResults?.Items.map((item) => (listMode ? <ListRow key={item.Id} item={item} /> : <MediaCard key={item.Id} item={item} />))}

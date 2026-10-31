@@ -38,7 +38,7 @@ export default function BrowsePage() {
       </div>
 
       <div
-        className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
+        className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
       >
         {isLoading
           ? Array.from({ length: 18 }).map((_, i) => <CardSkeleton key={i} />)

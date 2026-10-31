@@ -291,7 +291,7 @@ function SimilarGrid({ itemId }: { itemId: string }) {
     return <p className="text-sm text-ink-400 py-6">{peerOf(itemId) ? 'Nothing similar shared with you yet.' : 'Nothing similar in your library yet.'}</p>
   }
   return (
-    <div className="grid gap-3 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+    <div className="grid gap-3 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
       {isLoading
         ? Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
         : data!.Items.map((m) => <MediaCard key={m.Id} item={m} />)}
@@ -720,7 +720,7 @@ export default function ItemPage() {
             {collection.data ? `${collection.data.TotalRecordCount} in this collection` : 'In this collection'}
           </h2>
           <div
-            className="grid gap-3 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
+            className="grid gap-3 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
           >
             {collection.isLoading
               ? Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
