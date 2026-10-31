@@ -21,6 +21,7 @@ import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
 import { checkConnections, type ConnReport } from './connections.ts'
+import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
 const log = logger('http')
@@ -144,6 +145,21 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       report.catch(() => (conns = null))
     }
     sendJson(res, 200, await conns.report)
+  })
+  // Library health: read-only (libraryHealth.ts). It reads whole libraries, so at most every 5 minutes unless asked.
+  let libHealth: { at: number; report: Promise<LibraryHealth> } | null = null
+  router.get('/api/system/library-health', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    if (!libHealth || url.searchParams.has('refresh') || Date.now() - libHealth.at > 300_000) {
+      const report = libraryHealth(settings.get(), (path) => jf.request(path, { timeoutMs: 60000 }))
+      libHealth = { at: Date.now(), report }
+      report.catch(() => (libHealth = null))
+    }
+    try {
+      sendJson(res, 200, await libHealth.report)
+    } catch {
+      throw new ApiError(502, 'Couldn’t read the library from Jellyfin. Check Jellyfin is running, then try again.')
+    }
   })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })

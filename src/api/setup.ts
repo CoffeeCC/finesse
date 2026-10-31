@@ -572,3 +572,15 @@ export interface ConnReport {
 export const connectionsApi = {
   get: (refresh = false) => call<ConnReport>('GET', `/api/system/connections${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 60000 }),
 }
+
+// ---------- Library health (read-only; server/src/libraryHealth.ts) ----------
+
+export interface LibraryFinding {
+  kind: 'duplicate' | 'unfollowed' | 'short' | 'misfiled'
+  title: string
+  detail: string
+  items: string[]
+}
+export const libraryHealthApi = {
+  get: (refresh = false) => call<{ checkedAt: string; findings: LibraryFinding[]; skipped: string[] }>('GET', `/api/system/library-health${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 120000 }),
+}
