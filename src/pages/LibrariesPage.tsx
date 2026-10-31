@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useLatest, useViews } from '../api/queries'
 import { backdropUrl, imageUrl } from '../api/client'
-import { ANIME_HREF, COLLECTIONS_HREF, useOptionalLibraries } from '../components/NavBar'
+import { useSecondaryDestinations } from '../components/NavBar'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 
 // The phone's Library tab: every place to browse, one tap away (on desktop and
@@ -37,16 +37,18 @@ function TileArt({ viewId, music }: { viewId: string; music: boolean }) {
 export default function LibrariesPage() {
   const { data: views } = useViews()
   const { surprise, busy } = useSurprise()
-  const { hasAnime, hasGames } = useOptionalLibraries()
+  // The same places, under the same names, as the desktop and TV bar's More menu (and in the
+  // same order), so nothing reachable there is missing here. Requests has its own button below.
+  const secondary = useSecondaryDestinations().filter((d) => d.to !== '/request')
   const items = views?.Items ?? []
   const byType = (t: string) => items.filter((v) => v.CollectionType === t)
+  const musicView = byType('music')[0]
+  const HUE: Record<string, number> = { Anime: 320, Music: 28, Games: 140, Friends: 170, Collections: 262 }
+
   const tiles: Tile[] = [
     ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 222 })),
     ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 190 })),
-    ...(hasAnime ? [{ key: 'anime', label: 'Anime', to: ANIME_HREF, hue: 320 }] : []),
-    ...byType('music').map((v) => ({ key: v.Id, label: v.Name, to: '/music', viewId: v.Id, hue: 28 })),
-    ...(hasGames ? [{ key: 'games', label: 'Games', to: '/games', hue: 140 }] : []),
-    ...(byType('boxsets').length ? [{ key: 'collections', label: 'Collections', to: COLLECTIONS_HREF, hue: 262 }] : []),
+    ...secondary.map((d) => ({ key: d.to, label: d.label, to: d.to, viewId: d.to === '/music' ? musicView?.Id : undefined, hue: HUE[d.label] ?? 230 })),
   ]
 
   return (
