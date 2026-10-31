@@ -20,6 +20,38 @@ const STEPS: string[] = [
      updated INTEGER NOT NULL
    );
    CREATE INDEX IF NOT EXISTS smart_owner ON smart_collections(owner);`,
+  // 2: shortlists (queues.ts)
+  `CREATE TABLE IF NOT EXISTS queues (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     host TEXT NOT NULL,
+     created INTEGER NOT NULL,
+     updated INTEGER NOT NULL,
+     archived INTEGER NOT NULL DEFAULT 0,
+     picked TEXT
+   );
+   CREATE TABLE IF NOT EXISTS queue_members (
+     queue TEXT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
+     user TEXT NOT NULL,
+     PRIMARY KEY (queue, user)
+   );
+   CREATE INDEX IF NOT EXISTS queue_members_user ON queue_members(user);
+   CREATE TABLE IF NOT EXISTS queue_items (
+     queue TEXT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
+     key TEXT NOT NULL,
+     item TEXT NOT NULL,
+     title TEXT NOT NULL,
+     subtitle TEXT NOT NULL DEFAULT '',
+     added_by TEXT NOT NULL,
+     added_at INTEGER NOT NULL,
+     PRIMARY KEY (queue, key)
+   );
+   CREATE TABLE IF NOT EXISTS queue_votes (
+     queue TEXT NOT NULL REFERENCES queues(id) ON DELETE CASCADE,
+     user TEXT NOT NULL,
+     key TEXT NOT NULL,
+     PRIMARY KEY (queue, user)
+   );`,
 ]
 
 export const LISTS_VERSION = STEPS.length

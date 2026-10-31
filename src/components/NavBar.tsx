@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getItems } from '../api/client'
 import { useSmartOn } from '../api/smart'
+import { useQueuesOn } from '../api/queues'
 import { useFinesse } from '../lib/finesseServer'
 import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -32,6 +33,7 @@ export function useSecondaryDestinations() {
   const friendMusic = useFriendMusic()
   const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
   const smart = useSmartOn()
+  const together = useQueuesOn()
   // Music shows when there's music here, or a friend shares theirs (Groups).
   const hasMusic = (views?.Items.some((v) => v.CollectionType === 'music') ?? false) || friendMusic.rows.length > 0
   return [
@@ -42,6 +44,7 @@ export function useSecondaryDestinations() {
     ...(hasCollections
       ? [{ label: 'Collections', to: COLLECTIONS_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('BoxSet') }]
       : []),
+    ...(together ? [{ label: 'Watch together', to: '/together', match: (p: string) => p.startsWith('/together') }] : []),
     ...(smart ? [{ label: 'Smart collections', to: '/smart', match: (p: string) => p.startsWith('/smart') }] : []),
     { label: 'Requests and downloads', to: '/request', match: (p: string) => p === '/request' },
     { label: 'Activity', to: '/activity', match: (p: string) => p === '/activity' },

@@ -97,6 +97,7 @@ export interface FeedMoment {
 export interface GroupsApi {
   peerLink(req: IncomingMessage): GroupLink
   callFriend<T>(f: GroupFriend, path: string, body?: unknown): Promise<T>
+  friendJellyfin<T>(f: GroupFriend, viewer: { id: string; name: string }, path: string): Promise<T>
   ourName(): Promise<string>
   friends(): GroupFriend[]
   links(): GroupLink[]
