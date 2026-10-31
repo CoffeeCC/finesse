@@ -37,6 +37,8 @@ export function MomentLine({ m, onOpen, compact }: { m: InboxMoment; onOpen: () 
             {ago(m.created)}
           </p>
           {m.note && (!m.spoiler || reveal) && <p className={`mt-1 text-[13.5px] text-white ${compact ? 'line-clamp-2' : ''}`}>“{m.note}”</p>}
+          {/* What opening it does. */}
+          <p className="mt-1 text-[12px] font-semibold text-accent-300">{m.start != null ? `▶ Play from ${clock(m.start)}` : 'Open the title'}</p>
         </button>
         {m.note && m.spoiler && !reveal && (
           <button type="button" onClick={() => setReveal(true)} className="mt-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-ink-200 hover:bg-white/20">

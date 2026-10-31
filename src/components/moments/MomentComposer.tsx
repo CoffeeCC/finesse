@@ -91,6 +91,8 @@ export default function MomentComposer({
   const listed = (existing ?? []).filter((m) => m.start != null)
 
   const send = async () => {
+    // One send per press: a double tap doesn't send it twice.
+    if (busy) return
     setBusy(true)
     setError('')
     try {
@@ -218,6 +220,14 @@ export default function MomentComposer({
           </p>
         </div>
 
+        {/* Exactly what goes, and to whom, before it's sent. */}
+        {to.size > 0 && audience && (
+          <p role="status" className="mt-4 rounded-xl bg-white/[0.04] px-3 py-2 text-[13px] leading-relaxed text-ink-200">
+            Sending {span && !tooLong ? <span className="font-mono text-white">{clock(start)}–{clock(end)}</span> : null}
+            {span && !tooLong ? ' of ' : ''}
+            <span className="text-white">{title}</span> to <span className="text-white">{audience}</span>.
+          </p>
+        )}
         {error && <p className="mt-3 text-[13.5px] text-red-200">{error}</p>}
         <div className="mt-5 flex justify-end gap-3">
           <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-medium text-ink-200 hover:text-white disabled:opacity-50">
