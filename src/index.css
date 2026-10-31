@@ -46,7 +46,6 @@ html {
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
-  border-radius: 8px;
 }
 
 /* After the first real D-pad/arrow press, spatialNav sets data-nav-mode=spatial.
@@ -57,7 +56,18 @@ html {
 html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
-  border-radius: 8px;
+}
+
+/* The ring's corners: 8px for a control that has none of its own, and never
+   over a control's own shape (pills, circles, rounded inputs keep theirs). In
+   the base layer, and with no more weight than a class, so any rounded-*
+   class wins, on the web (layers) and on TVs (where layers are unwrapped and
+   source order decides). */
+@layer base {
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible,
+  :where(html[data-nav-mode="spatial"]) :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
+    border-radius: 8px;
+  }
 }
 
 /* No body background: html already paints ink-950, and an opaque body would
