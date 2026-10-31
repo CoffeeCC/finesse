@@ -307,9 +307,10 @@ export function noteRequested(qc: QueryClient, r: ArrResult, id: number): void {
 }
 
 /** Recent requests still waiting for a release (nothing on disk yet). */
-export function useArrRequested() {
+export function useArrRequested(enabled = true) {
   return useQuery({
     queryKey: ['arrRequested'],
+    enabled,
     queryFn: () => arrRequested(),
     refetchInterval: 60_000,
     staleTime: 15_000,

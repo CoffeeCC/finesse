@@ -17,6 +17,7 @@ import RequestPage from './pages/RequestPage'
 import RequestMoviePage from './pages/RequestMoviePage'
 import MyListPage from './pages/MyListPage'
 import LibrariesPage from './pages/LibrariesPage'
+import ActivityPage from './pages/ActivityPage'
 import AddMediaPage from './pages/AddMediaPage'
 import DropToAdd from './components/DropToAdd'
 import SettingsPage from './pages/SettingsPage'
@@ -179,6 +180,7 @@ export default function App() {
                     <Route path="/friends" element={<FriendsPage />} />
                     <Route path="/watchlist" element={<Navigate to="/mylist" replace />} />
                     <Route path="/libraries" element={<LibrariesPage />} />
+                    <Route path="/activity" element={<ActivityPage />} />
                     {!__WEBOS__ && <Route path="/add-media" element={<AddMediaPage />} />}
                     {!__WEBOS__ && <Route path="/remote" element={<RemotePage />} />}
                     <Route path="/settings" element={<SettingsPage />} />

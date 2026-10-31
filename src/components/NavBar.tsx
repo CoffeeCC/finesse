@@ -41,6 +41,7 @@ export function useSecondaryDestinations() {
       ? [{ label: 'Collections', to: COLLECTIONS_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('BoxSet') }]
       : []),
     { label: 'Requests and downloads', to: '/request', match: (p: string) => p === '/request' },
+    { label: 'Activity', to: '/activity', match: (p: string) => p === '/activity' },
   ]
 }
 
