@@ -33,16 +33,26 @@ export default function TrailerHero({
   youtubeId,
   onClose,
   onPlaying,
+  ambient = false,
 }: {
   youtubeId: string
   onClose: () => void
   /** The trailer is on screen and moving: the page can hide its artwork. */
   onPlaying?: () => void
+  /** It started on its own after a dwell, not because someone asked: it plays dimmed under
+   *  the page's text, and only the Unmute button brings sound (passing the mouse over the
+   *  hero while reading doesn't). */
+  ambient?: boolean
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<any>(null)
   const fadeRef = useRef<ReturnType<typeof setInterval>>(undefined)
   const [muted, setMuted] = useState(true)
+  // Asked for (the Trailer/Preview button) or unmuted: full brightness, and hover brings sound.
+  const [engaged, setEngaged] = useState(!ambient)
+  useEffect(() => {
+    if (!ambient) setEngaged(true) // the button pressed while it was already playing on its own
+  }, [ambient])
   // Hidden until YouTube actually plays: a slow load, a refused embed or
   // YouTube's own error page never covers the artwork.
   const [playing, setPlaying] = useState(false)
@@ -135,8 +145,8 @@ export default function TrailerHero({
   return (
     <div
       className="absolute inset-0 overflow-hidden"
-      onMouseEnter={enter}
-      onMouseLeave={leave}
+      onMouseEnter={engaged ? enter : undefined}
+      onMouseLeave={engaged ? leave : undefined}
     >
       {/* YT API replaces this div with an iframe */}
       <div
@@ -147,11 +157,15 @@ export default function TrailerHero({
         <div ref={hostRef} className="h-full w-full" />
       </div>
 
+      {/* Started on its own: dimmed, so its title cards and rating screens don't compete
+          with the text over it. */}
+      <div className={`pointer-events-none absolute inset-0 bg-ink-950 transition-opacity duration-700 ${engaged ? 'opacity-0' : 'opacity-50'}`} />
       {playing && (
         <div className="absolute top-20 right-4 sm:right-6 lg:right-12 flex gap-2 z-10">
           <button
             onClick={(e) => {
               e.stopPropagation()
+              setEngaged(true)
               muted ? enter() : leave()
             }}
             className="h-9 w-9 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur flex items-center justify-center text-white transition-colors"

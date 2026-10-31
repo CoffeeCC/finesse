@@ -385,6 +385,8 @@ export default function ItemPage() {
   const canDeleteHere = useCanDelete()
   const [refreshing, setRefreshing] = useState(false)
   const [previewOn, setPreviewOn] = useState(false)
+  // Started by the dwell timer rather than the Trailer/Preview button: plays dimmed and quiet.
+  const [previewAuto, setPreviewAuto] = useState(false)
   // The artwork stays up until the preview is actually playing.
   const [previewLive, setPreviewLive] = useState(false)
   const stopPreview = useCallback(() => {
@@ -402,12 +404,16 @@ export default function ItemPage() {
   // Prefer the local clip (offline, always matches) over the YouTube trailer
   const previewKind: 'clip' | 'trailer' | null = hasClip ? 'clip' : trailerId ? 'trailer' : null
 
-  // Auto-play the hero preview after a short dwell (muted), Netflix-style.
+  // Auto-play the hero preview after a dwell (muted, dimmed), Netflix-style. Long enough to
+  // read the title and overview first.
   // Skipped on the TV build: video decode + the page UI fight for the TV SoC.
   useEffect(() => {
     stopPreview()
     if (!previewKind || __WEBOS__) return
-    const t = setTimeout(() => setPreviewOn(true), 3500)
+    const t = setTimeout(() => {
+      setPreviewAuto(true)
+      setPreviewOn(true)
+    }, 6000)
     return () => clearTimeout(t)
   }, [previewKind, itemId, stopPreview])
 
@@ -564,10 +570,10 @@ export default function ItemPage() {
           </div>
           {/* Hero preview after a dwell: local clip (offline) first, else YouTube trailer. Hover fades audio in. */}
           {previewOn && previewKind === 'clip' && heroClipUrl && (
-            <VideoClipHero clipUrl={heroClipUrl} onClose={stopPreview} onPlaying={previewPlaying} />
+            <VideoClipHero clipUrl={heroClipUrl} onClose={stopPreview} onPlaying={previewPlaying} ambient={previewAuto} />
           )}
           {previewOn && previewKind === 'trailer' && trailerId && (
-            <TrailerHero youtubeId={trailerId} onClose={stopPreview} onPlaying={previewPlaying} />
+            <TrailerHero youtubeId={trailerId} onClose={stopPreview} onPlaying={previewPlaying} ambient={previewAuto} />
           )}
           {/* Fade the sharp backdrop into its own blurred ambilight — progressive-blur look, no seam */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30 pointer-events-none" />
@@ -651,7 +657,10 @@ export default function ItemPage() {
                 {previewKind && (!__WEBOS__ || previewKind === 'clip') && (
                   <ActionButton
                     label={previewKind === 'clip' ? 'Preview' : 'Trailer'}
-                    onClick={() => setPreviewOn(true)}
+                    onClick={() => {
+                      setPreviewAuto(false)
+                      setPreviewOn(true)
+                    }}
                     active={previewOn}
                     icon={
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
