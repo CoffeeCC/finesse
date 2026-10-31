@@ -1,36 +1,21 @@
 import { MomentArrivals } from './components/moments/MomentsBell'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useLayoutEffect, useMemo } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo } from 'react'
+import { lazyPage } from './lib/lazyPage'
+import { PageError } from './components/PageError'
 import { useAuth } from './auth/AuthContext'
 import LoginPage from './auth/LoginPage'
-import InvitePage from './pages/InvitePage'
-import SetupPage from './pages/setup/SetupPage'
 import TvConnectPage from './pages/TvConnectPage'
 import NavBar from './components/NavBar'
 import BottomTabs from './components/BottomTabs'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import ItemPage from './pages/ItemPage'
-import PlayerPage from './pages/PlayerPage'
 import SearchPage from './pages/SearchPage'
-import RequestPage from './pages/RequestPage'
-import RequestMoviePage from './pages/RequestMoviePage'
 import MyListPage from './pages/MyListPage'
 import LibrariesPage from './pages/LibrariesPage'
-import ActivityPage from './pages/ActivityPage'
-import AddMediaPage from './pages/AddMediaPage'
 import DropToAdd from './components/DropToAdd'
-import SettingsPage from './pages/SettingsPage'
-import PersonPage from './pages/PersonPage'
 import BrowsePage from './pages/BrowsePage'
-import MusicPage from './pages/MusicPage'
-import AlbumPage from './pages/AlbumPage'
-import GamesPage from './pages/GamesPage'
-import GameDetailPage from './pages/GameDetailPage'
-import PlayGamePage from './pages/PlayGamePage'
-import StreamPlayPage from './pages/StreamPlayPage'
-import FriendsPage from './pages/FriendsPage'
-import RemotePage from './pages/RemotePage'
 import MiniPlayer from './components/MiniPlayer'
 import NowPlaying from './components/NowPlaying'
 import TvBoot from './components/TvBoot'
@@ -55,6 +40,27 @@ import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
 import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
 import { getPrefs, setPrefs, type PreviewQuality } from './lib/settings'
+
+// Pages beyond the first screens load when first opened (their own files on the web; the TV
+// build inlines them into its one app.js, see vite.config.ts). Home, a library, a title,
+// search and My List stay in the main file so the everyday paths never wait.
+const InvitePage = lazyPage(() => import('./pages/InvitePage'))
+const SetupPage = lazyPage(() => import('./pages/setup/SetupPage'))
+const PlayerPage = lazyPage(() => import('./pages/PlayerPage'))
+const RequestPage = lazyPage(() => import('./pages/RequestPage'))
+const RequestMoviePage = lazyPage(() => import('./pages/RequestMoviePage'))
+const ActivityPage = lazyPage(() => import('./pages/ActivityPage'))
+const AddMediaPage = lazyPage(() => import('./pages/AddMediaPage'))
+const SettingsPage = lazyPage(() => import('./pages/SettingsPage'))
+const PersonPage = lazyPage(() => import('./pages/PersonPage'))
+const MusicPage = lazyPage(() => import('./pages/MusicPage'))
+const AlbumPage = lazyPage(() => import('./pages/AlbumPage'))
+const GamesPage = lazyPage(() => import('./pages/GamesPage'))
+const GameDetailPage = lazyPage(() => import('./pages/GameDetailPage'))
+const PlayGamePage = lazyPage(() => import('./pages/PlayGamePage'))
+const StreamPlayPage = lazyPage(() => import('./pages/StreamPlayPage'))
+const FriendsPage = lazyPage(() => import('./pages/FriendsPage'))
+const RemotePage = lazyPage(() => import('./pages/RemotePage'))
 
 export default function App() {
   const { session } = useAuth()
@@ -127,6 +133,8 @@ export default function App() {
 
   if (!session) {
     return (
+      <PageError>
+      <Suspense fallback={<div className="min-h-screen bg-ink-950" />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<SetupPage />} />
@@ -135,6 +143,8 @@ export default function App() {
         <Route path="/invite/:code" element={<InvitePage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+      </Suspense>
+      </PageError>
     )
   }
 
@@ -147,6 +157,8 @@ export default function App() {
       <Marquee />
       <div className="grain" aria-hidden />
       <ControllerHint />
+      <PageError key={location.pathname.startsWith('/play/') || location.pathname.startsWith('/games/') || location.pathname === '/setup' ? location.pathname : 'app'}>
+      <Suspense fallback={<div className="fixed inset-0 bg-black" />}>
       <Routes>
         {__WEBOS__ && <Route path="/connect" element={<TvConnectPage />} />}
         {/* Player + game player are full-bleed, no navbar */}
@@ -163,6 +175,8 @@ export default function App() {
               <main className="pt-16 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
                 {/* Re-keying per path gives every page a rise-in entrance */}
                 <div key={location.pathname} className={enterClass}>
+                  <PageError>
+                  <Suspense fallback={<PageLoading />}>
                   <Routes>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/library/:viewId" element={<LibraryPage />} />
@@ -187,6 +201,8 @@ export default function App() {
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
+                  </Suspense>
+                  </PageError>
                 </div>
               </main>
               <MiniPlayer />
@@ -202,6 +218,18 @@ export default function App() {
           }
         />
       </Routes>
+      </Suspense>
+      </PageError>
     </>
+  )
+}
+
+/** While a page's file loads (the first time it's opened): a quiet placeholder, not a blank. */
+function PageLoading() {
+  return (
+    <div className="px-4 pt-8 sm:px-6 lg:px-12" aria-busy="true" aria-label="Loading">
+      <div className="h-10 w-56 rounded-lg shimmer" />
+      <div className="mt-6 h-40 rounded-2xl shimmer" />
+    </div>
   )
 }

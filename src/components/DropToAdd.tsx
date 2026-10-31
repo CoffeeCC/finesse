@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useFinesse } from '../lib/finesseServer'
-import { readDrop } from '../lib/mediaSort'
-import { addDropped } from '../pages/AddMediaPage'
+import { plan, readDrop } from '../lib/mediaSort'
+import { enqueue } from '../lib/uploads'
 
 /** Files dragged over any page (administrators, on servers Finesse set up): drop them, and they're on their way to the library. */
 export default function DropToAdd() {
@@ -40,7 +40,7 @@ export default function DropToAdd() {
       setShown(false)
       const dt = e.dataTransfer
       void readDrop(dt).then((items) => {
-        addDropped(items, Boolean(info?.features?.games))
+        enqueue(plan(items, { games: Boolean(info?.features?.games) }))
         navigate('/add-media')
       })
     }

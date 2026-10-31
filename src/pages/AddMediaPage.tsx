@@ -20,8 +20,8 @@ const size = (b: number) => (b >= 1e12 ? `${(b / 1e12).toFixed(1)} TB` : b >= 1e
 const eta = (s: number) => (s < 90 ? 'under a minute and a half' : s < 3600 ? `about ${Math.round(s / 60)} min` : `about ${(s / 3600).toFixed(1)} h`)
 const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`
 
-/** Turns dropped files into a list to review (shared with the drop-anywhere overlay). */
-export function addDropped(items: Dropped[], games: boolean) {
+/** Turns dropped files into a list to review (the drop-anywhere overlay does the same). */
+function addDropped(items: Dropped[], games: boolean) {
   enqueue(plan(items, { games }))
 }
 
