@@ -232,8 +232,13 @@ async function doctor(argv: string[]): Promise<number> {
   }
   const r = await api<Health & { error?: string }>('GET', '/api/system/status?refresh')
   if (r.status >= 400) throw new Error(r.data.error ?? `HTTP ${r.status}`)
+  // Each connected app by its own account (indexers, download clients, VPN): in both modes.
+  // An older server without this answers 404: then there's nothing to add.
+  const c = await api<ConnReport & { error?: string }>('GET', '/api/system/connections?refresh')
+  const conns = c.status < 400 && Array.isArray(c.data.apps) ? c.data : null
   if (argv.includes('--json')) {
-    console.log(JSON.stringify(r.data, null, 2))
+    // One JSON object: the server's status, with the connected apps in it.
+    console.log(JSON.stringify({ ...r.data, connections: conns }, null, 2))
   }
   const h = r.data.health
   let problems = 0
@@ -259,16 +264,13 @@ async function doctor(argv: string[]): Promise<number> {
       for (const e of recent) console.log(`    ${dim(e.at.slice(0, 16).replace('T', ' '))} ${e.message}`)
     }
   }
-  // Each connected app by its own account (indexers, download clients, VPN): in both modes.
-  const c = await api<ConnReport & { error?: string }>('GET', '/api/system/connections?refresh')
-  if (c.status < 400 && Array.isArray(c.data.apps)) {
-    if (argv.includes('--json')) console.log(JSON.stringify({ connections: c.data }, null, 2))
-    else if (c.data.apps.length || c.data.vpn) console.log(`\n  ${bold('Connected apps')}`)
-    for (const a of c.data.apps) {
+  if (conns) {
+    if (!argv.includes('--json') && (conns.apps.length || conns.vpn)) console.log(`\n  ${bold('Connected apps')}`)
+    for (const a of conns.apps) {
       line(a.ok, a.name, a.ok === true ? '' : a.summary)
       if (!argv.includes('--json')) for (const p of a.problems) console.log(`      ${dim(p)}`)
     }
-    if (c.data.vpn) line(c.data.vpn.ok, c.data.vpn.source === 'gluetun' ? 'VPN' : 'VPN (guessed from the apps)', c.data.vpn.summary)
+    if (conns.vpn) line(conns.vpn.ok, conns.vpn.source === 'gluetun' ? 'VPN' : 'VPN (guessed from the apps)', conns.vpn.summary)
   } else if (!argv.includes('--json')) {
     console.log(`\n  ${yellow('!')} Couldn’t check the connected apps${c.data.error ? `: ${c.data.error}` : ''}`)
   }
