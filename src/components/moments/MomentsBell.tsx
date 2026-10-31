@@ -117,7 +117,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         )}
       </button>
       {open && (
-        <div ref={panel} role="dialog" aria-label="Moments" className="fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
+        <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-1">
             <p className="text-[15px] font-semibold text-white">Moments</p>
             {unread > 0 && (

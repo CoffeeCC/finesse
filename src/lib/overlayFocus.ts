@@ -20,7 +20,8 @@ export function useOverlayFocus(open: boolean, ref: RefObject<HTMLElement | null
     const t = window.setTimeout(() => {
       const root = ref.current
       if (!root || root.contains(document.activeElement)) return
-      const first = root.querySelector<HTMLElement>('[data-autofocus]') ?? focusables(root)[0]
+      // Nothing to press inside (an empty list): the overlay itself, if it can take focus.
+      const first = root.querySelector<HTMLElement>('[data-autofocus]') ?? focusables(root)[0] ?? (root.hasAttribute('tabindex') ? root : null)
       first?.focus({ preventScroll: true })
     }, 0)
     const onKey = (e: KeyboardEvent) => {
