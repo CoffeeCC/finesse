@@ -916,3 +916,51 @@ export async function arrAutomaticSearch(kind: ArrKind, id: number): Promise<voi
   }
   throw new ArrError(0, 'Automatic search is only available for movies and shows')
 }
+
+// ---------- Albums and EPs (server/src/albumRequests.ts) ----------
+
+export interface ArtistAlbum {
+  foreignAlbumId: string
+  title: string
+  /** Lidarr's type: Album, EP, Single… */
+  type: string
+  year?: number
+  inLidarr: boolean
+  monitored: boolean
+  downloaded: boolean
+}
+
+async function finesseJson<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${CONTENT_BASE}${path.replace(/^\//, '')}`, {
+    method,
+    headers: { Authorization: mediaBrowserAuthHeader(), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await res.text()
+  let data: unknown = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok) throw new ArrError(res.status, (data as { error?: string } | null)?.error ?? `Finesse answered ${res.status}`)
+  return data as T
+}
+
+/** An artist's albums and EPs (for a search result: its MusicBrainz id is in the lookup). */
+export async function artistAlbums(artist: ArrResult): Promise<ArtistAlbum[]> {
+  const id = String(artist.raw.foreignArtistId ?? '')
+  const q = new URLSearchParams({ artist: id, name: artist.title })
+  return (await finesseJson<{ albums: ArtistAlbum[] }>('GET', `/api/requests/artist-albums?${q}`)).albums
+}
+
+/** Request one album or EP, in the quality and folder music requests use. */
+export async function requestArtistAlbum(artist: ArrResult, album: ArtistAlbum): Promise<{ state: string; message: string; profileChanged?: boolean }> {
+  const cfg = await resolveConfig('artist')
+  try {
+    return await finesseJson('POST', '/api/requests/album', { foreignAlbumId: album.foreignAlbumId, artistName: artist.title, qualityProfileId: cfg.qualityProfileId, rootFolderPath: cfg.rootFolderPath })
+  } catch (e) {
+    forgetArrConfig('artist')
+    throw e
+  }
+}
