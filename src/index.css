@@ -416,6 +416,23 @@ html:not(.tv) .shimmer {
   height: 100%;
   object-fit: cover;
 }
+/* The title block on its own (a page with it and one without, e.g. Back to a grid): the
+   leaving one is gone before the arriving page shows, and the arriving one waits for the
+   old page to clear, so text never sits on top of other text. */
+::view-transition-old(vt-detail-head):only-child,
+::view-transition-old(vt-detail-back):only-child {
+  animation: 110ms cubic-bezier(0.4, 0, 1, 1) both vtTextOut;
+}
+::view-transition-new(vt-detail-head):only-child,
+::view-transition-new(vt-detail-back):only-child {
+  animation: 320ms cubic-bezier(0.22, 1, 0.36, 1) 170ms both vtTextIn;
+}
+@keyframes vtTextOut {
+  to { opacity: 0; }
+}
+@keyframes vtTextIn {
+  from { opacity: 0; }
+}
 /* Everything else: out quick and slightly back, in with a small rise. */
 ::view-transition-old(root) {
   animation: 200ms cubic-bezier(0.4, 0, 1, 1) both vtRootOut;
