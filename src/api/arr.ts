@@ -213,12 +213,20 @@ export interface DiscoverMovie extends ArrResult {
   sections: DiscoverSection[]
   /** Already in Radarr (requested or downloaded). */
   existing: boolean
+  /** In Radarr with its file: downloaded (true), only requested (false), or unknown. */
+  downloaded?: boolean
 }
 
 /** Radarr's Discover tab: trending and popular movies, recommendations from what's in the
  *  library, and the admin's import lists. Excluded titles are left out. */
 export async function arrDiscover(): Promise<DiscoverMovie[]> {
-  const data = await arrFetch<Record<string, unknown>[]>('movie', '/importlist/movie?includeRecommendations=true&includeTrending=true&includePopular=true')
+  // Radarr's own list says which "existing" ones are downloaded and which are only requested
+  // (Discover's entries don't). Without it, they're just "existing".
+  const [data, library] = await Promise.all([
+    arrFetch<Record<string, unknown>[]>('movie', '/importlist/movie?includeRecommendations=true&includeTrending=true&includePopular=true'),
+    arrFetch<{ tmdbId?: number; hasFile?: boolean; movieFileId?: number }[]>('movie', '/movie').catch(() => null),
+  ])
+  const fileOf = library ? new Map(library.filter((m) => m.tmdbId).map((m) => [m.tmdbId!, Boolean(m.hasFile || m.movieFileId)])) : null
   const out: DiscoverMovie[] = []
   const seen = new Set<number>()
   for (const m of data ?? []) {
@@ -230,7 +238,9 @@ export async function arrDiscover(): Promise<DiscoverMovie[]> {
     if (m.isPopular) sections.push('popular')
     if (m.isRecommendation) sections.push('recommended')
     if (Array.isArray(m.lists) && m.lists.length) sections.push('lists')
-    out.push({ ...mapMovie(m), sections, existing: Boolean(m.isExisting) })
+    const existing = Boolean(m.isExisting) || Boolean(fileOf?.has(tmdb))
+    const downloaded = existing && fileOf ? fileOf.get(tmdb) ?? undefined : undefined
+    out.push({ ...mapMovie(m), sections, existing, ...(downloaded !== undefined ? { downloaded } : {}) })
   }
   return out
 }

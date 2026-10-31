@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { markRequested, requestKey, sameArrTitle, type RequestableLike } from '../../src/lib/requestState.ts'
+import { discoverStatus, markRequested, requestKey, sameArrTitle, type RequestableLike } from '../../src/lib/requestState.ts'
 
 const turtle: RequestableLike = { kind: 'movie', id: 0, title: 'The Red Turtle', year: 2016, tmdbId: 337703, monitored: false }
 
@@ -16,6 +16,7 @@ test('the title just requested reads as requested in search, Discover and its pa
   const discover = { ...turtle, existing: false, sections: ['popular'] }
   const d = markRequested(discover, turtle, 42)
   assert.equal(d.existing, true)
+  assert.equal(discoverStatus(d), 'requested')
   assert.deepEqual(d.sections, ['popular'])
 })
 
@@ -41,4 +42,12 @@ test('matching: by TMDb / TVDb / MusicBrainz id, else title and year', () => {
 test('one key per title, so a second tap joins the first request', () => {
   assert.equal(requestKey(turtle), requestKey({ ...turtle, overview: 'x' } as RequestableLike))
   assert.notEqual(requestKey(turtle), requestKey({ ...turtle, tmdbId: 2 }))
+})
+
+test('Discover: requested-only titles say Requested, downloaded ones In your library', () => {
+  assert.equal(discoverStatus({ existing: false }), null)
+  assert.equal(discoverStatus({ existing: true, downloaded: false }), 'requested')
+  assert.equal(discoverStatus({ existing: true, downloaded: true }), 'in-library')
+  // Radarr's list couldn't be read: not guessed.
+  assert.equal(discoverStatus({ existing: true }), 'existing')
 })

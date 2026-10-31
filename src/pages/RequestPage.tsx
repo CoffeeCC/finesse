@@ -14,6 +14,7 @@ import {
   type DiscoverSection,
 } from '../api/arr'
 import { noteRequested, useArrQueue } from '../api/queries'
+import { discoverStatus } from '../lib/requestState'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
@@ -359,7 +360,11 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
       </Link>
       <p className="text-[11px] text-ink-400">{m.year ?? ''}</p>
       <div className="mt-1.5">
-        {m.existing ? (
+        {discoverStatus(m) === 'in-library' ? (
+          <span className="text-xs font-medium text-emerald-300">In your library</span>
+        ) : discoverStatus(m) === 'requested' ? (
+          <span className="text-xs font-medium text-accent-300">Requested</span>
+        ) : m.existing ? (
           <span className="text-xs font-medium text-emerald-300">Already in Finesse</span>
         ) : state === 'requested' ? (
           <span className="text-xs font-medium text-accent-300">Added — searching</span>

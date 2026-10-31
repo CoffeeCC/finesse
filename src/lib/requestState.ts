@@ -40,5 +40,11 @@ export function markRequested<T extends RequestableLike>(x: T, requested: Reques
   if (!sameArrTitle(x, requested)) return x
   const newId = x.id > 0 ? x.id : id > 0 ? id : x.id
   if (newId <= 0) return x // the app didn't say: the refetch that follows will
-  return { ...x, id: newId, monitored: true, ...('existing' in x ? { existing: true } : {}) }
+  return { ...x, id: newId, monitored: true, ...('existing' in x ? { existing: true, downloaded: false } : {}) }
+}
+
+/** What a Discover card says about a movie Radarr already has. */
+export function discoverStatus(m: { existing: boolean; downloaded?: boolean }): 'in-library' | 'requested' | 'existing' | null {
+  if (!m.existing) return null
+  return m.downloaded === true ? 'in-library' : m.downloaded === false ? 'requested' : 'existing'
 }
