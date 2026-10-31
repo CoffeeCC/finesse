@@ -16,11 +16,12 @@ import {
   type DiscoverMovie,
   type DiscoverSection,
 } from '../api/arr'
-import { noteRequested, useArrQueue } from '../api/queries'
+import { noteRequested } from '../api/queries'
 import { discoverStatus } from '../lib/requestState'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
+import { ReadyLink, RequestStatusView, useRequestStatus } from '../components/RequestStatus'
 import QualityModal from '../components/QualityModal'
 import SabPanel from '../components/SabPanel'
 import { useToast } from '../components/Toast'
@@ -75,10 +76,6 @@ export default function RequestPage() {
     retry: false,
     queryFn: () => arrLookup(kind, term),
   })
-
-  // Live download status, keyed by kind+arrId, to badge search results in progress.
-  const { data: queue } = useArrQueue()
-  const queueByRef = new Map((queue ?? []).map((q) => [`${q.kind}-${q.refId}`, q]))
 
   // Current on-disk quality for library hits (movies/shows only).
   const libraryHits = (data ?? []).filter((r) => r.id > 0 && r.hasFile && r.kind !== 'artist')
@@ -190,7 +187,6 @@ export default function RequestPage() {
           {data?.map((r) => {
             const state: ItemState = overrides[keyOf(r)] ?? (r.id > 0 ? 'requested' : 'idle')
             const inLibrary = r.id > 0 && r.hasFile
-            const dl = r.id > 0 ? queueByRef.get(`${r.kind}-${r.id}`) : undefined
             const qInfo = inLibrary ? qualityByKey.get(`${r.kind}-${r.id}`) : undefined
             const canQuality = inLibrary && (r.kind === 'movie' || r.kind === 'series')
             return (
@@ -226,12 +222,7 @@ export default function RequestPage() {
                   <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
                     {inLibrary ? (
                       <>
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                          </svg>
-                          In library
-                        </span>
+                        <ReadyLink r={r} />
                         {canQuality && (
                           <button
                             onClick={() => setQualityItem(r)}
@@ -244,20 +235,8 @@ export default function RequestPage() {
                           </button>
                         )}
                       </>
-                    ) : dl ? (
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${dl.done ? 'text-emerald-300' : 'text-accent-300'}`}>
-                        <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v13.5m0 0 4.5-4.5M12 16.5 7.5 12M3.75 18.75A2.25 2.25 0 0 0 6 21h12a2.25 2.25 0 0 0 2.25-2.25" />
-                        </svg>
-                        {dl.done ? dl.status : `${dl.status} ${dl.progress}%`}
-                      </span>
-                    ) : state === 'requested' ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-accent-300">
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        Added — searching
-                      </span>
+                    ) : r.id > 0 || state === 'requested' ? (
+                      <CardStatus r={r} justRequested={state === 'requested'} />
                     ) : (
                       <button
                         onClick={() => request(r)}
@@ -465,4 +444,10 @@ function ArtistAlbums({ artist }: { artist: ArrResult }) {
       })}
     </ul>
   )
+}
+
+/** A requested title's card: where it stands now (searching, downloading 42%, stuck…). */
+function CardStatus({ r, justRequested }: { r: ArrResult; justRequested: boolean }) {
+  const status = useRequestStatus(r, { justRequested })
+  return status ? <RequestStatusView status={status} /> : null
 }

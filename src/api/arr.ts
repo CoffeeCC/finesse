@@ -4,6 +4,7 @@ import { discover, knownFinesse } from '../lib/finesseServer'
 import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot, type SavedChoice } from '../lib/arrProfiles'
 import { ApiError as SetupApiError, requestDefaultsApi } from './setup'
 import { requestKey } from '../lib/requestState'
+import { failuresByTitle } from '../lib/requestStatus'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
 // (music) through the Finesse server, which proxies /arr/{app}/* to the *arr APIs
@@ -186,6 +187,8 @@ function mapSeries(s: Record<string, unknown>): ArrResult {
     overview: s.overview as string | undefined,
     poster: pickPoster(s.images as ArrImage[], s.remotePoster as string),
     tvdbId: s.tvdbId as number | undefined,
+    // Sonarr v4 knows the TMDb id too: matches a library show that only carries that one.
+    ...(typeof s.tmdbId === 'number' && s.tmdbId > 0 ? { tmdbId: s.tmdbId } : {}),
     hasFile: (stats.episodeFileCount ?? 0) > 0,
     monitored: Boolean(s.monitored),
     raw: s,
@@ -707,6 +710,21 @@ export async function arrRequested(days = 30): Promise<ArrRequested[]> {
     out.push({ key: `artist-${a.id}`, kind: 'artist', id: a.id as number, title: (a.artistName as string) ?? 'Unknown', poster: pickPoster(a.images as ArrImage[]), added: a.added as string, available: true })
   }
   return out.sort((a, b) => Date.parse(b.added) - Date.parse(a.added))
+}
+
+// ---------- Failed downloads (request status) ----------
+
+export type ArrFailure = { message?: string; date?: string }
+
+/** Recent failed downloads, newest per title, keyed like the queue (`movie-7`). Finesse's
+ *  proxy answers this itself with only the title, time and reason. A missing app counts as none. */
+export async function arrFailures(days = 14): Promise<Map<string, ArrFailure>> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString()
+  const path = `/history/since?date=${encodeURIComponent(since)}&eventType=4`
+  type Rec = { movieId?: number; seriesId?: number; artistId?: number; date?: string; message?: string }
+  const get = (kind: ArrKind) => arrFetch<Rec[]>(kind, path).then((r) => (Array.isArray(r) ? r.map((x) => ({ ...x, kind })) : []), () => [])
+  const all = await Promise.all([get('movie'), get('series'), get('artist')])
+  return failuresByTitle(all.flat())
 }
 
 /** Take back a request that has nothing on disk yet. */

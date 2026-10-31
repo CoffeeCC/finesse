@@ -7,7 +7,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Auth } from './auth.ts'
 import type { Endpoint, SettingsStore } from './config.ts'
-import { ApiError, readBody, type Router } from './http/core.ts'
+import { ApiError, readBody, sendJson, type Router } from './http/core.ts'
 import { joinUrl, proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import type { JfUser } from './jellyfin.ts'
 import { addAllowed, arrVerdict, cleanPath, commandAllowed, hasFiles, isRead, rommAllowed, sabAllowed } from './policy.ts'
@@ -35,6 +35,26 @@ async function arrGet<T>(svc: Endpoint, api: string, path: string): Promise<T> {
   const r = await fetch(joinUrl(svc.url!, `${api}/${path}`), { headers: { 'x-api-key': svc.apiKey! }, signal: AbortSignal.timeout(15000) })
   if (!r.ok) throw new ApiError(r.status === 404 ? 404 : 502, r.status === 404 ? 'Not found' : `The app answered ${r.status}`)
   return (await r.json()) as T
+}
+
+/** history/since records cut down to which title failed, when, and the app's own reason. */
+export function failedDownloads(records: unknown): { movieId?: number; seriesId?: number; artistId?: number; date?: string; message?: string }[] {
+  if (!Array.isArray(records)) return []
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  return records.flatMap((r) => {
+    if (typeof r !== 'object' || r === null) return []
+    const x = r as Record<string, unknown>
+    const ev = x.eventType
+    if (ev !== 'downloadFailed' && ev !== 4) return []
+    const data = (typeof x.data === 'object' && x.data !== null ? x.data : {}) as Record<string, unknown>
+    const out: { movieId?: number; seriesId?: number; artistId?: number; date?: string; message?: string } = {}
+    if (num(x.movieId)) out.movieId = num(x.movieId)
+    if (num(x.seriesId)) out.seriesId = num(x.seriesId)
+    if (num(x.artistId)) out.artistId = num(x.artistId)
+    if (typeof x.date === 'string') out.date = x.date
+    if (typeof data.message === 'string' && data.message.trim()) out.message = data.message.trim().slice(0, 300)
+    return [out]
+  })
 }
 
 const ARR: Record<string, { id: 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr'; api: string; name: string; admin?: boolean }> = {
@@ -86,6 +106,16 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
           if (hasFiles(item)) throw new ApiError(403, 'It’s already downloaded, so only an administrator can remove it')
           search = v.query
         }
+      }
+      // Failed downloads (a request's status): Finesse answers with only what that needs, so
+      // nothing else a history record carries (release names, download clients) leaves.
+      if (path === 'history/since' && !def.admin) {
+        if (!/^(GET|HEAD)$/i.test(req.method ?? '')) throw adminOnly()
+        const q = new URLSearchParams(url.searchParams)
+        q.delete('apikey')
+        const r = await fetch(joinUrl(svc.url, `${def.api}/history/since`, `?${q}`), { headers: { 'x-api-key': svc.apiKey! }, signal: AbortSignal.timeout(15000) })
+        if (!r.ok) throw new ApiError(502, `${def.name} answered ${r.status}`)
+        return sendJson(res, 200, failedDownloads(await r.json()))
       }
       await proxyHttp(req, res, {
         target: joinUrl(svc.url, `${def.api}/${params.rest ?? ''}`, search),

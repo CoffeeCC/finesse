@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   noteRequested,
-  useArrQueue,
   useGenres,
   useRequestLookup,
   useFriendSearch,
@@ -16,6 +15,7 @@ import { imageUrl, posterUrl, backdropUrl } from '../api/client'
 import { arrAdd, ArrError, type ArrResult } from '../api/arr'
 import { playChoice } from '../lib/playChoice'
 import { RestartIcon } from './ActionButton'
+import { RequestStatusView, useRequestStatus } from './RequestStatus'
 import { useToast } from './Toast'
 import { browseHref } from '../pages/BrowsePage'
 import { DiceIcon, useSurprise } from '../lib/surprise'
@@ -520,9 +520,8 @@ function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
 function MissingRow({ r }: { r: ArrResult }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const { data: queue } = useArrQueue()
   const [state, setState] = useState<'idle' | 'adding' | 'requested'>(r.id > 0 ? 'requested' : 'idle')
-  const dl = r.id > 0 ? queue?.find((q) => q.kind === r.kind && q.refId === r.id) : undefined
+  const status = useRequestStatus(r, { justRequested: state === 'requested' })
 
   const request = async () => {
     if (state !== 'idle') return
@@ -550,12 +549,8 @@ function MissingRow({ r }: { r: ArrResult }) {
           {r.year ? ` · ${r.year}` : ''}
         </span>
       </span>
-      {dl ? (
-        <span className="shrink-0 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-200">
-          {dl.done ? dl.status : `Downloading ${dl.progress}%`}
-        </span>
-      ) : state === 'requested' ? (
-        <span className="shrink-0 text-xs font-semibold text-accent-300">Requested</span>
+      {state === 'requested' && status ? (
+        <RequestStatusView status={status} className="shrink-0 max-w-[45%]" />
       ) : (
         <button
           type="button"
