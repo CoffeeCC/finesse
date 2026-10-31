@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClipManifest } from '../api/queries'
 import { blurhashAverageColor, blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import { vividRgb } from '../lib/accent'
-import { getPrefs } from '../lib/settings'
+import { getPrefs, reducedMotion } from '../lib/settings'
 import {
   claimPreview,
   releasePreview,
@@ -18,9 +18,7 @@ import { morphNavigate, posterMorphName } from '../lib/motion'
 import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
 
-const REDUCED_MOTION =
-  typeof window !== 'undefined' &&
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const REDUCED_MOTION = typeof window !== 'undefined' && reducedMotion()
 
 function progressPct(item: JfItem): number | null {
   const ud = item.UserData

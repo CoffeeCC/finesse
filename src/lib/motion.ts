@@ -19,6 +19,7 @@
 // reduced-motion users: navigation just happens.
 
 import { IS_TV } from './device'
+import { reducedMotion } from './settings'
 
 type VTDocument = Document & {
   startViewTransition?: (update: () => Promise<void> | void) => { finished: Promise<void> }
@@ -28,7 +29,7 @@ export function motionEnabled(): boolean {
   return (
     !IS_TV &&
     typeof (document as VTDocument).startViewTransition === 'function' &&
-    !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    !reducedMotion()
   )
 }
 

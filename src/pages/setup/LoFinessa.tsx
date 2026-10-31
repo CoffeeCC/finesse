@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { finishLofi, LOFI_STILL, LOFI_VIDEOS, loadLofi, lofiUserGesture, reviveLofi, setLofiMuted, useLofi } from './lofi'
+import { reducedMotion } from '../../lib/settings'
 
 /** Starts loading the song once the wizard is up, and starts it on the first click. */
 export function useLofiWizard(enabled: boolean) {
@@ -55,7 +56,6 @@ export function LoFinessaToggle({ inline = false }: { inline?: boolean }) {
   )
 }
 
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /** "Building your server": Nessa at her desk, rain outside, as a soft card. A still frame with reduced motion. */
 export function LoFinessaCard() {

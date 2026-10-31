@@ -7,7 +7,7 @@ import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
 import { adjacentEpisodes, episodeCode } from '../lib/episodes'
 import { EMPTY_MANIFEST, prefetchClip, previewClipUrl } from '../lib/preview'
 import { pickSubtitle } from '../lib/tracks'
-import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
+import { getPrefs, setPrefs, BITRATE_OPTIONS, reducedMotion } from '../lib/settings'
 import { IS_TV, TOUCH_UI, inSpatialMode } from '../lib/device'
 import CastMenu from '../components/CastMenu'
 import MomentComposer from '../components/moments/MomentComposer'
@@ -2547,8 +2547,7 @@ export default function PlayerPage() {
   )
 }
 
-const REDUCED_MOTION =
-  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const REDUCED_MOTION = typeof window !== 'undefined' && reducedMotion()
 
 /** Ambient mode: the current scene, shrunk to a few pixels and blurred huge,
  *  glows in the letterbox bars behind the picture (phones held upright, wide

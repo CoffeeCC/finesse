@@ -67,6 +67,10 @@ html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, texta
   :where(a, button, input, select, textarea, [tabindex]):focus-visible,
   :where(html[data-nav-mode="spatial"]) :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
     border-radius: 8px;
+    /* A dark band between the control and its ring, so the ring shows on
+       accent-coloured buttons and bright artwork too. Base layer: a
+       component's own ring/shadow classes still win. */
+    box-shadow: 0 0 0 2px var(--color-ink-950);
   }
 }
 
@@ -561,6 +565,25 @@ html[data-nav-mode='spatial'][data-nav-dir='up'] .group:focus-visible .tilt {
   border: 3px solid rgba(255, 255, 255, 0.15);
   border-top-color: var(--color-accent-400);
   animation: spin 0.9s linear infinite;
+}
+
+/* ---------- Accessibility: the app's own Reduce motion switch (Settings → Appearance) ----------
+   Same calm as the device setting below, for people who want it here only.
+   Animations jump to their end state (so nothing that fades in stays hidden),
+   transitions are instant, and the scroll-linked depth effects are off. */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-motion="reduce"] .depth-row,
+html[data-motion="reduce"] .hero-scroll {
+  animation: none !important;
 }
 
 /* ---------- Accessibility: calm everything down on request ---------- */

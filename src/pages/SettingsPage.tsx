@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { SelectMenu } from '../components/Menu'
 import { IS_TV, TOUCH_UI } from '../lib/device'
 import { requestTiltPermission } from '../lib/depth'
-import { BITRATE_OPTIONS, PREVIEW_QUALITY_OPTIONS, UI_SCALE_OPTIONS, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
+import { BITRATE_OPTIONS, PREVIEW_QUALITY_OPTIONS, UI_SCALE_OPTIONS, applyReduceMotion, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
 import { createUser, ApiError, setAccentPref, setPreviewQualityPref } from '../api/client'
@@ -558,6 +558,16 @@ export default function SettingsPage() {
                   triggerClassName={WIDE_TRIGGER}
                 />
               </Field>
+              <Toggle
+                label="Reduce motion"
+                hint="Stills animations, page transitions, previews and drifting art. Always on when your device asks for less motion."
+                checked={prefs.reduceMotion}
+                onChange={(v) => {
+                  update({ reduceMotion: v })
+                  applyReduceMotion(v)
+                }}
+                scope="device"
+              />
               <Toggle
                 label="Screensaver"
                 hint="When idle, library art drifts by with a clock. Any input dismisses it; never during playback."
