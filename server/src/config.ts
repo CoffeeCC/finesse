@@ -91,8 +91,8 @@ export interface Settings {
   previews?: { enabled: boolean }
   /** Bookkeeping for the self-maintenance loop. */
   maintenance?: { lastBackup?: string; lastStackUpdate?: string }
-  /** Quality profile names new requests use, per app. */
-  requests?: { profiles: Record<string, string> }
+  /** Where new requests go, per app: setup's profile names, and choices from Settings → Downloads (requestDefaults.ts). */
+  requests?: { profiles: Record<string, string>; defaults?: Partial<Record<'radarr' | 'sonarr' | 'lidarr', import('./requestDefaults.ts').RequestDefault>> }
   /** Groups: libraries shared between Finesse servers (see groups.ts). */
   groups?: GroupsState
   /** Moments (server/src/moments.ts): friends' servers may send them here (default yes). */

@@ -19,6 +19,7 @@ import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
+import { registerRequestDefaults } from './requestDefaults.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
 const log = logger('http')
@@ -130,6 +131,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
+  registerRequestDefaults(router, { settings, auth })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)

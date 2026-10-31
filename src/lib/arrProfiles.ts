@@ -33,15 +33,42 @@ function guess(kind: ArrKindName, profiles: ArrProfile[]): ArrProfile | undefine
     : profiles.find((p) => /1080/.test(p.name)) ?? profiles.find((p) => p.id === 4) ?? profiles[0]
 }
 
+/** The saved choice for one app (GET /api/requests/defaults; server/src/requestDefaults.ts). */
+export interface SavedChoice {
+  profileName?: string
+  /** Chosen in Settings → Downloads: the app's own id for the profile. */
+  profileId?: number
+  rootFolder?: string
+  source?: 'settings' | 'setup' | 'none'
+  /** A Settings choice made for a different app at this address. */
+  stale?: boolean
+}
+
+const trimSlash = (s: string) => s.replace(/[\\/]+$/, '')
+
 /**
  * The profile and root folder for a new request.
- * `saved` is the profile name setup saved for this app (undefined when there isn't one).
+ * `saved`: what was chosen for this app (a profile name from setup, or a Settings → Downloads
+ * choice by id and folder); nothing means nothing was chosen.
  */
-export function pickArrConfig(kind: ArrKindName, profiles: ArrProfile[], roots: ArrRoot[], saved?: string | null): ArrPick {
+export function pickArrConfig(kind: ArrKindName, profiles: ArrProfile[], roots: ArrRoot[], saved?: string | SavedChoice | null): ArrPick {
   const app = APP_NAME[kind]
-  const root = roots[0]
+  const choice: SavedChoice = typeof saved === 'string' ? { profileName: saved } : saved ?? {}
+  // The folder: the chosen one, which must still be there; otherwise the app's first.
+  let root: ArrRoot | undefined = roots[0]
+  if (choice.rootFolder) {
+    root = roots.find((r) => trimSlash(r.path) === trimSlash(choice.rootFolder!))
+    if (!root) return { ok: false, problem: `${app} no longer has the folder chosen in Settings → Downloads. Pick a folder there again, then request again.` }
+  }
   if (!root) return { ok: false, problem: `${app} has no folder to download to yet. Add a root folder in ${app} (Settings → Media Management), then request again.` }
-  const wanted = saved?.trim()
+  // The choice was made for another app at this address (moved, replaced): never guess for it.
+  if (choice.stale) return { ok: false, problem: `${app} has changed since its quality was chosen in Settings → Downloads. Pick one there again, then request again.` }
+  if (choice.profileId) {
+    const profile = profiles.find((p) => p.id === choice.profileId)
+    if (profile) return { ok: true, profile, root, saved: true }
+    return { ok: false, problem: `${app} no longer has the “${choice.profileName ?? 'chosen'}” quality chosen in Settings → Downloads. Pick one there again, then request again.` }
+  }
+  const wanted = choice.profileName?.trim()
   if (wanted) {
     const profile = profiles.find((p) => norm(p.name) === norm(wanted))
     if (profile) return { ok: true, profile, root, saved: true }

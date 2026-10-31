@@ -18,6 +18,7 @@ import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
 import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
+import DownloadsSettings from './settings/DownloadsSettings'
 import { StreamingSettings } from './settings/StreamingAdmin'
 import SecureConnection from './settings/SecureConnection'
 import {
@@ -362,6 +363,7 @@ export default function SettingsPage() {
   const [prefs, setLocal] = useState<Prefs>(getPrefs())
   const [accent, setAccent] = useState(getStoredAccent())
   const [active, setActive] = useState<string>('playback')
+  const { info: finesseInfo } = useFinesse()
 
   const update = (patch: Partial<Prefs>) => {
     const next = setPrefs(patch)
@@ -380,6 +382,7 @@ export default function SettingsPage() {
     ...SECTIONS,
     { id: 'updates', label: 'Updates' },
     { id: 'about', label: 'About' },
+    ...(session?.isAdmin && finesseInfo?.features?.requests ? [{ id: 'downloads', label: 'Downloads' }] : []),
     ...(session?.isAdmin ? [{ id: 'server', label: 'Server' }] : []),
   ]
 
@@ -429,7 +432,7 @@ export default function SettingsPage() {
                 }`}
               >
                 {x.label}
-                {x.id === 'server' && (
+                {(x.id === 'server' || x.id === 'downloads') && (
                   <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Admin</span>
                 )}
               </button>
@@ -675,6 +678,17 @@ export default function SettingsPage() {
             {!IS_TV && <ReportProblem isAdmin={!!session?.isAdmin} />}
             <TipJar />
           </section>
+
+          {session?.isAdmin && finesseInfo?.features?.requests && (
+            <section id="settings-downloads" aria-labelledby="settings-downloads-title" className="scroll-mt-24">
+              {heading(
+                'downloads',
+                'Downloads',
+                <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Admin</span>,
+              )}
+              <DownloadsSettings />
+            </section>
+          )}
 
           {session?.isAdmin && (
             <section id="settings-server" aria-labelledby="settings-server-title" className="scroll-mt-24">

@@ -525,3 +525,23 @@ export const playApi = {
     }
   },
 }
+
+// ---------- Where new requests go (Settings → Downloads; server/src/requestDefaults.ts) ----------
+
+export type RequestApp = 'radarr' | 'sonarr' | 'lidarr'
+
+export interface RequestAppConfig {
+  app: RequestApp
+  profileName?: string
+  profileId?: number
+  rootFolder?: string
+  source: 'settings' | 'setup' | 'none'
+  stale?: boolean
+}
+
+export const requestDefaultsApi = {
+  get: () => call<{ apps: RequestAppConfig[] }>('GET', '/api/requests/defaults'),
+  /** Save a quality profile (by the app's id) and folder for one app; null goes back to setup's choice. */
+  set: (app: RequestApp, profileId: number | null, rootFolder?: string) =>
+    call<{ apps: RequestAppConfig[] }>('PUT', '/api/requests/defaults', { app, profileId, ...(rootFolder ? { rootFolder } : {}) }),
+}

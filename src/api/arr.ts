@@ -1,7 +1,8 @@
 import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { discover, knownFinesse } from '../lib/finesseServer'
-import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot } from '../lib/arrProfiles'
+import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot, type SavedChoice } from '../lib/arrProfiles'
+import { ApiError as SetupApiError, requestDefaultsApi } from './setup'
 import { requestKey } from '../lib/requestState'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
@@ -321,15 +322,30 @@ interface ArrConfig {
 const CONFIG_TTL_MS = 5 * 60_000
 const configCache: Partial<Record<ArrKind, { at: number; cfg: Promise<ArrConfig> }>> = {}
 
+/** The quality profiles and folders an app has (Settings → Downloads lists them). */
+export async function arrRequestOptions(kind: ArrKind): Promise<{ profiles: ArrProfile[]; roots: ArrRoot[] }> {
+  const [profiles, roots] = await Promise.all([arrFetch<ArrProfile[]>(kind, '/qualityprofile'), arrFetch<ArrRoot[]>(kind, '/rootfolder')])
+  return { profiles: (profiles ?? []).map((p) => ({ id: p.id, name: p.name })), roots: (roots ?? []).map((r) => ({ path: r.path })) }
+}
+
 /** Forget the cached profile/root choice (one app, or all), so the next request looks again. */
 export function forgetArrConfig(kind?: ArrKind): void {
   for (const k of kind ? [kind] : (Object.keys(configCache) as ArrKind[])) delete configCache[k]
 }
 
-/** The profile name setup saved for this app, if any (asked of the server afresh, so a new choice counts). */
-async function savedProfile(kind: ArrKind): Promise<string> {
+/**
+ * What was chosen for this app (Settings → Downloads, or setup's quality), asked of the server
+ * afresh so a new choice counts. A server older than that endpoint: setup's name from discovery.
+ */
+async function savedProfile(kind: ArrKind): Promise<SavedChoice> {
+  try {
+    const { apps } = await requestDefaultsApi.get()
+    return apps.find((a) => a.app === PROFILE_KEY[kind]) ?? {}
+  } catch (e) {
+    if (!(e instanceof SetupApiError) || e.status !== 404) throw new ArrError(0, 'Couldn’t reach Finesse to check where requests go. Try again in a moment.')
+  }
   const info = (await discover({ force: true })) ?? knownFinesse()
-  return info?.requests?.profiles?.[PROFILE_KEY[kind]]?.trim() ?? ''
+  return { profileName: info?.requests?.profiles?.[PROFILE_KEY[kind]]?.trim() || undefined }
 }
 
 async function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
