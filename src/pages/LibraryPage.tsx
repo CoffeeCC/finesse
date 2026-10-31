@@ -307,9 +307,10 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      {/* Filters: watch state, genres, sort — the app's own menus, not native selects. */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-4 -mx-1 px-1">
-        <div role="group" aria-label="Watch state" className="shrink-0 inline-flex p-0.5 rounded-full bg-ink-800/80 border border-white/10">
+      {/* Filters: watch state, genres, sort — the app's own menus, not native selects. On a
+          phone they wrap: Genre and Sort get a row of their own instead of hiding off screen. */}
+      <div className="flex flex-wrap items-center gap-2 pb-4">
+        <div role="group" aria-label="Watch state" className="inline-flex max-w-full shrink-0 overflow-x-auto no-scrollbar p-0.5 rounded-full bg-ink-800/80 border border-white/10">
           {WATCH_STATES.map((w) => (
             <button
               key={w.key}
