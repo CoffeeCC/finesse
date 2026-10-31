@@ -100,7 +100,7 @@ export default function Marquee() {
   const item = items[idx % items.length]
   const backdrop = backdropUrl(item, 1920)
   const logo = logoUrl(item)
-  const titleText = <h1 className="text-5xl font-bold text-white tracking-tight mb-3 drop-shadow-lg">{item.Name}</h1>
+  const titleText = <h1 className="text-3xl sm:text-5xl font-bold text-white tracking-tight mb-3 drop-shadow-lg break-words">{item.Name}</h1>
   const tagline = item.Taglines?.[0]
   const time = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
@@ -121,19 +121,20 @@ export default function Marquee() {
       </div>
 
       {/* Title art */}
-      <div key={`c-${item.Id}`} className="absolute bottom-0 left-0 p-10 lg:p-16 max-w-2xl marquee-fade">
+      {/* Held inside the screen (right-0 + max width): phones cut the art and tagline off. */}
+      <div key={`c-${item.Id}`} className="absolute bottom-0 left-0 right-0 min-w-0 p-6 pb-14 sm:p-10 lg:p-16 max-w-2xl marquee-fade">
         {logo ? (
-          <TitleLogo src={logo} alt={item.Name ?? ''} className="max-h-28 max-w-md object-contain mb-4 drop-shadow-[0_4px_24px_rgba(0,0,0,0.7)]" fallback={titleText} />
+          <TitleLogo src={logo} alt={item.Name ?? ''} className="max-h-20 sm:max-h-28 max-w-full sm:max-w-md object-contain mb-4 drop-shadow-[0_4px_24px_rgba(0,0,0,0.7)]" fallback={titleText} />
         ) : (
           titleText
         )}
-        <div className="flex items-center gap-3 text-sm text-white/70 mb-2">
-          {item.ProductionYear && <span>{item.ProductionYear}</span>}
+        <div className="flex flex-wrap items-center gap-3 text-sm text-white/70 mb-2">
+          {!!item.ProductionYear && <span>{item.ProductionYear}</span>}
           {item.Genres?.slice(0, 3).map((g) => (
             <span key={g}>{g}</span>
           ))}
         </div>
-        {tagline && <p className="text-lg italic text-white/80 max-w-lg drop-shadow">{tagline}</p>}
+        {tagline && <p className="text-base sm:text-lg italic text-white/80 max-w-lg drop-shadow break-words">{tagline}</p>}
       </div>
 
       <div className="absolute bottom-6 right-10 text-xs text-white/40 marquee-fade">Move to dismiss</div>

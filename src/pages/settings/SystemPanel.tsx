@@ -37,7 +37,8 @@ const STATE_TEXT: Record<string, string> = {
 
 function Block({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <div>
+    // min-w-0: a long path or name inside never widens the page past the screen.
+    <div className="min-w-0">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">{title}</h3>
         {action}
@@ -377,12 +378,12 @@ export default function SystemPanel() {
       </Block>
 
       {/* VPN + storage */}
-      <div className="grid gap-7 md:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {h.vpn && (
           <Block title="VPN">
             <div className={`${CARD} flex items-start gap-3 px-5 py-4`}>
               <StatusDot ok={h.vpn.connected ? true : null} />
-              <div>
+              <div className="min-w-0 break-words">
                 <p className="text-[14px] font-medium text-white">{h.vpn.connected ? 'Connected' : 'Not connected'}</p>
                 <p className="text-[12.5px] leading-relaxed text-ink-400">
                   {h.vpn.connected ? `Torrents appear as ${h.vpn.publicIp}${h.vpn.country ? ` (${[h.vpn.city, h.vpn.country].filter(Boolean).join(', ')})` : ''}.` : `${h.vpn.error ?? ''} Torrents wait until it’s back — nothing goes around it.`}
@@ -396,9 +397,9 @@ export default function SystemPanel() {
             {h.disks.map((d) => {
               const used = 1 - d.free / d.total
               return (
-                <div key={d.path}>
-                  <div className="flex justify-between text-[13px]">
-                    <span className="text-white">{d.label}</span>
+                <div key={d.path} className="min-w-0">
+                  <div className="flex flex-wrap justify-between gap-x-3 text-[13px]">
+                    <span className="min-w-0 break-words text-white">{d.label}</span>
                     <span className="text-ink-400">
                       {gb(d.free)} free of {gb(d.total)}
                     </span>
@@ -406,7 +407,8 @@ export default function SystemPanel() {
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
                     <div className={`h-full rounded-full ${used > 0.95 ? 'bg-red-400' : used > 0.85 ? 'bg-amber-300' : 'bg-accent-400'}`} style={{ width: `${Math.round(used * 100)}%` }} />
                   </div>
-                  <p className="mt-1 truncate text-[11.5px] text-ink-400">{d.path}</p>
+                  {/* Whole, wrapped anywhere: long Windows and NAS paths. */}
+                  <p className="mt-1 break-all text-[11.5px] text-ink-400">{d.path}</p>
                 </div>
               )
             })}

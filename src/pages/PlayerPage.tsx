@@ -2227,7 +2227,7 @@ export default function PlayerPage() {
           <span className="w-14 shrink-0 text-xs tabular-nums text-ink-400">{fmt(durationSec)}</span>
         </div>
 
-        <div className="mt-1 flex items-center gap-0.5 sm:gap-1.5 text-white">
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-0.5 sm:gap-1.5 text-white">
           {!TOUCH_UI && (
             <>
               {isEpisode && (
@@ -2241,13 +2241,16 @@ export default function PlayerPage() {
                   <IconPrev className="h-6 w-6" />
                 </button>
               )}
-              <button onClick={() => nudgeSeek(-SEEK_STEP)} className={iconBtn} aria-label="Back 10 seconds" title="Back 10s (←)">
+              {/* Narrow windows: the ±10 s buttons and volume step aside (the seek bar,
+                  arrow keys and the device's volume still do it), so settings,
+                  captions, cast and fullscreen stay on screen. */}
+              <button onClick={() => nudgeSeek(-SEEK_STEP)} className={`${iconBtn} max-sm:hidden`} aria-label="Back 10 seconds" title="Back 10s (←)">
                 <IconReplay className="h-7 w-7" />
               </button>
               <button data-play-toggle onClick={togglePlay} className={`${iconBtn} !h-12 !w-12`} aria-label={playing ? 'Pause' : 'Play'} title="Play/Pause (space)">
                 {playing ? <IconPause className="h-8 w-8" /> : <IconPlay className="h-8 w-8 translate-x-px" />}
               </button>
-              <button onClick={() => nudgeSeek(SEEK_STEP)} className={iconBtn} aria-label="Forward 10 seconds" title="Forward 10s (→)">
+              <button onClick={() => nudgeSeek(SEEK_STEP)} className={`${iconBtn} max-sm:hidden`} aria-label="Forward 10 seconds" title="Forward 10s (→)">
                 <IconForward className="h-7 w-7" />
               </button>
               {isEpisode && (
@@ -2262,7 +2265,7 @@ export default function PlayerPage() {
                 </button>
               )}
               {!IS_TV && (
-                <div className="flex items-center group/vol">
+                <div className="flex items-center group/vol max-sm:hidden">
                   <button onClick={() => setMuted((m) => !m)} className={iconBtn} aria-label={muted ? 'Unmute' : 'Mute'} title="Mute (m)">
                     {muted || volume === 0 ? <IconMuted className="h-5 w-5" /> : <IconVolume className="h-5 w-5" />}
                   </button>
@@ -2382,9 +2385,11 @@ export default function PlayerPage() {
           >
             {TOUCH_UI && <div className="mx-auto -mt-1 mb-3 h-1 w-10 rounded-full bg-white/20" aria-hidden />}
             {menu === 'tracks' ? (
-              <div className={`grid gap-4 ${audioTracks.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+              // minmax(0, 1fr): long track names wrap inside their column instead of
+              // widening the panel (it scrolled sideways on phones).
+              <div className={`grid grid-cols-[minmax(0,1fr)] gap-4 ${audioTracks.length > 1 ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : ''}`}>
                 {audioTracks.length > 1 && (
-                  <section>
+                  <section className="min-w-0">
                     <h3 className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Audio</h3>
                     {audioTracks.map((t) => (
                       <PanelOption
@@ -2397,7 +2402,7 @@ export default function PlayerPage() {
                     ))}
                   </section>
                 )}
-                <section>
+                <section className="min-w-0">
                   <h3 className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Subtitles</h3>
                   <PanelOption selected={subIndex === -1} onSelect={() => changeSub(-1)}>
                     Off
@@ -2773,7 +2778,8 @@ function PanelOption({
           </svg>
         )}
       </span>
-      <span className="min-w-0 truncate">{children}</span>
+      {/* Wraps rather than cuts off: two English tracks differ further along their names. */}
+      <span className="min-w-0 flex-1 break-words">{children}</span>
     </button>
   )
 }
