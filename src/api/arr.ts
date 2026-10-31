@@ -361,9 +361,12 @@ async function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
     if (!pick.ok) throw new ArrError(0, pick.problem)
     const out: ArrConfig = { qualityProfileId: pick.profile.id, rootFolderPath: pick.root.path }
     if (kind === 'artist') {
-      // Lidarr additionally needs a metadata profile ("Standard" over "None").
+      // Lidarr additionally needs a metadata profile: "Albums & EPs" (Finesse adds it on servers it
+      // set up; Standard leaves EPs out, so EP-only artists had nothing to download), then
+      // "Standard" over "None".
       const metas = await arrFetch<{ id: number; name: string }[]>('artist', '/metadataprofile')
-      const meta = metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
+      const meta =
+        metas.find((m) => m.name === 'Albums & EPs') ?? metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
       if (!meta) throw new ArrError(0, 'Lidarr has no metadata profile. Add one in Lidarr (Settings → Profiles), then request again.')
       out.metadataProfileId = meta.id
     }
