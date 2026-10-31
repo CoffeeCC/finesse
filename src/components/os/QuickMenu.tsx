@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
 import * as api from '../../api/client'
@@ -8,6 +8,7 @@ import { systemApi } from '../../api/setup'
 import { useAuth } from '../../auth/AuthContext'
 import { pushBackHandler } from '../../lib/back'
 import { useFinesse } from '../../lib/finesseServer'
+import { useOverlayFocus } from '../../lib/overlayFocus'
 import { closeQuickMenu, useQuickMenuOpen } from '../../lib/quickMenu'
 import { useHouse } from './now'
 
@@ -210,6 +211,9 @@ export default function QuickMenu() {
   const open = useQuickMenuOpen()
   const { session } = useAuth()
   const { pathname } = useLocation()
+  const sheet = useRef<HTMLElement>(null)
+  // Focus moves onto the sheet (its Close button) and back to what opened it.
+  useOverlayFocus(open, sheet)
 
   useEffect(() => closeQuickMenu(), [pathname])
   useEffect(() => {
@@ -228,6 +232,7 @@ export default function QuickMenu() {
     <div className="fixed inset-0 z-[70] flex flex-col justify-end px-3 pb-3 pt-14 sm:px-6 sm:pb-6 sm:pt-20 lg:px-12 lg:pb-10">
       <button type="button" aria-label="Close the quick menu" className="os-qm-scrim absolute inset-0 h-full w-full bg-black/45 backdrop-blur-md os-fade-in cursor-default" onClick={closeQuickMenu} />
       <section
+        ref={sheet}
         role="dialog"
         aria-modal="true"
         aria-label="Quick menu"

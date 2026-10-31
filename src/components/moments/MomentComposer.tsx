@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clock, deleteMoment, getMomentTargets, sendMoment, type Moment } from '../../api/moments'
 import { useToast } from '../Toast'
-import { isBackKey } from '../../lib/back'
+import { pushBackHandler } from '../../lib/back'
 import { NOTE_MAX, spanLabel } from './moments'
 
 // Flag a moment (from the player: a start and end you can nudge) or recommend a
@@ -41,16 +41,16 @@ export default function MomentComposer({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isBackKey(e) && !busy) {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [busy, onClose])
+  // Back closes the composer (never the page under it). Through the shared Back
+  // stack, so Backspace while typing the note edits the note instead.
+  useEffect(
+    () =>
+      pushBackHandler(() => {
+        if (!busy) onClose()
+        return true
+      }),
+    [busy, onClose],
+  )
 
   const toggle = (id: string) =>
     setTo((s) => {

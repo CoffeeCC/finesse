@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { pushBackHandler } from '../../lib/back'
+import { useOverlayFocus } from '../../lib/overlayFocus'
 import { clock, getInbox, markMomentsRead, momentHref, useInbox, useMomentsOn, type InboxMoment } from '../../api/moments'
 
 // The bell in the top bar: moments and recommendations sent to you. Opening one
@@ -54,18 +56,25 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  // Focus moves into the list, and back to the bell when it closes.
+  useOverlayFocus(open, panel)
 
   useEffect(() => {
     if (!open) return
     // Opening the list asks friends' servers for anything new first.
     void getInbox(true).then((d) => qc.setQueryData(['moments', 'inbox'], d), () => {})
     const onDown = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
     window.addEventListener('pointerdown', onDown)
-    window.addEventListener('keydown', onKey)
+    // Back (Escape, the remote's Back) closes the list, and only that: it never
+    // also leaves the page underneath.
+    const pop = pushBackHandler(() => {
+      setOpen(false)
+      return true
+    })
     return () => {
       window.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onKey)
+      pop()
     }
   }, [open, qc])
 
@@ -106,7 +115,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         )}
       </button>
       {open && (
-        <div className="fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
+        <div ref={panel} role="dialog" aria-label="Moments" className="fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-1">
             <p className="text-[15px] font-semibold text-white">Moments</p>
             {unread > 0 && (

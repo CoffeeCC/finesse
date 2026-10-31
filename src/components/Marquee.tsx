@@ -13,6 +13,11 @@ import { getPrefs } from '../lib/settings'
 const IDLE_MS = 120_000 // 2 minutes
 const SLIDE_MS = 9_000
 const INPUT_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'scroll'] as const
+/** Inputs that would act on the page underneath (Back, Enter, a tap): the one that wakes the screen is used up. */
+const ACTING_EVENTS = ['keydown', 'pointerdown', 'mousedown', 'touchstart'] as const
+/** …along with the rest of that same press (its keyup, click, the tap's synthesized click). */
+const FOLLOW_EVENTS = ['keyup', 'pointerup', 'mouseup', 'touchend', 'click'] as const
+const FOLLOW_MS = 600
 
 function blocked(): boolean {
   const path = window.location.pathname + window.location.hash
@@ -50,10 +55,31 @@ export default function Marquee() {
       if (activeRef.current) setActive(false)
       arm()
     }
+    // Waking the screen is all the first press does: it never reaches the page
+    // (Escape used to wake it AND go back a page). Captured on window, so it runs
+    // before the app's own handlers.
+    let swallowUntil = 0
+    const consume = (e: Event) => {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+    const onActing = (e: Event) => {
+      if (!activeRef.current) return
+      consume(e)
+      swallowUntil = performance.now() + FOLLOW_MS
+      onInput()
+    }
+    const onFollow = (e: Event) => {
+      if (performance.now() < swallowUntil) consume(e)
+    }
     INPUT_EVENTS.forEach((e) => window.addEventListener(e, onInput, { passive: true }))
+    ACTING_EVENTS.forEach((e) => window.addEventListener(e, onActing, { capture: true, passive: false }))
+    FOLLOW_EVENTS.forEach((e) => window.addEventListener(e, onFollow, { capture: true, passive: false }))
     arm()
     return () => {
       INPUT_EVENTS.forEach((e) => window.removeEventListener(e, onInput))
+      ACTING_EVENTS.forEach((e) => window.removeEventListener(e, onActing, { capture: true }))
+      FOLLOW_EVENTS.forEach((e) => window.removeEventListener(e, onFollow, { capture: true }))
       window.clearTimeout(timer)
     }
   }, [])
