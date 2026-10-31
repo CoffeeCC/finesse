@@ -12,6 +12,7 @@ import { forgetArrConfig } from '../../api/arr'
 import { DOCS_URL } from '../../lib/project'
 import { FinesseWordmark } from '../../components/AuthShell'
 import { clearDraft, fromDoc, loadDraft, newDraft, saveDraft, toDoc, type Draft } from './draft'
+import { PROGRESS_KEY, progressFor, readProgress, REENTER_WHAT, resumeIndex } from './resume'
 import {
   AccountStep,
   DownloadsStep,
@@ -36,6 +37,41 @@ import { LoFinessaCard, LoFinessaToggle, useLofiWizard } from './LoFinessa'
 import { finishLofi } from './lofi'
 
 type Phase = 'loading' | 'wizard' | 'building' | 'done' | 'already' | 'existing' | 'connected'
+
+function stepsFor(d: Pick<Draft, 'usenet' | 'torrents'>, change: null | 'kept' | 'redo'): StepId[] {
+  const s: StepId[] = change === 'kept' ? ['libraries', 'downloads'] : change === 'redo' ? ['account', 'libraries', 'downloads'] : ['welcome', 'start', 'machine', 'account', 'libraries', 'downloads']
+  if (d.usenet) s.push('usenet')
+  if (d.torrents) s.push('vpn')
+  if (d.usenet || d.torrents) s.push('indexers', 'quality')
+  s.push('remote', 'email', 'review')
+  return s
+}
+
+// The step this tab reached (with the full draft, also in sessionStorage), for a reload.
+const STEP_KEY = 'finesse.setupStep'
+const store = {
+  get: (area: 'local' | 'session', key: string): string | null => {
+    try {
+      return (area === 'local' ? localStorage : sessionStorage).getItem(key)
+    } catch {
+      return null
+    }
+  },
+  set: (area: 'local' | 'session', key: string, value: string | null) => {
+    try {
+      const st = area === 'local' ? localStorage : sessionStorage
+      if (value === null) st.removeItem(key)
+      else st.setItem(key, value)
+    } catch {
+      /* private mode */
+    }
+  },
+}
+/** Setup finished (or abandoned for good): nothing to pick up any more. */
+function forgetProgress() {
+  store.set('local', PROGRESS_KEY, null)
+  store.set('session', STEP_KEY, null)
+}
 
 const DOCS = `${DOCS_URL}/install.md`
 
@@ -68,6 +104,11 @@ export default function SetupPage() {
   const [applyError, setApplyError] = useState('')
   const contentRef = useRef<HTMLDivElement>(null)
   const changeRef = useRef(false)
+  // Coming back to a half-finished setup: the step reached, and steps whose password or key
+  // wasn't kept (another visit) and so asks for it again.
+  const resumeRef = useRef<StepId | null>(null)
+  const [reenter, setReenter] = useState<StepId[]>([])
+  const [resumedAt, setResumedAt] = useState<StepId | null>(null)
   useLofiWizard(phase === 'wizard' || phase === 'building' || phase === 'done')
 
   const set = useCallback((fn: (x: Draft) => void) => {
@@ -79,14 +120,7 @@ export default function SetupPage() {
     })
   }, [])
 
-  const steps = useMemo(() => {
-    const s: StepId[] = change === 'kept' ? ['libraries', 'downloads'] : change === 'redo' ? ['account', 'libraries', 'downloads'] : ['welcome', 'start', 'machine', 'account', 'libraries', 'downloads']
-    if (d.usenet) s.push('usenet')
-    if (d.torrents) s.push('vpn')
-    if (d.usenet || d.torrents) s.push('indexers', 'quality')
-    s.push('remote', 'email', 'review')
-    return s
-  }, [d.usenet, d.torrents, change])
+  const steps = useMemo(() => stepsFor(d, change), [d.usenet, d.torrents, change]) // eslint-disable-line react-hooks/exhaustive-deps
   const step = steps[Math.min(stepIdx, steps.length - 1)]!
 
   // ---------- boot: what state is the server in? ----------
@@ -101,6 +135,7 @@ export default function SetupPage() {
         return
       }
       if (f.setup.state === 'ready' && !getSetupCode()) {
+        forgetProgress()
         if (params.get('change') && session?.isAdmin) return void enterChange()
         setPhase('already')
         return
@@ -113,6 +148,20 @@ export default function SetupPage() {
           setRun(st)
           setPhase(st.state === 'done' ? 'done' : 'building')
           return
+        }
+      }
+      if (f.setup.state !== 'ready') {
+        // This tab's own draft (a reload) has everything; otherwise an earlier visit's choices,
+        // without its passwords and keys.
+        const own = store.get('session', STEP_KEY) as StepId | null
+        if (loadDraft()) resumeRef.current = own
+        else {
+          const saved = readProgress<Draft>(store.get('local', PROGRESS_KEY), f.instanceId)
+          if (saved) {
+            setDraft({ ...newDraft(), ...saved.draft })
+            setReenter(saved.reenter)
+            resumeRef.current = saved.step
+          }
         }
       }
       setPhase(f.setup.state === 'ready' ? 'already' : 'wizard')
@@ -164,8 +213,23 @@ export default function SetupPage() {
       const i = await setupApi.info()
       setInfo(i)
       set((x) => void (x.native = i.host === 'native'))
-      void runSystemCheck()
-      setStepIdx(1)
+      const back = resumeRef.current
+      resumeRef.current = null
+      if (back && back !== 'welcome' && back !== 'start') {
+        // Picking up where they left off: the machine check first, so a step that no longer
+        // passes (or a password to enter again) is where they land, not past it.
+        setChecking(true)
+        const sys = await setupApi.checkSystem().catch((e: Error) => ({ ok: false, items: [{ id: 'docker', title: 'Finesse', ok: false, message: e.message }] }))
+        setChecking(false)
+        setSystem(sys)
+        const now = { ...d, native: i.host === 'native' }
+        const idx = resumeIndex(stepsFor(now, null), back, (st) => stepBlocker(st, now, { codeOk: true, system: sys }), reenter)
+        setStepIdx(idx)
+        setResumedAt(stepsFor(now, null)[idx] ?? null)
+      } else {
+        void runSystemCheck()
+        setStepIdx(1)
+      }
     } catch (err) {
       setSetupCode('')
       setCodeError(err instanceof ApiError && err.status === 429 ? 'Too many tries — wait a minute and try again.' : (err as Error).message || 'That code didn’t work')
@@ -182,7 +246,16 @@ export default function SetupPage() {
 
   const blocker = stepBlocker(step, d, { codeOk, system })
 
+  // Remember the step reached (this tab: for a reload; this browser: the choices, no secrets).
+  useEffect(() => {
+    if (phase !== 'wizard' || change || !codeOk || !finesse || step === 'welcome') return
+    store.set('session', STEP_KEY, step)
+    store.set('local', PROGRESS_KEY, JSON.stringify(progressFor(finesse.instanceId, step, d)))
+  }, [phase, change, codeOk, finesse, step, d])
+
   const go = (delta: number) => {
+    if (delta > 0) setReenter((r) => r.filter((x) => x !== step))
+    setResumedAt(null)
     setStepIdx((i) => Math.max(0, Math.min(steps.length - 1, i + delta)))
     setProblems([])
     requestAnimationFrame(() => {
@@ -225,6 +298,7 @@ export default function SetupPage() {
       const st = await setupApi.apply(doc)
       setRun(st)
       setPhase('building')
+      store.set('local', PROGRESS_KEY, null)
     } catch (e) {
       if (e instanceof ApiError && Array.isArray(e.details)) setProblems(e.details as Problem[])
       else setApplyError((e as Error).message)
@@ -284,6 +358,7 @@ export default function SetupPage() {
       localStorage.setItem('finesse.lastServer', server)
       localStorage.setItem('finesse.lastUser', d.admin.username.trim())
       clearDraft()
+      forgetProgress()
       setSetupCode('')
       navigate('/', { replace: true })
     } catch {
@@ -308,6 +383,7 @@ export default function SetupPage() {
       localStorage.setItem('finesse.lastServer', server)
       localStorage.setItem('finesse.lastUser', admin.username.trim())
       clearDraft()
+      forgetProgress()
       setSetupCode('')
       navigate('/', { replace: true })
     } catch {
@@ -489,6 +565,15 @@ export default function SetupPage() {
                     ? 'Here’s your server as it will be. Nothing changes until you press Apply changes.'
                     : meta.lead}
               </p>
+              {step !== 'welcome' && (resumedAt === step || reenter.includes(step)) && (
+                <div className="mt-6">
+                  <Callout tone="info" title={resumedAt === step ? 'Picked up where you left off' : undefined}>
+                    {reenter.includes(step)
+                      ? `Enter ${REENTER_WHAT[step] ?? 'the password'} again: passwords and keys aren’t kept when you leave setup.`
+                      : 'Your choices are as you left them. Check this step, then carry on.'}
+                  </Callout>
+                </div>
+              )}
               <div className="mt-9">
                 {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} native={finesse?.setup.host === 'native'} />}
                 {step === 'start' && <StartStep path={path} setPath={setPath} />}
