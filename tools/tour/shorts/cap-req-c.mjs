@@ -1,0 +1,25 @@
+// Requests Short, take C: after the real Radarr import + Jellyfin scan, the title is on Home and ready to play (not played).
+import { stage, login, recorder, director, sleep, VW } from './common.mjs'
+const OUT = `${process.env.SHORTS_OUT || 'shorts-out'}/take-req-c`
+const { browser, page } = await stage()
+const d = director(page)
+await login(page)
+await sleep(5000)
+const tileSel = 'a[href*="/item/"]:has-text("The Iron Giant")'
+console.log('tiles', await page.locator(tileSel).count(), await page.locator('h2').allInnerTexts())
+const r = recorder(page, OUT)
+await r.start()
+await sleep(1500)
+const ra = page.locator('h2', { hasText: 'Recently added' }).first()
+const rb = await ra.boundingBox()
+r.mark('scrollRecent'); await d.scroll(rb.y - 140, 1500); await sleep(1500)
+const tile = page.locator('a[href*="/item/"]', { hasText: 'The Iron Giant' }).first()
+r.mark('hoverTile'); await d.hover(tile, 900); await sleep(1300)
+r.mark('clickTile'); await d.click(tile, { ms: 200, after: 2500 })
+r.mark('itemPage')
+const play = page.getByRole('button', { name: /^Play/ }).first()
+await play.waitFor().catch(() => console.log('no play button'))
+await sleep(800)
+r.mark('hoverPlay'); await d.hover(play, 900).catch(() => {}); await sleep(2600)
+await r.stop()
+await browser.close()
