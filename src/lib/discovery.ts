@@ -72,3 +72,69 @@ export function mergeTitles<L extends LibraryLike, R extends RequestableLike & {
   }
   return out
 }
+
+// ---------- Relevance of what Radarr / Sonarr / Lidarr's lookup returns ----------
+//
+// Their lookups are fuzzy (TMDb / TVDb / MusicBrainz search): a query that matches nothing
+// still comes back with unrelated titles. A result is kept when every word of the query is
+// in one of its titles: as a word or the start of one, with a typo allowed in longer words,
+// or the query written without spaces ("spiderman" for "Spider-Man"). Little words ("the",
+// "of") and years don't have to match. An id lookup (tmdb:603, imdb:tt0133093) keeps all.
+
+const LITTLE = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'on', 'to', 'at', 'for', 'la', 'le', 'les', 'el', 'los', 'der', 'die', 'das'])
+
+/** Edit distance with a cap: anything over `max` comes back as max + 1. */
+function within(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let best = i
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (cur[j]! < best) best = cur[j]!
+    }
+    if (best > max) return false
+    prev = cur
+  }
+  return prev[b.length]! <= max
+}
+
+function wordMatches(token: string, word: string): boolean {
+  if (word.startsWith(token)) return true
+  // A typo only in longer words, and not in the first letter ("bean" isn't "mean").
+  const typos = token.length >= 9 ? 2 : token.length >= 5 ? 1 : 0
+  if (!typos || token[0] !== word[0]) return false
+  // The whole word, or its start (someone still typing).
+  return within(token, word, typos) || within(token, word.slice(0, token.length), typos)
+}
+
+/** Whether one of `titles` (a result's title, original title, alternate titles) answers `term`. */
+export function matchesTerm(titles: (string | null | undefined)[], term: string): boolean {
+  if (/^\s*(tmdb|tvdb|imdb|mbid|lidarr|spotify)\s*:|^\s*tt\d{5,}\s*$/i.test(term)) return true
+  const q = normTitle(term)
+  if (!q) return true
+  const all = q.split(' ')
+  const words = all.filter((t) => !LITTLE.has(t) && !/^(19|20)\d\d$/.test(t) && (t.length > 1 || all.length === 1))
+  const tokens = words.length ? words : all
+  const squashed = q.replace(/ /g, '')
+  for (const t of titles) {
+    if (!t) continue
+    const name = normTitle(t)
+    if (!name) continue
+    if (squashed.length >= 4 && name.replace(/ /g, '').includes(squashed)) return true
+    const parts = name.split(' ')
+    if (tokens.every((tok) => parts.some((w) => wordMatches(tok, w)))) return true
+  }
+  return false
+}
+
+/** Every title a lookup result goes by: its own, the original, and the alternates *arr lists. */
+export function lookupTitles(r: { title: string; raw?: Record<string, unknown> }): string[] {
+  const raw = r.raw ?? {}
+  const out = [r.title]
+  if (typeof raw.originalTitle === 'string') out.push(raw.originalTitle)
+  if (typeof raw.sortTitle === 'string') out.push(raw.sortTitle)
+  if (Array.isArray(raw.alternateTitles)) for (const a of raw.alternateTitles) if (a && typeof (a as { title?: unknown }).title === 'string') out.push((a as { title: string }).title)
+  return out
+}

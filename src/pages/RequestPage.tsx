@@ -18,6 +18,7 @@ import {
 } from '../api/arr'
 import { noteRequested } from '../api/queries'
 import { discoverStatus } from '../lib/requestState'
+import { lookupTitles, matchesTerm } from '../lib/discovery'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
@@ -75,6 +76,8 @@ export default function RequestPage() {
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: () => arrLookup(kind, term),
+    // The lookup is fuzzy: keep what answers the term, so a search for nothing says so.
+    select: (rows) => rows.filter((r) => matchesTerm(lookupTitles(r), term)),
   })
 
   // Current on-disk quality for library hits (movies/shows only).

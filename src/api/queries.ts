@@ -3,7 +3,7 @@ import * as api from './client'
 import { arrFailures, arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
 import { useEffect } from 'react'
 import { markRequested } from '../lib/requestState'
-import { isSameTitle } from '../lib/discovery'
+import { isSameTitle, lookupTitles, matchesTerm } from '../lib/discovery'
 import { sabStatus } from './sab'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { type ClipManifest } from '../lib/preview'
@@ -704,7 +704,8 @@ export function useRequestLookup(term: string) {
     retry: false,
     queryFn: async (): Promise<ArrResult[]> => {
       const [movies, shows] = await Promise.allSettled([arrLookup('movie', term), arrLookup('series', term)])
-      const pick = (r: PromiseSettledResult<ArrResult[]>) => (r.status === 'fulfilled' ? r.value.slice(0, 5) : [])
+      // Only results that answer the term (the lookups are fuzzy and return something for anything).
+      const pick = (r: PromiseSettledResult<ArrResult[]>) => (r.status === 'fulfilled' ? r.value.filter((x) => matchesTerm(lookupTitles(x), term)).slice(0, 5) : [])
       return [...pick(movies), ...pick(shows)]
     },
   })
