@@ -22,11 +22,16 @@ export function useLofiWizard(enabled: boolean) {
   }, [enabled])
 }
 
-/** The corner toggle, on every step. Hidden until the music can play (and for good if it can't). */
-export function LoFinessaToggle() {
+/**
+ * The music toggle. Hidden until the music can play (and for good if it can't).
+ * `inline`: a slot of its own in the wizard's footer, so it never sits over Start,
+ * Continue or Build. Otherwise it floats in the top corner, away from the page's actions.
+ */
+export function LoFinessaToggle({ inline = false }: { inline?: boolean }) {
   const { status, muted, playing } = useLofi()
   if (status !== 'ready') return null
   const on = !muted
+  const place = inline ? 'relative shrink-0' : 'fixed right-4 top-4 z-40'
   return (
     <button
       type="button"
@@ -35,13 +40,17 @@ export function LoFinessaToggle() {
         setLofiMuted(on)
       }}
       aria-pressed={on}
+      aria-label={`Lo-Finessa music: ${on ? 'on' : 'off'}`}
       title="Lo-Finessa: original lo-fi music, made for Finesse"
-      className="fixed bottom-4 right-4 z-40 inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-ink-900/80 px-3.5 text-[12.5px] font-medium text-ink-200 backdrop-blur transition-colors hover:border-white/25 hover:text-white"
+      className={`${place} inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-ink-900/80 px-3 text-[12.5px] font-medium text-ink-200 backdrop-blur transition-colors hover:border-white/25 hover:text-white sm:px-3.5`}
     >
       <span aria-hidden className={on && playing ? 'text-accent-300' : 'text-ink-400'}>
         ♪
       </span>
-      Lo-Finessa: {on ? 'on' : 'off'}
+      {/* Phones: just the note in the footer, so the buttons beside it keep their room. */}
+      <span aria-hidden className={inline ? 'hidden sm:inline' : ''}>
+        Lo-Finessa: {on ? 'on' : 'off'}
+      </span>
     </button>
   )
 }
