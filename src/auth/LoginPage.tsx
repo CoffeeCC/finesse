@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { getPublicUsers, publicUserImageUrl, type JfPublicUser } from '../api/client'
+import { isOpenProfile, pickAction, rememberOpenProfile } from '../lib/openProfiles'
 import AuthShell, {
   FinesseWordmark,
   authInputClass,
@@ -142,7 +143,9 @@ export default function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, serverReady])
 
-  const doLogin = async (name: string, pw: string) => {
+  /** `user`: a profile picked from the list (so a no-password sign-in can be remembered); `open`:
+   *  it was tried with no password because this device remembers it that way. */
+  const doLogin = async (name: string, pw: string, user?: JfPublicUser, open = false) => {
     setBusy(true)
     setError('')
     try {
@@ -154,15 +157,21 @@ export default function LoginPage() {
         if (pw === pw.trim() || !(first instanceof Error && first.message.includes('401'))) throw first
         await login(server, name.trim(), pw.trim())
       }
+      if (user) rememberOpenProfile(localStorage, server, user.Id, pw === '')
       localStorage.setItem('finesse.lastServer', server)
       localStorage.setItem(LAST_USER, name.trim())
       navigate('/', { replace: true })
     } catch (err) {
-      setError(
-        err instanceof Error && err.message.includes('401')
-          ? 'Wrong password'
-          : 'Could not reach the server',
-      )
+      const wrong = err instanceof Error && err.message.includes('401')
+      if (wrong && open && user) {
+        // It has a password now: forget the one-click and ask, without calling it wrong.
+        rememberOpenProfile(localStorage, server, user.Id, false)
+        setPassword('')
+        setMode('password')
+        setBusy(false)
+        return
+      }
+      setError(wrong ? 'Wrong password' : 'Could not reach the server')
       setBusy(false)
     }
   }
@@ -170,11 +179,11 @@ export default function LoginPage() {
   const pickUser = (u: JfPublicUser) => {
     setSelected(u)
     setError('')
-    if (u.HasPassword) {
+    if (pickAction(localStorage, server, u) === 'sign-in') {
+      void doLogin(u.Name, '', u, u.HasPassword !== false)
+    } else {
       setPassword('')
       setMode('password')
-    } else {
-      doLogin(u.Name, '')
     }
   }
 
@@ -185,7 +194,7 @@ export default function LoginPage() {
 
   const submitPassword = (e: FormEvent) => {
     e.preventDefault()
-    if (selected) doLogin(selected.Name, password)
+    if (selected) void doLogin(selected.Name, password, selected)
   }
 
   if (redirect) return <Navigate to={redirect} replace />
@@ -246,7 +255,7 @@ export default function LoginPage() {
                     <p className="mt-3 text-base font-semibold text-ink-200 group-hover:text-white transition-colors truncate">
                       {u.Name}
                     </p>
-                    <p className="h-4 text-xs text-ink-400">{last ? 'Last used' : u.HasPassword ? 'Password' : ''}</p>
+                    <p className="h-4 text-xs text-ink-400">{last ? 'Last used' : u.HasPassword && !isOpenProfile(localStorage, server, u.Id) ? 'Password' : ''}</p>
                   </button>
                 )
               })}
@@ -302,7 +311,11 @@ export default function LoginPage() {
             autoComplete="current-password"
             className="w-full rounded-lg bg-ink-800/90 border border-white/10 px-4 py-2.5 text-sm text-center outline-none focus:border-accent-500 transition-colors"
           />
-          {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+          {error ? (
+            <p className="mt-3 text-sm text-red-400">{error}</p>
+          ) : (
+            <p className="mt-3 text-xs text-ink-400">No password on this profile? Leave it empty and press Sign in. This device remembers, and opens it with one click next time.</p>
+          )}
           <button
             type="submit"
             disabled={busy}
