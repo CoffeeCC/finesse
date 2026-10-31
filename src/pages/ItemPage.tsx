@@ -43,6 +43,7 @@ import { useAuth } from '../auth/AuthContext'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
+import { episodeCode } from '../lib/episodes'
 
 function youTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/.*[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/)
@@ -114,7 +115,7 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
   const ep = data?.Items?.[0]
   if (!ep) return null
   const resumeTicks = ep.UserData?.PlaybackPositionTicks ?? 0
-  const code = `S${ep.ParentIndexNumber ?? '?'}:E${ep.IndexNumber ?? '?'}`
+  const code = episodeCode(ep)
   const href = `/play/${ep.Id}${resumeTicks > 0 ? `?t=${resumeTicks}` : ''}`
   return (
     <div className="w-full sm:w-auto min-w-0">
@@ -127,7 +128,7 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
           <path d="M8 5v14l11-7z" />
         </svg>
-        {resumeTicks > 0 ? 'Resume' : 'Play'} {code}
+        {[resumeTicks > 0 ? 'Resume' : 'Play', code].filter(Boolean).join(' ')}
       </Link>
       <ResumeMeta item={ep} episodeName={ep.Name} />
     </div>
@@ -572,7 +573,7 @@ export default function ItemPage() {
               titleText
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-ink-200 mb-4">
-              {item.ProductionYear && (
+              {!!item.ProductionYear && (
                 <span>
                   {item.ProductionYear}
                   {isSeries && item.EndDate
@@ -582,13 +583,13 @@ export default function ItemPage() {
                       : ''}
                 </span>
               )}
-              {item.RunTimeTicks && !isSeries && <span>{formatRuntime(item.RunTimeTicks)}</span>}
+              {!!item.RunTimeTicks && !isSeries && <span>{formatRuntime(item.RunTimeTicks)}</span>}
               {item.OfficialRating && (
                 <span className="px-1.5 py-0.5 rounded border border-white/20 text-xs">
                   {item.OfficialRating}
                 </span>
               )}
-              {item.CommunityRating && (
+              {!!item.CommunityRating && (
                 <span className="flex items-center gap-1">
                   <svg className="h-3.5 w-3.5 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
 import { setCastTarget, useCastTarget } from '../lib/castTarget'
 import { ticksToSeconds } from '../api/types'
+import { episodeCode } from '../lib/episodes'
 
 const POLL_MS = 2000
 const SEEK_STEP_TICKS = 10 * 10_000_000
@@ -76,7 +77,7 @@ export default function CastRemote() {
   const frac = runtime ? Math.min(1, pos / runtime) : 0
   const title = item
     ? item.Type === 'Episode'
-      ? `${item.SeriesName ?? ''} · S${item.ParentIndexNumber ?? '?'}:E${item.IndexNumber ?? '?'}`
+      ? [item.SeriesName, episodeCode(item)].filter(Boolean).join(' · ')
       : item.Name
     : `Starting on ${target.deviceName}…`
   const art = item ? api.backdropUrl(item, 320) ?? api.posterUrl(item, 160) : null

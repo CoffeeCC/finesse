@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import Hls from 'hls.js'
 import * as api from '../api/client'
 import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
+import { adjacentEpisodes, episodeCode } from '../lib/episodes'
 import { EMPTY_MANIFEST, prefetchClip, previewClipUrl } from '../lib/preview'
 import { pickSubtitle } from '../lib/tracks'
 import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
@@ -320,10 +321,7 @@ function moveFocus(root: HTMLElement | null, dir: Dir): boolean {
 }
 
 function episodeLabel(ep: JfItem): string {
-  const s = ep.ParentIndexNumber
-  const e = ep.IndexNumber
-  const code = s != null && e != null ? (s === 0 ? `Special ${e}` : `S${s}:E${e}`) : ''
-  return [code, ep.Name].filter(Boolean).join(' · ')
+  return [episodeCode(ep), ep.Name].filter(Boolean).join(' · ')
 }
 
 export default function PlayerPage() {
@@ -486,20 +484,13 @@ export default function PlayerPage() {
   const durationSec = ticksToSeconds(item?.RunTimeTicks)
 
   // ---------- Prev / next episode (whole series, crosses seasons) ----------
-  // Missing (virtual) episodes can't play, and Specials (season 0) aren't part
-  // of the main run — they only chain among themselves when you're in them.
+  // By episode, not by file: another copy of this episode is never "next"
+  // (src/lib/episodes.ts). Missing (virtual) episodes can't play, and Specials
+  // (season 0) only chain among themselves when you're in them.
   const { prevEp, nextEp } = useMemo(() => {
-    const none = { prevEp: undefined as JfItem | undefined, nextEp: undefined as JfItem | undefined }
-    if (!item || item.Type !== 'Episode' || !seriesEps?.Items?.length) return none
-    const inSpecials = (item.ParentIndexNumber ?? 0) === 0
-    const chain = seriesEps.Items.filter(
-      (e) =>
-        e.Id === item.Id ||
-        (e.LocationType !== 'Virtual' && ((e.ParentIndexNumber ?? 0) === 0) === inSpecials),
-    )
-    const i = chain.findIndex((e) => e.Id === item.Id)
-    if (i < 0) return none
-    return { prevEp: chain[i - 1], nextEp: chain[i + 1] }
+    if (!item || item.Type !== 'Episode' || !seriesEps?.Items?.length) return { prevEp: undefined, nextEp: undefined }
+    const { prev, next } = adjacentEpisodes(seriesEps.Items, item.Id)
+    return { prevEp: prev, nextEp: next }
   }, [item, seriesEps])
 
   /** Switch to another episode in place (same <video>, so mobile autoplay
