@@ -642,6 +642,13 @@ export function searchArtists(term: string, limit = 5) {
   )
 }
 
+/** Genres used by one kind of title across the libraries this profile sees. */
+export function getGenresFor(includeItemTypes: string) {
+  return request<JfItemsResult>(
+    '/Genres' + qs({ IncludeItemTypes: includeItemTypes, UserId: session!.userId, Recursive: true, SortBy: 'SortName', EnableTotalRecordCount: false, EnableImages: false }),
+  )
+}
+
 export function getGenres(parentId: string) {
   return request<JfItemsResult>(
     '/Genres' +

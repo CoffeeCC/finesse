@@ -454,8 +454,8 @@ export class Maintainer {
     const scratch = join(this.paths.backups, `.scratch-${process.pid}-${Date.now()}`)
     mkdirSync(this.paths.backups, { recursive: true })
     if (existsSync(this.paths.settingsFile)) entries.push({ path: 'finesse/finesse.json', data: readFileSync(this.paths.settingsFile) })
-    // Invites and moments: consistent copies of the live databases.
-    for (const [label, file] of [['invites', this.paths.invitesDb], ['moments', join(this.paths.configDir, 'moments.db')]] as const) {
+    // Invites, moments and lists (collections, queues): consistent copies of the live databases.
+    for (const [label, file] of [['invites', this.paths.invitesDb], ['moments', join(this.paths.configDir, 'moments.db')], ['lists', join(this.paths.configDir, 'lists.db')]] as const) {
       if (!existsSync(file)) continue
       const tmp = join(this.paths.backups, `.${label}-${process.pid}.db`)
       rmSync(tmp, { force: true })

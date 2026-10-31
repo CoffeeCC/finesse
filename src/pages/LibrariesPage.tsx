@@ -43,7 +43,7 @@ export default function LibrariesPage() {
   const items = views?.Items ?? []
   const byType = (t: string) => items.filter((v) => v.CollectionType === t)
   const musicView = byType('music')[0]
-  const HUE: Record<string, number> = { Anime: 320, Music: 28, Games: 140, Friends: 170, Collections: 262 }
+  const HUE: Record<string, number> = { Anime: 320, Music: 28, Games: 140, Friends: 170, Collections: 262, 'Smart collections': 290 }
 
   const tiles: Tile[] = [
     ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 222 })),

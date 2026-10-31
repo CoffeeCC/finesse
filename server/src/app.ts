@@ -8,6 +8,9 @@ import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
+import { openLists } from './lists.ts'
+import { registerSmartCollections } from './smartCollections.ts'
+import { join } from 'node:path'
 import { registerStreaming } from './streaming.ts'
 import { caPem } from './tls.ts'
 import { savedTailscaleCert } from './tailscale.ts'
@@ -70,6 +73,8 @@ function features(s: Settings) {
     addMedia: s.mode === 'bundle' && Boolean(s.stack) && s.setup.state === 'ready',
     /** Flag a moment / recommend a title to people here and friends' servers. */
     moments: true,
+    /** Rule-based collections each person keeps (smartCollections.ts). */
+    smartCollections: true,
   }
 }
 
@@ -130,6 +135,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerInvites(router, { store: invites, jf, auth, settings })
   const groups = registerGroups(router, { settings, jf, auth })
   registerMoments(router, { settings, jf, auth, groups })
+  const lists = openLists(join(p.configDir, 'lists.db'))
+  registerSmartCollections(router, { auth, db: lists })
   deps.browserStream = registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
