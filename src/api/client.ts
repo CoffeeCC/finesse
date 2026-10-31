@@ -411,6 +411,8 @@ export interface JfSession {
   NowPlayingItem?: JfItem
   PlayState?: { PositionTicks?: number; IsPaused?: boolean; IsMuted?: boolean; VolumeLevel?: number; AudioStreamIndex?: number; SubtitleStreamIndex?: number; MediaSourceId?: string }
   LastActivityDate?: string
+  /** When it last reported its position (lib/transfer works out where it is now). */
+  LastPlaybackCheckIn?: string
   SupportsRemoteControl?: boolean
   PlayableMediaTypes?: string[]
   SupportedCommands?: string[]

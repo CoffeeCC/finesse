@@ -1,3 +1,4 @@
+import { continueHereHref, positionNow } from '../../lib/transfer'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as api from '../../api/client'
@@ -367,7 +368,18 @@ export default function NowStage() {
 
   const go = useCallback(
     (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to = e.primary.to) => {
-      if (e.primary.stopSession) api.sendStopToSession(e.primary.stopSession)
+      const h = e.primary.handoff
+      if (h && e.item && to === e.primary.to) {
+        // Continue here: where the other device is right now (the list can be 15 s old); it's
+        // stopped by the player once this one is playing, not before.
+        const item = e.item
+        void api
+          .getSessions()
+          .then((list) => list.find((x) => x.Id === h.sessionId))
+          .catch(() => undefined)
+          .then((s) => navigate(s?.NowPlayingItem?.Id === item.Id ? continueHereHref(item.Id, positionNow(s), h) : to))
+        return
+      }
       morphNavigate(() => navigate(to), { from, name: 'vt-hero', event: ev })
     },
     [navigate],
