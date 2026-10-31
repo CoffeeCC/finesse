@@ -490,7 +490,7 @@ export default function SetupPage() {
                     : meta.lead}
               </p>
               <div className="mt-9">
-                {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} />}
+                {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} native={finesse?.setup.host === 'native'} />}
                 {step === 'start' && <StartStep path={path} setPath={setPath} />}
                 {step === 'machine' && <MachineStep {...props} recheck={runSystemCheck} checking={checking} />}
                 {step === 'account' && <AccountStep {...props} />}
@@ -608,7 +608,7 @@ function Backdrop({ children, music = true }: { children: ReactNode; music?: boo
   )
 }
 
-function WelcomeStep({ code, setCode, error, onSubmit }: { code: string; setCode: (c: string) => void; error: string; onSubmit: (e: FormEvent) => void }) {
+function WelcomeStep({ code, setCode, error, onSubmit, native }: { code: string; setCode: (c: string) => void; error: string; onSubmit: (e: FormEvent) => void; native: boolean }) {
   const format = (raw: string) => {
     const c = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
     return c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c
@@ -648,7 +648,17 @@ function WelcomeStep({ code, setCode, error, onSubmit }: { code: string; setCode
           <p className="mt-2 text-[13px] text-red-300">{error}</p>
         ) : (
           <p className="mt-2 text-[12.5px] leading-relaxed text-ink-400">
-            The installer showed it when it finished. Lost it? Run <code className="rounded bg-white/10 px-1.5 py-0.5 text-[12px]">docker exec finesse finesse setup-code</code> on the server.
+            {native ? (
+              // Windows (no Docker): where the Windows service keeps it (windows/installer/Service.cs).
+              <>
+                Finesse Setup showed it when it finished. Lost it? On the PC running Finesse, open{' '}
+                <code className="break-all rounded bg-white/10 px-1.5 py-0.5 text-[12px]">C:\ProgramData\Finesse\config\finesse\setup-code</code> in Notepad.
+              </>
+            ) : (
+              <>
+                The installer showed it when it finished. Lost it? Run <code className="rounded bg-white/10 px-1.5 py-0.5 text-[12px]">docker exec finesse finesse setup-code</code> on the server.
+              </>
+            )}
           </p>
         )}
       </div>

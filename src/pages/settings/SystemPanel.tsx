@@ -79,6 +79,7 @@ const size = (n: number) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` :
 /** Settings → Server → Backups: nightly ones, plus "Back up now" with a choice of what goes in. */
 function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refresh?: boolean) => Promise<void> }) {
   const toast = useToast()
+  const native = useFinesse().info?.setup.host === 'native'
   const h = status.health
   const job = status.backup?.job
   const [parts, setParts] = useState<BackupPartInfo[] | null>(null)
@@ -240,11 +241,19 @@ function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refre
         )}
         <details className="mt-3 text-[12px] text-ink-400">
           <summary className="cursor-pointer select-none text-ink-300 hover:text-white">How to restore a backup</summary>
-          <p className="mt-2 leading-relaxed">
-            Put the file in Finesse’s backups folder (or give its full path), then on the server run{' '}
-            <code className="rounded bg-white/10 px-1 text-[11.5px]">sudo docker exec finesse finesse restore {'<file>'}</code> and restart Finesse. Add{' '}
-            <code className="rounded bg-white/10 px-1 text-[11.5px]">--only watch</code> to bring back just one part. Each app is stopped while its database goes back.
-          </p>
+          {native ? (
+            // Windows (no Docker): there's no restore command to give yet, so don't hand out a Docker one.
+            <p className="mt-2 leading-relaxed">
+              There’s no one-step restore on Windows yet. Keep the files safe: they’re in{' '}
+              <code className="break-all rounded bg-white/10 px-1 text-[11.5px]">C:\ProgramData\Finesse\config\finesse\backups</code>. Download one here to keep a copy on another device.
+            </p>
+          ) : (
+            <p className="mt-2 leading-relaxed">
+              Put the file in Finesse’s backups folder (or give its full path), then on the server run{' '}
+              <code className="rounded bg-white/10 px-1 text-[11.5px]">sudo docker exec finesse finesse restore {'<file>'}</code> and restart Finesse. Add{' '}
+              <code className="rounded bg-white/10 px-1 text-[11.5px]">--only watch</code> to bring back just one part. Each app is stopped while its database goes back.
+            </p>
+          )}
         </details>
       </div>
     </Block>

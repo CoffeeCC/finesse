@@ -95,7 +95,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       mode: s.mode,
       instanceId: s.instanceId,
       jellyfin: s.jellyfin.url ? { path: '/jellyfin' } : null,
-      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready' },
+      // host: what runs the apps (the Windows service sets FINESSE_HOST=native), so help text names commands that exist there.
+      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready', host: process.env.FINESSE_HOST === 'native' ? 'native' : 'docker' },
       features: features(s),
       publicUrl: s.publicUrl ?? null,
       lanHost,
