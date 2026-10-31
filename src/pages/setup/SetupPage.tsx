@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { ApiError, getSetupCode, setSetupCode, setupApi, type Problem, type RunStatus, type SetupInfo, type SystemItem } from '../../api/setup'
 import { bundledJellyfin, discover, type FinesseInfo } from '../../lib/finesseServer'
+import { forgetArrConfig } from '../../api/arr'
 import { DOCS_URL } from '../../lib/project'
 import { FinesseWordmark } from '../../components/AuthShell'
 import { clearDraft, fromDoc, loadDraft, newDraft, saveDraft, toDoc, type Draft } from './draft'
@@ -273,6 +274,8 @@ export default function SetupPage() {
     finishLofi(2)
     setSigningIn(true)
     setSignInError('')
+    // Setup may have changed the download quality: new requests read it again.
+    forgetArrConfig()
     const info2 = await discover({ force: true })
     const server = bundledJellyfin(info2 ?? finesse)
     try {
@@ -295,6 +298,8 @@ export default function SetupPage() {
     finishLofi(2)
     setSigningIn(true)
     setSignInError('')
+    // Setup may have changed the download quality: new requests read it again.
+    forgetArrConfig()
     const info2 = await discover({ force: true })
     const server = bundledJellyfin(info2 ?? finesse)
     try {

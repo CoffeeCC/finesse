@@ -1,6 +1,7 @@
 import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
-import { knownFinesse } from '../lib/finesseServer'
+import { discover, knownFinesse } from '../lib/finesseServer'
+import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot } from '../lib/arrProfiles'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
 // (music) through the Finesse server, which proxies /arr/{app}/* to the *arr APIs
@@ -309,40 +310,54 @@ interface ArrConfig {
   metadataProfileId?: number
 }
 
-// Resolve the quality profile + root folder from the live *arr config rather than
-// hardcoding, so renamed profiles / moved roots don't break adds. Prefer a 1080p
-// profile; fall back to whatever exists. Cached for the session.
-const configCache: Partial<Record<ArrKind, Promise<ArrConfig>>> = {}
+// The quality profile + root folder new requests use, from the live *arr config.
+// Setup's choice (settings.requests.profiles, in /api/finesse) wins; when that
+// profile is gone, the request stops with a message saying how to fix it
+// (src/lib/arrProfiles.ts). Cached for a few minutes (then the saved choice and
+// the app's profiles are read again); forgotten when a request fails, and by
+// forgetArrConfig() (call it after changing the choice, e.g. from a future
+// Settings → Downloads picker).
+const CONFIG_TTL_MS = 5 * 60_000
+const configCache: Partial<Record<ArrKind, { at: number; cfg: Promise<ArrConfig> }>> = {}
 
-function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
-  if (!configCache[kind]) {
-    configCache[kind] = (async () => {
-      const [profiles, roots] = await Promise.all([
-        arrFetch<{ id: number; name: string }[]>(kind, '/qualityprofile'),
-        arrFetch<{ path: string }[]>(kind, '/rootfolder'),
-      ])
-      const prof =
-        kind === 'artist'
-          ? profiles.find((p) => /lossless/i.test(p.name)) ??
-            profiles.find((p) => /standard/i.test(p.name)) ??
-            profiles[0]
-          : profiles.find((p) => /1080/.test(p.name)) ??
-            profiles.find((p) => p.id === 4) ??
-            profiles[0]
-      const root = roots[0]
-      if (!prof || !root) throw new ArrError(0, 'No quality profile or root folder configured')
-      const cfg: ArrConfig = { qualityProfileId: prof.id, rootFolderPath: root.path }
-      if (kind === 'artist') {
-        // Lidarr additionally needs a metadata profile ("Standard" over "None").
-        const metas = await arrFetch<{ id: number; name: string }[]>('artist', '/metadataprofile')
-        const meta = metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
-        if (!meta) throw new ArrError(0, 'No Lidarr metadata profile configured')
-        cfg.metadataProfileId = meta.id
-      }
-      return cfg
-    })()
-  }
-  return configCache[kind]!
+/** Forget the cached profile/root choice (one app, or all), so the next request looks again. */
+export function forgetArrConfig(kind?: ArrKind): void {
+  for (const k of kind ? [kind] : (Object.keys(configCache) as ArrKind[])) delete configCache[k]
+}
+
+/** The profile name setup saved for this app, if any (asked of the server afresh, so a new choice counts). */
+async function savedProfile(kind: ArrKind): Promise<string> {
+  const info = (await discover({ force: true })) ?? knownFinesse()
+  return info?.requests?.profiles?.[PROFILE_KEY[kind]]?.trim() ?? ''
+}
+
+async function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
+  const hit = configCache[kind]
+  if (hit && Date.now() - hit.at < CONFIG_TTL_MS) return hit.cfg
+  const saved = await savedProfile(kind)
+  const cfg = (async () => {
+    const [profiles, roots] = await Promise.all([
+      arrFetch<ArrProfile[]>(kind, '/qualityprofile'),
+      arrFetch<ArrRoot[]>(kind, '/rootfolder'),
+    ])
+    const pick = pickArrConfig(kind, profiles, roots, saved)
+    if (!pick.ok) throw new ArrError(0, pick.problem)
+    const out: ArrConfig = { qualityProfileId: pick.profile.id, rootFolderPath: pick.root.path }
+    if (kind === 'artist') {
+      // Lidarr additionally needs a metadata profile ("Standard" over "None").
+      const metas = await arrFetch<{ id: number; name: string }[]>('artist', '/metadataprofile')
+      const meta = metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
+      if (!meta) throw new ArrError(0, 'Lidarr has no metadata profile. Add one in Lidarr (Settings → Profiles), then request again.')
+      out.metadataProfileId = meta.id
+    }
+    return out
+  })()
+  configCache[kind] = { at: Date.now(), cfg }
+  // A failed look is never kept: the next request tries again.
+  cfg.catch(() => {
+    if (configCache[kind]?.cfg === cfg) delete configCache[kind]
+  })
+  return cfg
 }
 
 /** A Sonarr lookup result for an anime (TheTVDB tags those "Anime"; plain "Animation" isn't). */
@@ -353,7 +368,16 @@ export function isAnime(raw: Record<string, unknown>): boolean {
 
 /** Add the chosen result to Radarr/Sonarr/Lidarr and kick off a search for it. */
 export async function arrAdd(result: ArrResult): Promise<void> {
-  const cfg = await resolveConfig(result.kind)
+  try {
+    await addWith(result, await resolveConfig(result.kind))
+  } catch (e) {
+    // The profile or folder may have just been removed: look again next time.
+    forgetArrConfig(result.kind)
+    throw e
+  }
+}
+
+async function addWith(result: ArrResult, cfg: ArrConfig): Promise<void> {
   if (result.kind === 'artist') {
     await arrFetch('artist', '/artist', {
       method: 'POST',
