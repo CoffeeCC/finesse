@@ -73,6 +73,81 @@ export function mergeTitles<L extends LibraryLike, R extends RequestableLike & {
   return out
 }
 
+/** Two titles (ours, or on friends' servers) are the same only when their ids say so: TMDb for films, TVDb or TMDb for shows. */
+export function sameById(a: LibraryLike, b: LibraryLike): boolean {
+  if (a.Type !== b.Type || (a.Type !== 'Movie' && a.Type !== 'Series')) return false
+  const names = a.Type === 'Movie' ? ['tmdb', 'imdb'] : ['tvdb', 'tmdb', 'imdb']
+  for (const n of names) {
+    const x = pid(a.ProviderIds, n)
+    const y = pid(b.ProviderIds, n)
+    if (x && y) return x === y
+  }
+  return false
+}
+
+/** Whether a requestable title is this item, by id only (no title text). */
+function requestById(item: LibraryLike, r: RequestableLike): boolean {
+  if (r.kind === 'movie' ? item.Type !== 'Movie' : r.kind === 'series' ? item.Type !== 'Series' : true) return false
+  const ext = r.kind === 'movie' ? r.tmdbId : r.tvdbId
+  const mine = pid(item.ProviderIds, r.kind === 'movie' ? 'tmdb' : 'tvdb')
+  if (ext && mine) return String(ext) === mine
+  if (r.kind === 'series' && r.tmdbId && pid(item.ProviderIds, 'tmdb')) return String(r.tmdbId) === pid(item.ProviderIds, 'tmdb')
+  return false
+}
+
+export interface FriendRef {
+  id: string
+  name: string
+}
+
+export type TitleSource<L, R> = { source: 'library'; item: L } | { source: 'friend'; item: L; friend: FriendRef } | { source: 'request'; r: R }
+
+/** One title and everywhere it is: the library, friends' servers, or requestable. The first source is the main one. */
+export interface MergedTitle<L, R> {
+  key: string
+  sources: TitleSource<L, R>[]
+}
+
+/**
+ * The search's one list of titles, each with its sources: the library's titles first (in the
+ * order given), then titles only friends have, then requestable ones nobody has. A friend's title
+ * joins a library title (or another friend's) only when their TMDb/TVDb ids match; never on the
+ * name alone. A requestable title joins a library title as before (isSameTitle), and a
+ * friend's only by id. `limitRequest` caps the request-only part.
+ */
+export function mergeSources<L extends LibraryLike, R extends RequestableLike & { id: number; hasFile: boolean }>(
+  library: L[],
+  friends: { item: L; friend: FriendRef }[],
+  requestable: R[],
+  limitRequest = 6,
+): MergedTitle<L, R>[] {
+  const ours: MergedTitle<L, R>[] = library.map((item) => ({ key: item.Id, sources: [{ source: 'library', item }] }))
+  const theirs: MergedTitle<L, R>[] = []
+  const itemsOf = (t: MergedTitle<L, R>) => t.sources.flatMap((s) => (s.source === 'request' ? [] : [s.item]))
+  for (const f of friends) {
+    if (f.item.Type !== 'Movie' && f.item.Type !== 'Series') continue
+    const home = [...ours, ...theirs].find((t) => itemsOf(t).some((i) => sameById(i, f.item)))
+    if (home) {
+      if (!home.sources.some((s) => s.source === 'friend' && s.friend.id === f.friend.id)) home.sources.push({ source: 'friend', item: f.item, friend: f.friend })
+    } else theirs.push({ key: f.item.Id, sources: [{ source: 'friend', item: f.item, friend: f.friend }] })
+  }
+  const asked: MergedTitle<L, R>[] = []
+  const libTitles = library.filter((i) => i.Type === 'Movie' || i.Type === 'Series')
+  for (const r of requestable) {
+    if (r.kind === 'artist') continue
+    if (r.id > 0 && r.hasFile) continue
+    if (libTitles.some((i) => isSameTitle(i, r))) continue
+    const friendOnly = theirs.find((t) => itemsOf(t).some((i) => requestById(i, r)))
+    if (friendOnly) {
+      if (!friendOnly.sources.some((s) => s.source === 'request')) friendOnly.sources.push({ source: 'request', r })
+      continue
+    }
+    if (asked.length >= limitRequest) continue
+    asked.push({ key: `${r.kind}:${r.tmdbId ?? r.tvdbId ?? normTitle(r.title)}`, sources: [{ source: 'request', r }] })
+  }
+  return [...ours, ...theirs, ...asked]
+}
+
 // ---------- Relevance of what Radarr / Sonarr / Lidarr's lookup returns ----------
 //
 // Their lookups are fuzzy (TMDb / TVDb / MusicBrainz search): a query that matches nothing
