@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useItem, usePersonItems } from '../api/queries'
 import { imageUrl } from '../api/client'
@@ -38,11 +39,7 @@ export default function PersonPage() {
               {items.TotalRecordCount} title{items.TotalRecordCount === 1 ? '' : 's'} in your library
             </p>
           )}
-          {person.Overview && (
-            <p className="mt-4 text-sm leading-relaxed text-ink-200 line-clamp-6 max-w-3xl">
-              {person.Overview}
-            </p>
-          )}
+          {person.Overview && <Biography text={person.Overview} />}
         </div>
       </div>
 
@@ -61,6 +58,35 @@ export default function PersonPage() {
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+/** Six lines, and Read more when there's more (the rest used to be cut off for good). */
+function Biography({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const [clipped, setClipped] = useState(false)
+  const ref = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && !open) setClipped(el.scrollHeight > el.clientHeight + 1)
+  }, [text, open])
+  return (
+    <div className="mt-4 max-w-3xl">
+      <p id="person-bio" ref={ref} className={`text-sm leading-relaxed text-ink-200 whitespace-pre-line ${open ? '' : 'line-clamp-6'}`}>
+        {text}
+      </p>
+      {(clipped || open) && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="person-bio"
+          onClick={() => setOpen((v) => !v)}
+          className="mt-2 text-sm font-semibold text-accent-300 hover:text-white"
+        >
+          {open ? 'Show less' : 'Read more'}
+        </button>
+      )}
     </div>
   )
 }
