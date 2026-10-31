@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
 import { after, before, test } from 'node:test'
-import { call, fakeJellyfin, finesse, H } from './peers.ts'
+import { call, dashed, fakeJellyfin, finesse, H } from './peers.ts'
 
 let jfA: Awaited<ReturnType<typeof fakeJellyfin>>
 let jfB: Awaited<ReturnType<typeof fakeJellyfin>>
@@ -110,6 +110,8 @@ test('playing: Sam’s Jellyfin token never reaches Robin; her own sign-in stand
   assert.equal(info.status, 200, info.text)
   const turl = (info.data.MediaSources as { TranscodingUrl: string }[])[0]!.TranscodingUrl
   assert.match(turl, /ApiKey=a-robin$/)
+  // Jellyfin's own media URLs spell the id with hyphens; that must still get through.
+  assert.match(turl, new RegExp(`/videos/${dashed(jfB.movie)}/master\\.m3u8`))
   assert.doesNotMatch(info.text, /tok-/)
   // The playlist, fetched the way a browser does (token in the URL).
   const m3u8 = await fetch(`${A.url}${base}${turl}`)
@@ -117,6 +119,10 @@ test('playing: Sam’s Jellyfin token never reaches Robin; her own sign-in stand
   const text = await m3u8.text()
   assert.match(text, /main\.m3u8\?ApiKey=a-robin/)
   assert.doesNotMatch(text, /tok-/)
+  // A segment addressed with the hyphenated id plays too.
+  const seg = await fetch(`${A.url}${base}/Videos/${dashed(jfB.movie).toUpperCase()}/hls1/main/0.ts?ApiKey=a-robin`)
+  assert.equal(seg.status, 200)
+  assert.equal(await seg.text(), 'binary-segment')
   // Binary media passes straight through.
   const video = await fetch(`${A.url}${base}/Videos/${jfB.movie}/stream.mp4?static=true&ApiKey=a-robin`)
   assert.equal(await video.text(), 'binary-video')
@@ -239,9 +245,29 @@ test('the allow-list: what the player needs, with every user id pinned', async (
     ['DELETE', 'Videos/ActiveEncodings'],
     ['POST', `Users/${id}/PlayedItems/${id}`],
     ['POST', `UserItems/${id}/UserData`],
-  ] as const) assert.ok(ok(m, p), `${m} ${p} should be allowed`)
+  ] as const) {
+    assert.ok(ok(m, p), `${m} ${p} should be allowed`)
+    // The same call with Jellyfin's hyphenated ids (as PlaybackInfo's URLs have them) is allowed too,
+    // and goes on with the compact id.
+    const dashedPath = p.split(id).join(dashed(id))
+    const r = ok(m, dashedPath)
+    assert.ok(r, `${m} ${dashedPath} should be allowed`)
+    assert.equal(r.path.toLowerCase(), p.toLowerCase().replace(/^users\/d{32}/, `users/${me}`))
+  }
+  // Ids that only look like ids are not.
+  for (const p of [
+    `Videos/${id.slice(0, 31)}/main.m3u8`,
+    `Videos/${id}0/main.m3u8`,
+    `Videos/dddd-dddddddd-dddd-dddd-dddddddddddd/main.m3u8`,
+    `Videos/${dashed(id)}-dd/main.m3u8`,
+    `Videos/${dashed(id).replace(/-/g, '_')}/main.m3u8`,
+    `Videos/${dashed('g'.repeat(32))}/main.m3u8`,
+  ]) assert.equal(ok('GET', p), null, `GET ${p} should be refused`)
   for (const [m, p] of [
     ['GET', 'Library/VirtualFolders'],
+    ['POST', `Users/${dashed(id)}/Policy`],
+    ['DELETE', `Items/${dashed(id)}`],
+    ['GET', `Items/${dashed(id)}/Download`],
     ['GET', 'Users'],
     ['POST', `Users/${id}/Policy`],
     ['POST', `Items/${id}`],

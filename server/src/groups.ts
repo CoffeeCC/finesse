@@ -93,6 +93,10 @@ export function privateHost(host: string): boolean {
 // ---------- which friend calls get through (after the user id is pinned) ----------
 
 const ID = '[0-9a-f]{32}'
+/** Jellyfin writes the same id two ways: compact (in JSON) and hyphenated (in PlaybackInfo's media URLs). */
+const HYPHENATED_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** A path segment that is a hyphenated id becomes the compact form; everything else is left alone. */
+const compactIds = (path: string) => path.split('/').map((seg) => (HYPHENATED_ID.test(seg) ? seg.replace(/-/g, '').toLowerCase() : seg)).join('/')
 const ALLOWED: Record<string, RegExp[]> = {
   GET: [
     new RegExp(`^users/${ID}/(views|items|items/latest|items/resume|items/${ID}|items/${ID}/(intros|localtrailers|specialfeatures))$`),
@@ -132,7 +136,7 @@ export function peerRequest(method: string, rest: string, query: URLSearchParams
     return null
   }
   if (/[\\\0]|\.\./.test(path)) return null
-  path = path.replace(/^\/+/, '').replace(/\/+$/, '')
+  path = compactIds(path.replace(/^\/+/, '').replace(/\/+$/, ''))
   path = path.replace(/^users\/[^/]+(?=\/|$)/i, `Users/${viewerUserId}`)
   const q = new URLSearchParams()
   for (const [k, v] of query) {
