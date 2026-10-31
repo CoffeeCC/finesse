@@ -604,7 +604,8 @@ export function useSearch(term: string) {
         recursive: true,
         includeItemTypes: 'Movie,Series,Episode',
         limit: 60,
-        fields: CARD_FIELDS,
+        // ProviderIds: search matches requestable titles to these by TMDb/TVDb id.
+        fields: `${CARD_FIELDS},ProviderIds`,
       }),
   })
 }

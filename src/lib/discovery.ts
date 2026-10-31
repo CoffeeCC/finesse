@@ -45,3 +45,30 @@ export function isSameTitle(item: LibraryLike, r: RequestableLike): boolean {
   if (r.kind === 'series' && r.tmdbId && pid(item.ProviderIds, 'tmdb')) return String(r.tmdbId) === pid(item.ProviderIds, 'tmdb')
   return normTitle(item.Name ?? '') === normTitle(r.title) && (!r.year || !item.ProductionYear || r.year === item.ProductionYear)
 }
+
+export type DiscoveryEntry<L, R> = { source: 'library'; item: L } | { source: 'request'; r: R }
+
+/**
+ * One list of titles for a search: what the library has first (in the order given), then
+ * requestable titles the library doesn't have. A requestable title that is the same as a library
+ * item (by id, see isSameTitle) is dropped, and so is one its app already has on disk (the
+ * library will show it once scanned). `limitRequest` caps the requestable part.
+ */
+export function mergeTitles<L extends LibraryLike, R extends RequestableLike & { id: number; hasFile: boolean }>(
+  library: L[],
+  requestable: R[],
+  limitRequest = 6,
+): DiscoveryEntry<L, R>[] {
+  const out: DiscoveryEntry<L, R>[] = library.map((item) => ({ source: 'library', item }))
+  const titles = library.filter((i) => i.Type === 'Movie' || i.Type === 'Series')
+  let n = 0
+  for (const r of requestable) {
+    if (n >= limitRequest) break
+    if (r.kind === 'artist') continue
+    if (r.id > 0 && r.hasFile) continue
+    if (titles.some((i) => isSameTitle(i, r))) continue
+    out.push({ source: 'request', r })
+    n++
+  }
+  return out
+}
