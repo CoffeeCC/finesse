@@ -3,14 +3,16 @@ import { useItem, usePersonItems } from '../api/queries'
 import { imageUrl } from '../api/client'
 import MediaCard from '../components/MediaCard'
 import { CardSkeleton } from '../components/Skeletons'
+import ItemUnavailable from '../components/ItemUnavailable'
 
 export default function PersonPage() {
   const { personId } = useParams()
-  const { data: person, isLoading } = useItem(personId)
+  const { data: person, isLoading, isError, error, refetch, isFetching } = useItem(personId)
   const { data: items, isLoading: itemsLoading } = usePersonItems(personId)
 
-  if (isLoading || !person) {
-    return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
+  if (!person) {
+    if (isLoading || (isFetching && !isError)) return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
+    return <ItemUnavailable kind="person" error={error} id={personId} onRetry={() => void refetch()} retrying={isFetching} />
   }
 
   const headshot = person.ImageTags?.Primary

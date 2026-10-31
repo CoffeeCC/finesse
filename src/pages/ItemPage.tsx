@@ -44,6 +44,7 @@ import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
 import { episodeCode } from '../lib/episodes'
+import ItemUnavailable from '../components/ItemUnavailable'
 
 function youTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/.*[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/)
@@ -336,7 +337,7 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
 
 export default function ItemPage() {
   const { itemId } = useParams()
-  const { data: item, isLoading } = useItem(itemId)
+  const { data: item, isLoading, isError, error, refetch, isFetching } = useItem(itemId)
   // Back from here morphs into the card that opened this page.
   useEffect(() => (itemId ? setReturnMorph(itemId, posterMorphName()) : undefined), [itemId])
   const heroRef = useDepthParallax<HTMLDivElement>()
@@ -388,8 +389,10 @@ export default function ItemPage() {
     return () => clearTimeout(t)
   }, [previewKind, itemId, stopPreview])
 
-  if (isLoading || !item) {
-    return <div className="h-[calc(var(--vh)*50)] shimmer -mt-16" />
+  if (!item) {
+    // Loading, or it failed / isn't there: then say so, with Back and Try again.
+    if (isLoading || (isFetching && !isError)) return <div className="h-[calc(var(--vh)*50)] shimmer -mt-16" />
+    return <ItemUnavailable kind="title" error={error} id={itemId} onRetry={() => void refetch()} retrying={isFetching} />
   }
 
   const backdrop = backdropUrl(item)
