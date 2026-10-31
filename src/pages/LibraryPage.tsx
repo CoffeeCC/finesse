@@ -233,8 +233,9 @@ export default function LibraryPage() {
 
   // --- Search within library ---
   const searching = debouncedFilter.trim().length > 1
+  // Within the chosen genres and watch state, like the rest of the page.
   const { data: searchResults, isLoading: searchLoading } = useQuery({
-    queryKey: ['libSearch', viewId, debouncedFilter],
+    queryKey: ['libSearch', viewId, debouncedFilter, genresParam, filtersParam],
     enabled: searching && !!viewId,
     queryFn: () =>
       api.getItems({
@@ -242,16 +243,26 @@ export default function LibraryPage() {
         includeItemTypes,
         recursive: true,
         searchTerm: debouncedFilter.trim(),
+        genres: genresParam,
+        filters: filtersParam,
         limit: 100,
         fields: 'PrimaryImageAspectRatio,ProductionYear',
       }),
   })
+  const searchCount = searchResults ? (searchResults.TotalRecordCount ?? searchResults.Items.length) : undefined
+  const narrowed = Boolean(filtersParam || genresParam)
 
   return (
     <div className="px-4 sm:px-6 lg:px-12 pb-16">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-5 sm:pt-6 pb-3">
         <h1 className="page-title">{view?.Name ?? 'Library'}</h1>
-        {total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {filtersParam || genresParam ? 'match' : 'titles'}</span>}
+        {searching && searchCount !== undefined ? (
+          <span className="text-sm text-ink-400">
+            {searchCount.toLocaleString()} of {total.toLocaleString()} {narrowed ? 'filtered titles' : 'titles'}
+          </span>
+        ) : (
+          total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {narrowed ? 'match' : 'titles'}</span>
+        )}
         <div className="flex-1" />
         <div className="flex w-full sm:w-auto items-center gap-2">
           <input
@@ -331,10 +342,11 @@ export default function LibraryPage() {
       </div>
 
       {searching ? (
-        <div className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
+        // Same Grid / List choice as the whole library.
+        <div className={listMode ? 'grid gap-2.5' : 'grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]'}>
           {searchLoading
-            ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)
-            : searchResults?.Items.map((item) => <MediaCard key={item.Id} item={item} />)}
+            ? Array.from({ length: 12 }).map((_, i) => (listMode ? <div key={i} className="h-[96px] w-full rounded-xl shimmer" /> : <CardSkeleton key={i} />))
+            : searchResults?.Items.map((item) => (listMode ? <ListRow key={item.Id} item={item} /> : <MediaCard key={item.Id} item={item} />))}
           {!searchLoading && searchResults?.Items.length === 0 && (
             <p className="col-span-full text-ink-400 py-12 text-center">
               Nothing matches “{debouncedFilter}”
