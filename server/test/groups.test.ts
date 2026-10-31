@@ -211,6 +211,22 @@ test('a request the allow-list refuses creates nothing on the friend’s server'
   assert.equal(jfB.users.size, count)
 })
 
+test('checking a friend’s server: connected, and how much it shares (administrators only)', async () => {
+  const f = ((await call(A.url, 'GET', '/api/groups', 'a-admin')).data.friends as { id: string }[])[0]!
+  assert.equal((await call(A.url, 'POST', `/api/groups/friends/${f.id}/check`, 'a-robin')).status, 403)
+  const r = await call(A.url, 'POST', `/api/groups/friends/${f.id}/check`, 'a-admin')
+  assert.equal(r.status, 200, r.text)
+  assert.equal(r.data.state, 'ok')
+  assert.match(String(r.data.message), /^Connected · sharing 1 library$/)
+  assert.ok(r.data.checkedAt)
+  // A server that's gone: said as unreachable, with what to do.
+  A.settings.update((s) => void s.groups!.friends.push({ id: 'deadbeef', name: 'Old NAS', url: 'http://127.0.0.1:9', linkId: 'x', secret: 'y', addedAt: new Date().toISOString() }))
+  const dead = await call(A.url, 'POST', '/api/groups/friends/deadbeef/check', 'a-admin')
+  assert.equal(dead.data.state, 'unreachable')
+  assert.match(String(dead.data.message), /Can’t reach Old NAS at 127\.0\.0\.1:9/)
+  A.settings.update((s) => void (s.groups!.friends = s.groups!.friends.filter((x) => x.id !== 'deadbeef')))
+})
+
 test('unpairing: Sam stops sharing, Robin’s viewer is gone and access stops at once', async () => {
   const links = (await call(B.url, 'GET', '/api/groups', 'b-admin')).data.links as { id: string }[]
   const f = ((await call(A.url, 'GET', '/api/groups/friends', 'a-robin')).data.friends as { id: string }[])[0]!
@@ -219,6 +235,10 @@ test('unpairing: Sam stops sharing, Robin’s viewer is gone and access stops at
   const r = await call(A.url, 'GET', `/api/groups/friends/${f.id}/jellyfin/Users/x/Views`, 'a-robin')
   assert.equal(r.status, 401)
   assert.match(String(r.data.error), /isn’t shared with you/)
+  // The check says so too, and what to do.
+  const check = await call(A.url, 'POST', `/api/groups/friends/${f.id}/check`, 'a-admin')
+  assert.equal(check.data.state, 'revoked')
+  assert.match(String(check.data.message), /has stopped sharing with this server. Ask them for a new code/)
 })
 
 test('the allow-list: what the player needs, with every user id pinned', async () => {

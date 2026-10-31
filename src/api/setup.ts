@@ -334,6 +334,15 @@ export const groupsApi = {
   offer: (id: string, libraries: string[]) => call<{ ok: boolean }>('POST', `/api/groups/friends/${id}/offer`, { libraries }, { timeoutMs: 45000 }),
   acceptOffer: (id: string) => call<Friend>('POST', `/api/groups/offers/${id}/accept`, undefined, { timeoutMs: 45000 }),
   dismissOffer: (id: string) => call<{ ok: boolean }>('DELETE', `/api/groups/offers/${id}`),
+  /** Administrators: is a friend's server reachable, and still sharing with us? */
+  checkFriend: (id: string) => call<FriendHealth>('POST', `/api/groups/friends/${id}/check`, undefined, { timeoutMs: 30000 }),
+}
+
+export interface FriendHealth {
+  checkedAt: string
+  state: 'ok' | 'unreachable' | 'revoked' | 'busy' | 'outdated' | 'error'
+  message: string
+  libraries?: number
 }
 
 // ---------- Game streaming (Wolf + Moonlight) ----------
