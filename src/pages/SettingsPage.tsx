@@ -19,6 +19,7 @@ import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
 import DownloadsSettings from './settings/DownloadsSettings'
+import ConnectionsHealth from './settings/ConnectionsHealth'
 import { StreamingSettings } from './settings/StreamingAdmin'
 import SecureConnection from './settings/SecureConnection'
 import {
@@ -700,6 +701,7 @@ export default function SettingsPage() {
               <p className="text-sm text-ink-400 mb-3">Apps, people and invites for everyone on this server.</p>
               <div className="space-y-8">
                 <SystemPanel />
+                <ConnectionsHealth />
                 <GroupsAdmin />
                 <StreamingSettings />
                 <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">

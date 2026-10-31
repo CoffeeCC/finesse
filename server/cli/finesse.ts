@@ -26,6 +26,7 @@ import { Docker } from '../src/stack/docker.ts'
 import { Orchestrator } from '../src/stack/orchestrator.ts'
 import { swap } from '../src/stack/selfupdate.ts'
 import { qrTerminal } from '../src/qr.ts'
+import type { ConnReport } from '../src/connections.ts'
 import { BACKUP_PARTS, isPart, restoreBackup, type BackupPart } from '../src/stack/backup.ts'
 
 const configDir = resolve(process.env.FINESSE_CONFIG_DIR || '/config')
@@ -257,6 +258,19 @@ async function doctor(argv: string[]): Promise<number> {
       console.log(`\n  Recent problems:`)
       for (const e of recent) console.log(`    ${dim(e.at.slice(0, 16).replace('T', ' '))} ${e.message}`)
     }
+  }
+  // Each connected app by its own account (indexers, download clients, VPN): in both modes.
+  const c = await api<ConnReport & { error?: string }>('GET', '/api/system/connections?refresh')
+  if (c.status < 400 && Array.isArray(c.data.apps)) {
+    if (argv.includes('--json')) console.log(JSON.stringify({ connections: c.data }, null, 2))
+    else if (c.data.apps.length || c.data.vpn) console.log(`\n  ${bold('Connected apps')}`)
+    for (const a of c.data.apps) {
+      line(a.ok, a.name, a.ok === true ? '' : a.summary)
+      if (!argv.includes('--json')) for (const p of a.problems) console.log(`      ${dim(p)}`)
+    }
+    if (c.data.vpn) line(c.data.vpn.ok, c.data.vpn.source === 'gluetun' ? 'VPN' : 'VPN (guessed from the apps)', c.data.vpn.summary)
+  } else if (!argv.includes('--json')) {
+    console.log(`\n  ${yellow('!')} Couldn’t check the connected apps${c.data.error ? `: ${c.data.error}` : ''}`)
   }
   if (!argv.includes('--json')) console.log(problems ? `\n${red(`${problems} problem${problems > 1 ? 's' : ''} found.`)}` : `\n${green('Everything looks healthy.')}`)
   return problems ? 1 : 0

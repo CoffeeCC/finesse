@@ -545,3 +545,21 @@ export const requestDefaultsApi = {
   set: (app: RequestApp, profileId: number | null, rootFolder?: string) =>
     call<{ apps: RequestAppConfig[] }>('PUT', '/api/requests/defaults', { app, profileId, ...(rootFolder ? { rootFolder } : {}) }),
 }
+
+// ---------- Connected apps' own health (server/src/connections.ts) ----------
+
+export interface ConnCheck {
+  id: string
+  name: string
+  ok: boolean | null
+  summary: string
+  problems: string[]
+}
+export interface ConnReport {
+  checkedAt: string
+  apps: ConnCheck[]
+  vpn: { ok: boolean | null; summary: string; source: 'gluetun' | 'inferred' } | null
+}
+export const connectionsApi = {
+  get: (refresh = false) => call<ConnReport>('GET', `/api/system/connections${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 60000 }),
+}

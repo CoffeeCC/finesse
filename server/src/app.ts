@@ -20,6 +20,7 @@ import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
+import { checkConnections, type ConnReport } from './connections.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
 const log = logger('http')
@@ -132,6 +133,18 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
   registerRequestDefaults(router, { settings, auth })
+  // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
+  let conns: { at: number; report: Promise<ConnReport> } | null = null
+  router.get('/api/system/connections', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    // Its tests ask indexers and download clients: at most once a minute unless asked.
+    if (!conns || url.searchParams.has('refresh') || Date.now() - conns.at > 60_000) {
+      const report = checkConnections(settings.get())
+      conns = { at: Date.now(), report }
+      report.catch(() => (conns = null))
+    }
+    sendJson(res, 200, await conns.report)
+  })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)
