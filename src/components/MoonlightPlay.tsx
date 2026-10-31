@@ -150,9 +150,11 @@ export function SessionPicker({ start, intro }: { start: (session: string) => Pr
         <ul className="space-y-2">
           {sessions.map((s) => (
             <li key={s.id} className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[14px] text-white">
-                {s.ip || 'A device'}
-                {s.app && <span className="text-ink-400"> · in {s.app}</span>}
+              <span className="min-w-0">
+                <span className="block truncate text-[14px] text-white">{s.name || (s.ip ? `Device at ${s.ip}` : 'Unnamed device')}</span>
+                <span className="block text-[12px] text-ink-400">
+                  {[s.name && s.ip, s.app ? `Moonlight open, in ${s.app}` : 'Moonlight open'].filter(Boolean).join(' · ')}
+                </span>
               </span>
               <button
                 type="button"

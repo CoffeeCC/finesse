@@ -412,7 +412,8 @@ export interface StreamingAdmin {
   ok: boolean
   error?: string
   pending: { id: string; ip: string }[]
-  devices: { id: string; name: string | null; pairedAt: string | null }[]
+  /** `open`: Moonlight is open on it right now. */
+  devices: { id: string; name: string | null; pairedAt: string | null; open?: boolean }[]
 }
 
 export type EmulatorId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'switch' | 'esde'
@@ -448,6 +449,8 @@ export interface EmulatorReadiness {
 export interface StreamSession {
   id: string
   ip: string
+  /** The name it was paired under, when it was paired through Finesse. */
+  name?: string | null
   app: string | null
 }
 
@@ -489,6 +492,7 @@ export const streamingApi = {
   pair: (request: string, pin: string, name: string) =>
     call<{ ok: boolean; error?: string; device?: { id: string; name: string } }>('POST', '/api/streaming/pair', { request, pin, name }, { timeoutMs: 30000 }),
   remove: (id: string) => call<{ ok: boolean }>('DELETE', `/api/streaming/devices/${encodeURIComponent(id)}`),
+  rename: (id: string, name: string) => call<{ ok: boolean; device: { id: string; name: string } }>('PUT', `/api/streaming/devices/${encodeURIComponent(id)}`, { name }),
   /** Administrators: the emulator apps, their folders, and what each still needs. */
   emulators: () => call<{ settings: EmulatorSettings | null; readiness: EmulatorReadiness[]; profiles: { id: string; name: string }[] }>('GET', '/api/streaming/emulators'),
   saveEmulators: (s: EmulatorSettings) =>
