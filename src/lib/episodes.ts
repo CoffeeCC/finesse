@@ -68,3 +68,36 @@ export function adjacentEpisodes<T extends EpisodeLike>(episodes: readonly T[], 
   const pick = (g?: { items: T[] }) => g?.items[0]
   return { prev: pick(groups[i - 1]), next: pick(groups[i + 1]) }
 }
+
+/** One episode in a list, with every copy of it (two or more when the library holds duplicates). */
+export interface EpisodeGroup<T> {
+  /** The copy the row plays: one you've started, else the first that has a file. */
+  main: T
+  /** All copies, in list order (main included). */
+  versions: T[]
+}
+
+/**
+ * A season's episodes as one row per episode: copies of the same season/episode become
+ * versions of one row (picked from separately), instead of repeated rows. Items without
+ * numbers stay rows of their own.
+ */
+export function groupEpisodeVersions<T extends EpisodeLike & { UserData?: { PlaybackPositionTicks?: number } | null }>(episodes: readonly T[]): EpisodeGroup<T>[] {
+  const groups: T[][] = []
+  const byKey = new Map<string, T[]>()
+  for (const e of episodes) {
+    const key = episodeKey(e)
+    let g = byKey.get(key)
+    if (!g) {
+      g = []
+      byKey.set(key, g)
+      groups.push(g)
+    }
+    g.push(e)
+  }
+  return groups.map((versions) => {
+    const real = versions.filter((v) => v.LocationType !== 'Virtual')
+    const main = real.find((v) => (v.UserData?.PlaybackPositionTicks ?? 0) > 0) ?? real[0] ?? versions[0]!
+    return { main, versions: real.length ? real : versions }
+  })
+}

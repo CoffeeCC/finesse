@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { adjacentEpisodes, episodeChip, episodeCode, type EpisodeLike } from '../../src/lib/episodes.ts'
+import { adjacentEpisodes, episodeChip, episodeCode, groupEpisodeVersions, type EpisodeLike } from '../../src/lib/episodes.ts'
 
 const ep = (Id: string, s: number | undefined, e: number | undefined, extra: Partial<EpisodeLike> = {}): EpisodeLike => ({ Id, ParentIndexNumber: s, IndexNumber: e, ...extra })
 
@@ -50,4 +50,21 @@ test('labels: numbers when there are some, nothing made up when there aren’t',
   assert.equal(episodeChip(ep('x', 1, 2)), 'S1 · E2')
   assert.equal(episodeChip({}), '')
   for (const label of [episodeCode({}), episodeChip({ ParentIndexNumber: 1 })]) assert.doesNotMatch(label, /\?|^0$/)
+})
+
+test('episode list: one row per episode, copies as its versions', () => {
+  const started = { ...ep('e1-short', 1, 1), UserData: { PlaybackPositionTicks: 5 } }
+  const groups = groupEpisodeVersions([ep('e1-long', 1, 1), started, ep('e2', 1, 2), ep('loose-a', 1, undefined), ep('loose-b', 1, undefined)])
+  assert.deepEqual(
+    groups.map((g) => [g.main.Id, g.versions.map((v) => v.Id)]),
+    [
+      ['e1-short', ['e1-long', 'e1-short']], // the copy you started plays from the row
+      ['e2', ['e2']],
+      ['loose-a', ['loose-a']],
+      ['loose-b', ['loose-b']],
+    ],
+  )
+  // A missing (virtual) entry beside a real file isn't a version.
+  const g = groupEpisodeVersions([ep('v', 1, 3, { LocationType: 'Virtual' }), ep('real', 1, 3)])
+  assert.deepEqual([g[0]!.main.Id, g[0]!.versions.map((v) => v.Id)], ['real', ['real']])
 })

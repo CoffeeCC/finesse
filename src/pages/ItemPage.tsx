@@ -43,7 +43,7 @@ import { useAuth } from '../auth/AuthContext'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
-import { episodeCode } from '../lib/episodes'
+import { episodeCode, groupEpisodeVersions } from '../lib/episodes'
 import ItemUnavailable from '../components/ItemUnavailable'
 
 function youTubeId(url: string): string | null {
@@ -136,7 +136,7 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
   )
 }
 
-function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
+function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {
   const navigate = useNavigate()
   const thumbRef = useRef<HTMLDivElement>(null)
   const thumb = episodeThumbUrl(ep)
@@ -183,6 +183,7 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
         </p>
         <p className="text-xs text-ink-400 mt-0.5">
           {missing ? 'Not in library' : formatRuntime(ep.RunTimeTicks)}
+          {versions.length > 1 && <span className="ml-2">· {versions.length} versions</span>}
           {upNext && !missing && <span className="ml-2 font-semibold text-accent-300">Up next</span>}
         </p>
         {ep.Overview && (
@@ -191,7 +192,7 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
       </div>
     </>
   )
-  return missing ? (
+  const row = missing ? (
     <div className={rowClass}>{body}</div>
   ) : (
     <Link
@@ -202,6 +203,28 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
     >
       {body}
     </Link>
+  )
+  if (versions.length < 2) return row
+  // Copies of this episode: play a particular one (the row plays the one you started, or the first).
+  return (
+    <div className="min-w-0">
+      {row}
+      <div role="group" aria-label={`Versions of ${ep.Name}`} className="-mt-1 mb-1 flex flex-wrap gap-2 px-2 sm:px-3">
+        {versions.map((v, i) => (
+          <Link
+            key={v.Id}
+            to={playHref(v)}
+            aria-current={v.Id === ep.Id ? 'true' : undefined}
+            className={`inline-flex h-7 items-center rounded-full border px-2.5 text-[12px] transition-colors ${
+              v.Id === ep.Id ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-ink-300 hover:text-white'
+            }`}
+          >
+            Version {i + 1}
+            {v.RunTimeTicks ? ` · ${formatRuntime(v.RunTimeTicks)}` : ''}
+          </Link>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -250,7 +273,11 @@ function Seasons({ series }: { series: JfItem }) {
           instead of one long scroll. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-1">
         {isLoading && <p className="text-ink-400 text-sm px-3 py-6">Loading episodes…</p>}
-        {episodes?.Items.map((ep) => <EpisodeRow key={ep.Id} ep={ep} upNext={ep.Id === upNext?.Id} />)}
+        {/* One row per episode; extra copies of it are versions inside that row. */}
+        {episodes &&
+          groupEpisodeVersions(episodes.Items).map((g) => (
+            <EpisodeRow key={g.main.Id} ep={g.main} versions={g.versions} upNext={g.versions.some((v) => v.Id === upNext?.Id)} />
+          ))}
       </div>
     </section>
   )
