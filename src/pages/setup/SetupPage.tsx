@@ -656,7 +656,9 @@ function WelcomeStep({ code, setCode, error, onSubmit, native }: { code: string;
               </>
             ) : (
               <>
-                The installer showed it when it finished. Lost it? Run <code className="rounded bg-white/10 px-1.5 py-0.5 text-[12px]">docker exec finesse finesse setup-code</code> on the server.
+                The installer showed it when it finished. Lost it? Run this on the server:
+                {/* Its own line, scrolling sideways on a narrow screen rather than running off the edge. */}
+                <code className="mt-1.5 block max-w-full overflow-x-auto whitespace-nowrap rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px]">docker exec finesse finesse setup-code</code>
               </>
             )}
           </p>
@@ -844,7 +846,7 @@ function BuildScreen({
           )}
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             <Tip icon="film" title="Add what you already have">
-              Copy files into <code className="rounded bg-white/10 px-1 text-[12px]">{folderIn(dataPath, 'media', 'movies')}</code>, <code className="rounded bg-white/10 px-1 text-[12px]">…{sepOf(dataPath)}tv</code> or <code className="rounded bg-white/10 px-1 text-[12px]">…{sepOf(dataPath)}music</code>.
+              Copy files into <code className="break-all rounded bg-white/10 px-1 text-[12px]">{folderIn(dataPath, 'media', 'movies')}</code>, <code className="rounded bg-white/10 px-1 text-[12px]">…{sepOf(dataPath)}tv</code> or <code className="rounded bg-white/10 px-1 text-[12px]">…{sepOf(dataPath)}music</code>.
             </Tip>
             <Tip icon="tv" title="Watch on your TV">
               {tvHost && jfHost ? (
@@ -864,7 +866,7 @@ function BuildScreen({
             ) : null}
             {services.includes('romm') ? (
               <Tip icon="games" title="Add your games">
-                Put them in <code className="rounded bg-white/10 px-1 text-[12px]">{folderIn(dataPath, 'media', 'games', 'roms', 'snes')}</code> (one folder per system: nes, snes, gb, gba, n64, genesis, psx…). They show up under Games within a few minutes.
+                Put them in <code className="break-all rounded bg-white/10 px-1 text-[12px]">{folderIn(dataPath, 'media', 'games', 'roms', 'snes')}</code> (one folder per system: nes, snes, gb, gba, n64, genesis, psx…). They show up under Games within a few minutes.
               </Tip>
             ) : null}
             <Tip icon="link" title="Invite people">
