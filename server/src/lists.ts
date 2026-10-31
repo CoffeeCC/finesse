@@ -52,6 +52,34 @@ const STEPS: string[] = [
      key TEXT NOT NULL,
      PRIMARY KEY (queue, user)
    );`,
+  // 3: Moments collections (momentCollections.ts)
+  `CREATE TABLE IF NOT EXISTS moment_collections (
+     id TEXT PRIMARY KEY,
+     owner TEXT NOT NULL,
+     name TEXT NOT NULL,
+     created INTEGER NOT NULL,
+     updated INTEGER NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS moment_collections_owner ON moment_collections(owner);
+   CREATE TABLE IF NOT EXISTS moment_collection_shares (
+     collection TEXT NOT NULL REFERENCES moment_collections(id) ON DELETE CASCADE,
+     user TEXT NOT NULL,
+     PRIMARY KEY (collection, user)
+   );
+   CREATE INDEX IF NOT EXISTS moment_collection_shares_user ON moment_collection_shares(user);
+   CREATE TABLE IF NOT EXISTS moment_entries (
+     collection TEXT NOT NULL REFERENCES moment_collections(id) ON DELETE CASCADE,
+     key TEXT NOT NULL,
+     item TEXT NOT NULL,
+     title TEXT NOT NULL,
+     subtitle TEXT NOT NULL DEFAULT '',
+     start REAL,
+     "end" REAL,
+     note TEXT NOT NULL DEFAULT '',
+     from_name TEXT NOT NULL DEFAULT '',
+     saved_at INTEGER NOT NULL,
+     PRIMARY KEY (collection, key)
+   );`,
 ]
 
 export const LISTS_VERSION = STEPS.length

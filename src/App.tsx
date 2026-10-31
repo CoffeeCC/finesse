@@ -63,6 +63,7 @@ const FriendsPage = lazyPage(() => import('./pages/FriendsPage'))
 const RemotePage = lazyPage(() => import('./pages/RemotePage'))
 const SmartCollectionsPage = lazyPage(() => import('./pages/SmartCollectionsPage'))
 const TogetherPage = lazyPage(() => import('./pages/TogetherPage'))
+const MomentsPage = lazyPage(() => import('./pages/MomentsPage'))
 
 export default function App() {
   const { session } = useAuth()
@@ -199,6 +200,7 @@ export default function App() {
                     <Route path="/activity" element={<ActivityPage />} />
                     <Route path="/smart/*" element={<SmartCollectionsPage />} />
                     <Route path="/together/*" element={<TogetherPage />} />
+                    <Route path="/moments/*" element={<MomentsPage />} />
                     {!__WEBOS__ && <Route path="/add-media" element={<AddMediaPage />} />}
                     {!__WEBOS__ && <Route path="/remote" element={<RemotePage />} />}
                     <Route path="/settings" element={<SettingsPage />} />

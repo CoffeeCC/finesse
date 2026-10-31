@@ -118,7 +118,8 @@ export function registerQueues(router: Router, deps: { auth: Auth; settings: Set
     return uniq
   }
 
-  router.get('/api/queues/people', async ({ req, res }) => {
+  // People here to pick from (shortlists, shared Moments collections): never friends' viewer accounts.
+  router.get('/api/people', async ({ req, res }) => {
     const me = await auth.requirePerson(req)
     sendJson(res, 200, { people: (await people()).filter((p) => p.id !== me.id) })
   })

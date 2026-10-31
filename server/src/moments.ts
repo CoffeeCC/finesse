@@ -605,7 +605,30 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     sendJson(res, 200, { ok: true })
   })
 
-  return { store, pollAll }
+  /**
+   * A moment as one of our people can see it (sent to them, or theirs), by its key: "l:<id>" for
+   * ours, "r:<friend>:<id>" for one fetched from a friend's server. Null when it isn't theirs to see.
+   */
+  function momentFor(uid: string, key: string): { item: string; title: string; subtitle: string; start: number | null; end: number | null; note: string; from: string } | null {
+    const local = /^l:([\w-]{8,20})$/.exec(key)
+    if (local) {
+      const m = store.get(local[1]!)
+      if (!m) return null
+      const mine = !m.author_server && m.author_user === uid
+      if (!mine && !forPerson(m.aud, uid)) return null
+      return { item: m.item, title: m.title, subtitle: m.subtitle, start: m.start, end: m.end, note: m.note, from: fromLabel(m) }
+    }
+    const remote = /^r:([a-z0-9]{8}):([\w-]{8,20})$/.exec(key)
+    if (!remote) return null
+    const f = friendOf(remote[1]!)
+    if (!f) return null
+    const r = store.remote({ friend: f.id, since: 0 }).find((x) => x.id === remote[2])
+    if (!r) return null
+    if (r.author_here !== uid && !(r.users === null || (JSON.parse(r.users) as string[]).includes(uid))) return null
+    return { item: `f-${f.id}-${r.item}`, title: r.title, subtitle: r.subtitle, start: r.start, end: r.end, note: r.note, from: r.author_here ? r.author_name : `${r.author_name} · ${f.name}` }
+  }
+
+  return { store, pollAll, momentFor }
 }
 
 function validFeed(m: FeedMoment): boolean {

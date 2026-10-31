@@ -45,7 +45,7 @@ let qid = ''
 const get = async (token: string) => (await call(A.url, 'GET', `/api/queues/${qid}`, token)).data as unknown as Q
 
 test('Robin starts a shortlist with Kim; Lee isn’t in it and can’t see it', async () => {
-  const people = await call(A.url, 'GET', '/api/queues/people', 'robin')
+  const people = await call(A.url, 'GET', '/api/people', 'robin')
   assert.deepEqual((people.data.people as { name: string }[]).map((p) => p.name), ['alex', 'kim', 'lee'])
   const r = await call(A.url, 'POST', '/api/queues', 'robin', { name: '  Friday   film ', members: [id('kim'), 'not-a-person', id('robin')] })
   assert.equal(r.status, 201, r.text)

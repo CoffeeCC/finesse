@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useMomentCollectionsOn } from '../../api/momentCollections'
+import SaveMoment from './SaveMoment'
 import { pushBackHandler } from '../../lib/back'
 import { useOverlayFocus } from '../../lib/overlayFocus'
 import { clock, getInbox, markMomentsRead, momentHref, useInbox, useMomentsOn, type InboxMoment } from '../../api/moments'
@@ -18,7 +20,7 @@ export function ago(t: number): string {
   return d === 1 ? 'yesterday' : `${d} days ago`
 }
 
-export function MomentLine({ m, onOpen, compact }: { m: InboxMoment; onOpen: () => void; compact?: boolean }) {
+export function MomentLine({ m, onOpen, compact, onSave }: { m: InboxMoment; onOpen: () => void; compact?: boolean; onSave?: () => void }) {
   const [reveal, setReveal] = useState(false)
   return (
     <div className={`flex gap-3 rounded-xl px-3 py-2.5 ${m.read ? '' : 'bg-white/[0.04]'} hover:bg-white/[0.07]`}>
@@ -45,6 +47,11 @@ export function MomentLine({ m, onOpen, compact }: { m: InboxMoment; onOpen: () 
             Spoiler · show the note
           </button>
         )}
+        {onSave && (
+          <button type="button" onClick={onSave} className="mt-1.5 ml-1 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-ink-200 hover:bg-white/20 hover:text-white">
+            Save to a collection
+          </button>
+        )}
       </div>
       {!m.read && <span aria-label="New" className="mt-2 h-2 w-2 shrink-0 rounded-full bg-accent-300" />}
     </div>
@@ -59,6 +66,8 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
   const panel = useRef<HTMLDivElement>(null)
+  const collections = useMomentCollectionsOn()
+  const [saving, setSaving] = useState<InboxMoment | null>(null)
   // Focus moves into the list, and back to the bell when it closes.
   useOverlayFocus(open, panel)
 
@@ -129,7 +138,19 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
           {list.length ? (
             <div className="max-h-[calc(var(--vh,1vh)*65)] overflow-y-auto">
               {list.map((m) => (
-                <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} />
+                <MomentLine
+                  key={m.key}
+                  m={m}
+                  onOpen={() => void openOne(m)}
+                  onSave={
+                    collections
+                      ? () => {
+                          setOpen(false)
+                          setSaving(m)
+                        }
+                      : undefined
+                  }
+                />
               ))}
             </div>
           ) : (
@@ -137,8 +158,14 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
               Nothing yet. While you watch, tap the flag in the player to send someone a moment, or Recommend a title from its page.
             </p>
           )}
+          {collections && (
+            <Link to="/moments" onClick={() => setOpen(false)} className="mt-1 block rounded-xl px-3 py-2 text-[13px] font-semibold text-accent-300 hover:bg-white/5 hover:text-white">
+              Your moment collections ›
+            </Link>
+          )}
         </div>
       )}
+      {saving && <SaveMoment what={{ moment: saving.key }} label={`${saving.from}’s moment in “${saving.title}”`} onClose={() => setSaving(null)} />}
     </div>
   )
 }

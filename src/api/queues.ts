@@ -48,7 +48,7 @@ export interface QueueSummary {
 const base = '/api/queues'
 const q = (id: string) => `${base}/${encodeURIComponent(id)}`
 export const listQueues = async () => (await finesseCall<{ queues: QueueSummary[] }>('GET', base)).queues
-export const queuePeople = async () => (await finesseCall<{ people: { id: string; name: string }[] }>('GET', `${base}/people`)).people
+export const queuePeople = async () => (await finesseCall<{ people: { id: string; name: string }[] }>('GET', '/api/people')).people
 export const getQueue = (id: string) => finesseCall<Queue>('GET', q(id))
 export const createQueue = (name: string, members: string[]) => finesseCall<Queue>('POST', base, { name, members })
 export const updateQueue = (id: string, change: { name?: string; members?: string[]; archived?: boolean }) => finesseCall<Queue>('PUT', q(id), change)

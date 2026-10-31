@@ -11,6 +11,7 @@ import { registerMoments } from './moments.ts'
 import { openLists } from './lists.ts'
 import { registerSmartCollections } from './smartCollections.ts'
 import { registerQueues } from './queues.ts'
+import { registerMomentCollections } from './momentCollections.ts'
 import { Access } from './access.ts'
 import { join } from 'node:path'
 import { registerStreaming } from './streaming.ts'
@@ -79,6 +80,8 @@ function features(s: Settings) {
     smartCollections: true,
     /** Shortlists to pick something to watch together (queues.ts). */
     queues: true,
+    /** Moments kept in collections, shared with chosen people (momentCollections.ts). */
+    momentCollections: true,
   }
 }
 
@@ -138,11 +141,12 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
 
   registerInvites(router, { store: invites, jf, auth, settings })
   const groups = registerGroups(router, { settings, jf, auth })
-  registerMoments(router, { settings, jf, auth, groups })
+  const moments = registerMoments(router, { settings, jf, auth, groups })
   const lists = openLists(join(p.configDir, 'lists.db'))
   const access = new Access({ jf, groups, settings })
   registerSmartCollections(router, { auth, db: lists })
   registerQueues(router, { auth, settings, db: lists, access })
+  registerMomentCollections(router, { auth, settings, db: lists, access, momentFor: moments.momentFor })
   deps.browserStream = registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
