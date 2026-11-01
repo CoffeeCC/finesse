@@ -1,16 +1,19 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useItem, usePersonItems } from '../api/queries'
 import { imageUrl } from '../api/client'
 import MediaCard from '../components/MediaCard'
 import { CardSkeleton } from '../components/Skeletons'
+import ItemUnavailable from '../components/ItemUnavailable'
 
 export default function PersonPage() {
   const { personId } = useParams()
-  const { data: person, isLoading } = useItem(personId)
+  const { data: person, isLoading, isError, error, refetch, isFetching } = useItem(personId)
   const { data: items, isLoading: itemsLoading } = usePersonItems(personId)
 
-  if (isLoading || !person) {
-    return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
+  if (!person) {
+    if (isLoading || (isFetching && !isError)) return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
+    return <ItemUnavailable kind="person" error={error} id={personId} onRetry={() => void refetch()} retrying={isFetching} />
   }
 
   const headshot = person.ImageTags?.Primary
@@ -36,18 +39,14 @@ export default function PersonPage() {
               {items.TotalRecordCount} title{items.TotalRecordCount === 1 ? '' : 's'} in your library
             </p>
           )}
-          {person.Overview && (
-            <p className="mt-4 text-sm leading-relaxed text-ink-200 line-clamp-6 max-w-3xl">
-              {person.Overview}
-            </p>
-          )}
+          {person.Overview && <Biography text={person.Overview} />}
         </div>
       </div>
 
       <section className="mt-10 px-4 sm:px-6 lg:px-12">
         <h2 className="text-lg font-semibold text-white tracking-tight mb-4">In your library</h2>
         <div
-          className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
+          className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
         >
           {itemsLoading
             ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)
@@ -59,6 +58,35 @@ export default function PersonPage() {
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+/** Six lines, and Read more when there's more (the rest used to be cut off for good). */
+function Biography({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const [clipped, setClipped] = useState(false)
+  const ref = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && !open) setClipped(el.scrollHeight > el.clientHeight + 1)
+  }, [text, open])
+  return (
+    <div className="mt-4 max-w-3xl">
+      <p id="person-bio" ref={ref} className={`text-sm leading-relaxed text-ink-200 whitespace-pre-line ${open ? '' : 'line-clamp-6'}`}>
+        {text}
+      </p>
+      {(clipped || open) && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="person-bio"
+          onClick={() => setOpen((v) => !v)}
+          className="mt-2 text-sm font-semibold text-accent-300 hover:text-white"
+        >
+          {open ? 'Show less' : 'Read more'}
+        </button>
+      )}
     </div>
   )
 }

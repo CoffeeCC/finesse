@@ -160,13 +160,15 @@ export default function LibraryPage() {
     return () => ro.disconnect()
   }, [])
 
-  // Phones get 3 compact columns (2 giant posters wasted the screen); larger
-  // screens keep ~180px cards.
+  // Phones in portrait get 2 columns, so titles stay readable (about the 180px cards larger
+  // screens get); wider phones and small tablets 3 compact ones; larger screens ~180px cards.
+  // Same steps as the CSS grids elsewhere (grid-cols-2 min-[480px]:grid-cols-3).
   const compact = gridWidth > 0 && gridWidth < 600
+  const narrow = gridWidth > 0 && gridWidth < 450
   const GAP = compact ? 10 : 16
   const minCard = compact ? 104 : 180
   const listMode = layout === 'list'
-  const columns = listMode ? 1 : Math.max(compact ? 3 : 2, Math.floor((gridWidth + GAP) / (minCard + GAP)))
+  const columns = listMode ? 1 : narrow ? 2 : Math.max(compact ? 3 : 2, Math.floor((gridWidth + GAP) / (minCard + GAP)))
   const cardWidth = columns > 0 ? (gridWidth - (columns - 1) * GAP) / columns : minCard
   const rowHeight = listMode ? LIST_ROW : cardWidth * 1.5 + TEXT_BLOCK + ROW_GAP
   const rowCount = Math.ceil(total / columns)
@@ -233,8 +235,9 @@ export default function LibraryPage() {
 
   // --- Search within library ---
   const searching = debouncedFilter.trim().length > 1
+  // Within the chosen genres and watch state, like the rest of the page.
   const { data: searchResults, isLoading: searchLoading } = useQuery({
-    queryKey: ['libSearch', viewId, debouncedFilter],
+    queryKey: ['libSearch', viewId, debouncedFilter, genresParam, filtersParam],
     enabled: searching && !!viewId,
     queryFn: () =>
       api.getItems({
@@ -242,16 +245,26 @@ export default function LibraryPage() {
         includeItemTypes,
         recursive: true,
         searchTerm: debouncedFilter.trim(),
+        genres: genresParam,
+        filters: filtersParam,
         limit: 100,
         fields: 'PrimaryImageAspectRatio,ProductionYear',
       }),
   })
+  const searchCount = searchResults ? (searchResults.TotalRecordCount ?? searchResults.Items.length) : undefined
+  const narrowed = Boolean(filtersParam || genresParam)
 
   return (
     <div className="px-4 sm:px-6 lg:px-12 pb-16">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-5 sm:pt-6 pb-3">
         <h1 className="page-title">{view?.Name ?? 'Library'}</h1>
-        {total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {filtersParam || genresParam ? 'match' : 'titles'}</span>}
+        {searching && searchCount !== undefined ? (
+          <span className="text-sm text-ink-400">
+            {searchCount.toLocaleString()} of {total.toLocaleString()} {narrowed ? 'filtered titles' : 'titles'}
+          </span>
+        ) : (
+          total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {narrowed ? 'match' : 'titles'}</span>
+        )}
         <div className="flex-1" />
         <div className="flex w-full sm:w-auto items-center gap-2">
           <input
@@ -294,9 +307,10 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      {/* Filters: watch state, genres, sort — the app's own menus, not native selects. */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-4 -mx-1 px-1">
-        <div role="group" aria-label="Watch state" className="shrink-0 inline-flex p-0.5 rounded-full bg-ink-800/80 border border-white/10">
+      {/* Filters: watch state, genres, sort — the app's own menus, not native selects. On a
+          phone they wrap: Genre and Sort get a row of their own instead of hiding off screen. */}
+      <div className="flex flex-wrap items-center gap-2 pb-4">
+        <div role="group" aria-label="Watch state" className="inline-flex max-w-full shrink-0 overflow-x-auto no-scrollbar p-0.5 rounded-full bg-ink-800/80 border border-white/10">
           {WATCH_STATES.map((w) => (
             <button
               key={w.key}
@@ -331,10 +345,11 @@ export default function LibraryPage() {
       </div>
 
       {searching ? (
-        <div className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
+        // Same Grid / List choice as the whole library.
+        <div className={listMode ? 'grid gap-2.5' : 'grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]'}>
           {searchLoading
-            ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)
-            : searchResults?.Items.map((item) => <MediaCard key={item.Id} item={item} />)}
+            ? Array.from({ length: 12 }).map((_, i) => (listMode ? <div key={i} className="h-[96px] w-full rounded-xl shimmer" /> : <CardSkeleton key={i} />))
+            : searchResults?.Items.map((item) => (listMode ? <ListRow key={item.Id} item={item} /> : <MediaCard key={item.Id} item={item} />))}
           {!searchLoading && searchResults?.Items.length === 0 && (
             <p className="col-span-full text-ink-400 py-12 text-center">
               Nothing matches “{debouncedFilter}”

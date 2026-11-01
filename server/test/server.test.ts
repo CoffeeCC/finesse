@@ -10,6 +10,8 @@ import { gunzipSync } from 'node:zlib'
 import { after, before, describe, test } from 'node:test'
 import { ADMIN_TOKEN, API_KEY, USER_TOKEN, auth, fakeJellyfin, listen, tmp, webBuild, type FakeJellyfin } from './helpers.ts'
 
+/** A preview clip, by its canonical name (the item's id; ids starting with "a" are in a library everyone sees). */
+const CLIP = `${'a'.repeat(31)}1.mp4`
 let base = ''
 let jf: FakeJellyfin
 let radarr: { url: string; seen: { path: string; headers: IncomingMessage['headers'] }[]; server: Server }
@@ -29,6 +31,11 @@ before(async () => {
   const rs = createServer((req, res) => {
     seen.push({ path: req.url ?? '', headers: req.headers })
     res.writeHead(200, { 'Content-Type': 'application/json' })
+    if ((req.url ?? '').startsWith('/api/v3/history/since'))
+      return void res.end(JSON.stringify([
+        { id: 1, movieId: 7, eventType: 'downloadFailed', date: '2026-10-30T10:00:00Z', sourceTitle: 'Some.Release-GRP', downloadId: 'SABnzbd_nzo_x', data: { message: 'Not enough repair blocks', downloadClient: 'SABnzbd', downloadUrl: 'https://indexer.example/get?apikey=INDEXER-SECRET' } },
+        { id: 2, movieId: 8, eventType: 'grabbed', date: '2026-10-30T09:00:00Z', data: { nzbInfoUrl: 'https://indexer.example/?apikey=INDEXER-SECRET' } },
+      ]))
     res.end(JSON.stringify({ ok: true, path: req.url }))
   })
   radarr = { url: await listen(rs), seen, server: rs }
@@ -43,7 +50,7 @@ before(async () => {
   const work = tmp()
   write(join(work, 'baked'), webBuild('1.0.0'))
   write(join(work, 'config', 'web'), webBuild('1.2.0'))
-  write(join(work, 'config', 'previews'), { 'clip.mp4': Buffer.from('0123456789abcdefghij'), [`${'a'.repeat(32)}.mp4`]: Buffer.from('open'), [`${'b'.repeat(32)}.720.mp4`]: Buffer.from('private') })
+  write(join(work, 'config', 'previews'), { [CLIP]: Buffer.from('0123456789abcdefghij'), [`${'a'.repeat(32)}.mp4`]: Buffer.from('open'), [`${'b'.repeat(32)}.720.mp4`]: Buffer.from('private') })
   write(join(work, 'config', 'web'), { 'assets/big.js': 'x'.repeat(5000) })
   Object.assign(process.env, {
     FINESSE_CONFIG_DIR: join(work, 'config'),
@@ -129,24 +136,24 @@ describe('web app', () => {
 
   test('preview clips support ranges and conditional requests', async () => {
     // Clips of the library are for signed-in viewers only (the token rides in the address).
-    assert.equal((await rawGet('/finesse/previews/clip.mp4')).status, 401)
+    assert.equal((await rawGet(`/finesse/previews/${CLIP}`)).status, 401)
     assert.equal((await rawGet('/finesse/previews/manifest.json')).status, 401)
-    assert.equal((await rawGet('/finesse/previews/clip.mp4?ApiKey=bogus')).status, 401)
-    const r = await rawGet(`/finesse/previews/clip.mp4?ApiKey=${USER_TOKEN}`, { Range: 'bytes=2-5' })
+    assert.equal((await rawGet(`/finesse/previews/${CLIP}?ApiKey=bogus`)).status, 401)
+    const r = await rawGet(`/finesse/previews/${CLIP}?ApiKey=${USER_TOKEN}`, { Range: 'bytes=2-5' })
     assert.equal(r.status, 206)
     assert.equal(r.headers['content-range'], 'bytes 2-5/20')
     assert.equal(r.body.toString(), '2345')
-    const tail = await rawGet(`/finesse/previews/clip.mp4?ApiKey=${USER_TOKEN}`, { Range: 'bytes=-3' })
+    const tail = await rawGet(`/finesse/previews/${CLIP}?ApiKey=${USER_TOKEN}`, { Range: 'bytes=-3' })
     assert.equal(tail.body.toString(), 'hij')
-    assert.equal((await rawGet(`/finesse/previews/clip.mp4?ApiKey=${USER_TOKEN}`, { Range: 'bytes=50-60' })).status, 416)
-    const full = await rawGet(`/finesse/previews/clip.mp4?ApiKey=${USER_TOKEN}`)
-    const again = await rawGet(`/finesse/previews/clip.mp4?ApiKey=${USER_TOKEN}`, { 'If-None-Match': String(full.headers.etag) })
+    assert.equal((await rawGet(`/finesse/previews/${CLIP}?ApiKey=${USER_TOKEN}`, { Range: 'bytes=50-60' })).status, 416)
+    const full = await rawGet(`/finesse/previews/${CLIP}?ApiKey=${USER_TOKEN}`)
+    const again = await rawGet(`/finesse/previews/${CLIP}?ApiKey=${USER_TOKEN}`, { 'If-None-Match': String(full.headers.etag) })
     assert.equal(again.status, 304)
   })
 
   test('preview clips accept the app’s cookie, so the sign-in stays out of the address', async () => {
-    assert.equal((await rawGet('/finesse/previews/clip.mp4', { Cookie: `finesse_media_token=${USER_TOKEN}` })).status, 200)
-    assert.equal((await rawGet('/finesse/previews/clip.mp4', { Cookie: 'finesse_media_token=bogus' })).status, 401)
+    assert.equal((await rawGet(`/finesse/previews/${CLIP}`, { Cookie: `finesse_media_token=${USER_TOKEN}` })).status, 200)
+    assert.equal((await rawGet(`/finesse/previews/${CLIP}`, { Cookie: 'finesse_media_token=bogus' })).status, 401)
   })
 
   test('no clips yet: the manifests are empty lists, not errors (sign-in in a header)', async () => {
@@ -187,6 +194,20 @@ describe('service proxies', () => {
     assert.equal(seen.headers['x-api-key'], 'radarr-secret')
     assert.equal(seen.headers.authorization, undefined)
     assert.equal(seen.headers.cookie, undefined)
+  })
+
+  test('a request’s failed downloads: only which title, when and why — nothing else from the history', async () => {
+    const r = await fetch(`${base}/finesse/arr/radarr/history/since?date=2026-10-01T00:00:00Z&eventType=4`, { headers: auth(USER_TOKEN) })
+    assert.equal(r.status, 200)
+    const text = await r.text()
+    assert.deepEqual(JSON.parse(text), [{ movieId: 7, date: '2026-10-30T10:00:00Z', message: 'Not enough repair blocks' }])
+    assert.doesNotMatch(text, /SECRET|Release-GRP|SABnzbd/)
+    const seen = radarr.seen.at(-1)!
+    assert.equal(seen.path, '/api/v3/history/since?date=2026-10-01T00%3A00%3A00Z&eventType=4')
+    assert.equal(seen.headers['x-api-key'], 'radarr-secret')
+    // Any other history, for a household member: no.
+    assert.equal((await fetch(`${base}/finesse/arr/radarr/history/since?date=2026-10-01T00:00:00Z&eventType=1`, { headers: auth(USER_TOKEN) })).status, 403)
+    assert.equal((await fetch(`${base}/finesse/arr/radarr/history?eventType=4`, { headers: auth(USER_TOKEN) })).status, 403)
   })
 
   test('unconfigured services say so', async () => {

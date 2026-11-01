@@ -7,7 +7,7 @@
 
 import { useCallback, type RefCallback } from 'react'
 import { IS_TV } from './device'
-import { getPrefs } from './settings'
+import { getPrefs, reducedMotion } from './settings'
 
 const clamp = (n: number) => Math.max(-1, Math.min(1, n))
 
@@ -16,7 +16,7 @@ const clamp = (n: number) => Math.max(-1, Math.min(1, n))
  *  render a loading placeholder first. */
 export function useDepthParallax<T extends HTMLElement>(): RefCallback<T> {
   return useCallback((el: T | null) => {
-    if (!el || IS_TV || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    if (!el || IS_TV || reducedMotion()) return
     let raf = 0
     let tx = 0
     let ty = 0

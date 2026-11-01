@@ -46,7 +46,6 @@ html {
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
-  border-radius: 8px;
 }
 
 /* After the first real D-pad/arrow press, spatialNav sets data-nav-mode=spatial.
@@ -57,7 +56,22 @@ html {
 html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
+}
+
+/* The ring's corners: 8px for a control that has none of its own; never over a
+   control's own shape (pills, circles, rounded inputs keep theirs: those carry a
+   rounded-* class, which the :not() leaves alone). The dark band between the
+   control and its ring makes the ring show on accent buttons and bright art; it
+   skips controls with their own ring or shadow. Written with :not() rather than
+   relying on layers/zero specificity, so the TV sheet (layers unwrapped, :where()
+   expanded by webos/downlevel-css.mjs) behaves the same. */
+:where(a, button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus {
   border-radius: 8px;
+}
+:where(a, button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus {
+  box-shadow: 0 0 0 2px var(--color-ink-950);
 }
 
 /* No body background: html already paints ink-950, and an opaque body would
@@ -402,6 +416,23 @@ html:not(.tv) .shimmer {
   height: 100%;
   object-fit: cover;
 }
+/* The title block on its own (a page with it and one without, e.g. Back to a grid): the
+   leaving one is gone before the arriving page shows, and the arriving one waits for the
+   old page to clear, so text never sits on top of other text. */
+::view-transition-old(vt-detail-head):only-child,
+::view-transition-old(vt-detail-back):only-child {
+  animation: 110ms cubic-bezier(0.4, 0, 1, 1) both vtTextOut;
+}
+::view-transition-new(vt-detail-head):only-child,
+::view-transition-new(vt-detail-back):only-child {
+  animation: 320ms cubic-bezier(0.22, 1, 0.36, 1) 170ms both vtTextIn;
+}
+@keyframes vtTextOut {
+  to { opacity: 0; }
+}
+@keyframes vtTextIn {
+  from { opacity: 0; }
+}
 /* Everything else: out quick and slightly back, in with a small rise. */
 ::view-transition-old(root) {
   animation: 200ms cubic-bezier(0.4, 0, 1, 1) both vtRootOut;
@@ -551,6 +582,25 @@ html[data-nav-mode='spatial'][data-nav-dir='up'] .group:focus-visible .tilt {
   border: 3px solid rgba(255, 255, 255, 0.15);
   border-top-color: var(--color-accent-400);
   animation: spin 0.9s linear infinite;
+}
+
+/* ---------- Accessibility: the app's own Reduce motion switch (Settings → Appearance) ----------
+   Same calm as the device setting below, for people who want it here only.
+   Animations jump to their end state (so nothing that fades in stays hidden),
+   transitions are instant, and the scroll-linked depth effects are off. */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-motion="reduce"] .depth-row,
+html[data-motion="reduce"] .hero-scroll {
+  animation: none !important;
 }
 
 /* ---------- Accessibility: calm everything down on request ---------- */
@@ -1102,6 +1152,8 @@ html.tv .lv-line.leaving {
 .os-btn.primary:hover { background: #fff; }
 .os-btn.icon { width: 48px; padding: 0; }
 @media (min-width: 640px) { .os-btn.icon { width: 56px; } }
+/* Start over next to Resume: a round icon on a phone (the row is full there), words from sm up. */
+@media (max-width: 639px) { .os-btn.os-restart { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
 @keyframes os-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 18px 50px -14px rgba(var(--tint-rgb), 0.95); }
   50% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0), 0 22px 70px -8px rgba(var(--tint-rgb), 0.95); }

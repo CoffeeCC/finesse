@@ -14,7 +14,8 @@ export interface FinesseInfo {
   instanceId: string
   /** Jellyfin is served by Finesse at this path (same origin). */
   jellyfin: { path: string } | null
-  setup: { state: 'new' | 'applying' | 'ready' | 'error' | string; needsCode: boolean }
+  /** host: what runs the apps, Docker or this PC's own Windows programs (older servers don't say: Docker). */
+  setup: { state: 'new' | 'applying' | 'ready' | 'error' | string; needsCode: boolean; host?: 'docker' | 'native' }
   features: Record<string, boolean>
   publicUrl: string | null
   /** This machine's address on the home network, when the server knows it and you're on it. */

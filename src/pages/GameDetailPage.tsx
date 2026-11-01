@@ -83,9 +83,12 @@ export default function GameDetailPage() {
             {cover ? (
               <img src={cover} alt={title} className="aspect-[3/4] h-full w-full object-cover" />
             ) : (
-              <div className="flex aspect-[3/4] flex-col justify-between p-3" style={{ backgroundImage: tileGradient(rom) }}>
-                <span className="self-start rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">{rom.platform_display_name}</span>
-                <span className="line-clamp-4 text-lg font-bold leading-tight text-white">{title}</span>
+              // The shape on the outer box, the tile filling it (the TV's aspect fallback sizes it that way).
+              <div className="relative aspect-[3/4]">
+                <div className="absolute inset-0 flex h-full w-full flex-col justify-between p-3" style={{ backgroundImage: tileGradient(rom) }}>
+                  <span className="self-start rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">{rom.platform_display_name}</span>
+                  <span className="line-clamp-4 text-lg font-bold leading-tight text-white">{title}</span>
+                </div>
               </div>
             )}
           </div>

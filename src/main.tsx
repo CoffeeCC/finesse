@@ -9,12 +9,13 @@ import './lib/theme' // device theme before first paint; independent of the acco
 import './themes.css'
 import './card-table.css'
 import './celestial-table.css'
-import { applyUiScale } from './lib/settings'
+import { applyReduceMotion, applyUiScale } from './lib/settings'
 import { applyTimeAmbience } from './lib/timeAmbience'
 import { IS_TV } from './lib/device'
 import { migrateTvOrigin } from './lib/finesseServer'
 
 applyUiScale() // apply saved UI zoom before first paint (no flash)
+applyReduceMotion() // and the app's own Reduce motion switch
 if (IS_TV) document.documentElement.classList.add('tv') // CSS opts TVs out of heavy motion
 applyTimeAmbience() // daypart-tinted ambience (aurora hues, greeting copy)
 import App from './App'

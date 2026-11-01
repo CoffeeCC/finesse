@@ -7,6 +7,9 @@ import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { listen, tmp, webBuild } from './helpers.ts'
 
+/** A compact Jellyfin id in its hyphenated (GUID) spelling. */
+export const dashed = (id: string) => `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`
+
 type User = { Id: string; Name: string; Password?: string; Policy: Record<string, unknown> }
 
 /** A Jellyfin with users, sign-in, libraries, items, playback info and an HLS playlist. */
@@ -29,6 +32,14 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
     { Id: 'f'.repeat(32), Name: 'Playlists', CollectionType: 'playlists' },
   ]
   const movie = 'd'.repeat(32)
+  /** A film only the Private library has, and an R-rated one in Movies. */
+  const privateMovie = '6'.repeat(32)
+  const rated = '8'.repeat(32)
+  const titles = [
+    { Id: movie, Name: 'Sintel', Type: 'Movie', ParentId: libs[0]!.Id, ProductionYear: 2010, OfficialRating: 'PG-13' },
+    { Id: privateMovie, Name: 'Home Video', Type: 'Movie', ParentId: libs[2]!.Id, ProductionYear: 2024, OfficialRating: '' },
+    { Id: rated, Name: 'Grown-up Film', Type: 'Movie', ParentId: libs[0]!.Id, ProductionYear: 2020, OfficialRating: 'R' },
+  ]
   const read = async (req: IncomingMessage) => {
     const chunks: Buffer[] = []
     for await (const c of req) chunks.push(c as Buffer)
@@ -90,6 +101,13 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
         if (m[2] === '/Views') return send(200, { Items: libs.filter((l) => allowed.includes(l.Id)) })
         const parent = url.searchParams.get('ParentId')
         if (parent && !allowed.includes(parent)) return send(200, { Items: [], TotalRecordCount: 0 })
+        // Asked by id: the titles this user can see (a library they're in), like Jellyfin.
+        const ids = url.searchParams.get('Ids')
+        if (ids) {
+          const want = ids.split(',')
+          const hits = titles.filter((t) => want.includes(t.Id) && allowed.includes(t.ParentId) && !(t.OfficialRating === 'R' && typeof u.Policy.MaxParentalRating === 'number' && u.Policy.MaxParentalRating < 17))
+          return send(200, { Items: hits, TotalRecordCount: hits.length })
+        }
         return send(200, { Items: [{ Id: movie, Name: 'Sintel', ParentId: libs[0]!.Id, Type: 'Movie', Path: '/mnt/sams-nas/movies/Sintel.mkv', MediaSources: [{ Id: movie, Path: '/mnt/sams-nas/movies/Sintel.mkv' }] }], TotalRecordCount: 1 })
       }
       if (!m[2] && req.method === 'DELETE' && admin) return users.delete(u.Id), send(204)
@@ -102,9 +120,11 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
       return void res.end(gzipSync(JSON.stringify({ MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${movie}/master.m3u8?ApiKey=${tok}` }] })))
     }
     if (p === `/Items/${movie}/PlaybackInfo` && req.method === 'POST') {
-      return send(200, { MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${movie}/master.m3u8?MediaSourceId=${movie}&ApiKey=${tok}` }], PlaySessionId: 'ps1' })
+      // Like Jellyfin: ids are compact in JSON, but hyphenated in the media URLs it builds.
+      return send(200, { MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${dashed(movie)}/master.m3u8?MediaSourceId=${movie}&ApiKey=${tok}` }], PlaySessionId: 'ps1' })
     }
     if (p === `/videos/${movie}/master.m3u8`) return send(200, `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmain.m3u8?ApiKey=${tok}\n`, 'application/vnd.apple.mpegurl')
+    if (p.toLowerCase() === `/videos/${movie}/hls1/main/0.ts`) return send(200, 'binary-segment', 'video/mp2t')
     if (p === `/Videos/${movie}/stream.mp4`) return send(200, 'binary-video', 'video/mp4')
     // For Moments: people, a title's details and the library it's in.
     if (p === '/Users' && req.method === 'GET') return admin ? send(200, [...users.values()]) : send(403)
@@ -112,13 +132,13 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
     if (p === '/Items' && req.method === 'GET') {
       const ids = (url.searchParams.get('Ids') ?? '').split(',')
       const parent = url.searchParams.get('ParentId')
-      const hit = ids.includes(movie) && (!parent || parent === libs[0]!.Id)
-      return send(200, { Items: hit ? [{ Id: movie, Name: 'Sintel', Type: 'Movie', ProductionYear: 2010 }] : [], TotalRecordCount: hit ? 1 : 0 })
+      const hits = titles.filter((t) => ids.includes(t.Id) && (!parent || parent === t.ParentId))
+      return send(200, { Items: hits, TotalRecordCount: hits.length })
     }
     send(404)
   })
   const url = await listen(server)
-  return { url, server, users, calls, libs, movie, failing, opts }
+  return { url, server, users, calls, libs, movie, privateMovie, rated, titles, failing, opts }
 }
 
 export async function finesse(name: string, jf: { url: string }, serviceKey: string, publicUrl?: string) {

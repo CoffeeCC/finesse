@@ -1,3 +1,4 @@
+import { continueHereHref, positionNow } from '../../lib/transfer'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as api from '../../api/client'
@@ -8,10 +9,12 @@ import { claimPreview, previewClipUrl, releasePreview, EMPTY_MANIFEST } from '..
 import { getPrefs } from '../../lib/settings'
 import { setMood } from '../../lib/mood'
 import { IS_TV } from '../../lib/device'
+import { RestartIcon } from '../ActionButton'
 import WatchlistButton from '../WatchlistButton'
 import CastMenu from '../CastMenu'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
 import { useInView } from '../../lib/inView'
+import { episodeChip } from '../../lib/episodes'
 
 /** Resting this long on a title starts its preview clip behind the stage. */
 const CLIP_DWELL_MS = 2200
@@ -98,7 +101,8 @@ function useChips(entry: NowEntry) {
     if (!it) return { chips: [], line: '' }
     const chips: string[] = []
     if (it.Type === 'Episode') {
-      chips.push(`S${it.ParentIndexNumber ?? '?'} · E${it.IndexNumber ?? '?'}`)
+      const code = episodeChip(it)
+      if (code) chips.push(code)
       if (it.Name) chips.push(it.Name)
     } else {
       if (it.ProductionYear) chips.push(String(it.ProductionYear))
@@ -110,7 +114,7 @@ function useChips(entry: NowEntry) {
   }, [full, entry])
 }
 
-function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null) => void }) {
+function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to?: string) => void }) {
   const { chips, line } = useChips(entry)
   const logoOk = useLogoReadable(entry.logo)
   const watchlistable = entry.item && (entry.item.Type === 'Movie' || entry.item.Type === 'Series')
@@ -148,6 +152,18 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
           <PlayIcon />
           <span>{entry.primary.label}</span>
         </Link>
+        {entry.restart && (
+          <Link
+            to={entry.restart}
+            className="os-btn os-glass os-restart"
+            aria-label={`Start ${entry.title} over from the beginning`}
+            title="Start over"
+            onClick={(e) => onGo(entry, e, (e.currentTarget.closest('.os-stage') as HTMLElement | null)?.querySelector<HTMLElement>('.os-bd.on') ?? null, entry.restart)}
+          >
+            <RestartIcon />
+            <span>Start over</span>
+          </Link>
+        )}
         {entry.info && (
           <Link to={entry.info} className="os-btn os-glass">
             More info
@@ -351,9 +367,20 @@ export default function NowStage() {
   }, [setFocus])
 
   const go = useCallback(
-    (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null) => {
-      if (e.primary.stopSession) api.sendStopToSession(e.primary.stopSession)
-      morphNavigate(() => navigate(e.primary.to), { from, name: 'vt-hero', event: ev })
+    (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to = e.primary.to) => {
+      const h = e.primary.handoff
+      if (h && e.item && to === e.primary.to) {
+        // Continue here: where the other device is right now (the list can be 15 s old); it's
+        // stopped by the player once this one is playing, not before.
+        const item = e.item
+        void api
+          .getSessions()
+          .then((list) => list.find((x) => x.Id === h.sessionId))
+          .catch(() => undefined)
+          .then((s) => navigate(s?.NowPlayingItem?.Id === item.Id ? continueHereHref(item.Id, positionNow(s), h) : to))
+        return
+      }
+      morphNavigate(() => navigate(to), { from, name: 'vt-hero', event: ev })
     },
     [navigate],
   )

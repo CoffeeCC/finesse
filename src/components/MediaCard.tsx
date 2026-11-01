@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useClipManifest } from '../api/queries'
 import { blurhashAverageColor, blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import { vividRgb } from '../lib/accent'
-import { getPrefs } from '../lib/settings'
+import { getPrefs, reducedMotion } from '../lib/settings'
 import {
   claimPreview,
   releasePreview,
@@ -16,11 +16,10 @@ import {
 import { useTvLazy } from '../lib/tvLazy'
 import { morphNavigate, posterMorphName } from '../lib/motion'
 import { formatRuntime } from '../api/types'
+import { playChoice } from '../lib/playChoice'
 import type { JfItem } from '../api/types'
 
-const REDUCED_MOTION =
-  typeof window !== 'undefined' &&
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const REDUCED_MOTION = typeof window !== 'undefined' && reducedMotion()
 
 function progressPct(item: JfItem): number | null {
   const ud = item.UserData
@@ -278,7 +277,7 @@ export default function MediaCard({
       </div>
 
       <div className="mt-2 px-0.5">
-        <p className="text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">
+        <p title={item.Name} className="text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">
           {item.Name}
         </p>
         {/* Quiet captions: posters already carry their title, so the year /
@@ -293,9 +292,7 @@ export default function MediaCard({
 
 /** Where "play" should start for an item: its resume point, unless finished. */
 export function playHref(item: JfItem): string {
-  const ud = item.UserData
-  const t = !ud?.Played && ud?.PlaybackPositionTicks ? ud.PlaybackPositionTicks : 0
-  return `/play/${item.Id}${t > 0 ? `?t=${t}` : ''}`
+  return playChoice(item).href
 }
 
 /** Landscape "keep watching" tile (Continue Watching / Next Up): the episode

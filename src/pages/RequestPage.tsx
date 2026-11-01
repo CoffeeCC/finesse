@@ -1,9 +1,13 @@
+import { useMyLimits } from '../api/parental'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueries } from '@tanstack/react-query'
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
 import {
   arrAdd,
+  artistAlbums,
   arrDiscover,
+  requestArtistAlbum,
+  type ArtistAlbum,
   arrLibraryQuality,
   arrLookup,
   ArrError,
@@ -13,10 +17,13 @@ import {
   type DiscoverMovie,
   type DiscoverSection,
 } from '../api/arr'
-import { useArrQueue } from '../api/queries'
+import { noteRequested } from '../api/queries'
+import { discoverStatus } from '../lib/requestState'
+import { lookupTitles, matchesTerm } from '../lib/discovery'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
+import { ReadyLink, RequestStatusView, useRequestStatus } from '../components/RequestStatus'
 import QualityModal from '../components/QualityModal'
 import SabPanel from '../components/SabPanel'
 import { useToast } from '../components/Toast'
@@ -30,17 +37,33 @@ const KINDS: { kind: ArrKind; label: string; placeholder: string }[] = [
   { kind: 'artist', label: 'Music', placeholder: 'Search for an artist…' },
 ]
 
+/** A limited profile without requests (parental limits) gets a plain explanation instead. */
 export default function RequestPage() {
+  const limits = useMyLimits()
+  if (limits && !limits.requests)
+    return (
+      <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
+        <h1 className="page-title">Requests</h1>
+        <p className="mt-3 text-[14px] text-ink-300">Requests are off for this profile. Ask whoever runs the server if you’d like something added.</p>
+      </div>
+    )
+  return <RequestPageInner />
+}
+
+function RequestPageInner() {
   const [searchParams, setSearchParams] = useSearchParams()
   const term = searchParams.get('q') ?? ''
   const kindParam = searchParams.get('kind') as ArrKind
   const kind = KINDS.some((k) => k.kind === kindParam) ? kindParam : 'movie'
   const [input, setInput] = useState(term)
   const toast = useToast()
+  const qc = useQueryClient()
   // Per-result override so a freshly-requested item flips state immediately.
   const [overrides, setOverrides] = useState<Record<string, ItemState>>({})
   /** Open quality/upgrade modal for an in-library title. */
   const [qualityItem, setQualityItem] = useState<ArrResult | null>(null)
+  /** The artist whose albums and EPs are open (one at a time). */
+  const [albumsFor, setAlbumsFor] = useState<string | null>(null)
 
   // URL is the source of truth, debounced from typing.
   useEffect(() => {
@@ -67,11 +90,9 @@ export default function RequestPage() {
     staleTime: 5 * 60_000,
     retry: false,
     queryFn: () => arrLookup(kind, term),
+    // The lookup is fuzzy: keep what answers the term, so a search for nothing says so.
+    select: (rows) => rows.filter((r) => matchesTerm(lookupTitles(r), term)),
   })
-
-  // Live download status, keyed by kind+arrId, to badge search results in progress.
-  const { data: queue } = useArrQueue()
-  const queueByRef = new Map((queue ?? []).map((q) => [`${q.kind}-${q.refId}`, q]))
 
   // Current on-disk quality for library hits (movies/shows only).
   const libraryHits = (data ?? []).filter((r) => r.id > 0 && r.hasFile && r.kind !== 'artist')
@@ -91,10 +112,12 @@ export default function RequestPage() {
 
   const request = async (r: ArrResult) => {
     const k = keyOf(r)
+    if (overrides[k] === 'adding' || overrides[k] === 'requested') return
     setOverrides((o) => ({ ...o, [k]: 'adding' }))
     try {
-      await arrAdd(r)
+      const id = await arrAdd(r)
       setOverrides((o) => ({ ...o, [k]: 'requested' }))
+      noteRequested(qc, r, id)
       toast(`Added “${r.title}” — Radarr/Sonarr is searching for a release`)
     } catch (e) {
       setOverrides((o) => ({ ...o, [k]: 'idle' }))
@@ -181,7 +204,6 @@ export default function RequestPage() {
           {data?.map((r) => {
             const state: ItemState = overrides[keyOf(r)] ?? (r.id > 0 ? 'requested' : 'idle')
             const inLibrary = r.id > 0 && r.hasFile
-            const dl = r.id > 0 ? queueByRef.get(`${r.kind}-${r.id}`) : undefined
             const qInfo = inLibrary ? qualityByKey.get(`${r.kind}-${r.id}`) : undefined
             const canQuality = inLibrary && (r.kind === 'movie' || r.kind === 'series')
             return (
@@ -217,12 +239,7 @@ export default function RequestPage() {
                   <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
                     {inLibrary ? (
                       <>
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                          </svg>
-                          In library
-                        </span>
+                        <ReadyLink r={r} />
                         {canQuality && (
                           <button
                             onClick={() => setQualityItem(r)}
@@ -235,20 +252,8 @@ export default function RequestPage() {
                           </button>
                         )}
                       </>
-                    ) : dl ? (
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${dl.done ? 'text-emerald-300' : 'text-accent-300'}`}>
-                        <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v13.5m0 0 4.5-4.5M12 16.5 7.5 12M3.75 18.75A2.25 2.25 0 0 0 6 21h12a2.25 2.25 0 0 0 2.25-2.25" />
-                        </svg>
-                        {dl.done ? dl.status : `${dl.status} ${dl.progress}%`}
-                      </span>
-                    ) : state === 'requested' ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-accent-300">
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        Added — searching
-                      </span>
+                    ) : r.id > 0 || state === 'requested' ? (
+                      <CardStatus r={r} justRequested={state === 'requested'} />
                     ) : (
                       <button
                         onClick={() => request(r)}
@@ -267,7 +272,18 @@ export default function RequestPage() {
                         )}
                       </button>
                     )}
+                    {r.kind === 'artist' && Boolean(r.raw.foreignArtistId) && (
+                      <button
+                        type="button"
+                        aria-expanded={albumsFor === keyOf(r)}
+                        onClick={() => setAlbumsFor(albumsFor === keyOf(r) ? null : keyOf(r))}
+                        className="inline-flex items-center rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                      >
+                        {albumsFor === keyOf(r) ? 'Hide albums & EPs' : 'Albums & EPs'}
+                      </button>
+                    )}
                   </div>
+                  {albumsFor === keyOf(r) && <ArtistAlbums artist={r} />}
                 </div>
               </div>
             )
@@ -356,7 +372,11 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
       </Link>
       <p className="text-[11px] text-ink-400">{m.year ?? ''}</p>
       <div className="mt-1.5">
-        {m.existing ? (
+        {discoverStatus(m) === 'in-library' ? (
+          <span className="text-xs font-medium text-emerald-300">In your library</span>
+        ) : discoverStatus(m) === 'requested' ? (
+          <span className="text-xs font-medium text-accent-300">Requested</span>
+        ) : m.existing ? (
           <span className="text-xs font-medium text-emerald-300">Already in Finesse</span>
         ) : state === 'requested' ? (
           <span className="text-xs font-medium text-accent-300">Added — searching</span>
@@ -379,4 +399,72 @@ function titleHue(title: string): number {
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) % 360
   return h
+}
+
+/**
+ * An artist's albums and EPs, each requestable on its own. Requesting a whole artist only
+ * gets what Lidarr's metadata profile follows (often albums only), so an EP-only artist
+ * came up empty; asking for the EP itself gets it.
+ */
+function ArtistAlbums({ artist }: { artist: ArrResult }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const key = ['artistAlbums', String(artist.raw.foreignArtistId)]
+  const q = useQuery({ queryKey: key, queryFn: () => artistAlbums(artist), staleTime: 5 * 60_000, retry: false })
+  const [busy, setBusy] = useState<string | null>(null)
+  const [done, setDone] = useState<Record<string, string>>({})
+  const ask = async (a: ArtistAlbum) => {
+    if (busy) return
+    setBusy(a.foreignAlbumId)
+    try {
+      const r = await requestArtistAlbum(artist, a)
+      setDone((d) => ({ ...d, [a.foreignAlbumId]: r.state === 'have' ? 'In your music' : 'Requested' }))
+      toast(r.profileChanged ? `${r.message} ${artist.title} now follows EPs too.` : r.message)
+      void qc.invalidateQueries({ queryKey: key })
+      void qc.invalidateQueries({ queryKey: ['arrQueue'] })
+      void qc.invalidateQueries({ queryKey: ['arrRequested'] })
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t request “${a.title}”`, 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+  if (q.isLoading) return <p className="mt-3 text-xs text-ink-400">Asking Lidarr for {artist.title}’s albums and EPs…</p>
+  if (q.isError) return <p className="mt-3 text-xs text-red-300">{(q.error as Error).message}</p>
+  const list = q.data ?? []
+  if (!list.length) return <p className="mt-3 text-xs text-ink-400">Lidarr doesn’t list any albums or EPs for {artist.title} yet.</p>
+  return (
+    <ul className="mt-3 divide-y divide-white/5 rounded-xl border border-white/5">
+      {list.slice(0, 40).map((a) => {
+        const status = done[a.foreignAlbumId] ?? (a.downloaded ? 'In your music' : a.monitored ? 'Requested' : null)
+        return (
+          <li key={a.foreignAlbumId} className="flex min-w-0 items-center gap-3 px-3 py-2">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] text-white">{a.title}</span>
+              <span className="block text-[11px] text-ink-400">{[a.type, a.year].filter(Boolean).join(' · ')}</span>
+            </span>
+            {status ? (
+              <span className={`shrink-0 text-xs font-medium ${status === 'In your music' ? 'text-emerald-300' : 'text-accent-300'}`}>{status}</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void ask(a)}
+                disabled={busy !== null}
+                aria-label={`Request ${a.title}`}
+                className="shrink-0 rounded-full bg-accent-fill px-3 py-1 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
+              >
+                {busy === a.foreignAlbumId ? 'Requesting…' : 'Request'}
+              </button>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** A requested title's card: where it stands now (searching, downloading 42%, stuck…). */
+function CardStatus({ r, justRequested }: { r: ArrResult; justRequested: boolean }) {
+  const status = useRequestStatus(r, { justRequested })
+  return status ? <RequestStatusView status={status} /> : null
 }

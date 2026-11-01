@@ -1,6 +1,10 @@
 import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
-import { knownFinesse } from '../lib/finesseServer'
+import { discover, knownFinesse } from '../lib/finesseServer'
+import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot, type SavedChoice } from '../lib/arrProfiles'
+import { ApiError as SetupApiError, requestDefaultsApi } from './setup'
+import { requestKey } from '../lib/requestState'
+import { failuresByTitle } from '../lib/requestStatus'
 
 // Finesse's request feature talks to Radarr (movies), Sonarr (shows) and Lidarr
 // (music) through the Finesse server, which proxies /arr/{app}/* to the *arr APIs
@@ -183,6 +187,8 @@ function mapSeries(s: Record<string, unknown>): ArrResult {
     overview: s.overview as string | undefined,
     poster: pickPoster(s.images as ArrImage[], s.remotePoster as string),
     tvdbId: s.tvdbId as number | undefined,
+    // Sonarr v4 knows the TMDb id too: matches a library show that only carries that one.
+    ...(typeof s.tmdbId === 'number' && s.tmdbId > 0 ? { tmdbId: s.tmdbId } : {}),
     hasFile: (stats.episodeFileCount ?? 0) > 0,
     monitored: Boolean(s.monitored),
     raw: s,
@@ -210,12 +216,20 @@ export interface DiscoverMovie extends ArrResult {
   sections: DiscoverSection[]
   /** Already in Radarr (requested or downloaded). */
   existing: boolean
+  /** In Radarr with its file: downloaded (true), only requested (false), or unknown. */
+  downloaded?: boolean
 }
 
 /** Radarr's Discover tab: trending and popular movies, recommendations from what's in the
  *  library, and the admin's import lists. Excluded titles are left out. */
 export async function arrDiscover(): Promise<DiscoverMovie[]> {
-  const data = await arrFetch<Record<string, unknown>[]>('movie', '/importlist/movie?includeRecommendations=true&includeTrending=true&includePopular=true')
+  // Radarr's own list says which "existing" ones are downloaded and which are only requested
+  // (Discover's entries don't). Without it, they're just "existing".
+  const [data, library] = await Promise.all([
+    arrFetch<Record<string, unknown>[]>('movie', '/importlist/movie?includeRecommendations=true&includeTrending=true&includePopular=true'),
+    arrFetch<{ tmdbId?: number; hasFile?: boolean; movieFileId?: number }[]>('movie', '/movie').catch(() => null),
+  ])
+  const fileOf = library ? new Map(library.filter((m) => m.tmdbId).map((m) => [m.tmdbId!, Boolean(m.hasFile || m.movieFileId)])) : null
   const out: DiscoverMovie[] = []
   const seen = new Set<number>()
   for (const m of data ?? []) {
@@ -227,7 +241,9 @@ export async function arrDiscover(): Promise<DiscoverMovie[]> {
     if (m.isPopular) sections.push('popular')
     if (m.isRecommendation) sections.push('recommended')
     if (Array.isArray(m.lists) && m.lists.length) sections.push('lists')
-    out.push({ ...mapMovie(m), sections, existing: Boolean(m.isExisting) })
+    const existing = Boolean(m.isExisting) || Boolean(fileOf?.has(tmdb))
+    const downloaded = existing && fileOf ? fileOf.get(tmdb) ?? undefined : undefined
+    out.push({ ...mapMovie(m), sections, existing, ...(downloaded !== undefined ? { downloaded } : {}) })
   }
   return out
 }
@@ -309,40 +325,72 @@ interface ArrConfig {
   metadataProfileId?: number
 }
 
-// Resolve the quality profile + root folder from the live *arr config rather than
-// hardcoding, so renamed profiles / moved roots don't break adds. Prefer a 1080p
-// profile; fall back to whatever exists. Cached for the session.
-const configCache: Partial<Record<ArrKind, Promise<ArrConfig>>> = {}
+// The quality profile + root folder new requests use, from the live *arr config.
+// Setup's choice (settings.requests.profiles, in /api/finesse) wins; when that
+// profile is gone, the request stops with a message saying how to fix it
+// (src/lib/arrProfiles.ts). Cached for a few minutes (then the saved choice and
+// the app's profiles are read again); forgotten when a request fails, and by
+// forgetArrConfig() (call it after changing the choice, e.g. from a future
+// Settings → Downloads picker).
+const CONFIG_TTL_MS = 5 * 60_000
+const configCache: Partial<Record<ArrKind, { at: number; cfg: Promise<ArrConfig> }>> = {}
 
-function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
-  if (!configCache[kind]) {
-    configCache[kind] = (async () => {
-      const [profiles, roots] = await Promise.all([
-        arrFetch<{ id: number; name: string }[]>(kind, '/qualityprofile'),
-        arrFetch<{ path: string }[]>(kind, '/rootfolder'),
-      ])
-      const prof =
-        kind === 'artist'
-          ? profiles.find((p) => /lossless/i.test(p.name)) ??
-            profiles.find((p) => /standard/i.test(p.name)) ??
-            profiles[0]
-          : profiles.find((p) => /1080/.test(p.name)) ??
-            profiles.find((p) => p.id === 4) ??
-            profiles[0]
-      const root = roots[0]
-      if (!prof || !root) throw new ArrError(0, 'No quality profile or root folder configured')
-      const cfg: ArrConfig = { qualityProfileId: prof.id, rootFolderPath: root.path }
-      if (kind === 'artist') {
-        // Lidarr additionally needs a metadata profile ("Standard" over "None").
-        const metas = await arrFetch<{ id: number; name: string }[]>('artist', '/metadataprofile')
-        const meta = metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
-        if (!meta) throw new ArrError(0, 'No Lidarr metadata profile configured')
-        cfg.metadataProfileId = meta.id
-      }
-      return cfg
-    })()
+/** The quality profiles and folders an app has (Settings → Downloads lists them). */
+export async function arrRequestOptions(kind: ArrKind): Promise<{ profiles: ArrProfile[]; roots: ArrRoot[] }> {
+  const [profiles, roots] = await Promise.all([arrFetch<ArrProfile[]>(kind, '/qualityprofile'), arrFetch<ArrRoot[]>(kind, '/rootfolder')])
+  return { profiles: (profiles ?? []).map((p) => ({ id: p.id, name: p.name })), roots: (roots ?? []).map((r) => ({ path: r.path })) }
+}
+
+/** Forget the cached profile/root choice (one app, or all), so the next request looks again. */
+export function forgetArrConfig(kind?: ArrKind): void {
+  for (const k of kind ? [kind] : (Object.keys(configCache) as ArrKind[])) delete configCache[k]
+}
+
+/**
+ * What was chosen for this app (Settings → Downloads, or setup's quality), asked of the server
+ * afresh so a new choice counts. A server older than that endpoint: setup's name from discovery.
+ */
+async function savedProfile(kind: ArrKind): Promise<SavedChoice> {
+  try {
+    const { apps } = await requestDefaultsApi.get()
+    return apps.find((a) => a.app === PROFILE_KEY[kind]) ?? {}
+  } catch (e) {
+    if (!(e instanceof SetupApiError) || e.status !== 404) throw new ArrError(0, 'Couldn’t reach Finesse to check where requests go. Try again in a moment.')
   }
-  return configCache[kind]!
+  const info = (await discover({ force: true })) ?? knownFinesse()
+  return { profileName: info?.requests?.profiles?.[PROFILE_KEY[kind]]?.trim() || undefined }
+}
+
+async function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
+  const hit = configCache[kind]
+  if (hit && Date.now() - hit.at < CONFIG_TTL_MS) return hit.cfg
+  const saved = await savedProfile(kind)
+  const cfg = (async () => {
+    const [profiles, roots] = await Promise.all([
+      arrFetch<ArrProfile[]>(kind, '/qualityprofile'),
+      arrFetch<ArrRoot[]>(kind, '/rootfolder'),
+    ])
+    const pick = pickArrConfig(kind, profiles, roots, saved)
+    if (!pick.ok) throw new ArrError(0, pick.problem)
+    const out: ArrConfig = { qualityProfileId: pick.profile.id, rootFolderPath: pick.root.path }
+    if (kind === 'artist') {
+      // Lidarr additionally needs a metadata profile: "Albums & EPs" (Finesse adds it on servers it
+      // set up; Standard leaves EPs out, so EP-only artists had nothing to download), then
+      // "Standard" over "None".
+      const metas = await arrFetch<{ id: number; name: string }[]>('artist', '/metadataprofile')
+      const meta =
+        metas.find((m) => m.name === 'Albums & EPs') ?? metas.find((m) => /standard/i.test(m.name)) ?? metas.find((m) => !/none/i.test(m.name)) ?? metas[0]
+      if (!meta) throw new ArrError(0, 'Lidarr has no metadata profile. Add one in Lidarr (Settings → Profiles), then request again.')
+      out.metadataProfileId = meta.id
+    }
+    return out
+  })()
+  configCache[kind] = { at: Date.now(), cfg }
+  // A failed look is never kept: the next request tries again.
+  cfg.catch(() => {
+    if (configCache[kind]?.cfg === cfg) delete configCache[kind]
+  })
+  return cfg
 }
 
 /** A Sonarr lookup result for an anime (TheTVDB tags those "Anime"; plain "Animation" isn't). */
@@ -351,11 +399,36 @@ export function isAnime(raw: Record<string, unknown>): boolean {
   return genres.some((g) => typeof g === 'string' && g.toLowerCase() === 'anime')
 }
 
-/** Add the chosen result to Radarr/Sonarr/Lidarr and kick off a search for it. */
-export async function arrAdd(result: ArrResult): Promise<void> {
-  const cfg = await resolveConfig(result.kind)
+/** Requests on their way, so a second tap (or another page) waits for the first instead of adding twice. */
+const adding = new Map<string, Promise<number>>()
+
+/**
+ * Add the chosen result to Radarr/Sonarr/Lidarr and kick off a search for it.
+ * Resolves to the app's id for it (0 if the app didn't say).
+ */
+export function arrAdd(result: ArrResult): Promise<number> {
+  const key = requestKey(result)
+  const busy = adding.get(key)
+  if (busy) return busy
+  const p = (async () => {
+    try {
+      const added = await addWith(result, await resolveConfig(result.kind))
+      return typeof added?.id === 'number' ? added.id : 0
+    } catch (e) {
+      // The profile or folder may have just been removed: look again next time.
+      forgetArrConfig(result.kind)
+      throw e
+    } finally {
+      adding.delete(key)
+    }
+  })()
+  adding.set(key, p)
+  return p
+}
+
+async function addWith(result: ArrResult, cfg: ArrConfig): Promise<{ id?: number } | undefined> {
   if (result.kind === 'artist') {
-    await arrFetch('artist', '/artist', {
+    return arrFetch<{ id?: number }>('artist', '/artist', {
       method: 'POST',
       body: {
         ...result.raw,
@@ -366,10 +439,9 @@ export async function arrAdd(result: ArrResult): Promise<void> {
         addOptions: { monitor: 'all', searchForMissingAlbums: true },
       },
     })
-    return
   }
   if (result.kind === 'movie') {
-    await arrFetch('movie', '/movie', {
+    return arrFetch<{ id?: number }>('movie', '/movie', {
       method: 'POST',
       body: {
         ...result.raw,
@@ -380,23 +452,22 @@ export async function arrAdd(result: ArrResult): Promise<void> {
         addOptions: { searchForMovie: true },
       },
     })
-  } else {
-    await arrFetch('series', '/series', {
-      method: 'POST',
-      body: {
-        ...result.raw,
-        // Sonarr looks every show up as "standard"; anime is released with
-        // absolute episode numbers ("Show - 38"), which Sonarr only searches
-        // for and matches on an anime series (as Overseerr/Jellyseerr do).
-        seriesType: isAnime(result.raw) ? 'anime' : result.raw.seriesType,
-        qualityProfileId: cfg.qualityProfileId,
-        rootFolderPath: cfg.rootFolderPath,
-        monitored: true,
-        seasonFolder: true,
-        addOptions: { monitor: 'all', searchForMissingEpisodes: true },
-      },
-    })
   }
+  return arrFetch<{ id?: number }>('series', '/series', {
+    method: 'POST',
+    body: {
+      ...result.raw,
+      // Sonarr looks every show up as "standard"; anime is released with
+      // absolute episode numbers ("Show - 38"), which Sonarr only searches
+      // for and matches on an anime series (as Overseerr/Jellyseerr do).
+      seriesType: isAnime(result.raw) ? 'anime' : result.raw.seriesType,
+      qualityProfileId: cfg.qualityProfileId,
+      rootFolderPath: cfg.rootFolderPath,
+      monitored: true,
+      seasonFolder: true,
+      addOptions: { monitor: 'all', searchForMissingEpisodes: true },
+    },
+  })
 }
 
 // ---------- Download queue (request status) ----------
@@ -641,6 +712,21 @@ export async function arrRequested(days = 30): Promise<ArrRequested[]> {
   return out.sort((a, b) => Date.parse(b.added) - Date.parse(a.added))
 }
 
+// ---------- Failed downloads (request status) ----------
+
+export type ArrFailure = { message?: string; date?: string }
+
+/** Recent failed downloads, newest per title, keyed like the queue (`movie-7`). Finesse's
+ *  proxy answers this itself with only the title, time and reason. A missing app counts as none. */
+export async function arrFailures(days = 14): Promise<Map<string, ArrFailure>> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString()
+  const path = `/history/since?date=${encodeURIComponent(since)}&eventType=4`
+  type Rec = { movieId?: number; seriesId?: number; artistId?: number; date?: string; message?: string }
+  const get = (kind: ArrKind) => arrFetch<Rec[]>(kind, path).then((r) => (Array.isArray(r) ? r.map((x) => ({ ...x, kind })) : []), () => [])
+  const all = await Promise.all([get('movie'), get('series'), get('artist')])
+  return failuresByTitle(all.flat())
+}
+
 /** Take back a request that has nothing on disk yet. */
 export async function arrCancelRequest(r: Pick<ArrRequested, 'kind' | 'id'>): Promise<void> {
   const path = r.kind === 'movie' ? `/movie/${r.id}?deleteFiles=false&addImportExclusion=false` : r.kind === 'series' ? `/series/${r.id}?deleteFiles=false` : `/artist/${r.id}?deleteFiles=false`
@@ -847,4 +933,52 @@ export async function arrAutomaticSearch(kind: ArrKind, id: number): Promise<voi
     return
   }
   throw new ArrError(0, 'Automatic search is only available for movies and shows')
+}
+
+// ---------- Albums and EPs (server/src/albumRequests.ts) ----------
+
+export interface ArtistAlbum {
+  foreignAlbumId: string
+  title: string
+  /** Lidarr's type: Album, EP, Single… */
+  type: string
+  year?: number
+  inLidarr: boolean
+  monitored: boolean
+  downloaded: boolean
+}
+
+async function finesseJson<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${CONTENT_BASE}${path.replace(/^\//, '')}`, {
+    method,
+    headers: { Authorization: mediaBrowserAuthHeader(), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await res.text()
+  let data: unknown = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok) throw new ArrError(res.status, (data as { error?: string } | null)?.error ?? `Finesse answered ${res.status}`)
+  return data as T
+}
+
+/** An artist's albums and EPs (for a search result: its MusicBrainz id is in the lookup). */
+export async function artistAlbums(artist: ArrResult): Promise<ArtistAlbum[]> {
+  const id = String(artist.raw.foreignArtistId ?? '')
+  const q = new URLSearchParams({ artist: id, name: artist.title })
+  return (await finesseJson<{ albums: ArtistAlbum[] }>('GET', `/api/requests/artist-albums?${q}`)).albums
+}
+
+/** Request one album or EP, in the quality and folder music requests use. */
+export async function requestArtistAlbum(artist: ArrResult, album: ArtistAlbum): Promise<{ state: string; message: string; profileChanged?: boolean }> {
+  const cfg = await resolveConfig('artist')
+  try {
+    return await finesseJson('POST', '/api/requests/album', { foreignAlbumId: album.foreignAlbumId, artistName: artist.title, qualityProfileId: cfg.qualityProfileId, rootFolderPath: cfg.rootFolderPath })
+  } catch (e) {
+    forgetArrConfig('artist')
+    throw e
+  }
 }

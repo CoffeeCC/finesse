@@ -7,9 +7,11 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Auth } from './auth.ts'
 import type { Endpoint, SettingsStore } from './config.ts'
-import { ApiError, readBody, type Router } from './http/core.ts'
+import { ApiError, readBody, sendJson, type Router } from './http/core.ts'
 import { joinUrl, proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import type { JfUser } from './jellyfin.ts'
+import type { Parental } from './parental.ts'
+import { idsIn, refusedShape } from './parental.ts'
 import { addAllowed, arrVerdict, cleanPath, commandAllowed, hasFiles, isRead, rommAllowed, sabAllowed } from './policy.ts'
 
 const isAdmin = (u: JfUser) => u.Policy?.IsAdministrator === true
@@ -37,6 +39,26 @@ async function arrGet<T>(svc: Endpoint, api: string, path: string): Promise<T> {
   return (await r.json()) as T
 }
 
+/** history/since records cut down to which title failed, when, and the app's own reason. */
+export function failedDownloads(records: unknown): { movieId?: number; seriesId?: number; artistId?: number; date?: string; message?: string }[] {
+  if (!Array.isArray(records)) return []
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  return records.flatMap((r) => {
+    if (typeof r !== 'object' || r === null) return []
+    const x = r as Record<string, unknown>
+    const ev = x.eventType
+    if (ev !== 'downloadFailed' && ev !== 4) return []
+    const data = (typeof x.data === 'object' && x.data !== null ? x.data : {}) as Record<string, unknown>
+    const out: { movieId?: number; seriesId?: number; artistId?: number; date?: string; message?: string } = {}
+    if (num(x.movieId)) out.movieId = num(x.movieId)
+    if (num(x.seriesId)) out.seriesId = num(x.seriesId)
+    if (num(x.artistId)) out.artistId = num(x.artistId)
+    if (typeof x.date === 'string') out.date = x.date
+    if (typeof data.message === 'string' && data.message.trim()) out.message = data.message.trim().slice(0, 300)
+    return [out]
+  })
+}
+
 const ARR: Record<string, { id: 'radarr' | 'sonarr' | 'lidarr' | 'prowlarr'; api: string; name: string; admin?: boolean }> = {
   radarr: { id: 'radarr', api: '/api/v3', name: 'Radarr' },
   sonarr: { id: 'sonarr', api: '/api/v3', name: 'Sonarr' },
@@ -49,8 +71,13 @@ function need(e: Endpoint | undefined, name: string, key: 'apiKey' | 'password' 
   return e as Required<Pick<Endpoint, 'url'>> & Endpoint
 }
 
-export function registerServiceProxies(router: Router, deps: { settings: SettingsStore; auth: Auth }) {
-  const { settings, auth } = deps
+export function registerServiceProxies(router: Router, deps: { settings: SettingsStore; auth: Auth; parental: Parental }) {
+  const { settings, auth, parental } = deps
+  /** Limited profiles (parental.ts) don't request, unless allowed: the profile is the one the sign-in was checked as. */
+  const requestsOff = (user: JfUser) => {
+    const l = parental.limitOf(user.Id)
+    if (l && !l.requests) throw new ApiError(403, 'Requests are off for this profile. Ask whoever runs the server.')
+  }
 
   for (const [slug, def] of Object.entries(ARR)) {
     router.any(`/arr/${slug}/*`, async ({ req, res, params, url }) => {
@@ -59,6 +86,7 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
       // address instead, which goes no further than here.
       const picture = !def.admin && /^mediacover\//.test(path) && /^(GET|HEAD)$/i.test(req.method ?? '')
       const user = def.admin ? await auth.requireAdmin(req) : await auth.requireUser(req, picture ? { query: url.searchParams } : {})
+      requestsOff(user)
       let search = url.search
       if (picture) {
         const q = new URLSearchParams(url.searchParams)
@@ -87,6 +115,16 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
           search = v.query
         }
       }
+      // Failed downloads (a request's status): Finesse answers with only what that needs, so
+      // nothing else a history record carries (release names, download clients) leaves.
+      if (path === 'history/since' && !def.admin) {
+        if (!/^(GET|HEAD)$/i.test(req.method ?? '')) throw adminOnly()
+        const q = new URLSearchParams(url.searchParams)
+        q.delete('apikey')
+        const r = await fetch(joinUrl(svc.url, `${def.api}/history/since`, `?${q}`), { headers: { 'x-api-key': svc.apiKey! }, signal: AbortSignal.timeout(15000) })
+        if (!r.ok) throw new ApiError(502, `${def.name} answered ${r.status}`)
+        return sendJson(res, 200, failedDownloads(await r.json()))
+      }
       await proxyHttp(req, res, {
         target: joinUrl(svc.url, `${def.api}/${params.rest ?? ''}`, search),
         stripAuth: true,
@@ -99,6 +137,7 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
   // SABnzbd takes its key as a query parameter: /arr/sab?mode=… → /api?mode=…&apikey=…
   router.any('/arr/sab', async ({ req, res, url }) => {
     const user = await auth.requireUser(req)
+    requestsOff(user)
     const sab = need(settings.get().services.sabnzbd, 'SABnzbd')
     const q = new URLSearchParams(url.search)
     // Its settings hold your Usenet password: household members get the queue and its controls.
@@ -144,10 +183,10 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
   // BaseUrl is /jellyfin, so paths map 1:1; a plain Jellyfin (basePath "")
   // gets the prefix stripped and its redirects re-prefixed.
   router.any('/jellyfin', async ({ req, res, url }) => {
-    await proxyJellyfin(settings, req, res, '/', url.search)
+    await proxyJellyfin(settings, req, res, '/', url.search, parental)
   })
   router.any('/jellyfin/*', async ({ req, res, params, url }) => {
-    await proxyJellyfin(settings, req, res, `/${params.rest ?? ''}`, url.search)
+    await proxyJellyfin(settings, req, res, `/${params.rest ?? ''}`, url.search, parental)
   })
 }
 
@@ -158,28 +197,74 @@ function jellyfinTarget(settings: SettingsStore, rest: string, search: string) {
   return { target: joinUrl(j.url, `${base}${rest}`, search), base }
 }
 
-async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res: import('node:http').ServerResponse, rest: string, search: string) {
-  const { target, base } = jellyfinTarget(settings, rest, search)
+async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res: import('node:http').ServerResponse, rest: string, search: string, parental: Parental) {
+  // When any profile is limited (parental.ts), the request goes on with only the one token
+  // Jellyfin would have used, and that token's profile is the one checked.
+  const caller = await parental.jellyfinCaller(req, search)
+  const kid = caller?.kid ?? null
+  const q = caller ? caller.upstream.search : search
+  const { target, base } = jellyfinTarget(settings, rest, q)
+  // A limited profile: nothing that names a title it can't open gets to Jellyfin, and replies
+  // coming back are checked title by title.
+  if (kid) {
+    const query = new URLSearchParams(search)
+    const shape = refusedShape(rest, query)
+    if (shape) throw new ApiError(403, shape)
+    const ids = idsIn(rest, query, { skipPeople: true })
+    const ok = await parental.allowsAll(kid.limit, ids).catch(() => {
+      throw new ApiError(503, 'Couldn’t check this title against the profile’s limits. Try again in a moment.')
+    })
+    if (!ok) throw new ApiError(403, 'This profile can’t open that title')
+  }
+  const accept = String(req.headers.accept ?? '')
   await proxyHttp(req, res, {
     target,
     // A plain Jellyfin redirects to "/web/…"; keep the browser under /jellyfin.
     rewriteLocation: base === '' ? { from: '/', to: '/jellyfin/' } : undefined,
     timeoutMs: 60000,
+    ...(caller ? { setHeaders: caller.upstream.headers } : {}),
+    ...(kid
+      ? {
+          setHeaders: {
+            ...caller!.upstream.headers,
+            'accept-encoding': 'identity',
+            // Plain JSON only: no "profile=CamelCase" replies with keys the filter doesn't expect.
+            ...(/json|profile/i.test(accept) ? { accept: 'application/json' } : {}),
+          },
+          rewriteText: (t: string) => (t.trimStart().startsWith('#EXTM3U') ? t : parental.filterJson(t, kid.limit)),
+          rewriteRefusal: 'Couldn’t check this against the profile’s limits',
+        }
+      : {}),
   })
 }
 
-/** WebSocket upgrades (Jellyfin's /socket). Returns false if not ours. */
-export function handleUpgrade(settings: SettingsStore, req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
+/**
+ * WebSocket upgrades (Jellyfin's /socket). Returns false if not ours. When profiles are limited,
+ * the upgrade carries only the one token Jellyfin would use, and a limited profile doesn't get a
+ * socket at all: Jellyfin pushes session and library news down it that Finesse can't check title
+ * by title. The app doesn't need it to browse or play (it's what makes a device a "Play on…"
+ * target and refreshes lists live), and it retries quietly with a back-off.
+ */
+export function handleUpgrade(settings: SettingsStore, req: IncomingMessage, socket: Duplex, head: Buffer, parental?: Parental): boolean {
   const url = new URL(req.url ?? '/', 'http://x')
   let p = url.pathname
   if (p.startsWith('/finesse/')) p = p.slice('/finesse'.length)
   if (!(p === '/jellyfin' || p.startsWith('/jellyfin/'))) return false
-  try {
-    const { target } = jellyfinTarget(settings, p.slice('/jellyfin'.length) || '/', url.search)
-    target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:'
-    proxyUpgrade(req, socket, head, { target })
-  } catch {
+  const refuse = (status: string) => {
+    try {
+      socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+    } catch {
+      /* gone */
+    }
     socket.destroy()
   }
+  socket.on('error', () => socket.destroy())
+  void (async () => {
+    const caller = parental ? await parental.jellyfinCaller(req, url.search) : null
+    if (caller?.kid) return refuse('403 Forbidden')
+    const { target } = jellyfinTarget(settings, p.slice('/jellyfin'.length) || '/', caller ? caller.upstream.search : url.search)
+    target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:'
+    proxyUpgrade(req, socket, head, { target, ...(caller ? { setHeaders: caller.upstream.headers } : {}) })
+  })().catch((e) => refuse(e instanceof ApiError && e.status === 400 ? '400 Bad Request' : '502 Bad Gateway'))
   return true
 }

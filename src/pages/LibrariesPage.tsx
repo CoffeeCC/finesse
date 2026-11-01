@@ -1,7 +1,8 @@
+import { useMyLimits } from '../api/parental'
 import { Link } from 'react-router-dom'
-import { useViews } from '../api/queries'
-import { imageUrl } from '../api/client'
-import { ANIME_HREF, COLLECTIONS_HREF, useOptionalLibraries } from '../components/NavBar'
+import { useLatest, useViews } from '../api/queries'
+import { backdropUrl, imageUrl } from '../api/client'
+import { useSecondaryDestinations } from '../components/NavBar'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 import { useTheme } from '../lib/theme'
 
@@ -12,28 +13,48 @@ interface Tile {
   key: string
   label: string
   to: string
-  image?: string | null
+  /** The library, whose newest title lends its artwork. */
+  viewId?: string
   hue: number
   deck?: boolean
   kind?: 'movies' | 'tvshows'
+}
+
+/**
+ * A tile's picture: artwork from the newest title in that library, never the library's own
+ * image (Jellyfin draws the library's name into it, so the label showed twice). Music uses
+ * the newest album's cover. Nothing yet: the tile's colour.
+ */
+function TileArt({ viewId, music }: { viewId: string; music: boolean }) {
+  const { data } = useLatest(viewId)
+  const items = data ?? []
+  const src = music
+    ? (() => {
+        const a = items.find((i) => i.ImageTags?.Primary)
+        return a ? imageUrl(a.Id, 'Primary', { maxWidth: 480, tag: a.ImageTags!.Primary }) : null
+      })()
+    : items.map((i) => backdropUrl(i, 640)).find(Boolean) ?? null
+  if (!src) return null
+  return <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
 }
 
 export default function LibrariesPage() {
   const theme = useTheme()
   const { data: views } = useViews()
   const { surprise, busy } = useSurprise()
-  const { hasAnime, hasGames } = useOptionalLibraries()
+  const limits = useMyLimits()
+  // The same places, under the same names, as the desktop and TV bar's More menu (and in the
+  // same order), so nothing reachable there is missing here. Requests has its own button below.
+  const secondary = useSecondaryDestinations().filter((d) => d.to !== '/request')
   const items = views?.Items ?? []
   const byType = (t: string) => items.filter((v) => v.CollectionType === t)
-  const art = (id: string, tag?: string) => (tag ? imageUrl(id, 'Primary', { maxWidth: 640, tag }) : null)
+  const musicView = byType('music')[0]
+  const HUE: Record<string, number> = { Anime: 320, Music: 28, Games: 140, Friends: 170, Collections: 262, 'Smart collections': 290, 'Watch together': 12, Moments: 340 }
 
   const tiles: Tile[] = [
-    ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, image: art(v.Id, v.ImageTags?.Primary), hue: 222, deck: true, kind: 'movies' as const })),
-    ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, image: art(v.Id, v.ImageTags?.Primary), hue: 190, deck: true, kind: 'tvshows' as const })),
-    ...(hasAnime ? [{ key: 'anime', label: 'Anime', to: ANIME_HREF, hue: 320 }] : []),
-    ...byType('music').map((v) => ({ key: v.Id, label: v.Name, to: '/music', image: art(v.Id, v.ImageTags?.Primary), hue: 28 })),
-    ...(hasGames ? [{ key: 'games', label: 'Games', to: '/games', hue: 140 }] : []),
-    ...(byType('boxsets').length ? [{ key: 'collections', label: 'Collections', to: COLLECTIONS_HREF, hue: 262 }] : []),
+    ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 222, deck: true, kind: 'movies' as const })),
+    ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 190, deck: true, kind: 'tvshows' as const })),
+    ...secondary.map((d) => ({ key: d.to, label: d.label, to: d.to, viewId: d.to === '/music' ? musicView?.Id : undefined, hue: HUE[d.label] ?? 230 })),
   ]
 
   const renderTile = (t: Tile) => {
@@ -46,11 +67,8 @@ export default function LibrariesPage() {
         className={`${deck ? 'library-deck-tile ' : ''}group relative h-28 sm:h-36 rounded-2xl overflow-hidden flex items-end p-4 ring-1 ring-white/5 hover:ring-white/20 transition-all active:scale-[0.98]`}
         style={deck ? undefined : { background: `hsl(${t.hue}, 32%, 24%)` }}
       >
-        {t.image ? (
-          <img src={t.image} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70 group-hover:opacity-90 transition-opacity" />
-        ) : (
-          <span aria-hidden className="absolute -right-6 -top-6 h-24 w-24 rounded-full" style={{ background: `hsla(${(t.hue + 170) % 360}, 45%, 66%, 0.3)` }} />
-        )}
+        <span aria-hidden className="absolute -right-6 -top-6 h-24 w-24 rounded-full" style={{ background: `hsla(${(t.hue + 170) % 360}, 45%, 66%, 0.3)` }} />
+        {t.viewId && <TileArt viewId={t.viewId} music={t.to === '/music'} />}
         <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
         <span className={`${deck ? 'deck-tile-label ' : ''}relative text-lg font-semibold text-white`}>{t.label}</span>
       </Link>
@@ -80,6 +98,7 @@ export default function LibrariesPage() {
           <DiceIcon className="h-5 w-5" spinning={busy} />
           Surprise me
         </button>
+        {(!limits || limits.requests) && (
         <Link
           to="/request"
           className="h-12 rounded-xl bg-white/[0.07] border border-white/15 flex items-center justify-center gap-2.5 text-[15px] font-semibold text-white hover:bg-white/10 transition-colors"
@@ -89,6 +108,7 @@ export default function LibrariesPage() {
           </svg>
           Requests and downloads
         </Link>
+        )}
       </div>
     </div>
   )

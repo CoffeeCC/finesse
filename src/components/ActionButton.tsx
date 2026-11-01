@@ -7,6 +7,20 @@ import { forwardRef, type ReactNode } from 'react'
 export const PLAY_BTN =
   'inline-flex items-center justify-center gap-2 rounded-lg bg-white text-ink-950 h-11 px-6 text-[15px] font-semibold hover:bg-ink-200 disabled:opacity-60 active:scale-[0.98] transition-all w-full sm:w-auto'
 
+/** Next to it when there's a saved position: Start over, plainly second. */
+export const START_OVER_BTN =
+  'inline-flex items-center justify-center gap-2 rounded-lg bg-white/10 border border-white/15 text-white h-11 px-5 text-[15px] font-semibold hover:bg-white/20 active:scale-[0.98] transition-all w-full sm:w-auto'
+
+/** Start over's icon: an arrow going back round. */
+export function RestartIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+    </svg>
+  )
+}
+
 export const ACTION_BTN =
   'group/act flex flex-col items-center gap-1.5 w-16 sm:w-[4.5rem] py-1 rounded-xl text-[12px] font-medium text-ink-200 hover:text-white disabled:opacity-50 transition-colors outline-none'
 export const ACTION_CIRCLE =

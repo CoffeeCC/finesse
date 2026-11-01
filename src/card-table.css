@@ -23,7 +23,7 @@
   height: calc(var(--vw, 1vw) * 46.06);
   max-height: 700px;
   border-radius: 12px;
-  background: linear-gradient(110deg, #0b081733, #0a071b44), url('./assets/card-table/celestial-table-v1.webp') center / cover no-repeat;
+  background: linear-gradient(110deg, #0b081733, #0a071b44), var(--arcane-table) center / cover no-repeat;
   box-shadow: 0 24px 60px #0005, inset 0 0 40px #0004;
   overflow: hidden;
 }
@@ -44,7 +44,7 @@
 .draw-station { position: absolute; z-index: 7; top: 10%; right: 11%; display: flex; flex-direction: column; align-items: center; width: 145px; }
 .draw-pile { position: relative; display: block; width: 95px; height: 134px; border-radius: 8px; outline-offset: 9px; }
 .draw-pile::before { content: ''; position: absolute; inset: 13px -7px -12px 7px; border-radius: 12px; background: #0005; filter: blur(5px); transform: rotate(5deg); }
-.stock-card { position: absolute; inset: 0; display: block; background: #e1d3b9 url('./assets/card-table/celestial-back-v1.webp') center / 100% 100%; border: 1px solid #bea984; border-radius: 7px; box-shadow: 1px 2px 1px #0007; transform: translate(calc(var(--layer) * .7px), calc(var(--layer) * -2px)) rotate(5deg); }
+.stock-card { position: absolute; inset: 0; display: block; background: #e1d3b9 var(--arcane-back) center / 100% 100%; border: 1px solid #bea984; border-radius: 7px; box-shadow: 1px 2px 1px #0007; transform: translate(calc(var(--layer) * .7px), calc(var(--layer) * -2px)) rotate(5deg); }
 .stock-card:last-child { box-shadow: inset 0 0 0 1px #fff5; }
 .draw-pile:not(:disabled):hover .stock-card:last-child { filter: brightness(1.12); }
 .draw-pile:not(:disabled):active { transform: translateY(2px); }
@@ -55,7 +55,7 @@
 .card-flight { display: block; width: calc(100% + 28px); margin-left: -14px; transform-origin: center; }
 .card-turn { display: block; position: relative; transform-style: preserve-3d; }
 .playing-card { position: relative; display: block; padding: 24px 7px 8px; border: 1px solid #9e8d6a; border-radius: 9px; color: #27291f; background: linear-gradient(145deg, #fff2d6, #d8c8a5); box-shadow: 1px 3px 3px #0007, inset 0 0 0 2px #f6e7c7; transform: translateY(var(--card-rise)) rotate(var(--card-angle)); transform-origin: center 95%; transition: transform .22s ease, box-shadow .22s ease; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.card-reverse { position: absolute; display: block; inset: 0; border-radius: 9px; background: #261d3b url('./assets/card-table/celestial-back-v1.webp') center / 100% 100%; transform: rotateY(180deg); backface-visibility: hidden; -webkit-backface-visibility: hidden; box-shadow: 1px 3px 4px #0006; }
+.card-reverse { position: absolute; display: block; inset: 0; border-radius: 9px; background: #261d3b var(--arcane-back) center / 100% 100%; transform: rotateY(180deg); backface-visibility: hidden; -webkit-backface-visibility: hidden; box-shadow: 1px 3px 4px #0006; }
 .hand-card:hover, .hand-card:focus-visible, .hand-card.card-selected { z-index: 3; }
 .hand-card:not(:disabled):hover .playing-card, .hand-card:not(:disabled):focus-visible .playing-card, .hand-card.card-selected .playing-card { transform: translateY(-9px) rotate(0deg); box-shadow: 1px 9px 9px #0006; }
 .hand-card.card-selected .playing-card { border-color: #eed29b; box-shadow: 0 0 0 1px #d6b371, 1px 8px 8px #0005; }
@@ -223,8 +223,8 @@ html[data-theme="card-table"] .ticket-toy:focus { border-radius: 4px; }
 /* The metaphor continues into normal browsing without replacing its filters,
    virtualization, previews, or routes. Default and Midnight are unaffected. */
 html[data-theme="card-table"] .library-deck-grid { grid-template-columns: repeat(auto-fill,minmax(160px,1fr)); justify-items: center; row-gap: 30px; column-gap: 20px; padding: 12px 0 14px; }
-html[data-theme="card-table"] .library-deck-tile { height: 224px; width: 156px; isolation: isolate; overflow: visible; padding: 11px; border-radius: 8px; border: 1px solid #b8a47b; background: #261b38 url('./assets/card-table/celestial-back-v1.webp') center / cover; box-shadow: 2px 5px 7px #0006; }
-html[data-theme="card-table"] .library-deck-tile::before, html[data-theme="card-table"] .library-deck-tile::after { content: ''; position: absolute; z-index: -1; inset: 0; border: 1px solid #a38b63; border-radius: 8px; background: #261b38 url('./assets/card-table/celestial-back-v1.webp') center / cover; pointer-events: none; }
+html[data-theme="card-table"] .library-deck-tile { height: 224px; width: 156px; isolation: isolate; overflow: visible; padding: 11px; border-radius: 8px; border: 1px solid #b8a47b; background: #261b38 var(--arcane-back) center / cover; box-shadow: 2px 5px 7px #0006; }
+html[data-theme="card-table"] .library-deck-tile::before, html[data-theme="card-table"] .library-deck-tile::after { content: ''; position: absolute; z-index: -1; inset: 0; border: 1px solid #a38b63; border-radius: 8px; background: #261b38 var(--arcane-back) center / cover; pointer-events: none; }
 html[data-theme="card-table"] .library-deck-tile::before { transform: translateY(5px) rotate(-2deg); }
 html[data-theme="card-table"] .library-deck-tile::after { z-index: -2; transform: translateY(9px) rotate(1deg); }
 html[data-theme="card-table"] .library-deck-tile > img, html[data-theme="card-table"] .library-deck-tile > span[aria-hidden] { display: none; }
@@ -292,7 +292,7 @@ html[data-theme="card-table"] [data-poster-card] .tilt { border: 4px solid #9f80
   .table-intro h1 { font-size: 32px; }
   .table-tools { justify-content: space-between; gap: 8px; font-size: 9px; margin-top: 6px; }
   .table-tools a, .table-tools button { min-height: 44px; white-space: nowrap; }
-  .table-stage { height: calc(var(--vw, 1vw) * 155 - 31px); min-height: 600px; border-radius: 9px; background-image: linear-gradient(110deg, #0b081733, #0a071b44), url('./assets/card-table/celestial-phone-v1.webp'); }
+  .table-stage { height: calc(var(--vw, 1vw) * 155 - 31px); min-height: 600px; border-radius: 9px; background-image: linear-gradient(110deg, #0b081733, #0a071b44), var(--arcane-phone); }
   .mat-library-selector { top: 13%; left: 13%; max-width: 74%; }
   .mat-library-selector .table-kicker { font-size: 7px; }
   .deck-list { gap: 17px; }
@@ -347,7 +347,7 @@ html[data-theme="card-table"] [data-poster-card] .tilt { border: 4px solid #9f80
 }
 @media (min-width: 600px) and (max-width: 900px) {
   .coin-toy { left: 1.9%; top: 23%; }
-  .table-stage { height: calc(var(--vw, 1vw) * 91.2); min-height: 620px; background-image: linear-gradient(110deg, #0b081733, #0a071b44), url('./assets/card-table/celestial-table-v1.webp'); }
+  .table-stage { height: calc(var(--vw, 1vw) * 91.2); min-height: 620px; background-image: linear-gradient(110deg, #0b081733, #0a071b44), var(--arcane-table); }
   .draw-station { top: 20%; width: 110px; }
   .draw-pile { width: 88px; height: 124px; }
   .mat-status { top: auto; bottom: 13%; left: 20%; right: 20%; justify-content: center; text-align: center; }
@@ -374,12 +374,12 @@ html.tv .hand-card:focus .playing-card { outline: 3px solid var(--table-focus); 
 .hand-card.card-selected .playing-card { box-shadow: inset 0 0 0 1px #c5a368, inset 0 -2px 1px #927d5055, 0 2px 2px #0007, 4px 15px 20px #0006; }
 @media (max-width:760px) { .card-sigil { width: 6px; height: 8px; margin-left: -3px; top: 6px; } }
 
-.table-stage { --deck-back: url('./assets/card-table/celestial-back-v1.webp'); }
-.table-stage[data-deck-kind="tvshows"] { --deck-back: url('./assets/card-table/celestial-back-v1.webp'); }
+.table-stage { --deck-back: var(--arcane-back); }
+.table-stage[data-deck-kind="tvshows"] { --deck-back: var(--arcane-back); }
 .stock-card, .card-reverse { background-image: var(--deck-back); }
 html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"],
 html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::before,
-html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::after { background-image: url('./assets/card-table/celestial-back-v1.webp'); }
+html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::after { background-image: var(--arcane-back); }
 .no-table-motion .ticket-face { transition: none; }
 @media (prefers-reduced-motion:reduce) { .ticket-face { transition: none; } }
 

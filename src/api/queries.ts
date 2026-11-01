@@ -1,6 +1,9 @@
 import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import * as api from './client'
-import { arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
+import { arrFailures, arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
+import { useEffect } from 'react'
+import { markRequested } from '../lib/requestState'
+import { isSameTitle, lookupTitles, matchesTerm } from '../lib/discovery'
 import { sabStatus } from './sab'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { type ClipManifest } from '../lib/preview'
@@ -238,9 +241,15 @@ export function useHomeLayout() {
   return useQuery({ queryKey: ['homeLayout'], queryFn: api.getHomeLayout, staleTime: 60_000 })
 }
 
-/** Active Radarr/Sonarr downloads, polled so progress bars move on their own. */
+// The queue rows seen last (shared by every useArrQueue, so one of them acts per change).
+let lastQueue: Set<string> | null = null
+
+/** Active Radarr/Sonarr downloads, polled so progress bars move on their own. When a
+ *  download leaves the queue (imported, or failed), what the request screens know about
+ *  that title is fetched again, so a finished one reads Ready rather than "searching". */
 export function useArrQueue(enabled = true) {
-  return useQuery({
+  const qc = useQueryClient()
+  const q = useQuery({
     queryKey: ['arrQueue'],
     enabled,
     queryFn: arrQueue,
@@ -248,12 +257,60 @@ export function useArrQueue(enabled = true) {
     staleTime: 5_000,
     retry: false,
   })
+  useEffect(() => {
+    if (!q.data) return
+    const now = new Set(q.data.map((i) => i.key))
+    const gone = lastQueue ? [...lastQueue].some((k) => !now.has(k)) : false
+    lastQueue = now
+    if (gone) for (const key of [['arrLookup'], ['arrLookupAll'], ['arrDiscover'], ['arrMovieDetails'], ['arrRequested'], ['arrFailures'], ['jfByProvider']]) void qc.invalidateQueries({ queryKey: key })
+  }, [q.data, qc])
+  return q
+}
+
+/** The library's copy of a requestable title (same TMDb/TVDb id), so Ready can open it. */
+export function useLibraryMatch(r: ArrResult | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['jfByProvider', r?.kind, r?.tmdbId ?? r?.tvdbId ?? r?.title, r?.year],
+    enabled: enabled && Boolean(r) && r!.kind !== 'artist',
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: async () => {
+      const res = await api.getItems({ searchTerm: r!.title, includeItemTypes: r!.kind === 'movie' ? 'Movie' : 'Series', recursive: true, fields: 'ProviderIds,ProductionYear', limit: 30 })
+      return res.Items.find((i) => isSameTitle(i, r!)) ?? null
+    },
+  })
+}
+
+/** Recent failed downloads by title (`movie-7`), for "searching again" on a request. */
+export function useArrFailures(enabled = true) {
+  return useQuery({
+    queryKey: ['arrFailures'],
+    enabled,
+    queryFn: () => arrFailures(),
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+/**
+ * A title was just requested: every list that shows it (Request search, global search,
+ * Discover, the movie's own page) says so at once, and each is fetched again for the truth.
+ * Without this, a cached search kept offering Request for something already requested.
+ */
+export function noteRequested(qc: QueryClient, r: ArrResult, id: number): void {
+  const mark = <T extends ArrResult>(x: T): T => markRequested(x, r, id)
+  const patchList = (old: unknown) => (Array.isArray(old) ? (old as ArrResult[]).map(mark) : old)
+  for (const key of [['arrLookup'], ['arrLookupAll'], ['arrDiscover']]) qc.setQueriesData({ queryKey: key }, patchList)
+  if (r.kind === 'movie' && r.tmdbId) qc.setQueryData(['arrMovieDetails', r.tmdbId], (old: ArrResult | undefined) => (old ? mark(old) : old))
+  for (const key of [['arrLookup'], ['arrLookupAll'], ['arrDiscover'], ['arrMovieDetails'], ['arrRequested'], ['arrQueue']]) void qc.invalidateQueries({ queryKey: key })
 }
 
 /** Recent requests still waiting for a release (nothing on disk yet). */
-export function useArrRequested() {
+export function useArrRequested(enabled = true) {
   return useQuery({
     queryKey: ['arrRequested'],
+    enabled,
     queryFn: () => arrRequested(),
     refetchInterval: 60_000,
     staleTime: 15_000,
@@ -548,7 +605,8 @@ export function useSearch(term: string) {
         recursive: true,
         includeItemTypes: 'Movie,Series,Episode',
         limit: 60,
-        fields: CARD_FIELDS,
+        // ProviderIds: search matches requestable titles to these by TMDb/TVDb id.
+        fields: `${CARD_FIELDS},ProviderIds`,
       }),
   })
 }
@@ -611,7 +669,9 @@ export function useMostWatchedAtHome() {
 }
 
 /** Search every friend's server (Groups) too; each hit knows whose it is. */
-export function useFriendSearch(term: string) {
+/** Films and shows on friends' servers (Groups) for a term, each server asked on its own through
+ *  the friend proxy: one that doesn't answer is listed in `failed`, the rest still show. */
+export function useFriendSearch(term: string): { hits: { item: JfItem; friend: { id: string; name: string } }[]; failed: string[] } {
   const { data: friends } = useFriends()
   const q = term.trim()
   const results = useQueries({
@@ -621,10 +681,14 @@ export function useFriendSearch(term: string) {
       retry: false,
       staleTime: 60_000,
       queryFn: async () =>
-        (await api.getItems({ searchTerm: q, recursive: true, includeItemTypes: 'Movie,Series', limit: 8, fields: CARD_FIELDS, peer: f.id })).Items.map((item) => ({ item, friend: f })),
+        // ProviderIds: a friend's title joins ours (or another friend's) only by TMDb/TVDb id.
+        (await api.getItems({ searchTerm: q, recursive: true, includeItemTypes: 'Movie,Series', limit: 8, fields: `${CARD_FIELDS},ProviderIds`, peer: f.id })).Items.map((item) => ({ item, friend: { id: f.id, name: f.name } })),
     })),
   })
-  return results.flatMap((r) => r.data ?? [])
+  return {
+    hits: results.flatMap((r) => r.data ?? []),
+    failed: q.length > 1 ? (friends ?? []).filter((_, i) => results[i]?.isError).map((f) => f.name) : [],
+  }
 }
 
 /** People matching a search term (cast / crew). */
@@ -647,7 +711,8 @@ export function useRequestLookup(term: string) {
     retry: false,
     queryFn: async (): Promise<ArrResult[]> => {
       const [movies, shows] = await Promise.allSettled([arrLookup('movie', term), arrLookup('series', term)])
-      const pick = (r: PromiseSettledResult<ArrResult[]>) => (r.status === 'fulfilled' ? r.value.slice(0, 5) : [])
+      // Only results that answer the term (the lookups are fuzzy and return something for anything).
+      const pick = (r: PromiseSettledResult<ArrResult[]>) => (r.status === 'fulfilled' ? r.value.filter((x) => matchesTerm(lookupTitles(x), term)).slice(0, 5) : [])
       return [...pick(movies), ...pick(shows)]
     },
   })

@@ -3,6 +3,7 @@
 // with the art, colour and action the stage needs. Everything here comes from
 // data the app already loads (resume, next up, sessions, friends, latest).
 
+import { continueHereHref, positionNow } from '../../lib/transfer'
 import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import * as api from '../../api/client'
@@ -12,7 +13,8 @@ import { formatRuntime, type JfItem } from '../../api/types'
 import { backdropBlurhash, blurhashAverageColor, primaryBlurhash } from '../../lib/blurhash'
 import { vividRgb } from '../../lib/accent'
 import { useFinesse } from '../../lib/finesseServer'
-import { playHref } from '../MediaCard'
+import { playChoice } from '../../lib/playChoice'
+import { episodeChip } from '../../lib/episodes'
 
 export type NowKind = 'elsewhere' | 'resume' | 'next' | 'music' | 'play' | 'friend' | 'new'
 
@@ -36,7 +38,10 @@ export interface NowEntry {
   /** "r, g, b": the colour the room takes on. */
   tint: string
   pct?: number
-  primary: { label: string; to: string; stopSession?: string }
+  /** handoff: "Continue here" takes over from that session (lib/transfer: fresh position, stopped once this plays). */
+  primary: { label: string; to: string; handoff?: { sessionId: string; name: string } }
+  /** From the beginning, next to "Resume from 42:10" (lib/playChoice). */
+  restart?: string
   info?: string
   /** A scene the server draws itself (game streaming). */
   gen?: 'neon' | 'pixel'
@@ -61,12 +66,13 @@ function seriesLogo(item: JfItem): string | null {
 }
 
 const left = (item: JfItem, pos: number) => (item.RunTimeTicks ? formatRuntime(item.RunTimeTicks - pos) : '')
-const episodeLabel = (item: JfItem) => `S${item.ParentIndexNumber ?? '?'} · E${item.IndexNumber ?? '?'}`
+const episodeLabel = (item: JfItem) => episodeChip(item) || 'Episode'
 
 function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', artWidth: number, extra: Partial<NowEntry> = {}): NowEntry {
   const isEp = item.Type === 'Episode'
   const pos = item.UserData?.PlaybackPositionTicks ?? 0
-  const resuming = !item.UserData?.Played && pos > 0
+  const choice = playChoice(item)
+  const resuming = choice.resuming
   const pct = resuming && item.RunTimeTicks ? Math.min(100, Math.max(2, (pos / item.RunTimeTicks) * 100)) : undefined
   const rest = left(item, pos)
   const title = isEp ? (item.SeriesName ?? item.Name) : item.Name
@@ -77,7 +83,12 @@ function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', ar
     kicker = rest ? `Continue · ${rest} left` : 'Continue'
     sub = isEp ? `${episodeLabel(item)} · ${rest} left` : `${rest} left`
   } else if (kind === 'next') {
-    kicker = `Up next · season ${item.ParentIndexNumber ?? '?'}, episode ${item.IndexNumber ?? '?'}`
+    kicker =
+      item.ParentIndexNumber != null && item.IndexNumber != null
+        ? `Up next · season ${item.ParentIndexNumber}, episode ${item.IndexNumber}`
+        : item.IndexNumber != null
+          ? `Up next · episode ${item.IndexNumber}`
+          : 'Up next'
     sub = `${episodeLabel(item)} next`
   } else if (kind === 'new') {
     kicker = 'New on your server'
@@ -96,8 +107,9 @@ function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', ar
     tint: tintOf(item),
     pct,
     primary: playable
-      ? { label: resuming ? 'Resume' : isEp ? `Play ${episodeLabel(item).replace(' · ', ':')}` : 'Play', to: playHref(item) }
+      ? { label: choice.resuming ? choice.label : isEp ? `Play ${episodeLabel(item).replace(' · ', ':')}` : 'Play', to: choice.href }
       : { label: 'Open', to: `/item/${item.Id}` },
+    ...(playable && choice.startOver ? { restart: choice.startOver } : {}),
     info: `/item/${isEp && item.SeriesId ? item.SeriesId : item.Id}`,
     ...extra,
   }
@@ -136,7 +148,7 @@ function sessionEntry(s: JfSession, artWidth: number): NowEntry | null {
     sub: `On ${where}`,
     badge: 'Live',
     pct: item.RunTimeTicks ? Math.min(100, (pos / item.RunTimeTicks) * 100) : undefined,
-    primary: { label: 'Continue here', to: `/play/${item.Id}${pos > 0 ? `?t=${pos}` : ''}`, stopSession: s.Id },
+    primary: { label: 'Continue here', to: continueHereHref(item.Id, positionNow(s), { sessionId: s.Id, name: where }), handoff: { sessionId: s.Id, name: where } },
     playing: !s.PlayState?.IsPaused,
   }
 }

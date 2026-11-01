@@ -34,7 +34,8 @@ import { peerOf } from '../lib/peers'
 import { useFriends } from '../api/queries'
 import { ActionMenu, type ActionItem } from '../components/Menu'
 import { DELETABLE, DeleteFromLibrary, useCanDelete } from '../components/DeleteFromLibrary'
-import { ACTION_BTN, ActionButton, PLAY_BTN, actionCircle } from '../components/ActionButton'
+import { ACTION_BTN, ActionButton, PLAY_BTN, RestartIcon, START_OVER_BTN, actionCircle } from '../components/ActionButton'
+import { playChoice } from '../lib/playChoice'
 import WatchlistButton from '../components/WatchlistButton'
 import TrailerHero from '../components/TrailerHero'
 import VideoClipHero from '../components/VideoClipHero'
@@ -43,6 +44,12 @@ import { useAuth } from '../auth/AuthContext'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
+import { episodeCode, groupEpisodeVersions } from '../lib/episodes'
+import ItemUnavailable from '../components/ItemUnavailable'
+import AddToShortlist from '../components/AddToShortlist'
+import StartParty from '../components/StartParty'
+import { usePartiesOn } from '../api/parties'
+import { useQueuesOn } from '../api/queues'
 
 function youTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/.*[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/)
@@ -79,33 +86,44 @@ function ResumeMeta({ item, episodeName }: { item: JfItem; episodeName?: string 
   )
 }
 
-function PlayLink({ item }: { item: JfItem }) {
+/** Play, or Resume from the saved position with Start over beside it. */
+function PlayChoices({ item, word = 'Play', suffix = '', episodeName }: { item: JfItem; word?: string; suffix?: string; episodeName?: string }) {
   const navigate = useNavigate()
-  const resumeTicks = item.UserData?.PlaybackPositionTicks ?? 0
-  const canResume = resumeTicks > 0 && !item.UserData?.Played
-  const href = `/play/${item.Id}${canResume ? `?t=${resumeTicks}` : ''}`
+  const choice = playChoice(item, word)
+  const go = (href: string) => (e: React.MouseEvent) => morphNavigate(() => navigate(href), { event: e })
   return (
     <div className="w-full sm:w-auto min-w-0">
-      <Link
-        to={href}
-        // The backdrop (data-vt-static="vt-hero") morphs into the player's video.
-        onClick={(e) => morphNavigate(() => navigate(href), { event: e })}
-        data-autofocus
-        className={PLAY_BTN}
-      >
-        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        {canResume ? 'Resume' : 'Play'}
-      </Link>
-      <ResumeMeta item={item} />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Link
+          to={choice.href}
+          // The backdrop (data-vt-static="vt-hero") morphs into the player's video.
+          onClick={go(choice.href)}
+          data-autofocus
+          className={PLAY_BTN}
+        >
+          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          {choice.resuming ? ['Resume', suffix, 'from', choice.at].filter(Boolean).join(' ') : [word, suffix].filter(Boolean).join(' ')}
+        </Link>
+        {choice.startOver && (
+          <Link to={choice.startOver} onClick={go(choice.startOver)} className={START_OVER_BTN} aria-label={`Start ${suffix ? `${suffix} ` : ''}over from the beginning`}>
+            <RestartIcon />
+            Start over
+          </Link>
+        )}
+      </div>
+      <ResumeMeta item={item} episodeName={episodeName} />
     </div>
   )
 }
 
+function PlayLink({ item }: { item: JfItem }) {
+  return <PlayChoices item={item} />
+}
+
 /** Series pages play the next-up episode directly, matching the big streaming apps. */
 function SeriesPlayLink({ seriesId }: { seriesId: string }) {
-  const navigate = useNavigate()
   const { data } = useQuery({
     queryKey: ['seriesNextUp', seriesId],
     queryFn: () => getSeriesNextUp(seriesId),
@@ -113,28 +131,11 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
   })
   const ep = data?.Items?.[0]
   if (!ep) return null
-  const resumeTicks = ep.UserData?.PlaybackPositionTicks ?? 0
-  const code = `S${ep.ParentIndexNumber ?? '?'}:E${ep.IndexNumber ?? '?'}`
-  const href = `/play/${ep.Id}${resumeTicks > 0 ? `?t=${resumeTicks}` : ''}`
-  return (
-    <div className="w-full sm:w-auto min-w-0">
-      <Link
-        to={href}
-        onClick={(e) => morphNavigate(() => navigate(href), { event: e })}
-        data-autofocus
-        className={PLAY_BTN}
-      >
-        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        {resumeTicks > 0 ? 'Resume' : 'Play'} {code}
-      </Link>
-      <ResumeMeta item={ep} episodeName={ep.Name} />
-    </div>
-  )
+  // "Play S2:E3", or "Resume S2:E3 from 12:40" with Start over beside it.
+  return <PlayChoices item={ep} suffix={episodeCode(ep)} episodeName={ep.Name} />
 }
 
-function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
+function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {
   const navigate = useNavigate()
   const thumbRef = useRef<HTMLDivElement>(null)
   const thumb = episodeThumbUrl(ep)
@@ -181,6 +182,7 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
         </p>
         <p className="text-xs text-ink-400 mt-0.5">
           {missing ? 'Not in library' : formatRuntime(ep.RunTimeTicks)}
+          {versions.length > 1 && <span className="ml-2">· {versions.length} versions</span>}
           {upNext && !missing && <span className="ml-2 font-semibold text-accent-300">Up next</span>}
         </p>
         {ep.Overview && (
@@ -189,7 +191,7 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
       </div>
     </>
   )
-  return missing ? (
+  const row = missing ? (
     <div className={rowClass}>{body}</div>
   ) : (
     <Link
@@ -200,6 +202,28 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
     >
       {body}
     </Link>
+  )
+  if (versions.length < 2) return row
+  // Copies of this episode: play a particular one (the row plays the one you started, or the first).
+  return (
+    <div className="min-w-0">
+      {row}
+      <div role="group" aria-label={`Versions of ${ep.Name}`} className="-mt-1 mb-1 flex flex-wrap gap-2 px-2 sm:px-3">
+        {versions.map((v, i) => (
+          <Link
+            key={v.Id}
+            to={playHref(v)}
+            aria-current={v.Id === ep.Id ? 'true' : undefined}
+            className={`inline-flex h-7 items-center rounded-full border px-2.5 text-[12px] transition-colors ${
+              v.Id === ep.Id ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-ink-300 hover:text-white'
+            }`}
+          >
+            Version {i + 1}
+            {v.RunTimeTicks ? ` · ${formatRuntime(v.RunTimeTicks)}` : ''}
+          </Link>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -248,7 +272,11 @@ function Seasons({ series }: { series: JfItem }) {
           instead of one long scroll. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-1">
         {isLoading && <p className="text-ink-400 text-sm px-3 py-6">Loading episodes…</p>}
-        {episodes?.Items.map((ep) => <EpisodeRow key={ep.Id} ep={ep} upNext={ep.Id === upNext?.Id} />)}
+        {/* One row per episode; extra copies of it are versions inside that row. */}
+        {episodes &&
+          groupEpisodeVersions(episodes.Items).map((g) => (
+            <EpisodeRow key={g.main.Id} ep={g.main} versions={g.versions} upNext={g.versions.some((v) => v.Id === upNext?.Id)} />
+          ))}
       </div>
     </section>
   )
@@ -267,7 +295,7 @@ function SimilarGrid({ itemId }: { itemId: string }) {
     return <p className="text-sm text-ink-400 py-6">{peerOf(itemId) ? 'Nothing similar shared with you yet.' : 'Nothing similar in your library yet.'}</p>
   }
   return (
-    <div className="grid gap-3 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+    <div className="grid gap-3 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
       {isLoading
         ? Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
         : data!.Items.map((m) => <MediaCard key={m.Id} item={m} />)}
@@ -335,7 +363,7 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
 
 export default function ItemPage() {
   const { itemId } = useParams()
-  const { data: item, isLoading } = useItem(itemId)
+  const { data: item, isLoading, isError, error, refetch, isFetching } = useItem(itemId)
   // Back from here morphs into the card that opened this page.
   useEffect(() => (itemId ? setReturnMorph(itemId, posterMorphName()) : undefined), [itemId])
   const heroRef = useDepthParallax<HTMLDivElement>()
@@ -358,9 +386,15 @@ export default function ItemPage() {
   const [deleting, setDeleting] = useState(false)
   const momentsOn = useMomentsOn()
   const [recommending, setRecommending] = useState(false)
+  const queuesOn = useQueuesOn()
+  const [shortlisting, setShortlisting] = useState(false)
+  const partiesOn = usePartiesOn()
+  const [partying, setPartying] = useState(false)
   const canDeleteHere = useCanDelete()
   const [refreshing, setRefreshing] = useState(false)
   const [previewOn, setPreviewOn] = useState(false)
+  // Started by the dwell timer rather than the Trailer/Preview button: plays dimmed and quiet.
+  const [previewAuto, setPreviewAuto] = useState(false)
   // The artwork stays up until the preview is actually playing.
   const [previewLive, setPreviewLive] = useState(false)
   const stopPreview = useCallback(() => {
@@ -378,17 +412,23 @@ export default function ItemPage() {
   // Prefer the local clip (offline, always matches) over the YouTube trailer
   const previewKind: 'clip' | 'trailer' | null = hasClip ? 'clip' : trailerId ? 'trailer' : null
 
-  // Auto-play the hero preview after a short dwell (muted), Netflix-style.
+  // Auto-play the hero preview after a dwell (muted, dimmed), Netflix-style. Long enough to
+  // read the title and overview first.
   // Skipped on the TV build: video decode + the page UI fight for the TV SoC.
   useEffect(() => {
     stopPreview()
     if (!previewKind || __WEBOS__) return
-    const t = setTimeout(() => setPreviewOn(true), 3500)
+    const t = setTimeout(() => {
+      setPreviewAuto(true)
+      setPreviewOn(true)
+    }, 6000)
     return () => clearTimeout(t)
   }, [previewKind, itemId, stopPreview])
 
-  if (isLoading || !item) {
-    return <div className="h-[calc(var(--vh)*50)] shimmer -mt-16" />
+  if (!item) {
+    // Loading, or it failed / isn't there: then say so, with Back and Try again.
+    if (isLoading || (isFetching && !isError)) return <div className="h-[calc(var(--vh)*50)] shimmer -mt-16" />
+    return <ItemUnavailable kind="title" error={error} id={itemId} onRetry={() => void refetch()} retrying={isFetching} />
   }
 
   const backdrop = backdropUrl(item)
@@ -476,6 +516,8 @@ export default function ItemPage() {
   const moreItems: ActionItem[] = [
     ...(isPlayable || isSeries ? [{ label: played ? 'Mark as unwatched' : 'Mark as watched', onSelect: togglePlayed }] : []),
     ...(momentsOn && (isPlayable || isSeries) ? [{ label: 'Recommend…', onSelect: () => setRecommending(true) }] : []),
+    ...(partiesOn && !friendId && (item.Type === 'Movie' || item.Type === 'Episode') ? [{ label: 'Watch party…', onSelect: () => setPartying(true) }] : []),
+    ...(queuesOn && (item.Type === 'Movie' || item.Type === 'Series' || item.Type === 'Episode') ? [{ label: 'Add to a shortlist…', onSelect: () => setShortlisting(true) }] : []),
     ...(tabs.includes('details') ? [{ label: 'Cast and details', onSelect: () => setTabSel('details') }] : []),
     ...(isAdmin
       ? [
@@ -492,6 +534,8 @@ export default function ItemPage() {
       {recommending && (
         <MomentComposer item={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setRecommending(false)} />
       )}
+      {partying && <StartParty itemId={item.Id} title={item.Name ?? ''} position={ticksToSeconds(item.UserData?.PlaybackPositionTicks)} onClose={() => setPartying(false)} />}
+      {shortlisting && <AddToShortlist itemId={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setShortlisting(false)} />}
       {deleting && <DeleteFromLibrary itemId={item.Id} onClose={() => setDeleting(false)} onDeleted={() => goBack(navigate)} />}
       {/* Ambilight: the backdrop, blown out and breathing, washes the whole page */}
       {backdrop && (
@@ -538,10 +582,10 @@ export default function ItemPage() {
           </div>
           {/* Hero preview after a dwell: local clip (offline) first, else YouTube trailer. Hover fades audio in. */}
           {previewOn && previewKind === 'clip' && heroClipUrl && (
-            <VideoClipHero clipUrl={heroClipUrl} onClose={stopPreview} onPlaying={previewPlaying} />
+            <VideoClipHero clipUrl={heroClipUrl} onClose={stopPreview} onPlaying={previewPlaying} ambient={previewAuto} />
           )}
           {previewOn && previewKind === 'trailer' && trailerId && (
-            <TrailerHero youtubeId={trailerId} onClose={stopPreview} onPlaying={previewPlaying} />
+            <TrailerHero youtubeId={trailerId} onClose={stopPreview} onPlaying={previewPlaying} ambient={previewAuto} />
           )}
           {/* Fade the sharp backdrop into its own blurred ambilight — progressive-blur look, no seam */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30 pointer-events-none" />
@@ -572,7 +616,7 @@ export default function ItemPage() {
               titleText
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-ink-200 mb-4">
-              {item.ProductionYear && (
+              {!!item.ProductionYear && (
                 <span>
                   {item.ProductionYear}
                   {isSeries && item.EndDate
@@ -582,13 +626,13 @@ export default function ItemPage() {
                       : ''}
                 </span>
               )}
-              {item.RunTimeTicks && !isSeries && <span>{formatRuntime(item.RunTimeTicks)}</span>}
+              {!!item.RunTimeTicks && !isSeries && <span>{formatRuntime(item.RunTimeTicks)}</span>}
               {item.OfficialRating && (
                 <span className="px-1.5 py-0.5 rounded border border-white/20 text-xs">
                   {item.OfficialRating}
                 </span>
               )}
-              {item.CommunityRating && (
+              {!!item.CommunityRating && (
                 <span className="flex items-center gap-1">
                   <svg className="h-3.5 w-3.5 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
@@ -625,7 +669,10 @@ export default function ItemPage() {
                 {previewKind && (!__WEBOS__ || previewKind === 'clip') && (
                   <ActionButton
                     label={previewKind === 'clip' ? 'Preview' : 'Trailer'}
-                    onClick={() => setPreviewOn(true)}
+                    onClick={() => {
+                      setPreviewAuto(false)
+                      setPreviewOn(true)
+                    }}
                     active={previewOn}
                     icon={
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
@@ -694,7 +741,7 @@ export default function ItemPage() {
             {collection.data ? `${collection.data.TotalRecordCount} in this collection` : 'In this collection'}
           </h2>
           <div
-            className="grid gap-3 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
+            className="grid gap-3 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]"
           >
             {collection.isLoading
               ? Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)

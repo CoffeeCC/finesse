@@ -258,9 +258,40 @@ export interface ArrWiring {
   jellyfin?: { host: string; port: number; urlBase: string; apiKey: string }
 }
 
+/** Lidarr metadata profile Finesse's music requests use: Lidarr's Standard, plus EPs. */
+export const EP_PROFILE = 'Albums & EPs'
+
+type MetaProfile = { id?: number; name: string; primaryAlbumTypes?: { albumType?: { id?: number; name?: string }; allowed?: boolean }[]; [k: string]: unknown }
+
+/**
+ * Lidarr's Standard metadata profile only follows albums, so an artist known for an EP
+ * (a request for them) showed nothing to download. This is Standard with EPs allowed too.
+ */
+export function epProfileFrom(standard: MetaProfile): MetaProfile {
+  const { id: _id, ...rest } = structuredClone(standard)
+  void _id
+  return {
+    ...rest,
+    name: EP_PROFILE,
+    primaryAlbumTypes: (rest.primaryAlbumTypes ?? []).map((t) => (t.albumType?.name === 'Album' || t.albumType?.name === 'EP' ? { ...t, allowed: true } : t)),
+  }
+}
+
+/** Adds the Albums & EPs profile once (never touches it again: an edit there is the person's). */
+export async function wireLidarrMetadata(arr: Pick<Arr, 'req'>): Promise<number | undefined> {
+  const mp = await arr.req<MetaProfile[]>('GET', '/metadataprofile')
+  const have = mp.find((p) => p.name === EP_PROFILE)
+  if (have) return have.id
+  const standard = mp.find((p) => p.name === 'Standard')
+  if (!standard?.primaryAlbumTypes?.some((t) => t.albumType?.name === 'EP')) return undefined
+  const created = await arr.req<MetaProfile>('POST', '/metadataprofile', epProfileFrom(standard))
+  return created?.id
+}
+
 export async function wireArr(w: ArrWiring, step: (msg: string) => void) {
   const { arr, app } = w
   const title = app[0]!.toUpperCase() + app.slice(1)
+  if (app === 'lidarr') await wireLidarrMetadata(arr)
 
   // Root folder
   const roots = await arr.req<{ path: string }[]>('GET', '/rootfolder')
@@ -273,7 +304,7 @@ export async function wireArr(w: ArrWiring, step: (msg: string) => void) {
         name: 'Music',
         path: w.rootFolder,
         defaultQualityProfileId: (qp.find((p) => p.name === 'Standard') ?? qp[0])?.id,
-        defaultMetadataProfileId: (mp.find((p) => p.name === 'Standard') ?? mp[0])?.id,
+        defaultMetadataProfileId: (mp.find((p) => p.name === EP_PROFILE) ?? mp.find((p) => p.name === 'Standard') ?? mp[0])?.id,
         defaultMonitorOption: 'all',
         defaultNewItemMonitorOption: 'all',
         defaultTags: [],

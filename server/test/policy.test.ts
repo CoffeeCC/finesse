@@ -40,6 +40,15 @@ describe('the rules', () => {
       assert.equal(arrVerdict(m, p, q()).ok, false, `${m} ${p}`)
   })
 
+  test('history: only failed downloads, for a request’s status', () => {
+    assert.equal(arrVerdict('GET', 'history/since', q('date=2026-10-01T00:00:00Z&eventType=4')).ok, true)
+    for (const bad of ['date=2026-10-01T00:00:00Z', 'eventType=1', 'eventType=4&eventType=1', 'eventType=4,1', 'eventType='])
+      assert.equal(arrVerdict('GET', 'history/since', q(bad)).ok, false, bad)
+    for (const p of ['history', 'history/movie', 'history/series', 'history/failed/3'])
+      assert.equal(arrVerdict('GET', p, q('eventType=4')).ok, false, p)
+    assert.equal(arrVerdict('POST', 'history/failed/3', q()).ok, false)
+  })
+
   test('taking back a request never deletes files, and needs the item to have none', () => {
     assert.deepEqual(arrVerdict('DELETE', 'movie/7', q('deleteFiles=false')), { ok: true, needsNoFiles: { kind: 'movie', id: 7 }, query: '?deleteFiles=false&addImportExclusion=false' })
     assert.equal(arrVerdict('DELETE', 'movie/7', q('deleteFiles=true')).ok, false)

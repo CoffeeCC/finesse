@@ -7,7 +7,8 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { arrAdd, arrMovieDetails, ArrError, toMovieDetails, type MovieDetails } from '../api/arr'
 import { getItems } from '../api/client'
-import { useArrQueue } from '../api/queries'
+import { noteRequested } from '../api/queries'
+import { RequestStatusView, useRequestStatus } from '../components/RequestStatus'
 import { ACTION_BTN, ActionButton, PLAY_BTN } from '../components/ActionButton'
 import TrailerHero from '../components/TrailerHero'
 import { useToast } from '../components/Toast'
@@ -42,9 +43,8 @@ export default function RequestMoviePage() {
   const inLibrary = Boolean(m && m.id > 0 && m.hasFile)
   const inRadarr = Boolean(m && m.id > 0) || requested === 'requested'
 
-  // Downloading now? The queue says how far along.
-  const { data: queue } = useArrQueue()
-  const dl = m && m.id > 0 ? queue?.find((q) => q.kind === 'movie' && q.refId === m.id) : undefined
+  // Where the request stands: searching, downloading (how far), stuck, searching again…
+  const status = useRequestStatus(m, { justRequested: requested === 'requested', available: m?.raw?.isAvailable === false ? false : undefined })
 
   // In the library: find it in Jellyfin (same TMDb id) so Play can open it.
   const libraryItem = useQuery({
@@ -58,13 +58,12 @@ export default function RequestMoviePage() {
   })
 
   const request = async () => {
-    if (!m) return
+    if (!m || requested !== 'idle') return
     setRequested('adding')
     try {
-      await arrAdd(m)
+      const id = await arrAdd(m)
       setRequested('requested')
-      void qc.invalidateQueries({ queryKey: ['arrDiscover'] })
-      void qc.invalidateQueries({ queryKey: ['arrMovieDetails', tmdbId] })
+      noteRequested(qc, m, id)
       toast(`Added “${m.title}”. Radarr is looking for it now.`)
     } catch (e) {
       setRequested('idle')
@@ -145,14 +144,8 @@ export default function RequestMoviePage() {
                     <CheckIcon /> In your library
                   </span>
                 )
-              ) : dl ? (
-                <span className="inline-flex h-11 items-center gap-2 text-[15px] font-semibold text-accent-300">
-                  <DownloadIcon /> {dl.done ? dl.status : `${dl.status} ${dl.progress}%`}
-                </span>
-              ) : inRadarr ? (
-                <span className="inline-flex h-11 items-center gap-2 text-[15px] font-semibold text-accent-300">
-                  <ClockIcon /> Requested, waiting for a release
-                </span>
+              ) : inRadarr && status ? (
+                <RequestStatusView status={status} size="lg" className="sm:pt-2.5" />
               ) : (
                 <button type="button" className={PLAY_BTN} onClick={request} disabled={requested === 'adding'} autoFocus={IS_TV}>
                   <PlusIcon /> {requested === 'adding' ? 'Adding…' : 'Request'}
@@ -257,15 +250,5 @@ const PlusIcon = () => (
 const CheckIcon = () => (
   <svg className={icon} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
     <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-  </svg>
-)
-const ClockIcon = () => (
-  <svg className={icon} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-  </svg>
-)
-const DownloadIcon = () => (
-  <svg className={icon} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v13.5m0 0 4.5-4.5M12 16.5 7.5 12M3.75 18.75A2.25 2.25 0 0 0 6 21h12a2.25 2.25 0 0 0 2.25-2.25" />
   </svg>
 )

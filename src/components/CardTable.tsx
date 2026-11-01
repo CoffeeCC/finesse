@@ -7,6 +7,7 @@ import { formatRuntime, type JfItem } from '../api/types'
 import TableReservations from './TableReservations'
 import TableNavigation from './TableNavigation'
 import { withHandDeadline } from '../lib/tableDeal'
+import { reducedMotion } from '../lib/settings'
 
 type Phase = 'idle' | 'shuffling' | 'waiting' | 'dealing'
 const SHUFFLE_MS = 1150
@@ -25,13 +26,14 @@ function rememberedHand() {
 }
 
 function useTableMotion() {
-  const [systemReduced, setSystemReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  // The device's reduced-motion preference, or Finesse's own Reduce motion switch (Settings).
+  const [systemReduced, setSystemReduced] = useState(reducedMotion)
   const [enabled, setEnabled] = useState(() => {
     try { return localStorage.getItem('finesse.tableMotion') !== 'off' } catch { return true }
   })
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setSystemReduced(media.matches)
+    const update = () => setSystemReduced(reducedMotion())
     media.addListener(update) // webOS Chromium 68 predates addEventListener on MediaQueryList.
     return () => media.removeListener(update)
   }, [])
@@ -193,7 +195,7 @@ export default function CardTable() {
         <div><p className="table-kicker">THE CELESTIAL TABLE</p><h1>A hand of stories.</h1></div>
         <div className="table-tools">
           <Link to="/dashboard">Full Finesse Home ↗</Link>
-          <button type="button" aria-pressed={!motion.reduced} disabled={motion.systemReduced} onClick={motion.toggle} title={motion.systemReduced ? 'Following your system’s reduced-motion preference' : 'Turn shuffle and draw animations on or off'}>{motion.reduced ? 'Animations off' : 'Animations on'}</button>
+          <button type="button" aria-pressed={!motion.reduced} disabled={motion.systemReduced} onClick={motion.toggle} title={motion.systemReduced ? 'Following your Reduce motion setting' : 'Turn shuffle and draw animations on or off'}>{motion.reduced ? 'Animations off' : 'Animations on'}</button>
           <Link to="/settings#settings-themes">Themes ↗</Link>
         </div>
       </header>

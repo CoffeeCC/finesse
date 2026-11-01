@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useArrQueue, useArrRequested } from '../api/queries'
+import { useArrFailures, useArrQueue, useArrRequested } from '../api/queries'
+import { requestStatus } from '../lib/requestStatus'
+import { RequestStatusView } from './RequestStatus'
 import { arrCancelRequest, arrSearchAgain, type ArrRequested } from '../api/arr'
 import ArrThumb from './ArrThumb'
 import { useToast } from './Toast'
@@ -20,6 +22,7 @@ function ago(iso: string): string {
 function Row({ r }: { r: ArrRequested }) {
   const toast = useToast()
   const qc = useQueryClient()
+  const { data: failures } = useArrFailures()
   const [busy, setBusy] = useState(false)
   // Take back is two-tap: first tap arms, second within 4s confirms.
   const [armed, setArmed] = useState(false)
@@ -28,6 +31,7 @@ function Row({ r }: { r: ArrRequested }) {
     qc.invalidateQueries({ queryKey: ['arrRequested'] })
     qc.invalidateQueries({ queryKey: ['arrQueue'] })
     qc.invalidateQueries({ queryKey: ['arrLookup'] })
+    qc.invalidateQueries({ queryKey: ['arrFailures'] })
   }, 1200)
 
   const again = async () => {
@@ -73,10 +77,7 @@ function Row({ r }: { r: ArrRequested }) {
         <p className="mt-0.5 text-xs text-ink-400">
           {KIND_LABEL[r.kind]} · requested {ago(r.added)}
         </p>
-        <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${r.available ? 'text-accent-300' : 'text-ink-300'}`}>
-          {r.available && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-400 animate-pulse" aria-hidden />}
-          {r.available ? 'Looking for a release' : 'Not out yet — it’ll download when it is'}
-        </p>
+        <RequestStatusView status={requestStatus({ requested: true, hasFile: false, available: r.available, failure: failures?.get(r.key) })} className="mt-1" />
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           {r.available && (
             <button

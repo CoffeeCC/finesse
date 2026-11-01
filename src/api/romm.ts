@@ -1,6 +1,7 @@
 import { getSession, mediaBrowserAuthHeader } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { knownFinesse } from '../lib/finesseServer'
+import { consoleName, isSupportFile } from '../lib/gameFiles'
 
 // Games: browse the RomM library and play the retro titles via EmulatorJS.
 // Everything goes through Finesse's own nginx (/finesse/games/api → RomM, with
@@ -26,7 +27,12 @@ export interface RommRom {
   fs_name_no_tags?: string
   platform_id: number
   platform_slug: string
+  platform_fs_slug?: string
   platform_display_name: string
+  /** "" for a game kept as a folder (RomM versions that send it). */
+  fs_extension?: string
+  multi?: boolean
+  has_multiple_files?: boolean
   path_cover_small?: string
   path_cover_large?: string
   url_cover?: string
@@ -43,9 +49,6 @@ export interface RommRom {
   missing_from_fs?: boolean
 }
 
-/** Save states, battery files, and other sidecar blobs — not playable ROMs. */
-const JUNK_FS = /\.(bsv|state\d*|srm|sav|eep|ips|bps|rtcsav|autosave)$/i
-
 const ROM_FORMAT_SCORE: Record<string, number> = {
   z64: 100, n64: 100, v64: 95, smc: 100, sfc: 100, nes: 100, fds: 95,
   gbc: 90, gba: 90, gb: 90, md: 90, gen: 90, bin: 80, iso: 80, chd: 80,
@@ -53,18 +56,18 @@ const ROM_FORMAT_SCORE: Record<string, number> = {
 }
 
 function romFileScore(rom: RommRom): number {
-  if (JUNK_FS.test(rom.fs_name)) return -1000
+  if (isSupportFile(rom)) return -1000
   const ext = rom.fs_name.split('.').pop()?.toLowerCase() ?? ''
   let score = ROM_FORMAT_SCORE[ext] ?? 10
   if (rom.is_main_sibling) score += 200
   return score
 }
 
-/** One card per game: drop sidecars and pick the best format among siblings. */
+/** One card per game: drop saves, settings, patches and emulator folders (lib/gameFiles), and pick the best format among siblings. */
 export function dedupeRoms(roms: RommRom[]): RommRom[] {
   const groups = new Map<string, RommRom[]>()
   for (const rom of roms) {
-    if (JUNK_FS.test(rom.fs_name)) continue
+    if (isSupportFile(rom)) continue
     const title = (rom.fs_name_no_tags || rom.name).trim().toLowerCase()
     const key = `${rom.platform_id}:${title}`
     const bucket = groups.get(key) ?? []
@@ -90,8 +93,14 @@ async function gget<T>(path: string): Promise<T> {
 
 export async function getPlatforms(): Promise<RommPlatform[]> {
   const list = await gget<RommPlatform[]>('/platforms')
-  return list.filter((p) => p.rom_count > 0).sort((a, b) => b.rom_count - a.rom_count)
+  return list
+    .filter((p) => p.rom_count > 0)
+    .map((p) => ({ ...p, name: consoleName(p.name, p.slug, p.fs_slug) }))
+    .sort((a, b) => b.rom_count - a.rom_count)
 }
+
+/** RomM's console name, or its proper one when RomM only title-cased the folder ("Gc"). */
+const withConsoleName = (rom: RommRom): RommRom => ({ ...rom, platform_display_name: consoleName(rom.platform_display_name, rom.platform_slug, rom.platform_fs_slug) })
 
 export interface RomsPage {
   items: RommRom[]
@@ -115,12 +124,12 @@ export async function getRoms(
   const d = await gget<RomsPage | RommRom[]>(`/roms?${q.toString()}`)
   const page = Array.isArray(d) ? { items: d, total: d.length } : d
   // And never show another console's games under a console, whatever RomM sent.
-  const items = dedupeRoms(opts.platformId ? page.items.filter((r) => r.platform_id === opts.platformId) : page.items)
+  const items = dedupeRoms(opts.platformId ? page.items.filter((r) => r.platform_id === opts.platformId) : page.items).map(withConsoleName)
   return { items, total: items.length }
 }
 
 export async function getRom(id: string | number): Promise<RommRom> {
-  return gget<RommRom>(`/roms/${id}`)
+  return withConsoleName(await gget<RommRom>(`/roms/${id}`))
 }
 
 // ---- media + play helpers ----

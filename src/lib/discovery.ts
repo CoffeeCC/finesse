@@ -1,0 +1,215 @@
+// One title, wherever it turns up: in the library (Jellyfin) or requestable (Radarr/Sonarr).
+// Matched by TMDb / TVDb id when both sides have one; only when either lacks ids does a
+// title + year match decide. Pure (no imports), so server/test/discovery.test.ts can test it.
+
+/** The fields of a Jellyfin item this looks at. */
+export interface LibraryLike {
+  Id: string
+  Type?: string
+  Name?: string
+  ProductionYear?: number | null
+  ProviderIds?: Record<string, string> | null
+}
+
+/** The fields of an ArrResult this looks at. */
+export interface RequestableLike {
+  kind: 'movie' | 'series' | 'artist'
+  title: string
+  year?: number
+  tmdbId?: number
+  tvdbId?: number
+}
+
+export const normTitle = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+const pid = (ids: Record<string, string> | null | undefined, name: string): string => {
+  if (!ids) return ''
+  for (const [k, v] of Object.entries(ids)) if (k.toLowerCase() === name && v) return String(v).trim()
+  return ''
+}
+
+/** Whether a library item is the requestable title `r`. */
+export function isSameTitle(item: LibraryLike, r: RequestableLike): boolean {
+  if (r.kind === 'movie' ? item.Type !== 'Movie' : r.kind === 'series' ? item.Type !== 'Series' : true) return false
+  const ext = r.kind === 'movie' ? r.tmdbId : r.tvdbId
+  const mine = pid(item.ProviderIds, r.kind === 'movie' ? 'tmdb' : 'tvdb')
+  if (ext && mine) return String(ext) === mine
+  // A show may carry only a TMDb id in Jellyfin, and Sonarr results usually have one too.
+  if (r.kind === 'series' && r.tmdbId && pid(item.ProviderIds, 'tmdb')) return String(r.tmdbId) === pid(item.ProviderIds, 'tmdb')
+  return normTitle(item.Name ?? '') === normTitle(r.title) && (!r.year || !item.ProductionYear || r.year === item.ProductionYear)
+}
+
+export type DiscoveryEntry<L, R> = { source: 'library'; item: L } | { source: 'request'; r: R }
+
+/**
+ * One list of titles for a search: what the library has first (in the order given), then
+ * requestable titles the library doesn't have. A requestable title that is the same as a library
+ * item (by id, see isSameTitle) is dropped, and so is one its app already has on disk (the
+ * library will show it once scanned). `limitRequest` caps the requestable part.
+ */
+export function mergeTitles<L extends LibraryLike, R extends RequestableLike & { id: number; hasFile: boolean }>(
+  library: L[],
+  requestable: R[],
+  limitRequest = 6,
+): DiscoveryEntry<L, R>[] {
+  const out: DiscoveryEntry<L, R>[] = library.map((item) => ({ source: 'library', item }))
+  const titles = library.filter((i) => i.Type === 'Movie' || i.Type === 'Series')
+  let n = 0
+  for (const r of requestable) {
+    if (n >= limitRequest) break
+    if (r.kind === 'artist') continue
+    if (r.id > 0 && r.hasFile) continue
+    if (titles.some((i) => isSameTitle(i, r))) continue
+    out.push({ source: 'request', r })
+    n++
+  }
+  return out
+}
+
+/** Two titles (ours, or on friends' servers) are the same only when their ids say so: TMDb for films, TVDb or TMDb for shows. */
+export function sameById(a: LibraryLike, b: LibraryLike): boolean {
+  if (a.Type !== b.Type || (a.Type !== 'Movie' && a.Type !== 'Series')) return false
+  const names = a.Type === 'Movie' ? ['tmdb', 'imdb'] : ['tvdb', 'tmdb', 'imdb']
+  for (const n of names) {
+    const x = pid(a.ProviderIds, n)
+    const y = pid(b.ProviderIds, n)
+    if (x && y) return x === y
+  }
+  return false
+}
+
+/** Whether a requestable title is this item, by id only (no title text). */
+function requestById(item: LibraryLike, r: RequestableLike): boolean {
+  if (r.kind === 'movie' ? item.Type !== 'Movie' : r.kind === 'series' ? item.Type !== 'Series' : true) return false
+  const ext = r.kind === 'movie' ? r.tmdbId : r.tvdbId
+  const mine = pid(item.ProviderIds, r.kind === 'movie' ? 'tmdb' : 'tvdb')
+  if (ext && mine) return String(ext) === mine
+  if (r.kind === 'series' && r.tmdbId && pid(item.ProviderIds, 'tmdb')) return String(r.tmdbId) === pid(item.ProviderIds, 'tmdb')
+  return false
+}
+
+export interface FriendRef {
+  id: string
+  name: string
+}
+
+export type TitleSource<L, R> = { source: 'library'; item: L } | { source: 'friend'; item: L; friend: FriendRef } | { source: 'request'; r: R }
+
+/** One title and everywhere it is: the library, friends' servers, or requestable. The first source is the main one. */
+export interface MergedTitle<L, R> {
+  key: string
+  sources: TitleSource<L, R>[]
+}
+
+/**
+ * The search's one list of titles, each with its sources: the library's titles first (in the
+ * order given), then titles only friends have, then requestable ones nobody has. A friend's title
+ * joins a library title (or another friend's) only when their TMDb/TVDb ids match; never on the
+ * name alone. A requestable title joins a library title as before (isSameTitle), and a
+ * friend's only by id. `limitRequest` caps the request-only part.
+ */
+export function mergeSources<L extends LibraryLike, R extends RequestableLike & { id: number; hasFile: boolean }>(
+  library: L[],
+  friends: { item: L; friend: FriendRef }[],
+  requestable: R[],
+  limitRequest = 6,
+): MergedTitle<L, R>[] {
+  const ours: MergedTitle<L, R>[] = library.map((item) => ({ key: item.Id, sources: [{ source: 'library', item }] }))
+  const theirs: MergedTitle<L, R>[] = []
+  const itemsOf = (t: MergedTitle<L, R>) => t.sources.flatMap((s) => (s.source === 'request' ? [] : [s.item]))
+  for (const f of friends) {
+    if (f.item.Type !== 'Movie' && f.item.Type !== 'Series') continue
+    const home = [...ours, ...theirs].find((t) => itemsOf(t).some((i) => sameById(i, f.item)))
+    if (home) {
+      if (!home.sources.some((s) => s.source === 'friend' && s.friend.id === f.friend.id)) home.sources.push({ source: 'friend', item: f.item, friend: f.friend })
+    } else theirs.push({ key: f.item.Id, sources: [{ source: 'friend', item: f.item, friend: f.friend }] })
+  }
+  const asked: MergedTitle<L, R>[] = []
+  const libTitles = library.filter((i) => i.Type === 'Movie' || i.Type === 'Series')
+  for (const r of requestable) {
+    if (r.kind === 'artist') continue
+    if (r.id > 0 && r.hasFile) continue
+    if (libTitles.some((i) => isSameTitle(i, r))) continue
+    const friendOnly = theirs.find((t) => itemsOf(t).some((i) => requestById(i, r)))
+    if (friendOnly) {
+      if (!friendOnly.sources.some((s) => s.source === 'request')) friendOnly.sources.push({ source: 'request', r })
+      continue
+    }
+    if (asked.length >= limitRequest) continue
+    asked.push({ key: `${r.kind}:${r.tmdbId ?? r.tvdbId ?? normTitle(r.title)}`, sources: [{ source: 'request', r }] })
+  }
+  return [...ours, ...theirs, ...asked]
+}
+
+// ---------- Relevance of what Radarr / Sonarr / Lidarr's lookup returns ----------
+//
+// Their lookups are fuzzy (TMDb / TVDb / MusicBrainz search): a query that matches nothing
+// still comes back with unrelated titles. A result is kept when every word of the query is
+// in one of its titles: as a word or the start of one, with a typo allowed in longer words,
+// or the query written without spaces ("spiderman" for "Spider-Man"). Little words ("the",
+// "of") and years don't have to match. An id lookup (tmdb:603, imdb:tt0133093) keeps all.
+
+const LITTLE = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'on', 'to', 'at', 'for', 'la', 'le', 'les', 'el', 'los', 'der', 'die', 'das'])
+
+/** Edit distance with a cap: anything over `max` comes back as max + 1. */
+function within(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let best = i
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (cur[j]! < best) best = cur[j]!
+    }
+    if (best > max) return false
+    prev = cur
+  }
+  return prev[b.length]! <= max
+}
+
+function wordMatches(token: string, word: string): boolean {
+  if (word.startsWith(token)) return true
+  // A typo only in longer words, and not in the first letter ("bean" isn't "mean").
+  const typos = token.length >= 9 ? 2 : token.length >= 5 ? 1 : 0
+  if (!typos || token[0] !== word[0]) return false
+  // The whole word, or its start (someone still typing).
+  return within(token, word, typos) || within(token, word.slice(0, token.length), typos)
+}
+
+/** Whether one of `titles` (a result's title, original title, alternate titles) answers `term`. */
+export function matchesTerm(titles: (string | null | undefined)[], term: string): boolean {
+  if (/^\s*(tmdb|tvdb|imdb|mbid|lidarr|spotify)\s*:|^\s*tt\d{5,}\s*$/i.test(term)) return true
+  const q = normTitle(term)
+  if (!q) return true
+  const all = q.split(' ')
+  const words = all.filter((t) => !LITTLE.has(t) && !/^(19|20)\d\d$/.test(t) && (t.length > 1 || all.length === 1))
+  const tokens = words.length ? words : all
+  const squashed = q.replace(/ /g, '')
+  for (const t of titles) {
+    if (!t) continue
+    const name = normTitle(t)
+    if (!name) continue
+    if (squashed.length >= 4 && name.replace(/ /g, '').includes(squashed)) return true
+    const parts = name.split(' ')
+    if (tokens.every((tok) => parts.some((w) => wordMatches(tok, w)))) return true
+  }
+  return false
+}
+
+/** Every title a lookup result goes by: its own, the original, and the alternates *arr lists. */
+export function lookupTitles(r: { title: string; raw?: Record<string, unknown> }): string[] {
+  const raw = r.raw ?? {}
+  const out = [r.title]
+  if (typeof raw.originalTitle === 'string') out.push(raw.originalTitle)
+  if (typeof raw.sortTitle === 'string') out.push(raw.sortTitle)
+  if (Array.isArray(raw.alternateTitles)) for (const a of raw.alternateTitles) if (a && typeof (a as { title?: unknown }).title === 'string') out.push((a as { title: string }).title)
+  return out
+}

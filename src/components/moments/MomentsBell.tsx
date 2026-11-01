@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useMomentCollectionsOn } from '../../api/momentCollections'
+import SaveMoment from './SaveMoment'
+import { pushBackHandler } from '../../lib/back'
+import { useOverlayFocus } from '../../lib/overlayFocus'
 import { clock, getInbox, markMomentsRead, momentHref, useInbox, useMomentsOn, type InboxMoment } from '../../api/moments'
 
 // The bell in the top bar: moments and recommendations sent to you. Opening one
@@ -16,7 +20,7 @@ export function ago(t: number): string {
   return d === 1 ? 'yesterday' : `${d} days ago`
 }
 
-export function MomentLine({ m, onOpen, compact }: { m: InboxMoment; onOpen: () => void; compact?: boolean }) {
+export function MomentLine({ m, onOpen, compact, onSave }: { m: InboxMoment; onOpen: () => void; compact?: boolean; onSave?: () => void }) {
   const [reveal, setReveal] = useState(false)
   return (
     <div className={`flex gap-3 rounded-xl px-3 py-2.5 ${m.read ? '' : 'bg-white/[0.04]'} hover:bg-white/[0.07]`}>
@@ -35,10 +39,17 @@ export function MomentLine({ m, onOpen, compact }: { m: InboxMoment; onOpen: () 
             {ago(m.created)}
           </p>
           {m.note && (!m.spoiler || reveal) && <p className={`mt-1 text-[13.5px] text-white ${compact ? 'line-clamp-2' : ''}`}>“{m.note}”</p>}
+          {/* What opening it does. */}
+          <p className="mt-1 text-[12px] font-semibold text-accent-300">{m.start != null ? `▶ Play from ${clock(m.start)}` : 'Open the title'}</p>
         </button>
         {m.note && m.spoiler && !reveal && (
           <button type="button" onClick={() => setReveal(true)} className="mt-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-ink-200 hover:bg-white/20">
             Spoiler · show the note
+          </button>
+        )}
+        {onSave && (
+          <button type="button" onClick={onSave} className="mt-1.5 ml-1 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-ink-200 hover:bg-white/20 hover:text-white">
+            Save to a collection
           </button>
         )}
       </div>
@@ -54,18 +65,27 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
+  const collections = useMomentCollectionsOn()
+  const [saving, setSaving] = useState<InboxMoment | null>(null)
+  // Focus moves into the list, and back to the bell when it closes.
+  useOverlayFocus(open, panel)
 
   useEffect(() => {
     if (!open) return
     // Opening the list asks friends' servers for anything new first.
     void getInbox(true).then((d) => qc.setQueryData(['moments', 'inbox'], d), () => {})
     const onDown = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
     window.addEventListener('pointerdown', onDown)
-    window.addEventListener('keydown', onKey)
+    // Back (Escape, the remote's Back) closes the list, and only that: it never
+    // also leaves the page underneath.
+    const pop = pushBackHandler(() => {
+      setOpen(false)
+      return true
+    })
     return () => {
       window.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onKey)
+      pop()
     }
   }, [open, qc])
 
@@ -106,7 +126,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         )}
       </button>
       {open && (
-        <div className="fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
+        <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-1">
             <p className="text-[15px] font-semibold text-white">Moments</p>
             {unread > 0 && (
@@ -118,7 +138,19 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
           {list.length ? (
             <div className="max-h-[calc(var(--vh,1vh)*65)] overflow-y-auto">
               {list.map((m) => (
-                <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} />
+                <MomentLine
+                  key={m.key}
+                  m={m}
+                  onOpen={() => void openOne(m)}
+                  onSave={
+                    collections
+                      ? () => {
+                          setOpen(false)
+                          setSaving(m)
+                        }
+                      : undefined
+                  }
+                />
               ))}
             </div>
           ) : (
@@ -126,8 +158,14 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
               Nothing yet. While you watch, tap the flag in the player to send someone a moment, or Recommend a title from its page.
             </p>
           )}
+          {collections && (
+            <Link to="/moments" onClick={() => setOpen(false)} className="mt-1 block rounded-xl px-3 py-2 text-[13px] font-semibold text-accent-300 hover:bg-white/5 hover:text-white">
+              Your moment collections ›
+            </Link>
+          )}
         </div>
       )}
+      {saving && <SaveMoment what={{ moment: saving.key }} label={`${saving.from}’s moment in “${saving.title}”`} onClose={() => setSaving(null)} />}
     </div>
   )
 }

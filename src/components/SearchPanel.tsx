@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  useArrQueue,
+  noteRequested,
   useGenres,
   useRequestLookup,
   useFriendSearch,
@@ -13,7 +13,11 @@ import {
 } from '../api/queries'
 import { imageUrl, posterUrl, backdropUrl } from '../api/client'
 import { arrAdd, ArrError, type ArrResult } from '../api/arr'
-import { playHref } from './MediaCard'
+import { playChoice } from '../lib/playChoice'
+import { useMyLimits } from '../api/parental'
+import { mergeSources, type MergedTitle, type TitleSource } from '../lib/discovery'
+import { RestartIcon } from './ActionButton'
+import { RequestStatusView, useRequestStatus } from './RequestStatus'
 import { useToast } from './Toast'
 import { browseHref } from '../pages/BrowsePage'
 import { DiceIcon, useSurprise } from '../lib/surprise'
@@ -23,12 +27,17 @@ import { usePlayTrack } from '../lib/playAlbum'
 import { useAudio } from '../audio/AudioPlayerContext'
 import type { JfItem } from '../api/types'
 
-// Universal search: one box for everything. Your library first (a ranked top
-// result, then everything else), the people in it, and — for titles you don't
-// have — Radarr/Sonarr matches with a one-tap Request, so "not in the library"
-// is a next step instead of a dead end (it used to be a separate Request page).
+// Universal search: one box for everything. A ranked top result, then one list
+// of titles: your library's first, then titles only friends' servers have (Groups),
+// then Radarr/Sonarr matches nobody has. Each title is listed once with where it is
+// ("In your library", "On Sam's server", "Not in your library") and one action (Play,
+// Play from Sam's, Request, or where the request stands); a title with more than one
+// source lists the others under "More ways to watch". Friends' titles join ours only
+// when their TMDb/TVDb ids match. Then albums, songs and people.
 
 type Scope = 'all' | 'movies' | 'shows' | 'episodes' | 'music' | 'people'
+type Where = 'all' | 'library' | 'friends' | 'request'
+type Title = MergedTitle<JfItem, ArrResult>
 const SCOPES: { key: Scope; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'movies', label: 'Movies' },
@@ -106,6 +115,7 @@ export default function SearchPanel({
   const [input, setInput] = useState(initialQuery)
   const [term, setTerm] = useState(initialQuery)
   const [scope, setScope] = useState<Scope>('all')
+  const [where, setWhere] = useState<Where>('all')
   const [recent, setRecent] = useState<string[]>(readRecent)
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
@@ -119,6 +129,8 @@ export default function SearchPanel({
     const t = setTimeout(() => setTerm(input.trim()), 250)
     return () => clearTimeout(t)
   }, [input])
+  // A new search starts from every source again.
+  useEffect(() => setWhere('all'), [term])
   useEffect(() => {
     onQueryChange?.(term)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,10 +144,15 @@ export default function SearchPanel({
   const active = term.length > 1
   const lib = useSearch(active ? term : '')
   const people = useSearchPeople(active && (scope === 'all' || scope === 'people') ? term : '')
-  const friendHits = useFriendSearch(active && (scope === 'all' || scope === 'movies' || scope === 'shows') ? term : '').filter(({ item }) =>
-    scope === 'movies' ? item.Type === 'Movie' : scope === 'shows' ? item.Type === 'Series' : true,
+  const friendSearch = useFriendSearch(active && (scope === 'all' || scope === 'movies' || scope === 'shows') ? term : '')
+  const friendHits = useMemo(
+    () => friendSearch.hits.filter(({ item }) => (scope === 'movies' ? item.Type === 'Movie' : scope === 'shows' ? item.Type === 'Series' : true)),
+    [friendSearch.hits, scope],
   )
-  const request = useRequestLookup(active && scope !== 'people' && scope !== 'episodes' && scope !== 'music' ? term : '')
+  // A limited profile without requests (parental limits) isn't offered titles to request.
+  const limits = useMyLimits()
+  const canRequest = !limits || limits.requests
+  const request = useRequestLookup(canRequest && active && scope !== 'people' && scope !== 'episodes' && scope !== 'music' ? term : '')
   const music = useMusicSearch(active && hasMusic && (scope === 'all' || scope === 'music') ? term : '')
 
   const ranked = useMemo(() => {
@@ -155,24 +172,29 @@ export default function SearchPanel({
       .map((x) => x.item)
   }, [lib.data, term, scope])
 
-  // "Not in your library": drop anything the library search already found
-  // (a title Radarr doesn't track still shows up in Jellyfin). Ranked like the
-  // library, so the show someone typed exactly isn't below a loose movie match.
-  const missing = useMemo(() => {
+  // Requestable titles (Radarr/Sonarr), ranked like the library so the show someone typed
+  // exactly isn't below a loose movie match. mergeTitles drops the ones the library has.
+  const requestable = useMemo(() => {
     const q = norm(term)
-    const have = new Set((lib.data?.Items ?? []).map((i) => `${norm(i.Name ?? '')}|${i.ProductionYear ?? ''}`))
     return (request.data ?? [])
-      .filter((r) => !(r.id > 0 && r.hasFile))
-      .filter((r) => !have.has(`${norm(r.title)}|${r.year ?? ''}`))
       .filter((r) => (scope === 'movies' ? r.kind === 'movie' : scope === 'shows' ? r.kind === 'series' : true))
       .map((r, i) => ({ r, s: titleScore(r.title, q), i }))
       .sort((a, b) => b.s - a.s || a.i - b.i)
       .map((x) => x.r)
-      .slice(0, 6)
-  }, [request.data, lib.data, scope, term])
+  }, [request.data, scope, term])
 
   const top = scope !== 'people' ? ranked[0] : undefined
   const rest = scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []
+  // One list of titles: the library's first, then friends' (Groups), then what can be requested,
+  // each title once with all its sources (lib/discovery.ts mergeSources). The top result is above it.
+  const merged = useMemo(() => (scope === 'people' || scope === 'music' ? [] : mergeSources(ranked, friendHits, requestable)), [ranked, friendHits, requestable, scope])
+  const topTitle = top ? merged.find((t) => t.key === top.Id) : undefined
+  const listed = useMemo(() => merged.filter((t) => (t.sources[0]!.source === 'library' ? rest.includes((t.sources[0] as { item: JfItem }).item) : true)), [merged, rest])
+  const kinds = new Set(listed.flatMap((t) => t.sources.map((s) => s.source)))
+  const titles = listed.filter((t) =>
+    where === 'all' ? true : where === 'library' ? t.sources.some((s) => s.source === 'library') : where === 'friends' ? t.sources.some((s) => s.source === 'friend') : t.sources[0]!.source === 'request' || (t.sources.some((s) => s.source === 'request') && !t.sources.some((s) => s.source === 'library')),
+  )
+  const missing = listed.filter((t) => t.sources[0]!.source !== 'library')
   const peopleList = people.data?.Items.slice(0, scope === 'people' ? 24 : 6) ?? []
 
   // Albums named like the term first (best match on top), then albums by a
@@ -224,7 +246,6 @@ export default function SearchPanel({
     ranked.length === 0 &&
     peopleList.length === 0 &&
     missing.length === 0 &&
-    friendHits.length === 0 &&
     albums.length === 0 &&
     songs.length === 0
 
@@ -313,20 +334,47 @@ export default function SearchPanel({
               </p>
             )}
 
-            {top && <TopResult item={top} onOpen={opened} />}
+            {top && <TopResult item={top} also={topTitle?.sources.slice(1) ?? []} onOpen={opened} />}
 
-            {rest.length > 0 && (
+            {friendSearch.failed.length > 0 && (
+              <p className="px-2.5 pt-3 text-[12.5px] text-amber-200">
+                Couldn’t reach {friendSearch.failed.join(', ')} just now, so {friendSearch.failed.length === 1 ? 'its' : 'their'} titles aren’t here.
+              </p>
+            )}
+
+            {listed.length > 0 && (
               <>
-                <p className={SECTION}>{top ? 'More in your library' : 'In your library'}</p>
-                {rest.map((item) => (
-                  <Link key={item.Id} to={`/item/${item.Id}`} onClick={opened} data-result className={ROW}>
-                    <Thumb item={item} />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
-                      <span className="block text-[13px] text-ink-400 truncate">{typeLabel(item)}</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-ink-400">{watchState(item)}</span>
-                  </Link>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className={SECTION}>{top ? 'More titles' : 'Titles'}</p>
+                  {kinds.size > 1 && (
+                    <div role="radiogroup" aria-label="Where" className="flex flex-wrap gap-1.5 px-2.5 pt-3">
+                      {(
+                        [
+                          ['all', 'Everywhere'],
+                          ['library', 'Yours'],
+                          ['friends', 'Friends’'],
+                          ['request', 'To request'],
+                        ] as [Where, string][]
+                      )
+                        .filter(([k]) => k === 'all' || kinds.has(k === 'library' ? 'library' : k === 'friends' ? 'friend' : 'request'))
+                        .map(([k, label]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            role="radio"
+                            aria-checked={where === k}
+                            onClick={() => setWhere(k)}
+                            className={`h-7 rounded-full px-3 text-[12.5px] transition-colors ${where === k ? 'bg-white font-semibold text-ink-950' : 'border border-white/10 text-ink-300 hover:text-white'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                {titles.length === 0 && <p className="px-2.5 py-2 text-[13px] text-ink-400">None of these titles are there. Choose Everywhere to see them all.</p>}
+                {titles.map((t) => (
+                  <TitleRow key={t.key} t={t} onOpen={opened} />
                 ))}
               </>
             )}
@@ -351,24 +399,6 @@ export default function SearchPanel({
                 <p className={SECTION}>Songs</p>
                 {songs.map((song) => (
                   <SongRow key={song.Id} song={song} onPlay={opened} />
-                ))}
-              </>
-            )}
-
-            {friendHits.length > 0 && (
-              <>
-                <p className={SECTION}>On friends’ servers</p>
-                {friendHits.slice(0, 8).map(({ item, friend }) => (
-                  <Link key={item.Id} to={`/item/${item.Id}`} onClick={opened} data-result className={ROW}>
-                    <Thumb item={item} />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
-                      <span className="block text-[13px] text-ink-400 truncate">
-                        {typeLabel(item)} · {friend.name}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-xs text-ink-400">{watchState(item)}</span>
-                  </Link>
                 ))}
               </>
             )}
@@ -399,14 +429,6 @@ export default function SearchPanel({
               </>
             )}
 
-            {missing.length > 0 && (
-              <>
-                <p className={SECTION}>Not in your library</p>
-                {missing.map((r) => (
-                  <MissingRow key={`${r.kind}:${r.tmdbId ?? r.tvdbId ?? r.title}`} r={r} />
-                ))}
-              </>
-            )}
           </>
         )}
       </div>
@@ -465,10 +487,10 @@ function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
   )
 }
 
-function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
+function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfItem, ArrResult>[]; onOpen: () => void }) {
   const art = backdropUrl(item, 640) ?? posterUrl(item, 300)
   const playable = item.Type === 'Movie' || item.Type === 'Episode'
-  const resuming = !!item.UserData?.PlaybackPositionTicks && !item.UserData.Played
+  const choice = playChoice(item)
   return (
     <>
       <p className={SECTION}>Top result</p>
@@ -478,16 +500,30 @@ function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
         </Link>
         <div className="flex-1 min-w-0">
           <p className="font-display text-2xl sm:text-3xl leading-tight text-white truncate">{item.Name}</p>
-          <p className="text-sm text-ink-300 truncate">{typeLabel(item)}</p>
+          <p className="text-sm text-ink-300 truncate">
+            {typeLabel(item)}
+            {also.some((x) => x.source === 'friend') && ` · Also on ${also.flatMap((x) => (x.source === 'friend' ? [x.friend.name] : [])).join(', ')}`}
+          </p>
           <div className="mt-2.5 flex flex-wrap gap-2">
             {playable && (
               <Link
-                to={playHref(item)}
+                to={choice.href}
                 onClick={onOpen}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
               >
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-                {resuming ? 'Resume' : 'Play'}
+                {choice.label}
+              </Link>
+            )}
+            {playable && choice.startOver && (
+              <Link
+                to={choice.startOver}
+                onClick={onOpen}
+                aria-label={`Start ${item.Name} over from the beginning`}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/10 border border-white/15 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+              >
+                <RestartIcon className="h-3.5 w-3.5" />
+                Start over
               </Link>
             )}
             <Link
@@ -504,23 +540,136 @@ function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
   )
 }
 
-function MissingRow({ r }: { r: ArrResult }) {
+/** Where a title comes from, said plainly on every row. */
+function SourceTag({ s }: { s: TitleSource<JfItem, ArrResult> }) {
+  if (s.source === 'library') return <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-px text-[10.5px] font-semibold text-emerald-200">In your library</span>
+  if (s.source === 'friend') return <span className="shrink-0 truncate rounded bg-sky-400/15 px-1.5 py-px text-[10.5px] font-semibold text-sky-200 max-w-[11rem]">On {s.friend.name}</span>
+  return <span className="shrink-0 rounded bg-white/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-200">Not in your library</span>
+}
+
+/** One title: its main source's row, and the others under "More ways to watch". */
+function TitleRow({ t, onOpen }: { t: Title; onOpen: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [main, ...others] = t.sources
+  return (
+    <div>
+      {main!.source === 'library' ? (
+        <LibraryRow item={main!.item} onOpen={onOpen} />
+      ) : main!.source === 'friend' ? (
+        <FriendRow item={main!.item} friend={main!.friend} onOpen={onOpen} />
+      ) : (
+        <RequestRow r={main!.r} />
+      )}
+      {others.length > 0 && (
+        <div className="pl-[3.75rem] pr-2.5">
+          <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="text-[12.5px] font-semibold text-accent-300 hover:text-white">
+            {open ? 'Hide other ways' : `More ways to watch (${others.length}): ${others.map((o) => (o.source === 'friend' ? o.friend.name : o.source === 'request' ? 'request it' : 'your library')).join(', ')}`}
+          </button>
+          {open && (
+            <div className="mt-1 rounded-xl border border-white/10 bg-white/[0.03]">
+              {others.map((o) =>
+                o.source === 'friend' ? (
+                  <FriendRow key={o.item.Id} item={o.item} friend={o.friend} onOpen={onOpen} compact />
+                ) : o.source === 'request' ? (
+                  <RequestRow key="request" r={o.r} />
+                ) : (
+                  <LibraryRow key={o.item.Id} item={o.item} onOpen={onOpen} />
+                ),
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A library title: opens its page; its one action plays it (or opens a show). */
+function LibraryRow({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
+  const playable = item.Type === 'Movie' || item.Type === 'Episode' || item.Type === 'Video'
+  const choice = playChoice(item)
+  const state = watchState(item)
+  return (
+    <div className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/5 transition-colors">
+      <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className={`${ROW} flex-1 min-w-0 hover:bg-transparent`}>
+        <Thumb item={item} />
+        <span className="flex-1 min-w-0">
+          <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
+          <span className="flex items-center gap-2 text-[13px] text-ink-400 min-w-0">
+            <SourceTag s={{ source: 'library', item }} />
+            <span className="truncate">
+              {typeLabel(item)}
+              {state ? ` · ${state}` : ''}
+            </span>
+          </span>
+        </span>
+      </Link>
+      <Link
+        to={playable ? choice.href : `/item/${item.Id}`}
+        onClick={onOpen}
+        aria-label={`${playable ? (choice.resuming ? choice.label : 'Play') : 'Open'}: ${item.Name}`}
+        title={playable && choice.resuming ? choice.label : undefined}
+        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+      >
+        {playable && <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
+        {playable ? (choice.resuming ? 'Resume' : 'Play') : 'Open'}
+      </Link>
+    </div>
+  )
+}
+
+/** A title on a friend's server: through our server's friend proxy (only what they share). */
+function FriendRow({ item, friend, onOpen, compact }: { item: JfItem; friend: { id: string; name: string }; onOpen: () => void; compact?: boolean }) {
+  const playable = item.Type === 'Movie'
+  const choice = playChoice(item)
+  const state = watchState(item)
+  return (
+    <div className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/5 transition-colors">
+      <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className={`${ROW} flex-1 min-w-0 hover:bg-transparent`}>
+        {!compact && <Thumb item={item} />}
+        <span className="flex-1 min-w-0">
+          {!compact && <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>}
+          <span className="flex items-center gap-2 text-[13px] text-ink-400 min-w-0">
+            <SourceTag s={{ source: 'friend', item, friend }} />
+            <span className="truncate">
+              {typeLabel(item)}
+              {state ? ` · ${state}` : ''}
+            </span>
+          </span>
+        </span>
+      </Link>
+      <Link
+        to={playable ? choice.href : `/item/${item.Id}`}
+        onClick={onOpen}
+        aria-label={`${playable ? 'Play' : 'Open'} ${item.Name} from ${friend.name}`}
+        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+      >
+        {playable && <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
+        {playable ? (choice.resuming ? 'Resume' : 'Play') : 'Open'}
+        <span className="hidden sm:inline font-normal text-ink-300">from {friend.name}</span>
+      </Link>
+    </div>
+  )
+}
+
+/** A title the library doesn't have: Request, or where its request stands. */
+function RequestRow({ r }: { r: ArrResult }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const { data: queue } = useArrQueue()
   const [state, setState] = useState<'idle' | 'adding' | 'requested'>(r.id > 0 ? 'requested' : 'idle')
-  const dl = r.id > 0 ? queue?.find((q) => q.kind === r.kind && q.refId === r.id) : undefined
+  const status = useRequestStatus(r, { justRequested: state === 'requested' })
 
   const request = async () => {
+    if (state !== 'idle') return
     setState('adding')
     try {
-      await arrAdd(r)
+      const id = await arrAdd(r)
       setState('requested')
       toast(`Requested “${r.title}”. It'll appear in My List while it downloads.`)
-      qc.invalidateQueries({ queryKey: ['arrQueue'] })
+      noteRequested(qc, r, id)
     } catch (e) {
       setState('idle')
-      toast(e instanceof ArrError && e.status === 401 ? 'Sign in again to request' : `Couldn't request “${r.title}”`, 'error')
+      toast(e instanceof ArrError && e.status === 401 ? 'Sign in again to request' : e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn't request “${r.title}”`, 'error')
     }
   }
 
@@ -531,17 +680,16 @@ function MissingRow({ r }: { r: ArrResult }) {
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px] font-semibold text-white truncate">{r.title}</span>
-        <span className="block text-[13px] text-ink-400 truncate">
-          {r.kind === 'movie' ? 'Movie' : 'Series'}
-          {r.year ? ` · ${r.year}` : ''}
+        <span className="flex items-center gap-2 text-[13px] text-ink-400 min-w-0">
+          <SourceTag s={{ source: 'request', r }} />
+          <span className="truncate">
+            {r.kind === 'movie' ? 'Movie' : 'Series'}
+            {r.year ? ` · ${r.year}` : ''}
+          </span>
         </span>
       </span>
-      {dl ? (
-        <span className="shrink-0 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-200">
-          {dl.done ? dl.status : `Downloading ${dl.progress}%`}
-        </span>
-      ) : state === 'requested' ? (
-        <span className="shrink-0 text-xs font-semibold text-accent-300">Requested</span>
+      {state === 'requested' && status ? (
+        <RequestStatusView status={status} className="shrink-0 max-w-[45%]" />
       ) : (
         <button
           type="button"

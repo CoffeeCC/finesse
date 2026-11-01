@@ -62,7 +62,7 @@ interface PlayData {
   PlayCommand?: string
 }
 
-const WATCH_KEYS = ['resume', 'nextUp', 'item', 'episodes', 'seriesNextUp', 'seriesEpisodes', 'lastPlayed', 'watchlistItems']
+const WATCH_KEYS = ['smart', 'resume', 'nextUp', 'item', 'episodes', 'seriesNextUp', 'seriesEpisodes', 'lastPlayed', 'watchlistItems']
 const LIBRARY_KEYS = ['latest', 'row', 'libIndex', 'itemPage', 'browse', 'views']
 
 /** Mount once (inside the router + providers) while signed in. */

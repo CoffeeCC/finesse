@@ -29,7 +29,8 @@
 //
 // Also handled further down: :is()/:where() group-variant selectors (<88),
 // flex gap (<84, via sibling-margin fallbacks — inline `gap` styles aren't
-// covered, so layout code uses grid there) and aspect-ratio (<88).
+// covered, so layout code uses grid there; gap-y-* on wrapping rows too) and
+// aspect-ratio (<88, every aspect-[w/h] in the sheet).
 import { transform } from 'lightningcss'
 
 function oklchToRgb(args) {
@@ -64,6 +65,87 @@ function oklchToRgb(args) {
     if (Number.isNaN(alpha)) alpha = 1
   }
   return alpha >= 1 ? `rgb(${r},${g},${bb})` : `rgba(${r},${g},${bb},${alpha})`
+}
+
+/** Splits on top-level commas (not inside parentheses or brackets). */
+function splitTop(list) {
+  const out = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]
+    if (c === '(' || c === '[') depth++
+    else if (c === ')' || c === ']') depth--
+    else if (c === ',' && depth === 0) {
+      out.push(list.slice(start, i))
+      start = i + 1
+    }
+  }
+  out.push(list.slice(start))
+  return out.map((x) => x.trim()).filter(Boolean)
+}
+
+/** One selector with :where(…) → the plain selectors it stands for. */
+function expandSelector(sel) {
+  const at = sel.indexOf(':where(')
+  if (at === -1) return [sel]
+  let depth = 0
+  let end = -1
+  for (let i = at + 6; i < sel.length; i++) {
+    if (sel[i] === '(') depth++
+    else if (sel[i] === ')') {
+      depth--
+      if (depth === 0) { end = i; break }
+    }
+  }
+  if (end === -1) return [sel]
+  const before = sel.slice(0, at)
+  const after = sel.slice(end + 1)
+  const out = []
+  for (const alt of splitTop(sel.slice(at + 7, end))) for (const rest of expandSelector(after)) out.push(...expandSelector(before + alt + rest))
+  return out
+}
+
+/** :where(…) out of every rule's selector list (at-rule preludes and declarations untouched). */
+export function expandWhere(css) {
+  return css.replace(/(^|[{};])([^{};@]*:where\([^{};]*)\{/g, (_, pre, prelude) => {
+    const sels = splitTop(prelude).flatMap(expandSelector)
+    return `${pre}${[...new Set(sels)].join(',')}{`
+  })
+}
+
+// Group states Chromium 68 can match (attribute selectors like [open], and these pseudo-classes).
+const TV_STATES = /^(?:\[[^\]]+\]|:(?:hover|focus|focus-within|active|checked|disabled|enabled|empty|first-child|last-child|only-child|target|required|invalid|valid|read-only|indeterminate))$/
+
+/** `.x:is(:where(.group):is(a,b,c) *)` → `.group<a> .x,.group<b> .x` for the states the TV knows. */
+export function expandGroupStates(css) {
+  return css.replace(
+    /(?<=^|[{};,])(\.(?:\\.|[\w-])+):is\(:where\((\.group(?:\\\/[\w-]+)?)\):is\(([^()]*)\) \*\)(?=[,{])/g,
+    (whole, cls, group, states) => {
+      const ok = splitTop(states).filter((s) => TV_STATES.test(s))
+      return ok.length ? ok.map((s) => `${group}${s} ${cls}`).join(',') : whole
+    },
+  )
+}
+
+/** space-y rules (already :where()-expanded) that skip a child with its own top/bottom margin class,
+ *  as zero-specificity :where() did: the top margin skips mt-/my- children, the bottom margin mb-/my-. */
+export function spaceYYieldsToChildMargins(css) {
+  return css.replace(/(?<=^|[{};])([^{};@]*\.(?:\\.|[\w-])*space-y-[^{};@]*)\{([^{}]*)\}/g, (whole, prelude, body) => {
+    const sels = splitTop(prelude)
+    if (!sels.every((s) => /^\.(?:\\.|[\w-])*space-y-(?:\\.|[\w-])+>:not\(:last-child\)$/.test(s))) return whole
+    const decls = body.split(';').filter(Boolean)
+    const top = decls.filter((d) => d.startsWith('margin-top:'))
+    const bottom = decls.filter((d) => d.startsWith('margin-bottom:'))
+    // The --tw-space-y-reverse:0 reset goes: the universal @property fallback already sets it.
+    const rest = decls.filter((d) => !d.startsWith('margin-top:') && !d.startsWith('margin-bottom:') && !d.startsWith('--tw-space-y-reverse:'))
+    const rule = (not, ds) => (ds.length ? `${sels.map((s) => `${s}${not}`).join(',')}{${ds.join(';')}}` : '')
+    return (
+      rule('', rest) +
+      rule(':not([class*="mt-"]):not([class*="my-"])', top) +
+      rule(':not([class*="mb-"]):not([class*="my-"])', bottom)
+    )
+  })
 }
 
 export function downlevelCss(css) {
@@ -154,6 +236,23 @@ export function downlevelCss(css) {
     /(\.(?:\\.|[\w-])+):is\(:where\((\.group(?:\\\/[\w-]+)?)\)(:[\w-]+) \*\)/g,
     '$2$3 $1',
   )
+  //    Variants whose state is itself a list (group-open: `:is([open],:popover-open,:open)`)
+  //    → one plain selector per state the TV understands; the rest are dropped, since one
+  //    unknown pseudo-class in a selector list kills the whole rule there.
+  css = expandGroupStates(css)
+
+  // 8b. Every other :where(…) (Chromium <88 drops the whole rule): Tailwind's
+  //     space-y-*/divide-* (so stacked cards lost their spacing on the TV), the
+  //     preflight resets, and the app's own focus rules. Expand each :where(a,b)
+  //     into plain selectors (`x:where(a,b) y` → `xa y, xb y`). Specificity rises
+  //     from zero to the plain selector's; the rules that would then beat a
+  //     component's own classes are written so they don't apply there
+  //     (index.css: the focus corners skip [class*=rounded]).
+  css = expandWhere(css)
+
+  // 8c. Expanding space-y's :where() raised its specificity above a child's own margin
+  //     classes, so a child's mt-*/mb-* inside a space-y stack was overridden on the TV.
+  css = spaceYYieldsToChildMargins(css)
 
   // 9. Flex `gap` does nothing on Chromium <84 (property parses — grid-era —
   //    but flex layout ignores it), which squishes every toolbar/row together.
@@ -176,6 +275,13 @@ export function downlevelCss(css) {
     if (prop === 'gap' || prop === 'row-gap') {
       gapRules.push(COL_DISPLAYS.map((d) => `${d}.${name}>*+*`).join(',') + `{margin-left:0;margin-top:${value}}`)
     }
+    // gap-y-* on a row that wraps: every item steps down by the gap and the row pulls back
+    // up by the same, so wrapped lines are spaced and the first line stays put. Whoever has
+    // its own top margin class keeps it (the row doesn't pull up then).
+    if (prop === 'row-gap') {
+      const own = ':not([class*="mt-"]):not([class*="my-"])'
+      gapRules.push(`.flex-wrap.${name}${own}{margin-top:calc(${value} * -1)}.flex-wrap.${name}>*${own}{margin-top:${value}}`)
+    }
   }
   css += gapRules.join('')
 
@@ -185,10 +291,14 @@ export function downlevelCss(css) {
   //     badges/progress bars carry their own `absolute` classes and are
   //     unaffected by the >img rule.
   const aspects = [
-    ['.aspect-\\[2\\/3\\]', '150%'],
     ['.aspect-video', '56.25%'],
     ['.aspect-square', '100%'],
   ]
+  // Arbitrary ratios (aspect-[2/3] posters, aspect-[3/4] game covers…): whichever are in the sheet.
+  for (const m of css.matchAll(/\.aspect-\\\[(\d+(?:\.\d+)?)\\\/(\d+(?:\.\d+)?)\\\]\{/g)) {
+    const [, w, h] = m
+    if (+w > 0 && !aspects.some(([sel]) => sel === `.aspect-\\[${w}\\/${h}\\]`)) aspects.push([`.aspect-\\[${w}\\/${h}\\]`, `${+((+h / +w) * 100).toFixed(4)}%`])
+  }
   for (const [sel, pad] of aspects) {
     if (!css.includes(sel + '{')) continue
     // Ratio comes from a ::before padder: padding-top % on the element itself

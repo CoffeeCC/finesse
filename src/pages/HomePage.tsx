@@ -182,12 +182,25 @@ function EmptyLibrary() {
   const { session } = useAuth()
   const { info } = useFinesse()
   const canRequest = Boolean(info?.features.requests)
+  // Music but no films (a music-only server, or one just starting): lead with the music.
+  const { data: views } = useViews()
+  const musicLib = views?.Items.find((v) => v.CollectionType === 'music')
+  const { data: latestMusic } = useLatest(musicLib?.Id)
+  const hasMusic = Boolean(latestMusic?.length)
   return (
     <div className={`${PAD} pt-16 sm:pt-24`}>
       <div className="card-in max-w-2xl">
         <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-accent-300">Welcome{session?.userName ? `, ${session.userName}` : ''}</p>
-        <h1 className="mt-2 font-display text-5xl leading-[1.05] text-white sm:text-7xl">No movies or shows yet</h1>
-        <p className="mt-4 max-w-xl text-[15.5px] leading-relaxed text-ink-300">
+        <h1 className="mt-2 font-display text-5xl leading-[1.05] text-white sm:text-7xl">{hasMusic ? 'Your music is here' : 'No movies or shows yet'}</h1>
+        {hasMusic && (
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link to="/music" data-autofocus className="inline-flex h-11 items-center rounded-full bg-accent-fill px-6 text-[15px] font-semibold text-white hover:brightness-110">
+              Play music
+            </Link>
+          </div>
+        )}
+        {hasMusic && <p className="mt-8 text-[13px] font-semibold uppercase tracking-[0.14em] text-ink-400">No movies or shows yet</p>}
+        <p className={`${hasMusic ? 'mt-2' : 'mt-4'} max-w-xl text-[15.5px] leading-relaxed text-ink-300`}>
           {canRequest
             ? 'Search for anything and press Request — Finesse finds it, downloads it and puts it here on its own.'
             : 'Add files to your server’s media folders and they’ll appear here within a minute or two.'}
@@ -195,7 +208,7 @@ function EmptyLibrary() {
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           {canRequest && (
-            <Link to="/request" data-autofocus className="inline-flex h-11 items-center rounded-full bg-accent-fill px-6 text-[15px] font-semibold text-white hover:brightness-110">
+            <Link to="/request" data-autofocus={hasMusic ? undefined : true} className={`inline-flex h-11 items-center rounded-full px-6 text-[15px] font-semibold text-white ${hasMusic ? 'bg-white/10 hover:bg-white/15' : 'bg-accent-fill hover:brightness-110'}`}>
               Request something
             </Link>
           )}

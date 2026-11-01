@@ -415,6 +415,8 @@ export interface JfSession {
   NowPlayingItem?: JfItem
   PlayState?: { PositionTicks?: number; IsPaused?: boolean; IsMuted?: boolean; VolumeLevel?: number; AudioStreamIndex?: number; SubtitleStreamIndex?: number; MediaSourceId?: string }
   LastActivityDate?: string
+  /** When it last reported its position (lib/transfer works out where it is now). */
+  LastPlaybackCheckIn?: string
   SupportsRemoteControl?: boolean
   PlayableMediaTypes?: string[]
   SupportedCommands?: string[]
@@ -571,7 +573,7 @@ export function getPeerLatest(peer: string, limit = 24) {
 export function getLatest(parentId: string, limit = 20) {
   return request<JfItem[]>(
     `/Users/${session!.userId}/Items/Latest` +
-      qs({ ParentId: parentId, Limit: limit, Fields: 'PrimaryImageAspectRatio,ProductionYear' }),
+      qs({ ParentId: parentId, Limit: limit, Fields: 'PrimaryImageAspectRatio,ProductionYear,DateCreated' }),
   )
 }
 
@@ -643,6 +645,13 @@ export function searchPeople(term: string, limit = 8) {
 export function searchArtists(term: string, limit = 5) {
   return request<JfItemsResult>(
     '/Artists' + qs({ SearchTerm: term, Limit: limit, UserId: session!.userId, EnableImages: false, EnableTotalRecordCount: false }),
+  )
+}
+
+/** Genres used by one kind of title across the libraries this profile sees. */
+export function getGenresFor(includeItemTypes: string) {
+  return request<JfItemsResult>(
+    '/Genres' + qs({ IncludeItemTypes: includeItemTypes, UserId: session!.userId, Recursive: true, SortBy: 'SortName', EnableTotalRecordCount: false, EnableImages: false }),
   )
 }
 

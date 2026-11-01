@@ -16,11 +16,11 @@ html[data-theme="card-table"] .vt-tabs.os-glass { background: #161b20f5; border-
 .table-tools { color: #c7bcaa; gap: 22px; }
 .celestial-table.table-stage {
   height: clamp(680px, calc(var(--vw, 1vw) * 55), 880px); min-height: 680px; max-height: none;
-  background: #102132 url('./assets/card-table/celestial-table-v1.webp') center / 100% 100% no-repeat;
+  background: #102132 var(--arcane-table) center / 100% 100% no-repeat;
   border-radius: 18px; overflow: hidden;
-  --deck-back: url('./assets/card-table/celestial-back-v1.webp');
+  --deck-back: var(--arcane-back);
 }
-.celestial-table.table-stage[data-deck-kind="tvshows"] { --deck-back: url('./assets/card-table/celestial-back-v1.webp'); }
+.celestial-table.table-stage[data-deck-kind="tvshows"] { --deck-back: var(--arcane-back); }
 .celestial-table .mat-library-selector { left: 8%; top: 8%; max-width: 64%; }
 .celestial-table .deck-list { gap: 25px; }
 .celestial-table .library-deck { font-size: 16px; min-height: 44px; color: #d9ccb5; }
@@ -55,7 +55,7 @@ html[data-theme="card-table"] .vt-tabs.os-glass { background: #161b20f5; border-
 }
 .celestial-table .playing-card::after {
   inset: 0; border: 0; border-radius: 0; z-index: 2;
-  background: url('./assets/card-table/celestial-frame-v1.webp') center / 100% 100% no-repeat;
+  background: var(--arcane-frame) center / 100% 100% no-repeat;
 }
 .celestial-table .card-art { position: absolute; inset: 12% 8% 12%; border: 0; border-radius: 5%; aspect-ratio: auto; background: #101a26; }
 .celestial-table .card-art img { object-fit: cover; }
@@ -72,14 +72,14 @@ html[data-theme="card-table"][data-nav-mode="spatial"] .celestial-table .hand-ca
 .celestial-table .table-message { top: 47%; }
 .hand-pager { display: none; }
 .table-deal-status { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 12px 0; color: #c8baa3; font-size: 12px; text-align: center; }
-.theme-scene[data-preview="card-table"] { background-image: url('./assets/card-table/celestial-table-v1.webp'); }
-.theme-scene[data-preview="card-table"] > span { background-image: url('./assets/card-table/celestial-back-v1.webp'); }
+.theme-scene[data-preview="card-table"] { background-image: var(--arcane-table); }
+.theme-scene[data-preview="card-table"] > span { background-image: var(--arcane-back); }
 html[data-theme="card-table"] .library-deck-tile,
 html[data-theme="card-table"] .library-deck-tile::before,
 html[data-theme="card-table"] .library-deck-tile::after,
 html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"],
 html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::before,
-html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::after { background-image: url('./assets/card-table/celestial-back-v1.webp'); background-color: #142333; }
+html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::after { background-image: var(--arcane-back); background-color: #142333; }
 @media (max-width: 1000px) and (min-width: 701px) {
   .celestial-table.table-stage { min-height: 650px; height: calc(var(--vw, 1vw) * 75); }
   .celestial-table .draw-station { right: 9%; top: 10%; width: 110px; }
@@ -92,7 +92,7 @@ html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::afte
   .table-intro { padding: 0 8px 12px; }
   .table-intro h1 { font-size: 29px; }
   .table-tools { gap: 8px; flex-wrap: wrap; justify-content: flex-start; font-size: 10px; }
-  .celestial-table.table-stage { height: 780px; height: clamp(680px,calc(var(--vw, 1vw) * 185),900px); min-height: 680px; border-radius: 12px; background-image: url('./assets/card-table/celestial-phone-v1.webp'); }
+  .celestial-table.table-stage { height: 780px; height: clamp(680px,calc(var(--vw, 1vw) * 185),900px); min-height: 680px; border-radius: 12px; background-image: var(--arcane-phone); }
   .celestial-table .mat-library-selector { top: 6%; left: 9%; max-width: 67%; }
   .celestial-table .mat-library-selector > .table-kicker { font-size: 7px; }
   .celestial-table .deck-list { gap: 16px; }

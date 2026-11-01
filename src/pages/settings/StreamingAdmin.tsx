@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { streamingApi, systemApi, type EmulatorId, type EmulatorReadiness, type EmulatorSettings, type StreamingCheck, type SystemStatus } from '../../api/setup'
 import { useToast } from '../../components/Toast'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useFinesse } from '../../lib/finesseServer'
 import { Spinner } from '../setup/ui'
 
@@ -216,6 +217,71 @@ function PendingDevice({ id, ip, onPaired }: { id: string; ip: string; onPaired:
         {busy ? 'Pairing…' : 'Pair'}
       </button>
     </form>
+  )
+}
+
+/** A paired device: its name (or a way to give it one), whether Moonlight is open on it, Rename and Remove. */
+function PairedDevice({ id, name, detail, open, busy, onRenamed, onRemove }: { id: string; name: string | null; detail: string; open: boolean; busy: boolean; onRenamed: () => void; onRemove: () => void }) {
+  const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(name ?? '')
+  const [saving, setSaving] = useState(false)
+  const save = () => {
+    const v = value.replace(/\s+/g, ' ').trim()
+    if (!v || saving) return
+    setSaving(true)
+    streamingApi
+      .rename(id, v)
+      .then(() => {
+        toast(`Named it ${v}`)
+        setEditing(false)
+        onRenamed()
+      })
+      .catch((e: Error) => toast(e.message, 'error'))
+      .finally(() => setSaving(false))
+  }
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 py-3">
+      {editing ? (
+        <form
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save()
+          }}
+        >
+          <label className="sr-only" htmlFor={`device-name-${id}`}>
+            Name for this device
+          </label>
+          <input id={`device-name-${id}`} className={`${input} h-8 max-w-xs flex-1`} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Living room TV" maxLength={40} autoFocus autoComplete="off" />
+          <button type="submit" className={smallBtn} disabled={!value.trim() || saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" className={smallBtn} onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 truncate text-[13px] font-medium text-white">
+            {open && <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" aria-hidden />}
+            {name ?? <span className="text-ink-300">Unnamed device</span>}
+          </p>
+          <p className="text-[12px] text-ink-400">{detail}</p>
+        </div>
+      )}
+      {!editing && (
+        <div className="flex gap-2">
+          <button type="button" className={smallBtn} onClick={() => setEditing(true)}>
+            {name ? 'Rename' : 'Name it'}
+          </button>
+          <button type="button" className={smallBtn} disabled={busy} onClick={onRemove}>
+            {busy && <Spinner className="h-3 w-3" />}
+            Remove
+          </button>
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -448,13 +514,8 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
   const qc = useQueryClient()
   // Moonlight asks for pairing while this is open: look for it every few seconds.
   const { data, error, refetch } = useQuery({ queryKey: ['streaming', 'admin'], queryFn: streamingApi.admin, refetchInterval: 3000, retry: false })
-  const [armed, setArmed] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<{ id: string; name: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  useEffect(() => {
-    if (!armed) return
-    const t = setTimeout(() => setArmed(null), 4000)
-    return () => clearTimeout(t)
-  }, [armed])
 
   const remove = async (id: string, name: string) => {
     setBusy(id)
@@ -462,11 +523,11 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
       await streamingApi.remove(id)
       toast(`Removed ${name}`)
       await refetch()
+      setConfirm(null)
     } catch (e) {
       toast((e as Error).message, 'error')
     } finally {
       setBusy(null)
-      setArmed(null)
     }
   }
 
@@ -517,28 +578,34 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
               ) : (
                 <ul className="divide-y divide-white/5">
                   {data.devices.map((d) => {
-                    const name = d.name ?? 'A Moonlight device'
+                    const name = d.name ?? 'Unnamed device'
                     return (
-                      <li key={d.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-[13px] font-medium text-white">{name}</p>
-                          <p className="text-[12px] text-ink-400">{d.pairedAt ? `Paired ${new Date(d.pairedAt).toLocaleDateString()}` : 'Paired in Wolf'}</p>
-                        </div>
-                        <button
-                          type="button"
-                          className={smallBtn}
-                          disabled={busy === d.id}
-                          onClick={() => (armed === d.id ? void remove(d.id, name) : setArmed(d.id))}
-                        >
-                          {busy === d.id && <Spinner className="h-3 w-3" />}
-                          {armed === d.id ? 'Remove it?' : 'Remove'}
-                        </button>
-                      </li>
+                      <PairedDevice
+                        key={d.id}
+                        id={d.id}
+                        name={d.name}
+                        detail={[d.open ? 'Moonlight open now' : null, d.pairedAt ? `Paired ${new Date(d.pairedAt).toLocaleDateString()}` : 'Paired in Wolf'].filter(Boolean).join(' · ')}
+                        open={Boolean(d.open)}
+                        busy={busy === d.id}
+                        onRenamed={() => void refetch()}
+                        onRemove={() => setConfirm({ id: d.id, name })}
+                      />
                     )
                   })}
                 </ul>
               )}
             </div>
+            {confirm && (
+              <ConfirmDialog
+                title={`Remove ${confirm.name}?`}
+                confirmLabel={busy === confirm.id ? 'Removing…' : 'Remove'}
+                busy={busy === confirm.id}
+                onCancel={() => setConfirm(null)}
+                onConfirm={() => void remove(confirm.id, confirm.name)}
+              >
+                <p>It can’t stream from this server until it pairs again with a new PIN from Moonlight.</p>
+              </ConfirmDialog>
+            )}
             <WolfHealth />
             <PlayInFinesse />
             <Emulators />

@@ -98,6 +98,13 @@ export class Auth {
     return user
   }
 
+  /** A person signed in here: not the service key, not a friend's viewer account. Their id comes back lower-case. */
+  async requirePerson(req: IncomingMessage): Promise<JfUser & { id: string; admin: boolean }> {
+    const user = await this.requireUser(req)
+    if (user.Id === 'service' || !/^[0-9a-f]{32}$/i.test(user.Id)) throw new ApiError(403, 'Sign in as a person')
+    return { ...user, id: user.Id.toLowerCase(), admin: user.Policy?.IsAdministrator === true }
+  }
+
   async requireAdmin(req: IncomingMessage): Promise<JfUser> {
     const token = tokenFrom(req)
     if (!token) throw new ApiError(401, 'Admin authentication required')

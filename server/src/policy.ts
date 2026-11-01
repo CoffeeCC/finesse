@@ -53,7 +53,14 @@ export function arrVerdict(method: string, path: string, query: URLSearchParams)
       // Posters and artist pictures the app's lists show.
       /^mediacover\/((artist|album)\/)?\d+\/[\w-]+\.(jpg|jpeg|png|gif)$/,
     ].some((r) => r.test(path))
-    return ok ? { ok: true } : { ok: false }
+    if (ok) return { ok: true }
+    // Failed downloads only (eventType 4 in Radarr, Sonarr and Lidarr), for a request's status
+    // ("the last download failed, searching again"). Not the rest of the history.
+    if (path === 'history/since') {
+      const types = query.getAll('eventType')
+      return types.length > 0 && types.every((t) => t.trim() === '4') ? { ok: true } : { ok: false }
+    }
+    return { ok: false }
   }
   if (m === 'POST') {
     if (path === 'command') return { ok: true, body: 'command' }

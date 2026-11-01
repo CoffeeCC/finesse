@@ -4,6 +4,7 @@
 // what exists first, so "Try again" after a failure resumes where it broke.
 
 import { existsSync } from 'node:fs'
+import { keepDefaultsAfterSetup } from '../requestDefaults.ts'
 import type { Settings, SettingsStore } from '../config.ts'
 import { clearSetupCode } from '../auth.ts'
 import { logger } from '../log.ts'
@@ -562,7 +563,8 @@ export class SetupRunner {
           jellyfinPort: ctx.jellyfinPort,
           quality: doc.quality?.preset ?? '1080p',
         }
-        x.requests = { profiles }
+        // Settings → Downloads choices stay for apps whose quality setup didn't change.
+        x.requests = keepDefaultsAfterSetup(x.requests, profiles)
         const publicUrl = doc.publicUrl?.replace(/\/+$/, '') || remoteUrl
         if (publicUrl) x.publicUrl = publicUrl
         if (doc.email) x.email = doc.email

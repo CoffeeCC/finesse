@@ -8,6 +8,14 @@ import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
+import { openLists } from './lists.ts'
+import { registerSmartCollections } from './smartCollections.ts'
+import { Parental, registerParental } from './parental.ts'
+import { registerQueues } from './queues.ts'
+import { registerParties } from './parties.ts'
+import { registerMomentCollections } from './momentCollections.ts'
+import { Access } from './access.ts'
+import { join, posix } from 'node:path'
 import { registerStreaming } from './streaming.ts'
 import { caPem } from './tls.ts'
 import { savedTailscaleCert } from './tailscale.ts'
@@ -19,6 +27,10 @@ import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
+import { registerRequestDefaults } from './requestDefaults.ts'
+import { registerAlbumRequests } from './albumRequests.ts'
+import { checkConnections, type ConnReport } from './connections.ts'
+import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
 const log = logger('http')
@@ -66,6 +78,16 @@ function features(s: Settings) {
     addMedia: s.mode === 'bundle' && Boolean(s.stack) && s.setup.state === 'ready',
     /** Flag a moment / recommend a title to people here and friends' servers. */
     moments: true,
+    /** Rule-based collections each person keeps (smartCollections.ts). */
+    smartCollections: true,
+    /** Shortlists to pick something to watch together (queues.ts). */
+    queues: true,
+    /** Moments kept in collections, shared with chosen people (momentCollections.ts). */
+    momentCollections: true,
+    /** Per-profile rating limits (parental.ts). */
+    parental: true,
+    /** Watching one title together, in step (parties.ts). */
+    parties: true,
   }
 }
 
@@ -95,7 +117,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       mode: s.mode,
       instanceId: s.instanceId,
       jellyfin: s.jellyfin.url ? { path: '/jellyfin' } : null,
-      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready' },
+      // host: what runs the apps (the Windows service sets FINESSE_HOST=native), so help text names commands that exist there.
+      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready', host: process.env.FINESSE_HOST === 'native' ? 'native' : 'docker' },
       features: features(s),
       publicUrl: s.publicUrl ?? null,
       lanHost,
@@ -123,19 +146,58 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerReport(router, { settings, auth, info: () => ({ version: VERSION, web: web.current().version ?? 'unknown', features: features(settings.get()) }) })
 
   registerInvites(router, { store: invites, jf, auth, settings })
-  const groups = registerGroups(router, { settings, jf, auth })
-  registerMoments(router, { settings, jf, auth, groups })
+  const parental = new Parental({ settings, jf, auth })
+  const groups = registerGroups(router, { settings, jf, auth, parental })
+  registerParental(router, { settings, auth, parental, jf })
+  const moments = registerMoments(router, { settings, jf, auth, groups, parental })
+  const lists = openLists(join(p.configDir, 'lists.db'))
+  const access = new Access({ jf, groups, settings })
+  access.limited = (userId) => parental.limitOf(userId) !== null
+  access.ratingAllows = (userId, raw) => parental.allows(userId, raw)
+  registerSmartCollections(router, { auth, db: lists })
+  registerQueues(router, { auth, settings, db: lists, access })
+  registerParties(router, { auth, settings, access })
+  registerMomentCollections(router, { auth, settings, db: lists, access, momentFor: moments.momentFor })
   deps.browserStream = registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
+  registerRequestDefaults(router, { settings, auth })
+  registerAlbumRequests(router, { settings, auth, parental })
+  // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
+  let conns: { at: number; report: Promise<ConnReport> } | null = null
+  router.get('/api/system/connections', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    // Its tests ask indexers and download clients: at most once a minute unless asked.
+    if (!conns || url.searchParams.has('refresh') || Date.now() - conns.at > 60_000) {
+      const report = checkConnections(settings.get())
+      conns = { at: Date.now(), report }
+      report.catch(() => (conns = null))
+    }
+    sendJson(res, 200, await conns.report)
+  })
+  // Library health: read-only (libraryHealth.ts). It reads whole libraries, so at most every 5 minutes unless asked.
+  let libHealth: { at: number; report: Promise<LibraryHealth> } | null = null
+  router.get('/api/system/library-health', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    if (!libHealth || url.searchParams.has('refresh') || Date.now() - libHealth.at > 300_000) {
+      const report = libraryHealth(settings.get(), (path) => jf.request(path, { timeoutMs: 60000 }))
+      libHealth = { at: Date.now(), report }
+      report.catch(() => (libHealth = null))
+    }
+    try {
+      sendJson(res, 200, await libHealth.report)
+    } catch {
+      throw new ApiError(502, 'Couldn’t read the library from Jellyfin. Check Jellyfin is running, then try again.')
+    }
+  })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)
   deps.updater = updater
   registerWebUpdate(router, { auth, updater })
   for (const plugin of opts.plugins ?? []) plugin(deps)
-  registerServiceProxies(router, { settings, auth })
+  registerServiceProxies(router, { settings, auth, parental })
 
   // Whether a viewer may see an item, asked of Jellyfin with their own sign-in (its library rules apply).
   const seen = new Map<string, { ok: boolean; at: number }>()
@@ -179,11 +241,23 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
         if (isPreview) {
           // A <video> can't send a header: the app's cookie (same origin) or, from another origin, ApiKey.
           const who = await auth.requireUser(req, { cookie: 'finesse_media_token', query: url.searchParams })
-          const clip = /^\/previews\/([0-9a-f]{32})(?:\.(?:720|1080))?\.mp4$/.exec(path)
+          // Checked as the file that would be served (decoded, normalised), and only in its one
+          // canonical form: "/previews//<id>.mp4" or "%62…" can't slip past the checks below.
+          let clean: string
+          try {
+            clean = posix.normalize(decodeURIComponent(path))
+          } catch {
+            throw new ApiError(404, 'Not found')
+          }
+          const clip = /^\/previews\/([0-9a-f]{32})(?:\.(?:720|1080))?\.mp4$/.exec(clean)
+          if (!clip && clean !== '/previews/manifest.json' && clean !== '/previews/manifest-hd.json') throw new ApiError(404, 'Not found')
+          path = clean
           // A clip is of one item: someone who can't see that item (a library they're not in) can't see its clip.
           if (clip && !who.Policy?.IsAdministrator && !(await canSee(tokenFrom(req, { cookie: 'finesse_media_token', query: url.searchParams })!, who.Id, clip[1]!))) {
             throw new ApiError(404, 'Not found')
           }
+          // A limited profile (parental.ts) doesn't get clips of titles over its limit.
+          if (clip && !(await parental.allows(who.Id, clip[1]!))) throw new ApiError(404, 'Not found')
           const hit = safeFile(p.previews, path.slice('/previews'.length))
           // Signed-in only: no shared cache (a proxy or CDN) may keep it and hand it to someone else.
           if (hit) return void sendFile(req, res, hit.file, hit.stat, path, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' })
@@ -204,7 +278,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   })
 
   server.on('upgrade', (req, socket, head) => {
-    if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head)) socket.destroy()
+    if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head, parental)) socket.destroy()
   })
 
   // Keep-alive sockets shouldn't hold shutdown open for long.

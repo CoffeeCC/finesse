@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clock, deleteMoment, getMomentTargets, sendMoment, type Moment } from '../../api/moments'
 import { useToast } from '../Toast'
-import { isBackKey } from '../../lib/back'
+import { pushBackHandler } from '../../lib/back'
 import { NOTE_MAX, spanLabel } from './moments'
 
 // Flag a moment (from the player: a start and end you can nudge) or recommend a
@@ -41,16 +41,16 @@ export default function MomentComposer({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isBackKey(e) && !busy) {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [busy, onClose])
+  // Back closes the composer (never the page under it). Through the shared Back
+  // stack, so Backspace while typing the note edits the note instead.
+  useEffect(
+    () =>
+      pushBackHandler(() => {
+        if (!busy) onClose()
+        return true
+      }),
+    [busy, onClose],
+  )
 
   const toggle = (id: string) =>
     setTo((s) => {
@@ -91,6 +91,8 @@ export default function MomentComposer({
   const listed = (existing ?? []).filter((m) => m.start != null)
 
   const send = async () => {
+    // One send per press: a double tap doesn't send it twice.
+    if (busy) return
     setBusy(true)
     setError('')
     try {
@@ -218,8 +220,17 @@ export default function MomentComposer({
           </p>
         </div>
 
+        {/* Exactly what goes, and to whom, before it's sent. */}
+        {to.size > 0 && audience && (
+          <p role="status" className="mt-4 rounded-xl bg-white/[0.04] px-3 py-2 text-[13px] leading-relaxed text-ink-200">
+            Sending {span && !tooLong ? <span className="font-mono text-white">{clock(start)}–{clock(end)}</span> : null}
+            {span && !tooLong ? ' of ' : ''}
+            <span className="text-white">{title}</span> to <span className="text-white">{audience}</span>.
+          </p>
+        )}
         {error && <p className="mt-3 text-[13.5px] text-red-200">{error}</p>}
-        <div className="mt-5 flex justify-end gap-3">
+        {/* Stays at the bottom of the dialog while the form scrolls on a short screen. */}
+        <div className="sticky -bottom-5 sm:-bottom-6 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 mt-5 flex justify-end gap-3 border-t border-white/5 bg-ink-900 px-5 sm:px-6 py-4">
           <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-medium text-ink-200 hover:text-white disabled:opacity-50">
             Cancel
           </button>

@@ -1,3 +1,12 @@
+/* Arcane Table's large artwork, each referenced once: the TV build embeds every url() it
+   meets, so a picture named in twelve rules was shipped twelve times. */
+:root {
+  --arcane-back: url('./assets/card-table/celestial-back-v1.webp');
+  --arcane-table: url('./assets/card-table/celestial-table-v1.webp');
+  --arcane-phone: url('./assets/card-table/celestial-phone-v1.webp');
+  --arcane-frame: url('./assets/card-table/celestial-frame-v1.webp');
+}
+
 /* Optional device themes. The default remains untouched. Colors on video and
    artwork keep their original contrast; these tokens cover app surfaces. */
 html[data-theme="midnight"] {
@@ -51,8 +60,8 @@ html[data-theme="card-table"] .vt-tabs.os-glass { background: rgba(31, 23, 44, .
 .theme-scene i { position: absolute; top: 6px; left: 10px; font-family: var(--font-display); color: #eee6d5; font-size: 20px; }
 .theme-scene[data-preview="midnight"] { background: radial-gradient(ellipse at 85% 0%, #31415a, #090d16 80%); border-color: #d8b87755; }
 .theme-scene[data-preview="midnight"] > span { border-color: #d8b87777; }
-.theme-scene[data-preview="card-table"] { background: #231732 url('./assets/card-table/celestial-table-v1.webp') center / cover; }
-.theme-scene[data-preview="card-table"] > span { height: 48px; width: 32px; border: 2px solid #b58a51; background: #2a1e3c url('./assets/card-table/celestial-back-v1.webp') center / cover; margin: 0 -3px; transform: rotate(-14deg); }
+.theme-scene[data-preview="card-table"] { background: #231732 var(--arcane-table) center / cover; }
+.theme-scene[data-preview="card-table"] > span { height: 48px; width: 32px; border: 2px solid #b58a51; background: #2a1e3c var(--arcane-back) center / cover; margin: 0 -3px; transform: rotate(-14deg); }
 .theme-scene[data-preview="card-table"] > span:nth-child(2) { height: 55px; z-index: 1; transform: translateY(-3px); }
 .theme-scene[data-preview="card-table"] > span:nth-child(3) { transform: rotate(14deg); }
 html[data-theme="midnight"] .page-title { color: #f3eedf; }

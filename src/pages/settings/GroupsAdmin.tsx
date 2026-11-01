@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { groupsApi, type GroupsOverview } from '../../api/setup'
+import { groupsApi, type FriendHealth, type GroupsOverview } from '../../api/setup'
 import { useToast } from '../../components/Toast'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Spinner } from '../setup/ui'
 import { getMomentSettings, setMomentSettings } from '../../api/moments'
 
@@ -83,7 +84,8 @@ export default function GroupsAdmin() {
   const [addErr, setAddErr] = useState('')
   const [backFor, setBackFor] = useState<string | null>(null)
   const [backPick, setBackPick] = useState<string[]>([])
-  const [armed, setArmed] = useState<string | null>(null)
+  // Stopping a share or removing a friend asks first, in a dialog that stays until answered.
+  const [confirm, setConfirm] = useState<{ kind: 'link' | 'friend'; id: string; name: string } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -94,11 +96,6 @@ export default function GroupsAdmin() {
     }
   }, [])
   useEffect(() => void load(), [load])
-  useEffect(() => {
-    if (!armed) return
-    const t = setTimeout(() => setArmed(null), 4000)
-    return () => clearTimeout(t)
-  }, [armed])
 
   const run = async (key: string, fn: () => Promise<unknown>, done?: string) => {
     setBusy(key)
@@ -246,13 +243,8 @@ export default function GroupsAdmin() {
                         {l.viewers.length ? ` · ${l.viewers.length} ${l.viewers.length === 1 ? 'person' : 'people'} watched` : ''}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className={`${smallBtn} ${armed === l.id ? 'border-red-400/60 text-red-200' : ''}`}
-                      disabled={busy === `rm${l.id}`}
-                      onClick={() => (armed === l.id ? void run(`rm${l.id}`, () => groupsApi.removeLink(l.id), `Stopped sharing with ${l.name}`) : setArmed(l.id))}
-                    >
-                      {armed === l.id ? 'Tap again to stop sharing' : 'Stop sharing'}
+                    <button type="button" className={smallBtn} disabled={busy === `rm${l.id}`} onClick={() => setConfirm({ kind: 'link', id: l.id, name: l.name })}>
+                      Stop sharing
                     </button>
                   </div>
                   <LibraryPicker libraries={o.libraries} picked={l.libraries} onChange={(ids) => void run(`lib${l.id}`, () => groupsApi.setLinkLibraries(l.id, ids), ids.length ? `Now sharing ${ids.map(libName).join(', ')}` : 'Sharing nothing for now')} />
@@ -273,19 +265,15 @@ export default function GroupsAdmin() {
                       <p className="text-[13px] font-medium text-white">{f.name}</p>
                       <p className="truncate text-[12px] text-ink-400">{f.url}</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <FriendCheck id={f.id} />
                       {!o.links.some((l) => l.name === f.name) && (
                         <button type="button" className={smallBtn} onClick={() => setBackFor(backFor === f.id ? null : f.id)}>
                           Share yours back
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className={`${smallBtn} ${armed === f.id ? 'border-red-400/60 text-red-200' : ''}`}
-                        disabled={busy === `rf${f.id}`}
-                        onClick={() => (armed === f.id ? void run(`rf${f.id}`, () => groupsApi.removeFriend(f.id), `Removed ${f.name}`) : setArmed(f.id))}
-                      >
-                        {armed === f.id ? 'Tap again to remove' : 'Remove'}
+                      <button type="button" className={smallBtn} disabled={busy === `rf${f.id}`} onClick={() => setConfirm({ kind: 'friend', id: f.id, name: f.name })}>
+                        Remove
                       </button>
                     </div>
                   </div>
@@ -312,6 +300,68 @@ export default function GroupsAdmin() {
           </div>
         )}
       </div>
+      {confirm?.kind === 'link' && (
+        <ConfirmDialog
+          title={`Stop sharing with ${confirm.name}?`}
+          confirmLabel={busy === `rm${confirm.id}` ? 'Stopping…' : 'Stop sharing'}
+          busy={busy === `rm${confirm.id}`}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            const { id, name } = confirm
+            void run(`rm${id}`, () => groupsApi.removeLink(id), `Stopped sharing with ${name}`).then((ok) => ok && setConfirm(null))
+          }}
+        >
+          <p>People on {confirm.name} can’t watch anything from your server any more, starting now. What they were watching stops working.</p>
+          <p className="text-ink-400">Nothing on your server is deleted. To share again, create a new code.</p>
+        </ConfirmDialog>
+      )}
+      {confirm?.kind === 'friend' && (
+        <ConfirmDialog
+          title={`Remove ${confirm.name}?`}
+          confirmLabel={busy === `rf${confirm.id}` ? 'Removing…' : 'Remove'}
+          busy={busy === `rf${confirm.id}`}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            const { id, name } = confirm
+            void run(`rf${id}`, () => groupsApi.removeFriend(id), `Removed ${name}`).then((ok) => ok && setConfirm(null))
+          }}
+        >
+          <p>{confirm.name}’s libraries leave Friends for everyone here.</p>
+          <p className="text-ink-400">To watch them again, you’ll need a new code from {confirm.name}.</p>
+        </ConfirmDialog>
+      )}
     </div>
+  )
+}
+
+/**
+ * Check a friend's server: connected (and how much it shares), unreachable, or no longer
+ * sharing, with when that was checked (it's a check, not a live connection).
+ */
+function FriendCheck({ id }: { id: string }) {
+  const [h, setH] = useState<FriendHealth | null>(null)
+  const [busy, setBusy] = useState(false)
+  const check = async () => {
+    setBusy(true)
+    try {
+      setH(await groupsApi.checkFriend(id))
+    } catch (e) {
+      setH({ checkedAt: new Date().toISOString(), state: 'error', message: e instanceof Error ? e.message : 'Couldn’t check' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const tone = h?.state === 'ok' ? 'text-emerald-300' : h?.state === 'outdated' || h?.state === 'busy' ? 'text-amber-200' : 'text-red-300'
+  return (
+    <>
+      <button type="button" className={smallBtn} disabled={busy} onClick={() => void check()}>
+        {busy ? 'Checking…' : h ? 'Check again' : 'Check connection'}
+      </button>
+      {h && (
+        <p role="status" className={`basis-full text-[12px] leading-relaxed ${tone}`}>
+          {h.message} <span className="text-ink-400">· checked {new Date(h.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+        </p>
+      )}
+    </>
   )
 }
