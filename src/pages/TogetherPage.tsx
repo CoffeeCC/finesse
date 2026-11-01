@@ -499,9 +499,13 @@ function PartiesSection() {
                   {p.host} hosting · {p.people} watching
                 </span>
               </span>
-              <Link to={`/play/${p.item}?party=${encodeURIComponent(p.id)}`} className={BTN_MAIN}>
-                {p.joined ? 'Back to it' : 'Join'}
-              </Link>
+              {p.item ? (
+                <Link to={`/play/${p.item}?party=${encodeURIComponent(p.id)}`} className={BTN_MAIN}>
+                  {p.joined ? 'Back to it' : 'Join'}
+                </Link>
+              ) : (
+                <span className="text-[12.5px] text-ink-400">Your profile can’t open it</span>
+              )}
             </li>
           ))}
         </ul>

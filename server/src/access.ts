@@ -53,6 +53,7 @@ export class Access {
   private jf: Jellyfin
   private groups: GroupsApi
   private seen = new Map<string, { at: number; yes: boolean }>()
+  private titles = new Map<string, { at: number; title: TitleInfo | null }>()
   /** Extra say over a person's access (parental limits); set once the limits are loaded. */
   limited: (userId: string) => boolean = () => false
   ratingAllows: (userId: string, raw: string) => Promise<boolean> = async () => true
@@ -102,8 +103,18 @@ export class Access {
     return (await this.availability(userId, id)) !== 'no'
   }
 
-  /** What a title is called, read as the person adding it (so it's also proof they can open it). Null when they can't. */
+  /** What a title is called, read as the person adding it (so it's also proof they can open it). Null when they can't. Kept 2 minutes. */
   async titleFor(user: { id: string; name: string }, id: string): Promise<TitleInfo | null> {
+    const key = `${user.id}/${id}`
+    const hit = this.titles.get(key)
+    if (hit && Date.now() - hit.at < 120e3) return hit.title
+    const title = await this.readTitle(user, id)
+    if (this.titles.size > 5000) this.titles.clear()
+    this.titles.set(key, { at: Date.now(), title })
+    return title
+  }
+
+  private async readTitle(user: { id: string; name: string }, id: string): Promise<TitleInfo | null> {
     const fp = friendPart(id)
     if (fp) {
       const f = this.friend(fp.friend)

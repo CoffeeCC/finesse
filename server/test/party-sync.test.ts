@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { clockOffset, control, GONE_MS, join, leave, positionAt, report, steer, STUCK_MS, tick, waitingFor, type Party } from '../../src/lib/partySync.ts'
+import { clockOffset, control, GONE_MS, STUCK_WINDOW_MS, join, leave, positionAt, report, steer, STUCK_MS, tick, waitingFor, type Party } from '../../src/lib/partySync.ts'
 
 function party(now = 0): Party {
   return { id: 'p', item: 'i', title: 'T', host: 'alex', invited: ['kim', 'lee'], members: [], clock: { playing: false, position: 0, at: now, waiting: false, rev: 0 }, created: now, ended: false }
@@ -67,6 +67,35 @@ test('a manual pause while waiting stays paused; someone stuck too long is left 
   report(p, 'kim', { position: 2, buffering: true }, 5000 + STUCK_MS)
   tick(p, 5000 + STUCK_MS)
   assert.equal(p.clock.playing, true, 'Kim is left to catch up')
+})
+
+test('stalling on and off adds up: one member can’t keep everyone paused by toggling', () => {
+  const p = party()
+  join(p, { id: 'alex', name: 'Alex' }, 0)
+  join(p, { id: 'kim', name: 'Kim' }, 0)
+  control(p, { action: 'play' }, 0)
+  report(p, 'kim', { position: 0, buffering: false }, 0)
+  // Kim stalls 4 s, plays 0.1 s, stalls again… each stall shorter than STUCK_MS.
+  let t = 1000
+  let held = 0
+  while (t < 1000 + 2 * STUCK_MS) {
+    report(p, 'kim', { position: positionAt(p.clock, t), buffering: true }, t)
+    report(p, 'alex', { position: positionAt(p.clock, t), buffering: false }, t)
+    tick(p, t)
+    if (waitingFor(p, t).length) held += 1000
+    t += 1000
+    if ((t / 1000) % 4 === 0) {
+      report(p, 'kim', { position: positionAt(p.clock, t), buffering: false }, t)
+      t += 100
+    }
+  }
+  assert.ok(held <= STUCK_MS, `held the party ${held} ms`)
+  assert.equal(p.clock.playing, true, 'the party plays on without Kim')
+  // A new minute: Kim may hold it again (briefly).
+  t = 1000 + STUCK_WINDOW_MS + 1
+  report(p, 'kim', { position: positionAt(p.clock, t), buffering: false }, t)
+  report(p, 'kim', { position: positionAt(p.clock, t), buffering: true }, t + 1)
+  assert.equal(waitingFor(p, t + 2).length, 1)
 })
 
 test('a late joiner starts where the party is and doesn’t hold it up until in step', () => {

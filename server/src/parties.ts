@@ -17,6 +17,10 @@ import { control, join, leave, MAX_MEMBERS, positionAt, report, tick, waitingFor
 
 const log = logger('parties')
 const KEEP_MS = 12 * 3600e3
+/** Parties going at once: each person hosts up to this many, the server holds up to ALL. */
+export const PARTY_LIMITS = { perHost: 3, all: 50 }
+/** What an invitation or a party says to someone who can't open its title. */
+const HIDDEN_TITLE = 'A title you can’t open'
 
 export function registerParties(router: Router, deps: { auth: Auth; settings: SettingsStore; access: Access; now?: () => number }) {
   const { auth, settings, access } = deps
@@ -43,14 +47,16 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     if (!p.members.some((m) => m.id === me)) throw new ApiError(409, 'Join the party first')
   }
 
-  const view = (p: Party, me: string) => {
+  /** The title as this person may see it: theirs to open, or nothing about it (their access can change after the invitation). */
+  const titleSeen = async (p: Party, me: string) => ((await access.mayOpen(me, p.item)) ? { item: p.item as string | null, title: p.title } : { item: null, title: HIDDEN_TITLE })
+
+  const view = async (p: Party, me: string) => {
     const t = now()
     tick(p, t)
     const names = new Map(p.members.map((m) => [m.id, m.name]))
     return {
       id: p.id,
-      item: p.item,
-      title: p.title,
+      ...(await titleSeen(p, me)),
       host: { id: p.host, name: names.get(p.host) ?? 'Someone' },
       isHost: p.host === me,
       joined: p.members.some((m) => m.id === me),
@@ -72,10 +78,19 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     if (!t) throw new ApiError(404, 'You can’t open that title')
     if (!['Movie', 'Episode', 'Video'].includes(t.type)) throw new ApiError(400, 'Pick a film or an episode to watch together')
     const viewers = new Set([...groupUserIds(settings.get())].map((u) => u.toLowerCase()))
-    const ok = new Set((await access.people(viewers)).map((x) => x.id))
+    const people = await access.people(viewers)
+    const ok = new Set(people.map((x) => x.id))
     const invited = Array.isArray(body.invite) ? [...new Set(body.invite.map((x) => String(x).toLowerCase()).filter((x) => ok.has(x) && x !== me.id))] : []
     if (!invited.length) throw new ApiError(400, 'Invite at least one person')
     if (invited.length + 1 > MAX_MEMBERS) throw new ApiError(400, `A watch party is up to ${MAX_MEMBERS} people`)
+    sweep()
+    const going = [...parties.values()].filter((x) => !x.ended)
+    if (going.filter((x) => x.host === me.id).length >= PARTY_LIMITS.perHost) throw new ApiError(429, `You have ${PARTY_LIMITS.perHost} watch parties going. End one first.`)
+    if (going.length >= PARTY_LIMITS.all) throw new ApiError(503, 'There are too many watch parties going on this server right now. Try again later.')
+    // An invitation names the title: only to people who can open it.
+    const cant: string[] = []
+    for (const u of invited) if (!(await access.mayOpen(u, item))) cant.push(people.find((x) => x.id === u)?.name ?? 'Someone')
+    if (cant.length) throw new ApiError(400, `${cant.join(', ')} can’t open this title, so they can’t be invited`)
     const at = Number(body.position)
     const p: Party = {
       id: randomBytes(9).toString('base64url'),
@@ -92,7 +107,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     join(p, { id: me.id, name: me.Name }, now())
     parties.set(p.id, p)
     log.info(`${me.Name} started a watch party for ${invited.length + 1}`)
-    sendJson(res, 201, view(p, me.id))
+    sendJson(res, 201, await view(p, me.id))
   })
 
   // Parties you're invited to or in (the app's invitations).
@@ -100,12 +115,13 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     const me = await auth.requirePerson(req)
     sweep()
     const mine = [...parties.values()].filter((p) => !p.ended && (p.invited.includes(me.id) || p.members.some((m) => m.id === me.id)))
-    sendJson(res, 200, { parties: mine.map((p) => ({ id: p.id, title: p.title, item: p.item, host: p.members.find((m) => m.id === p.host)?.name ?? 'Someone', people: p.members.length, joined: p.members.some((m) => m.id === me.id) })) })
+    const out = await Promise.all(mine.map(async (p) => ({ id: p.id, ...(await titleSeen(p, me.id)), host: p.members.find((m) => m.id === p.host)?.name ?? 'Someone', people: p.members.length, joined: p.members.some((m) => m.id === me.id) })))
+    sendJson(res, 200, { parties: out })
   })
 
   router.get('/api/parties/:id', async ({ req, res, params }) => {
     const me = await auth.requirePerson(req)
-    sendJson(res, 200, view(find(String(params.id), me.id), me.id))
+    sendJson(res, 200, await view(find(String(params.id), me.id), me.id))
   })
 
   router.post('/api/parties/:id/join', async ({ req, res, params }) => {
@@ -115,7 +131,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     if (!(await access.mayOpen(me.id, p.item))) throw new ApiError(403, 'Your profile can’t open this title, so you can’t join this party')
     if (!p.members.some((m) => m.id === me.id) && p.members.length >= MAX_MEMBERS) throw new ApiError(400, `This party is full (${MAX_MEMBERS} people)`)
     join(p, { id: me.id, name: me.Name }, now())
-    sendJson(res, 200, view(p, me.id))
+    sendJson(res, 200, await view(p, me.id))
   })
 
   // A player reporting in: where it is and whether it's stalled. The party's clock comes back.
@@ -127,7 +143,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     const position = Number(body.position)
     if (!Number.isFinite(position) || position < 0) throw new ApiError(400, 'Where is it?')
     report(p, me.id, { position, buffering: body.buffering === true }, now())
-    sendJson(res, 200, view(p, me.id))
+    sendJson(res, 200, await view(p, me.id))
   })
 
   router.post('/api/parties/:id/control', async ({ req, res, params }) => {
@@ -139,7 +155,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     if (body.action === 'play' || body.action === 'pause') control(p, { action: body.action }, now())
     else if (body.action === 'seek' && Number.isFinite(position) && position >= 0 && position < 24 * 3600) control(p, { action: 'seek', position }, now())
     else throw new ApiError(400, 'Play, pause or seek')
-    sendJson(res, 200, view(p, me.id))
+    sendJson(res, 200, await view(p, me.id))
   })
 
   router.post('/api/parties/:id/leave', async ({ req, res, params }) => {

@@ -7,7 +7,8 @@ import type { Clock } from '../lib/partySync'
 
 export interface PartyView {
   id: string
-  item: string
+  /** Null: this profile can't open the title (it's shown as "A title you can't open"). */
+  item: string | null
   title: string
   host: { id: string; name: string }
   isHost: boolean
@@ -23,7 +24,8 @@ export interface PartyView {
 export interface PartyInvite {
   id: string
   title: string
-  item: string
+  /** Null: this profile can't open the title. */
+  item: string | null
   host: string
   people: number
   joined: boolean

@@ -7,8 +7,9 @@
 // The rules:
 //   - Anyone in the party can play, pause or seek; it applies to everyone.
 //   - Someone in step whose player stalls (buffering) pauses everyone, "waiting for Kim";
-//     once nobody's waiting it plays on by itself. Someone stuck for over 20 s is left to catch
-//     up instead, so one slow connection can't hold the party for good.
+//     once nobody's waiting it plays on by itself. Someone who has held the party for 20 s in a
+//     minute (one long stall, or many short ones) is left to catch up instead, so one slow (or
+//     stop-starting) connection can't hold the party for good.
 //   - Late joiners start where the party is and don't hold anyone up until they're in step.
 //   - Someone silent for 15 s has left. If that's the host, the longest-present member hosts;
 //     when nobody's left, the party is over.
@@ -16,6 +17,8 @@
 export const MAX_MEMBERS = 8
 export const GONE_MS = 15_000
 export const STUCK_MS = 20_000
+/** STUCK_MS is a budget per this window: stalls add up across stop-starts. */
+export const STUCK_WINDOW_MS = 60_000
 /** Within this many seconds of the clock counts as in step. */
 export const IN_STEP = 2
 /** Further than this: seek, rather than nudge the speed. */
@@ -42,6 +45,9 @@ export interface Member {
   /** Since when the player has been stalled (null: it isn't). */
   bufferingSince: number | null
   position: number
+  /** Stalled time already used this window (finished stalls), and when the window began. */
+  heldMs?: number
+  heldSince?: number
 }
 
 export interface Party {
@@ -92,6 +98,12 @@ export function report(p: Party, id: string, r: { position: number; buffering: b
   if (!m) return
   m.seen = now
   m.position = r.position
+  if (m.heldSince === undefined || now - m.heldSince >= STUCK_WINDOW_MS) {
+    m.heldSince = now
+    m.heldMs = 0
+  }
+  // A stall that ended counts (its part in this window) against the budget.
+  if (!r.buffering && m.bufferingSince !== null) m.heldMs = (m.heldMs ?? 0) + Math.max(0, now - Math.max(m.bufferingSince, m.heldSince))
   m.bufferingSince = r.buffering ? (m.bufferingSince ?? now) : null
   if (!r.buffering && Math.abs(r.position - positionAt(p.clock, now)) <= IN_STEP) m.synced = true
 }
@@ -108,9 +120,9 @@ function handHost(p: Party) {
   else p.ended = true
 }
 
-/** Who the party is waiting for right now (in step, stalled, not stuck for long). */
+/** Who the party is waiting for right now (in step, stalled, and not over their stall budget this minute). */
 export function waitingFor(p: Party, now: number): Member[] {
-  return p.members.filter((m) => m.synced && m.bufferingSince !== null && now - m.bufferingSince < STUCK_MS)
+  return p.members.filter((m) => m.synced && m.bufferingSince !== null && (m.heldMs ?? 0) + (now - m.bufferingSince) < STUCK_MS)
 }
 
 /** Time passing: people who've gone quiet leave; buffering pauses and resumes the party. */

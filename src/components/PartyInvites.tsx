@@ -15,7 +15,8 @@ export default function PartyInvites() {
     }
   })
   const navigate = useNavigate()
-  const p = (data ?? []).find((x) => !x.joined && !dismissed.includes(x.id))
+  // A party of a title this profile can't open (item: null) isn't an invitation it can take.
+  const p = (data ?? []).find((x) => x.item && !x.joined && !dismissed.includes(x.id))
   if (inPlayer || !p) return null
   const dismiss = () => {
     const next = [...dismissed, p.id]

@@ -61,22 +61,48 @@ test('joining, then any member plays, pauses and seeks for everyone', async () =
 })
 
 test('access is checked for each person, not taken from the host', async () => {
-  // Kim isn't in the Private library: invited, but can't join.
+  // Kim isn't in the Private library: she can't be invited (the invitation would name it).
   const r = await call(A.url, 'POST', '/api/parties', 'robin', { item: jf.privateMovie, invite: [id('kim')] })
-  assert.equal(r.status, 201, r.text)
-  const j = await call(A.url, 'POST', `/api/parties/${r.data.id}/join`, 'kim')
-  assert.equal(j.status, 403)
-  assert.match(String(j.data.error), /can’t open this title/)
+  assert.equal(r.status, 400, r.text)
+  assert.match(String(r.data.error), /kim can’t open this title/)
+  assert.doesNotMatch(JSON.stringify((await call(A.url, 'GET', '/api/parties', 'kim')).data), /Home Video/)
   // A parental limit: the R-rated film is out for Kim, whoever invites her.
   A.settings.update((s) => void (s.parental = { [id('kim')]: { maxAge: 14, blockUnrated: false, requests: false } }))
+  assert.equal((await call(A.url, 'POST', '/api/parties', 'robin', { item: jf.rated, invite: [id('kim')] })).status, 400)
+  A.settings.update((s) => void delete s.parental)
+  // Invited while she could open it, limited since: the invitation and the party don't name it, and she can't join.
   const rated = await call(A.url, 'POST', '/api/parties', 'robin', { item: jf.rated, invite: [id('kim')] })
+  assert.equal(rated.status, 201, rated.text)
+  A.settings.update((s) => void (s.parental = { [id('kim')]: { maxAge: 14, blockUnrated: false, requests: false } }))
+  const list = (await call(A.url, 'GET', '/api/parties', 'kim')).data.parties as { id: string; title: string; item: string | null }[]
+  const mine = list.find((x) => x.id === rated.data.id)!
+  assert.deepEqual([mine.title, mine.item], ['A title you can’t open', null])
+  const seen = await call(A.url, 'GET', `/api/parties/${rated.data.id}`, 'kim')
+  assert.deepEqual([seen.data.title, seen.data.item], ['A title you can’t open', null])
+  assert.doesNotMatch(seen.text + JSON.stringify(list), /Grown-up|8{32}/)
   assert.equal((await call(A.url, 'POST', `/api/parties/${rated.data.id}/join`, 'kim')).status, 403)
   A.settings.update((s) => void delete s.parental)
+  assert.equal((await call(A.url, 'DELETE', `/api/parties/${rated.data.id}`, 'robin')).status, 200)
   // Starting one needs a title the host can open, of ours, and someone to invite.
   assert.equal((await call(A.url, 'POST', '/api/parties', 'kim', { item: jf.privateMovie, invite: [id('robin')] })).status, 404)
   assert.equal((await call(A.url, 'POST', '/api/parties', 'robin', { item: `f-abcdefgh-${jf.movie}`, invite: [id('kim')] })).status, 400)
   assert.equal((await call(A.url, 'POST', '/api/parties', 'robin', { item: jf.movie, invite: [] })).status, 400)
   assert.equal((await call(A.url, 'POST', '/api/parties', 'service', { item: jf.movie, invite: [id('kim')] })).status, 403)
+})
+
+test('each person hosts a few parties at once', async () => {
+  const started: string[] = []
+  // Robin hosts one already (the first test's).
+  for (let i = 0; i < 2; i++) {
+    const r = await call(A.url, 'POST', '/api/parties', 'robin', { item: jf.movie, invite: [id('lee')] })
+    assert.equal(r.status, 201, r.text)
+    started.push(String(r.data.id))
+  }
+  const over = await call(A.url, 'POST', '/api/parties', 'robin', { item: jf.movie, invite: [id('lee')] })
+  assert.equal(over.status, 429)
+  assert.match(String(over.data.error), /End one first/)
+  assert.equal((await call(A.url, 'POST', '/api/parties', 'lee', { item: jf.movie, invite: [id('robin')] })).status, 201, 'someone else can still start one')
+  for (const p of started) await call(A.url, 'DELETE', `/api/parties/${p}`, 'robin')
 })
 
 test('the host ends it; others can only leave', async () => {
