@@ -483,3 +483,25 @@ test('lifting the limit lifts it everywhere, at once', async () => {
   await call('GET', `/jellyfin/Users/${ID.kid}/Items/${R}`, 'kid')
   assert.deepEqual(calls, [`GET /Users/${ID.kid}/Items/${R}`])
 })
+
+test('Jellyfin’s own limit is merged into the profile’s policy, and lifting it undoes only Finesse’s part', async () => {
+  const teen = users.get(ID.teen)!
+  const last = () => policyPosts.filter((x) => x.id === ID.teen).at(-1)!.body
+  // An administrator's stricter limit in Jellyfin (with 10.11's sub-rating) and their own unrated kinds.
+  teen.Policy = { IsAdministrator: false, MaxParentalRating: 7, MaxParentalSubRating: 2, BlockUnratedItems: ['Book'] }
+  assert.equal((await call('PUT', `/api/parental/${ID.teen}`, 'parent', { maxAge: 14, blockUnrated: true })).status, 200)
+  assert.equal(last().MaxParentalRating, 7, 'the stricter one stays')
+  assert.equal(last().MaxParentalSubRating, 2)
+  assert.deepEqual(last().BlockUnratedItems, ['Book', 'Movie', 'Trailer', 'Series', 'Other'])
+  assert.equal((await call('PUT', `/api/parental/${ID.teen}`, 'parent', { maxAge: null })).status, 200)
+  assert.deepEqual([last().MaxParentalRating, last().MaxParentalSubRating, last().BlockUnratedItems], [7, 2, ['Book']], 'back as it was')
+  // A looser one in Jellyfin: Finesse's age applies while limited, theirs comes back after.
+  teen.Policy = { IsAdministrator: false, MaxParentalRating: 16, MaxParentalSubRating: 1, BlockUnratedItems: [] }
+  await call('PUT', `/api/parental/${ID.teen}`, 'parent', { maxAge: 10, blockUnrated: false })
+  assert.deepEqual([last().MaxParentalRating, last().MaxParentalSubRating, last().BlockUnratedItems], [10, null, []])
+  // The administrator changes it in Jellyfin meanwhile: that's theirs, and lifting leaves it.
+  teen.Policy = { ...teen.Policy, MaxParentalRating: 12 }
+  await call('PUT', `/api/parental/${ID.teen}`, 'parent', { maxAge: null })
+  assert.deepEqual([last().MaxParentalRating, last().MaxParentalSubRating], [12, 1])
+  assert.equal(settings.get().parentalJellyfin?.[ID.teen], undefined, 'nothing left to remember')
+})

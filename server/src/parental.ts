@@ -368,18 +368,67 @@ export class Parental {
     return JSON.stringify(data)
   }
 
-  /** Jellyfin's own limit for the profile (or none), so its lists and its own apps follow it too. */
+  /**
+   * Jellyfin's own limit for the profile (or none), so its lists and its own apps follow it too.
+   * Merged into the profile's policy: a stricter MaxParentalRating an administrator set in
+   * Jellyfin stays, their BlockUnratedItems stay, and lifting the limit puts back only what
+   * Finesse itself changed (settings.parentalJellyfin remembers what that was). Jellyfin 10.11's
+   * MaxParentalSubRating is kept with the administrator's own rating, and cleared while Finesse's
+   * age is the one that applies.
+   */
   async syncJellyfin(userId: string, limit: Limit | null): Promise<boolean> {
+    const id = userId.toLowerCase()
     try {
       const full = await this.jf.request<{ Policy?: Record<string, unknown> }>(`/Users/${userId}`)
-      const policy = { ...(full.Policy ?? {}), MaxParentalRating: limit ? limit.maxAge : null, BlockUnratedItems: limit?.blockUnrated ? ['Movie', 'Trailer', 'Series', 'Other'] : [] }
-      await this.jf.request(`/Users/${userId}/Policy`, { method: 'POST', body: policy })
+      const pol: Record<string, unknown> = { ...(full.Policy ?? {}) }
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+      const note = this.settings.get().parentalJellyfin?.[id]
+      const curMax = num(pol.MaxParentalRating)
+      const hasSub = 'MaxParentalSubRating' in pol
+      const curSub = num(pol.MaxParentalSubRating)
+      const curUnrated = Array.isArray(pol.BlockUnratedItems) ? pol.BlockUnratedItems.map(String) : []
+      // What's the administrator's: a field still holding what Finesse set was Finesse's; anything else is theirs.
+      const theirMax = note && curMax === note.set.max ? note.before.max : curMax
+      const theirSub = note && curSub === (note.set.sub ?? null) ? (note.before.sub ?? null) : curSub
+      const theirUnrated = curUnrated.filter((t) => !note?.added.includes(t))
+      let next: JfPolicyNote | null = null
+      if (limit) {
+        const max = theirMax === null ? limit.maxAge : Math.min(theirMax, limit.maxAge)
+        const sub = max === theirMax ? theirSub : null
+        const added = limit.blockUnrated ? FINESSE_UNRATED.filter((t) => !theirUnrated.includes(t)) : []
+        pol.MaxParentalRating = max
+        if (hasSub) pol.MaxParentalSubRating = sub
+        pol.BlockUnratedItems = [...theirUnrated, ...added]
+        next = { before: { max: theirMax, sub: theirSub }, set: { max, sub }, added }
+      } else {
+        pol.MaxParentalRating = theirMax
+        if (hasSub) pol.MaxParentalSubRating = theirSub
+        pol.BlockUnratedItems = theirUnrated
+      }
+      await this.jf.request(`/Users/${userId}/Policy`, { method: 'POST', body: pol })
+      this.settings.update((s) => {
+        const all = { ...(s.parentalJellyfin ?? {}) }
+        if (next) all[id] = next
+        else delete all[id]
+        s.parentalJellyfin = all
+      })
       return true
     } catch (e) {
       log.warn(`couldn’t set Jellyfin’s rating limit: ${(e as Error).message}`)
       return false
     }
   }
+}
+
+/** Kinds Finesse asks Jellyfin to block when unrated. */
+const FINESSE_UNRATED = ['Movie', 'Trailer', 'Series', 'Other']
+
+/** What Finesse set in a profile's Jellyfin policy, and what the administrator had there. */
+export interface JfPolicyNote {
+  before: { max: number | null; sub: number | null }
+  set: { max: number | null; sub: number | null }
+  /** BlockUnratedItems kinds Finesse added (the rest are the administrator's). */
+  added: string[]
 }
 
 // ---------- which token Jellyfin would use ----------

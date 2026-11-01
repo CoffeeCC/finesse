@@ -97,6 +97,8 @@ export interface Settings {
   groups?: GroupsState
   /** Parental limits per profile (lower-case Jellyfin user id), see parental.ts. */
   parental?: Record<string, import('./parental.ts').Limit>
+  /** What Finesse changed in each limited profile's Jellyfin policy, so lifting the limit undoes only that (parental.ts). */
+  parentalJellyfin?: Record<string, import('./parental.ts').JfPolicyNote>
   /** Moments (server/src/moments.ts): friends' servers may send them here (default yes). */
   momentsFromFriends?: boolean
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */
