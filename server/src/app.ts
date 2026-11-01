@@ -10,6 +10,7 @@ import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
 import { openLists } from './lists.ts'
 import { registerSmartCollections } from './smartCollections.ts'
+import { Parental, registerParental } from './parental.ts'
 import { registerQueues } from './queues.ts'
 import { registerMomentCollections } from './momentCollections.ts'
 import { Access } from './access.ts'
@@ -82,6 +83,8 @@ function features(s: Settings) {
     queues: true,
     /** Moments kept in collections, shared with chosen people (momentCollections.ts). */
     momentCollections: true,
+    /** Per-profile rating limits (parental.ts). */
+    parental: true,
   }
 }
 
@@ -140,10 +143,14 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerReport(router, { settings, auth, info: () => ({ version: VERSION, web: web.current().version ?? 'unknown', features: features(settings.get()) }) })
 
   registerInvites(router, { store: invites, jf, auth, settings })
-  const groups = registerGroups(router, { settings, jf, auth })
-  const moments = registerMoments(router, { settings, jf, auth, groups })
+  const parental = new Parental({ settings, jf, auth })
+  const groups = registerGroups(router, { settings, jf, auth, parental })
+  registerParental(router, { settings, auth, parental, jf })
+  const moments = registerMoments(router, { settings, jf, auth, groups, parental })
   const lists = openLists(join(p.configDir, 'lists.db'))
   const access = new Access({ jf, groups, settings })
+  access.limited = (userId) => parental.limitOf(userId) !== null
+  access.ratingAllows = (userId, raw) => parental.allows(userId, raw)
   registerSmartCollections(router, { auth, db: lists })
   registerQueues(router, { auth, settings, db: lists, access })
   registerMomentCollections(router, { auth, settings, db: lists, access, momentFor: moments.momentFor })
@@ -152,7 +159,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
   registerRequestDefaults(router, { settings, auth })
-  registerAlbumRequests(router, { settings, auth })
+  registerAlbumRequests(router, { settings, auth, parental })
   // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
   let conns: { at: number; report: Promise<ConnReport> } | null = null
   router.get('/api/system/connections', async ({ req, res, url }) => {
@@ -186,7 +193,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   deps.updater = updater
   registerWebUpdate(router, { auth, updater })
   for (const plugin of opts.plugins ?? []) plugin(deps)
-  registerServiceProxies(router, { settings, auth })
+  registerServiceProxies(router, { settings, auth, parental })
 
   // Whether a viewer may see an item, asked of Jellyfin with their own sign-in (its library rules apply).
   const seen = new Map<string, { ok: boolean; at: number }>()
@@ -235,6 +242,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
           if (clip && !who.Policy?.IsAdministrator && !(await canSee(tokenFrom(req, { cookie: 'finesse_media_token', query: url.searchParams })!, who.Id, clip[1]!))) {
             throw new ApiError(404, 'Not found')
           }
+          // A limited profile (parental.ts) doesn't get clips of titles over its limit.
+          if (clip && !(await parental.allows(who.Id, clip[1]!))) throw new ApiError(404, 'Not found')
           const hit = safeFile(p.previews, path.slice('/previews'.length))
           // Signed-in only: no shared cache (a proxy or CDN) may keep it and hand it to someone else.
           if (hit) return void sendFile(req, res, hit.file, hit.stat, path, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' })

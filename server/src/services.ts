@@ -10,6 +10,8 @@ import type { Endpoint, SettingsStore } from './config.ts'
 import { ApiError, readBody, sendJson, type Router } from './http/core.ts'
 import { joinUrl, proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import type { JfUser } from './jellyfin.ts'
+import type { Parental } from './parental.ts'
+import { idsIn } from './parental.ts'
 import { addAllowed, arrVerdict, cleanPath, commandAllowed, hasFiles, isRead, rommAllowed, sabAllowed } from './policy.ts'
 
 const isAdmin = (u: JfUser) => u.Policy?.IsAdministrator === true
@@ -69,8 +71,13 @@ function need(e: Endpoint | undefined, name: string, key: 'apiKey' | 'password' 
   return e as Required<Pick<Endpoint, 'url'>> & Endpoint
 }
 
-export function registerServiceProxies(router: Router, deps: { settings: SettingsStore; auth: Auth }) {
-  const { settings, auth } = deps
+export function registerServiceProxies(router: Router, deps: { settings: SettingsStore; auth: Auth; parental: Parental }) {
+  const { settings, auth, parental } = deps
+  /** Limited profiles (parental.ts) don't request, unless allowed. */
+  const requestsOff = async (req: IncomingMessage, query?: URLSearchParams) => {
+    const kid = await parental.limitedIn(req, query)
+    if (kid && !kid.limit.requests) throw new ApiError(403, 'Requests are off for this profile. Ask whoever runs the server.')
+  }
 
   for (const [slug, def] of Object.entries(ARR)) {
     router.any(`/arr/${slug}/*`, async ({ req, res, params, url }) => {
@@ -79,6 +86,7 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
       // address instead, which goes no further than here.
       const picture = !def.admin && /^mediacover\//.test(path) && /^(GET|HEAD)$/i.test(req.method ?? '')
       const user = def.admin ? await auth.requireAdmin(req) : await auth.requireUser(req, picture ? { query: url.searchParams } : {})
+      await requestsOff(req, url.searchParams)
       let search = url.search
       if (picture) {
         const q = new URLSearchParams(url.searchParams)
@@ -129,6 +137,7 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
   // SABnzbd takes its key as a query parameter: /arr/sab?mode=… → /api?mode=…&apikey=…
   router.any('/arr/sab', async ({ req, res, url }) => {
     const user = await auth.requireUser(req)
+    await requestsOff(req, url.searchParams)
     const sab = need(settings.get().services.sabnzbd, 'SABnzbd')
     const q = new URLSearchParams(url.search)
     // Its settings hold your Usenet password: household members get the queue and its controls.
@@ -174,10 +183,10 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
   // BaseUrl is /jellyfin, so paths map 1:1; a plain Jellyfin (basePath "")
   // gets the prefix stripped and its redirects re-prefixed.
   router.any('/jellyfin', async ({ req, res, url }) => {
-    await proxyJellyfin(settings, req, res, '/', url.search)
+    await proxyJellyfin(settings, req, res, '/', url.search, parental)
   })
   router.any('/jellyfin/*', async ({ req, res, params, url }) => {
-    await proxyJellyfin(settings, req, res, `/${params.rest ?? ''}`, url.search)
+    await proxyJellyfin(settings, req, res, `/${params.rest ?? ''}`, url.search, parental)
   })
 }
 
@@ -188,13 +197,29 @@ function jellyfinTarget(settings: SettingsStore, rest: string, search: string) {
   return { target: joinUrl(j.url, `${base}${rest}`, search), base }
 }
 
-async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res: import('node:http').ServerResponse, rest: string, search: string) {
+async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res: import('node:http').ServerResponse, rest: string, search: string, parental: Parental) {
   const { target, base } = jellyfinTarget(settings, rest, search)
+  // A limited profile (parental.ts): nothing that names a title it can't open gets to Jellyfin,
+  // and lists coming back are checked title by title.
+  const kid = await parental.limitedIn(req, new URLSearchParams(search))
+  if (kid) {
+    const ok = await parental.allowsAll(kid.limit, idsIn(rest, new URLSearchParams(search))).catch(() => {
+      throw new ApiError(503, 'Couldn’t check this title against the profile’s limits. Try again in a moment.')
+    })
+    if (!ok) throw new ApiError(403, 'This profile can’t open that title')
+  }
   await proxyHttp(req, res, {
     target,
     // A plain Jellyfin redirects to "/web/…"; keep the browser under /jellyfin.
     rewriteLocation: base === '' ? { from: '/', to: '/jellyfin/' } : undefined,
     timeoutMs: 60000,
+    ...(kid
+      ? {
+          setHeaders: { 'accept-encoding': 'identity' },
+          rewriteText: (t: string) => (t.trimStart().startsWith('#EXTM3U') ? t : parental.filterJson(t, kid.limit)),
+          rewriteRefusal: 'Couldn’t check this against the profile’s limits',
+        }
+      : {}),
   })
 }
 

@@ -1,3 +1,4 @@
+import { useMyLimits } from '../api/parental'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
@@ -36,7 +37,20 @@ const KINDS: { kind: ArrKind; label: string; placeholder: string }[] = [
   { kind: 'artist', label: 'Music', placeholder: 'Search for an artist…' },
 ]
 
+/** A limited profile without requests (parental limits) gets a plain explanation instead. */
 export default function RequestPage() {
+  const limits = useMyLimits()
+  if (limits && !limits.requests)
+    return (
+      <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
+        <h1 className="page-title">Requests</h1>
+        <p className="mt-3 text-[14px] text-ink-300">Requests are off for this profile. Ask whoever runs the server if you’d like something added.</p>
+      </div>
+    )
+  return <RequestPageInner />
+}
+
+function RequestPageInner() {
   const [searchParams, setSearchParams] = useSearchParams()
   const term = searchParams.get('q') ?? ''
   const kindParam = searchParams.get('kind') as ArrKind

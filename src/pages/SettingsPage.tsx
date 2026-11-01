@@ -22,6 +22,7 @@ import GroupsAdmin from './settings/GroupsAdmin'
 import DownloadsSettings from './settings/DownloadsSettings'
 import ConnectionsHealth from './settings/ConnectionsHealth'
 import LibraryHealth from './settings/LibraryHealth'
+import ParentalAdmin from './settings/ParentalAdmin'
 import { StreamingSettings } from './settings/StreamingAdmin'
 import SecureConnection from './settings/SecureConnection'
 import {
@@ -720,6 +721,7 @@ export default function SettingsPage() {
                 <ConnectionsHealth />
                 <LibraryHealth />
                 <GroupsAdmin />
+                <ParentalAdmin />
                 <StreamingSettings />
                 <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">
                   <CreateUserForm />

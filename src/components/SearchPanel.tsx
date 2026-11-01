@@ -14,6 +14,7 @@ import {
 import { imageUrl, posterUrl, backdropUrl } from '../api/client'
 import { arrAdd, ArrError, type ArrResult } from '../api/arr'
 import { playChoice } from '../lib/playChoice'
+import { useMyLimits } from '../api/parental'
 import { mergeSources, type MergedTitle, type TitleSource } from '../lib/discovery'
 import { RestartIcon } from './ActionButton'
 import { RequestStatusView, useRequestStatus } from './RequestStatus'
@@ -148,7 +149,10 @@ export default function SearchPanel({
     () => friendSearch.hits.filter(({ item }) => (scope === 'movies' ? item.Type === 'Movie' : scope === 'shows' ? item.Type === 'Series' : true)),
     [friendSearch.hits, scope],
   )
-  const request = useRequestLookup(active && scope !== 'people' && scope !== 'episodes' && scope !== 'music' ? term : '')
+  // A limited profile without requests (parental limits) isn't offered titles to request.
+  const limits = useMyLimits()
+  const canRequest = !limits || limits.requests
+  const request = useRequestLookup(canRequest && active && scope !== 'people' && scope !== 'episodes' && scope !== 'music' ? term : '')
   const music = useMusicSearch(active && hasMusic && (scope === 'all' || scope === 'music') ? term : '')
 
   const ranked = useMemo(() => {

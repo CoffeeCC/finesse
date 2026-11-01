@@ -1,3 +1,4 @@
+import { useMyLimits } from '../api/parental'
 import { Link } from 'react-router-dom'
 import { useLatest, useViews } from '../api/queries'
 import { backdropUrl, imageUrl } from '../api/client'
@@ -37,6 +38,7 @@ function TileArt({ viewId, music }: { viewId: string; music: boolean }) {
 export default function LibrariesPage() {
   const { data: views } = useViews()
   const { surprise, busy } = useSurprise()
+  const limits = useMyLimits()
   // The same places, under the same names, as the desktop and TV bar's More menu (and in the
   // same order), so nothing reachable there is missing here. Requests has its own button below.
   const secondary = useSecondaryDestinations().filter((d) => d.to !== '/request')
@@ -80,6 +82,7 @@ export default function LibrariesPage() {
           <DiceIcon className="h-5 w-5" spinning={busy} />
           Surprise me
         </button>
+        {(!limits || limits.requests) && (
         <Link
           to="/request"
           className="h-12 rounded-xl bg-white/[0.07] border border-white/15 flex items-center justify-center gap-2.5 text-[15px] font-semibold text-white hover:bg-white/10 transition-colors"
@@ -89,6 +92,7 @@ export default function LibrariesPage() {
           </svg>
           Requests and downloads
         </Link>
+        )}
       </div>
     </div>
   )
