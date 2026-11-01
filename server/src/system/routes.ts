@@ -290,6 +290,76 @@ export function systemPlugin(ref: StackRef): Plugin {
       sendJson(res, 202, { started: true, ...clips.status })
     })
 
+    // ---------- graphics (stack/graphics.ts, graphicsManager.ts) ----------
+
+    // Someone's own Jellyfin: a Connected-apps row when it converts on the CPU beside a card, or on a broken one.
+    deps.connectionChecks = [...(deps.connectionChecks ?? []), async (refresh) => (settings.get().mode === 'adopt' ? (await maint.graphics.adoptCheck(refresh)).check : null)]
+
+    router.get('/api/system/graphics', async ({ req, res, url }) => {
+      await auth.requireAdmin(req)
+      const s = settings.get()
+      const refresh = url.searchParams.has('refresh')
+      if (s.mode === 'bundle' && s.stack) {
+        const stored = s.stack.graphics
+        const inventory = refresh || !stored?.inventory ? await maint.graphics.inventory(refresh).catch(() => null) : stored.inventory
+        const plan = inventory ? maint.graphics.plan(inventory) : (stored?.plan ?? null)
+        sendJson(res, 200, {
+          mode: 'bundle',
+          inventory,
+          plan,
+          // The plan the apps run with now, and whether a new one is waiting for tonight (or a click).
+          applied: stored ? { at: stored.at, key: stored.key, plan: stored.plan } : null,
+          pending: Boolean(plan && stored && maint.graphics.planKey(plan) !== stored.key) || Boolean(plan && !stored),
+          override: s.graphicsOverride ?? {},
+          note: stored?.note ?? null,
+          streaming: s.stack.services.includes('wolf'),
+          working: maint.graphics.isWorking,
+        })
+        return
+      }
+      const a = await maint.graphics.adoptCheck(refresh)
+      sendJson(res, 200, { mode: 'adopt', inventory: a.inventory, check: a.check, jellyfin: a.jellyfin ? { name: a.jellyfin.name, encoding: a.jellyfin.encoding ?? null } : null, reason: a.reason ?? null })
+    })
+
+    // An administrator's choice of card (servers Finesse set up). Applied right away: Jellyfin and Wolf restart if their card changes.
+    router.put('/api/system/graphics', async ({ req, res }) => {
+      await auth.requireAdmin(req)
+      needStack()
+      const body = await readJson<{ jellyfin?: string | null; wolf?: string | null; apply?: boolean }>(req)
+      const inv = await maint.graphics.inventory().catch(() => null)
+      const known = new Set((inv?.gpus ?? []).map((g) => g.id))
+      for (const [who, v] of [['jellyfin', body.jellyfin], ['wolf', body.wolf]] as const) {
+        if (v === undefined || v === null || v === 'auto') continue
+        if (!(known.has(v) || (who === 'jellyfin' && v === 'cpu'))) throw new ApiError(400, 'That card isn’t on this server. Check again, then pick one from the list.')
+      }
+      settings.update((x) => {
+        const o = { ...x.graphicsOverride }
+        for (const who of ['jellyfin', 'wolf'] as const) {
+          const v = body[who]
+          if (v === undefined) continue
+          if (v === null || v === 'auto') delete o[who]
+          else o[who] = v
+        }
+        if (Object.keys(o).length) x.graphicsOverride = o
+        else delete x.graphicsOverride
+      })
+      void maint.graphics.apply('chosen by an administrator').catch((e) => maint.event('error', `Setting the graphics cards failed: ${(e as Error).message}`))
+      sendJson(res, 202, { override: settings.get().graphicsOverride ?? {} })
+    })
+
+    // Someone's own Jellyfin: set its encoding settings for a card its container can already use.
+    router.post('/api/system/graphics/jellyfin', async ({ req, res }) => {
+      await auth.requireAdmin(req)
+      if (settings.get().mode !== 'adopt') throw new ApiError(409, 'Finesse sets Jellyfin’s card itself on this server')
+      const { gpu } = await readJson<{ gpu?: string }>(req)
+      if (!gpu) throw new ApiError(400, 'Pick a card')
+      try {
+        sendJson(res, 200, { card: await maint.graphics.adoptFix(gpu) })
+      } catch (e) {
+        throw new ApiError(409, (e as Error).message)
+      }
+    })
+
     router.get('/api/system/backups', async ({ req, res }) => {
       await auth.requireAdmin(req)
       sendJson(res, 200, { last: settings.get().maintenance?.lastBackup ?? null, files: maint.listBackups(), folder: settings.paths.backups })

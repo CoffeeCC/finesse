@@ -17,6 +17,9 @@ import { CATALOG } from './catalog.ts'
 import { encodingFor, mergeEncoding, planGraphics, planKey, type GraphicsPlan, type Inventory } from './graphics.ts'
 import type { StackHost } from './host.ts'
 import { Orchestrator } from './orchestrator.ts'
+import { fixCard, fixSettings, jellyfinGraphicsCheck, visibleTo, type GraphicsCheck, type Visible } from '../graphicsHealth.ts'
+import { findJellyfin } from './jellyfinContainer.ts'
+import { selfContainer } from './selfupdate.ts'
 
 const log = logger('graphics')
 
@@ -32,6 +35,14 @@ export interface StoredGraphics {
   applied?: Record<string, unknown>
   /** Something to say about Jellyfin's settings (changed by someone in Jellyfin…). */
   note?: string | null
+}
+
+export interface AdoptGraphics {
+  inventory: Inventory | null
+  check: GraphicsCheck | null
+  jellyfin: { name: string; visible: Visible; encoding?: string } | null
+  /** Why something couldn't be looked at. */
+  reason?: string
 }
 
 export type JellyfinGet = (path: string, init?: { method?: string; body?: unknown }) => Promise<{ status: number; json: unknown }>
@@ -107,6 +118,63 @@ export class GraphicsManager {
   /** The plan for this server right now (nothing applied). */
   plan(inv: Inventory, s: Settings = this.settings.get()): GraphicsPlan {
     return planGraphics(inv, { streaming: Boolean(s.stack?.services.includes('wolf')), override: s.graphicsOverride })
+  }
+
+  private adopt: { at: number; result: Promise<AdoptGraphics> } | null = null
+
+  /**
+   * Someone's own Jellyfin (adopt): its container (looked at only), the cards on this server, what
+   * the container can use, and the Connected-apps finding. Kept 5 minutes unless refreshed.
+   */
+  adoptCheck(refresh = false): Promise<AdoptGraphics> {
+    if (!refresh && this.adopt && Date.now() - this.adopt.at < 5 * 60000) return this.adopt.result
+    const result = this.adoptNow(refresh)
+    this.adopt = { at: Date.now(), result }
+    result.catch(() => (this.adopt = null))
+    return result
+  }
+
+  private async adoptNow(refresh: boolean): Promise<AdoptGraphics> {
+    const s = this.settings.get()
+    if (!(this.orch instanceof Orchestrator)) return { inventory: null, check: null, jellyfin: null, reason: 'Finesse looks at graphics cards through Docker, which this server doesn’t use.' }
+    if (!s.jellyfin.url || !s.jellyfin.apiKey) return { inventory: null, check: null, jellyfin: null, reason: 'Finesse isn’t connected to Jellyfin yet.' }
+    const docker = this.orch.docker
+    const jf = await findJellyfin(docker, s, (await selfContainer(docker))?.Id)
+    if ('reason' in jf) {
+      const inventory = await this.orch.graphicsInventory(null, refresh).catch(() => null)
+      return { inventory, check: null, jellyfin: null, reason: jf.reason }
+    }
+    const inventory = await this.orch.graphicsInventory(jf.info.Image || jf.image, refresh)
+    const visible = visibleTo(jf.info)
+    const enc = await jellyfinApi(s)('/System/Configuration/encoding').catch(() => null)
+    if (!enc || enc.status !== 200 || !enc.json) return { inventory, check: null, jellyfin: { name: jf.name, visible }, reason: 'Jellyfin didn’t share its video settings with Finesse’s key.' }
+    return { inventory, check: jellyfinGraphicsCheck(inventory, visible, enc.json as Record<string, unknown>, jf.name), jellyfin: { name: jf.name, visible, encoding: (enc.json as { HardwareAccelerationType?: string }).HardwareAccelerationType ?? 'none' } }
+  }
+
+  /** The one-click fix: Jellyfin's settings for a working card its container can already use. Never touches the container. */
+  async adoptFix(gpu: string): Promise<string> {
+    const a = await this.adoptCheck(true)
+    if (!a.inventory || !a.jellyfin) throw new Error(a.reason ?? 'Finesse can’t see Jellyfin’s container.')
+    const card = fixCard(a.inventory, a.jellyfin.visible)
+    if (!card || card.id !== gpu) throw new Error('Jellyfin’s container can’t use that card. Give it the card in the app’s own settings first, then check again.')
+    const get = jellyfinApi(this.settings.get())
+    const cur = await get('/System/Configuration/encoding')
+    if (cur.status !== 200 || !cur.json) throw new Error(`Jellyfin didn’t share its video settings (HTTP ${cur.status}).`)
+    const next = { ...(cur.json as Record<string, unknown>), ...fixSettings(card) }
+    const r = await get('/System/Configuration/encoding', { method: 'POST', body: next })
+    if (r.status >= 300) throw new Error(`Jellyfin didn’t take the new settings (HTTP ${r.status}).`)
+    this.adopt = null
+    this.event('info', `Jellyfin now converts video on ${card.name}, set by an administrator`)
+    return card.name
+  }
+
+  /** Changing the containers or Jellyfin's settings right now. */
+  get isWorking(): boolean {
+    return this.working !== null
+  }
+
+  planKey(p: GraphicsPlan): string {
+    return planKey(p)
   }
 
   /** Brings the containers and Jellyfin's settings to the plan (servers Finesse set up). One at a time. */

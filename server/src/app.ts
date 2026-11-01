@@ -29,7 +29,7 @@ import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
-import { checkConnections, type ConnReport } from './connections.ts'
+import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
 import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
@@ -46,6 +46,8 @@ export interface AppDeps {
   updater?: WebUpdater
   /** Playing Wolf games in Finesse's page (Moonlight-Web on FINESSE_STREAM_PORT). */
   browserStream?: import('./browserStream.ts').BrowserStream
+  /** More rows for Connected apps (the system plugin adds Jellyfin's video conversion). */
+  connectionChecks?: ((refresh: boolean) => Promise<ConnCheck | null>)[]
 }
 
 /** Hook for later phases (setup, stack, system) to add routes. */
@@ -170,7 +172,11 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
     await auth.requireAdmin(req)
     // Its tests ask indexers and download clients: at most once a minute unless asked.
     if (!conns || url.searchParams.has('refresh') || Date.now() - conns.at > 60_000) {
-      const report = checkConnections(settings.get())
+      const refresh = url.searchParams.has('refresh')
+      const report = Promise.all([checkConnections(settings.get()), ...(deps.connectionChecks ?? []).map((f) => f(refresh).catch(() => null))]).then(([r, ...more]) => ({
+        ...r,
+        apps: [...r.apps, ...more.filter((x): x is ConnCheck => Boolean(x))],
+      }))
       conns = { at: Date.now(), report }
       report.catch(() => (conns = null))
     }

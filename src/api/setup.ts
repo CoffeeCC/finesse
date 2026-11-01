@@ -583,6 +583,8 @@ export interface ConnCheck {
   ok: boolean | null
   summary: string
   problems: string[]
+  /** One click puts it right (Jellyfin's card on someone's own Jellyfin). */
+  fix?: { label: string; gpu: string }
 }
 export interface ConnReport {
   checkedAt: string
@@ -603,4 +605,64 @@ export interface LibraryFinding {
 }
 export const libraryHealthApi = {
   get: (refresh = false) => call<{ checkedAt: string; findings: LibraryFinding[]; skipped: string[] }>('GET', `/api/system/library-health${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 120000 }),
+}
+
+// ---------- Graphics (server/src/stack/graphics.ts, graphicsManager.ts) ----------
+
+export interface GpuInfo {
+  id: string
+  vendor: 'nvidia' | 'intel' | 'amd' | 'other'
+  name: string
+  integrated: boolean
+  pci?: string
+  renderNode?: string
+  uuid?: string
+  vramMiB?: number
+  /** Its test conversion worked (true), failed (false), or wasn't tried (null). */
+  encodes: boolean | null
+  problem?: string
+  sessionLimit: number | null
+  decode: string[]
+}
+export interface GpuAssignmentInfo {
+  gpu: string | null
+  name: string | null
+  accel: 'nvenc' | 'qsv' | 'vaapi' | 'none'
+  why: string
+}
+export interface GraphicsPlanInfo {
+  jellyfin: GpuAssignmentInfo & { maxTranscodes: number | null; shared: boolean; decode: string[] }
+  wolf: GpuAssignmentInfo
+  clipsNightOnly: boolean
+  notes: string[]
+}
+export interface GraphicsInventoryInfo {
+  checkedAt: string
+  gpus: GpuInfo[]
+  nvidiaRuntime: boolean
+}
+export type GraphicsStatus =
+  | {
+      mode: 'bundle'
+      inventory: GraphicsInventoryInfo | null
+      plan: GraphicsPlanInfo | null
+      applied: { at: string; key: string; plan: GraphicsPlanInfo } | null
+      pending: boolean
+      override: { jellyfin?: string; wolf?: string }
+      note: string | null
+      streaming: boolean
+      working: boolean
+    }
+  | {
+      mode: 'adopt'
+      inventory: GraphicsInventoryInfo | null
+      check: ConnCheck | null
+      jellyfin: { name: string; encoding: string | null } | null
+      reason: string | null
+    }
+export const graphicsApi = {
+  get: (refresh = false) => call<GraphicsStatus>('GET', `/api/system/graphics${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 180000 }),
+  /** null or "auto": Finesse chooses. "cpu" (Jellyfin only): the processor. */
+  choose: (pick: { jellyfin?: string | null; wolf?: string | null }) => call<{ override: { jellyfin?: string; wolf?: string } }>('PUT', '/api/system/graphics', pick),
+  fixJellyfin: (gpu: string) => call<{ card: string }>('POST', '/api/system/graphics/jellyfin', { gpu }, { timeoutMs: 180000 }),
 }
