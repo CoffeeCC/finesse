@@ -27,7 +27,7 @@ export default function PartyInvites() {
     }
   }
   return (
-    <div role="status" className="toast-in fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(22rem,calc(100%-1.5rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-4 shadow-2xl md:bottom-6">
+    <div role="status" className="toast-in fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[22rem] max-w-[calc(100%-1.5rem)] rounded-2xl border border-white/10 bg-ink-900/95 p-4 shadow-2xl md:bottom-6">
       <p className="text-[14px] text-white">
         <span className="font-semibold">{p.host}</span> started a watch party: <span className="font-semibold">{p.title}</span>
       </p>
