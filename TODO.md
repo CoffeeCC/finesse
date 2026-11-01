@@ -38,6 +38,33 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Watch together, parental limits, and a long list of fixes — v3.2.6 (2026-11-01)
+
+- **Parental limits.** Administrators can give a profile a rating limit, block unrated titles
+  and turn requests off for it (Settings → Server). Finesse enforces it itself, in search,
+  browse, friends' titles, direct links and streams, and passes the same limit to Jellyfin.
+  Settings says plainly what it can't cover (games, Live TV, Jellyfin's own apps).
+- **Watch together.** Watch parties play one title in step for up to 8 people here, each on
+  their own screen; anyone can pause or seek for everyone. Shortlists let a group vote on what
+  to watch.
+- **Smart collections** pick titles by genre, year, length, date added or watched state, and
+  stay up to date. **Moments** can be kept in collections and shared.
+- **Move what's playing** from your phone to the TV and back, at the same spot.
+- **One search list:** your library first, then friends' titles, then what you can request,
+  each with one button. Requests show where they stand, from searching to downloading to ready.
+- **Resume or Start over** on every title you're part-way through, and **Activity** shows
+  what's playing, downloading, requested and new.
+- **Settings → Downloads** chooses the quality and folder new requests use (and requests
+  finally honour it). **Connected apps** in Settings → Server and `finesse doctor` catch a dead
+  Sonarr/Radarr/Lidarr address, broken indexers or a VPN that's down. Music requests include
+  EPs, and you can request a single album.
+- **Fixes:** friends' videos play again; Next Episode skips extra copies; a paused video stays
+  paused when its quality changes; Back closes only the top overlay; titles that can't load
+  say why; the LG TV gets its focus ring and spacing back; phones get two-column posters and
+  controls that fit; controllers move into dialogs first.
+- **Faster:** the web app's first download is less than half the size, and the server no
+  longer stalls while compressing files.
+
 ## No more https warnings, and a smarter game library — v3.2.5 (2026-10-26)
 
 - **No more https warnings.** Finesse now signs its certificate with its own certificate
