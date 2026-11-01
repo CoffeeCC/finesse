@@ -7,7 +7,7 @@ import { useOverlayFocus } from '../lib/overlayFocus'
  * A small dialog with a title, whatever goes in it, and Close. Back, Escape or a tap outside
  * closes it; focus goes in when it opens and back where it was after. Rendered into <body>.
  */
-export function Sheet({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Sheet({ title, children, onClose, wide = false, className = '' }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const id = useId()
   useOverlayFocus(true, ref)
@@ -26,7 +26,7 @@ export function Sheet({ title, children, onClose, wide = false }: { title: strin
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
-        className={`flex max-h-[calc(var(--vh,1vh)*88)] w-full ${wide ? 'max-w-xl' : 'max-w-md'} flex-col rounded-2xl border border-white/10 bg-ink-900 shadow-2xl`}
+        className={`flex max-h-[calc(var(--vh,1vh)*88)] w-full ${wide ? 'max-w-xl' : 'max-w-md'} flex-col rounded-2xl border border-white/10 bg-ink-900 shadow-2xl ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-5">

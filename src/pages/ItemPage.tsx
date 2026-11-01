@@ -1,8 +1,10 @@
 import MomentComposer from '../components/moments/MomentComposer'
 import { useMomentsOn } from '../api/moments'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useTheme } from '../lib/theme'
 import TitleLogo from '../components/TitleLogo'
 import ThemePageBanner from '../components/ThemePageBanner'
+const ArcaneDetailEnvironment = __WEBOS__ ? null : lazy(() => import('../components/ArcaneDetailEnvironment'))
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
@@ -363,6 +365,7 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
 }
 
 export default function ItemPage() {
+  const arcane = useTheme() === 'card-table' && !__WEBOS__
   const { itemId } = useParams()
   const { data: item, isLoading, isError, error, refetch, isFetching } = useItem(itemId)
   // Back from here morphs into the card that opened this page.
@@ -531,7 +534,7 @@ export default function ItemPage() {
   ]
 
   return (
-    <div data-theme-surface="detail" className="pb-16" style={gradeStyle}>
+    <div data-theme-surface="detail" data-arcane-scene={arcane ? 'detail' : undefined} className="pb-16" style={gradeStyle}>
       {recommending && (
         <MomentComposer item={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setRecommending(false)} />
       )}
@@ -549,7 +552,7 @@ export default function ItemPage() {
         </div>
       )}
 
-      <div ref={heroRef} className="relative -mt-16">
+      <div ref={heroRef} className={`relative -mt-16 ${arcane ? 'arcane-detail-stage' : ''}`}>
         {/* An in-app Back everywhere but TVs (their remote has one): phones and the
             installed app have no browser Back, and on a computer it's easier to
             find than the browser's. It plays the reverse morph into the card you came from. */}
@@ -595,7 +598,8 @@ export default function ItemPage() {
         {/* Own transition layer (vt-detail-head): fades in above the morphing
             hero instead of hiding under it. z-10 keeps its menus (Cast to…)
             above the sections below — the depth transform makes it a stacking context. */}
-        <div className="vt-detail-head depth-front relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
+        <div className={`vt-detail-head depth-front relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end ${arcane ? 'arcane-detail-inspection' : ''}`}>
+          {arcane && ArcaneDetailEnvironment && <Suspense fallback={null}><ArcaneDetailEnvironment /></Suspense>}
           {poster && (
             <div className="arcane-poster-wrap hidden md:block w-52 shrink-0">
             <img

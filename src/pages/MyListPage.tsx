@@ -1,14 +1,23 @@
 import { Link } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { useTheme } from '../lib/theme'
 import { useWatchlistItems } from '../api/queries'
 import MediaCard from '../components/MediaCard'
 import ThemePageBanner from '../components/ThemePageBanner'
 import DownloadsSection from '../components/DownloadsSection'
 import { CardSkeleton } from '../components/Skeletons'
 import { DiceIcon, useSurprise } from '../lib/surprise'
+const ArcaneSavedFolio = __WEBOS__ ? null : lazy(() => import('../components/ArcaneSavedFolio'))
 
 /** My List: the server-synced watchlist, plus what you've asked the server to
  *  download (so a request isn't a fire-and-forget into another page). */
 export default function MyListPage() {
+  const theme = useTheme()
+  if (theme === 'card-table' && ArcaneSavedFolio) return <Suspense fallback={<p className="p-12" role="status">Opening your folio…</p>}><ArcaneSavedFolio /></Suspense>
+  return <StandardMyListPage />
+}
+
+function StandardMyListPage() {
   const { data: items, isLoading } = useWatchlistItems()
   const { surprise, busy } = useSurprise()
   const empty = !isLoading && (!items || items.length === 0)

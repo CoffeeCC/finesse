@@ -1,75 +1,43 @@
 # Arcane Table — current implementation
 
-Updated 1 November 2026. Applies to the optional-theme branch based on Finesse 3.2.5, not a public release.
+Updated 1 November 2026. Optional preview theme on `feat/arcane-table-theme`, based on Finesse 3.2.5. Not a released theme API or a device certification.
 
-## Visual direction
+## Experience
 
-The active theme is the approved celestial fantasy table: midnight-blue hide, sculpted bronze card frames, dark carved wood, and stone trim. The table, phone background, transparent frame and deck back are separate raster assets generated with the built-in image-generation tool. The orb and library boxes are Blender models. Real library posters remain live images; the generated concept is not the app background.
+Home deals five real movie/show cards on a celestial leather desk. The deck boxes choose actual libraries; the stock collects, shuffles and deals another hand. Phones display the selected card and its neighbors with paging. Continue Watching, Full Finesse Home (`/dashboard`), all libraries, Search, My List, account, Moments and Quick menu remain reachable.
 
-Earlier violet-table and decorative dice/rune/coin experiments are not part of this included theme.
+Browse full deck opens a collection folio rather than the normal poster grid. Movie/show libraries, including shared movie/show libraries, use six cards per leaf with actual server pagination and a direct leaf control. Search, genre, watch state and sorting use the existing media client. Selection, filters and leaf are recorded in the URL for returning from a title. Desktop/tablet show an inspector on the facing page; phones show two columns and open an existing accessible Sheet for inspection. Native links open the title or player. Missing art, loading, empty, timeout and retry states retain the same materials.
 
-## Live Blender orb
+My List becomes a saved-story folio with the existing requests/downloads section beneath. Title details compose the original poster, metadata and actions into the inspection book. Existing versions, episodes, cast, recommendations, playback, favorites and social actions retain their original implementations. Search, library hub and specialized music/games/social/settings routes share the palette and wayfinding. This theme deliberately specializes movie/show discovery; it does not replace every specialized layout with a 3D desk.
 
-Search is an accessible native button whose artwork is an actual 3D scene. tools/theme/create-scrying-orb.py creates the bronze pedestal, claws, relief, crystal shell and constellation geometry, exports src/assets/card-table/scrying-orb-v1.glb and saves tools/theme/scenes/scrying-orb-v1.blend. It also renders scrying-orb-still-v1.webp as the fallback.
+## One light space
 
-ScryingOrb.tsx loads Three.js and the GLB on demand. Runtime materials, environment reflections, warm key light, cool rim light and an animated internal point light illuminate the model. An animated noise shader and drifting star points provide the swirling core. This is a hybrid scene: the orb and library boxes are live 3D; the board, frames and draw pile are rendered images. Live light affects the models, not the baked table image. This is not path-traced global illumination in the browser.
+`ArcaneLighting.tsx` owns one Three.js scene per active desk: receiving desk geometry, candle, orb, first two library boxes, folio and enhanced resting cards share the same lights. Blender sources provide real bevels, material response, hinge pivots and wax geometry. A warm flickering point light, cool moon key and restrained environment reflections illuminate them; desktop uses soft shadow maps. The orb has a runtime nebula shader and drifting stars. Boxes hinge open on hover/focus or busy dealing. Folio leaves settle when opened and shift gently on a page change.
 
-The renderer caps pixel ratio at 1.5 and updates at roughly 30 frames per second. It pauses offscreen and in a hidden tab, releases resources on unmount, and falls back to the still if loading or WebGL initialization fails. Context loss returns to the still. System reduced motion, Animations off and the Live 3D objects preference use the still. Hover/focus gently increases the orb's internal energy. Search works with either representation. Arcane Table is currently excluded from the TV app.
+Generated artwork supplies desk textures, the illustrated book surface and relief card-frame textures. The draw stock remains layered raster artwork with a hover riffle. Resting Home cards and desktop folio cards add modeled card stock and live-lit relief; poster faces preserve source colors and dim in moonlight. Native HTML controls retain hit targets, focus, selection and accessible names, and remain the fallback until each texture is ready. Phone folios use illustrated leaves/native cards; phone title inspection uses the still composition. This is a hybrid raster/geometry scene, not browser path tracing or fully modeled ornament. Normal DOM text/actions are not physically lit.
 
-Regenerate with the installed Blender executable:
+The first two Home boxes are live; additional libraries use stills. Pixel ratio is capped at 1.5 on desktop and 1 on phones; scene updates are capped around 30/20 fps. Phone shadows are disabled. Rendering pauses offscreen/hidden and all scene resources/listeners are disposed on unmount. Live 3D objects off, initialization failure or graphics-context loss restores usable art. Resizing after context loss must not hide that fallback. Reduced motion keeps geometry and steady illumination but stops decorative movement; it does not require disabling 3D.
 
-    blender --background --python tools/theme/create-scrying-orb.py
+The older isolated `ScryingOrb`/`DeckTrinket` renderers remain in source but TableNavigation disables their live mode. Do not enable them alongside the shared scene: isolated canvases do not share light or shadows.
 
-The Blender scene and runtime shader are complementary sources. Editing procedural Blender materials does not automatically export their node graphs to glTF or update the runtime shader. Update and verify both representations.
+## Candle and moonlit idle scene
 
-## Library boxes and interaction effects
+The original Blender candle has a bronze holder, uneven wax channels/pools and a charred wick. Its flame flickers gently, a wax bead occasionally travels down the body, and the wax envelope shortens over approximately 45 visible minutes spent on a themed scene. Session storage preserves burn progress across navigation/reload; time with the tab hidden or browser closed does not consume it. The still fallback separates wax from holder so burn height and flame position remain coherent without WebGL.
 
-tools/theme/create-deck-trinkets.py generates separate sun/amber movie and moon/blue show boxes, each with an editable .blend, self-contained GLB and matching transparent still. DeckTrinket.tsx animates a named LidPivot and CardLift: the lid opens on pointer hover or keyboard focus, revealing and lifting the cards, then closes on leaving and blurring. A busy selected deck opens during dealing, with restrained particles and stronger ward light. Lights, reflections and receiving shadow geometry are live in each model scene.
+Finesse's existing Marquee idle system controls burnout. The screensaver preference, two-minute idle guard, active media/player, focused text entry, dialogs, menus, busy content and detail trailers prevent entry. Eligibility is rechecked throughout the six-second gutter. The flame dies, ember and smoke fade, warm illumination falls away, the same desk stays under moonlight and the orb remains faintly visible. UI is hidden and main/navigation surfaces become inert. No camera, microphone, extra audio or server work is involved.
 
-The first two library boxes render live to bound the scene to three WebGL contexts including the orb; additional libraries use their matching still. All stills remain fully clickable. Each box updates at about 24 fps with pixel ratio capped at 1.25; rendering pauses offscreen or in hidden tabs and resources are disposed on unmount. Shared Live 3D objects, reduced motion and Animations off select stills. The TV app excludes the entire Arcane Table theme; static component replacements remain available in source for future TV work.
+Activity restores the UI and relights a fresh candle. A waking press is consumed so it cannot also activate a hidden control; a distinct next press can act normally. Hidden-tab return counts as activity. Turning the existing screensaver preference off dismisses the scene. Non-desk routes retain the ordinary Finesse marquee.
 
-The draw pile has a hover/keyboard-focus riffle and top-card lift only while idle. Leaving settles the stack; shuffling/dealing retains its own animation. Selected card crests have a brief one-time catchlight, and the title changes with a short fade. Reduced motion and Animations off suppress these effects. The draw pile is not a live 3D model.
+In local Vite development only, `?theme=card-table&theme-lab=1` exposes an explicit lab for accelerated candle timing (14s burn, 8s idle, 6s gutter) and genuine graphics-context loss. These controls and acceleration are compiled out of production. Never use quick timing as evidence that 45 minutes actually elapsed.
 
-## Browsing and navigation
+## Settings and loading boundaries
 
-Movies and Shows deck boxes select actual accessible libraries. Five live titles form a hand on desktop. Phones show the selected title and two neighbors, with previous/next controls reaching every card. Open title navigates to the existing title page. The stock and Deal again collect, shuffle and deal actual random results; repeats are possible. Loading completion controls the reveal, with cancellation, a deadline and Retry.
+Settings → Appearance → Unfinished themes enables preview choices per browser. Settings → Themes offers selection, Try your theme, Restore Finesse, Live 3D objects and a downloadable author guide. Turning unfinished themes off restores standard Finesse. A local development `?theme=card-table` link selects the theme and persists the preview opt-in; production ignores that shortcut.
 
-Object hit targets remain stationary while artwork moves. The whole hand has space inside the rim. Card details and full title remain below the scene. Continue Watching retains real Resume links. Full Finesse Home opens /dashboard. Standard navigation remains on other routes; the table Home replaces the desktop Main menu with its labelled objects. Quick menu, account, Moments and mobile navigation remain available.
+Theme styles, illustrations, models and Three.js are lazy. Standard Finesse does not fetch the Arcane scene assets. Arcane remains `preview: true, tv: false`; its scene/art are excluded from the TV build. Do not change those flags merely because builds pass. Theme packs, an importer/editor/gallery, account sync and hinge-aware foldable rendering are not implemented. See `THEME-AUTHORING.md`, `THEME-SYSTEM-PLAN.md` and `FOLDABLES-AND-THEME-PACKS.md`.
 
-## Shared screens beyond the table
+## Sources and verification
 
-The theme now carries its materials and wayfinding into library browsing, the library
-hub, search (page and overlay), My List and title details. Movie/show poster cards
-use the same rendered frame across shelves; year/episode metadata remains visible.
-Existing lazy loading, previews, watched badges, progress and dismissal controls
-remain in the original components. Detail posters use a matching sleeve, while
-Play, episodes, cast, recommendations and server actions keep their existing flows.
+`ARCANE-SHOWCASE-PLAN.md` records scope/status; `ARCANE-SHOWCASE-QA.md` records actual checks and limitations. `tools/theme/README.md` documents asset regeneration and isolated outage fixtures. Exact image prompts and asset provenance live beside those tools. No user's media posters are bundled.
 
-ThemePageBanner provides a labelled Return to table link on these screens. A bronze
-navigation treatment ties the app shell together. Search and saved-story surfaces
-use restrained blue/leather panels. Music, games, requests and social areas retain
-their specialized layouts with the shared palette and navigation styling.
-
-These are styling enhancements, not replacement data or playback implementations.
-All overrides are scoped to html[data-theme="card-table"]. Default and Midnight
-continue to use their existing styling. src/arcane-surfaces.css owns the new screen
-treatments; the existing celestial-table.css owns the interactive table. Both load
-on demand through loadThemeStyles rather than entering the default or TV bundle.
-
-## Themes settings
-
-**Unfinished themes are opt-in.** Midnight Cinema and Arcane Table are marked `preview` in `src/lib/theme.ts`. Settings shows the Themes section only after Settings → Appearance → Unfinished themes is turned on (per device); turning it off returns the device to the standard look, and a saved preview theme is ignored while it's off. Arcane Table's stylesheets (and so its artwork), its Home and Three.js load only once it's chosen, and the TV app doesn't include it (`tv: false`). When a theme is ready, set `preview: false` (and `tv: true` once it's been tried on the LG CX).
-
-Settings now has a dedicated Themes section. It includes built-in choices, immediate selection, Try your theme, Restore Finesse, the Live 3D objects switch for Arcane Table and a downloadable creator guide. Accent and display controls remain in Appearance. Themes and 3D preferences are browser-local, with storage-event synchronization between same-origin tabs. A local development link ending ?theme=card-table selects that theme explicitly; production does not honor this development shortcut.
-
-Theme selection uses src/lib/theme.ts. Shared palettes use themes.css; scene overrides use celestial-table.css after the legacy card-table.css. The three built-in IDs remain default, midnight and card-table. No theme ZIP importer, visual editor, gallery, account sync, custom script loader or foldable-aware renderer is implemented.
-
-## Community authoring
-
-Read THEME-AUTHORING.md for the usable source contribution guide. Read THEME-SYSTEM-PLAN.md for the dedicated settings direction and remaining pack system work. FOLDABLES-AND-THEME-PACKS.md describes proposals, not shipped capabilities.
-
-## Validation
-
-Run npm run theme:test, npm run build and npm run build:webos. Before pushing, AGENTS.md also requires server:typecheck and server:test. Existing automated theme tests cover request deadlines/cancellation ; they do not prove 3D quality or the complete UI. Exercise Search, Escape/focus return, library switching, deal, title navigation, phone paging, Themes selection/reset, 3D toggle and reduced motion manually.
-
-Physical phones, foldables, TV remotes/controllers, screen-reader output and measured contrast need separate verification. Do not infer device certification from resized screenshots or a passing TV build. Runtime raster art is encoded as WebP. Physical-device performance and accessibility checks remain release-review tasks; see the pull request validation notes.
+Run `npm run theme:test`, `npm run build`, `npm run build:webos`, `npm run server:typecheck` and the required `npm run server:test` before pushing. Automated theme tests cover clock boundaries and request deadlines/cancellation, not visual quality or every Finesse function. Physical phones/foldables, controller/TV hardware, screen-reader output, measured contrast and sustained device GPU performance remain release-review work.

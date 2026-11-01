@@ -36,12 +36,13 @@ export default function TableNavigation({ decks, selected, busy, reduced, onChoo
       orbButton.current?.focus({ preventScroll: true })
     }
   }, [open])
-  const live = useThemeEffects()
+  useThemeEffects() // The shared ArcaneLighting scene owns all live objects now.
+  const live = false
   const navigate = useNavigate()
   return (
     <nav className="table-object-nav" aria-label="Table navigation">
       <button ref={orbButton} type="button" className="table-object search-object" aria-label="Search your library"
-        onClick={() => { if (IS_TV) navigate('/search'); else { returnToOrb.current = true; openSearch() } }}
+        onClick={() => { if (IS_TV || matchMedia('(max-width:759px)').matches) navigate('/search'); else { returnToOrb.current = true; openSearch() } }}
         onPointerEnter={() => setEngaged(true)} onPointerLeave={() => setEngaged(false)}
         onFocus={() => setEngaged(true)} onBlur={() => setEngaged(false)}>
         <ScryingOrb reduced={reduced} enabled={live} active={engaged} />

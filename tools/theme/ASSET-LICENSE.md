@@ -4,6 +4,8 @@ The Arcane Table assets added by this change are distributed under the repositor
 
 - Celestial table, phone background, transparent frame and card back: generated for this project with the built-in image-generation tool; exact prompts are in tools/theme/celestial-*-prompt.txt. The runtime versions are WebP encodings of the approved generated artwork. They contain no movie/show posters.
 - Orb and movie/show deck boxes: original procedural Blender geometry and materials, authored for this theme. Editable .blend scenes and Python generators are included. Runtime GLBs and matching stills are derived from those sources.
+- Quiet desk and collection folio artwork: generated with the built-in image-generation tool; exact prompts are in showcase-art-prompts.md. WebP runtime textures contain no library posters.
+- Candle, holder, wax sprites and collection folio geometry: original procedural Blender sources in create-candle-folio.py and scenes/*.blend. GLBs and WebP stills derive from these sources. The packed showcase-light-study-v1.blend is a material/lighting study, not a browser UI recording; its textures are the original project assets above.
 - Legacy base-style textures and card-back SVGs: original prototype art included only where the base stylesheet references it. No third-party fantasy game artwork or models are included.
 - Library artwork displayed by the app comes from the user's existing media server. That artwork is not bundled with this theme and is not relicensed by this file.
 - Three.js retains its own MIT license in the installed package. Existing Finesse font and dependency licenses remain unchanged.

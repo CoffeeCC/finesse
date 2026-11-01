@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
@@ -21,6 +21,8 @@ import { DiceIcon, useSurprise } from '../lib/surprise'
 import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
 import { peerOf } from '../lib/peers'
+import { useTheme } from '../lib/theme'
+const ArcaneFolio = __WEBOS__ ? null : lazy(() => import('../components/ArcaneFolio'))
 
 const TEXT_BLOCK = 56
 const ROW_GAP = 8
@@ -86,6 +88,20 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export default function LibraryPage() {
+  const theme = useTheme(), { viewId } = useParams(), ownViews = useViews(), friend = peerOf(viewId)
+  const sharedViews = useQuery({ queryKey: ['friend', friend, 'views'], queryFn: () => api.getViews(friend!), enabled: Boolean(friend), staleTime: 5 * 60_000 })
+  const views = friend ? sharedViews.data : ownViews.data
+  const view = views?.Items.find((v) => v.Id === viewId)
+  if (theme === 'card-table' && ArcaneFolio && (friend ? sharedViews.isLoading : ownViews.isLoading)) {
+    return <p className="p-12 text-ink-300" role="status">Opening your collection…</p>
+  }
+  if (theme === 'card-table' && ArcaneFolio && view && /^(movies|tvshows)$/.test(view.CollectionType ?? '')) {
+    return <Suspense fallback={<p className="p-12 text-ink-300" role="status">Opening your collection…</p>}><ArcaneFolio key={view.Id} view={view} decks={(views?.Items ?? []).filter((v) => /^(movies|tvshows)$/.test(v.CollectionType ?? ''))} /></Suspense>
+  }
+  return <StandardLibraryPage />
+}
+
+function StandardLibraryPage() {
   const { viewId } = useParams()
   // A friend's library (Groups) is described by their server, not ours.
   const friend = peerOf(viewId)

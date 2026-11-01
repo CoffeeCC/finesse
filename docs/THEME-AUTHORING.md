@@ -1,7 +1,7 @@
 # Making a theme for Finesse
 
-Author guide — 31 October 2026. Applies to the optional-theme branch based on
-Finesse 3.2.5 (88e4e81), not an already-released public theme API.
+Author guide — 1 November 2026. Applies to the optional-theme branch based on
+Finesse 3.2.5, not an already-released public theme API.
 
 ## What you can make today
 
@@ -24,15 +24,16 @@ Treat a new Home composition as a product feature with its own parity review.
 ```ts
 { id: 'velvet-room', name: 'Velvet Room',
   description: 'Plum surfaces and warm paper.',
-  swatches: ['#15101a', '#382c42', '#e6dfcf'] },
+  swatches: ['#15101a', '#382c42', '#e6dfcf'], preview: true, tv: false },
 ```
 
 Use a stable, unique lower-case ID. The ThemeId union and picker are derived from
 this registry. Do not write localStorage or a second settings screen yourself.
 The existing setTheme/useTheme API handles selection and subscriptions.
 
-3. Add scoped styles to src/themes.css, or import a separate stylesheet from
-   src/main.tsx after index.css. For example:
+3. Add scoped palette styles to src/themes.css. For larger artwork/layout themes,
+   add a theme-specific lazy import in loadThemeStyles in src/lib/theme.ts instead
+   of importing heavy scene CSS from main.tsx. For example:
 
 ```css
 html[data-theme="velvet-room"] {
@@ -59,7 +60,8 @@ passes contrast checks. Test the actual UI before distributing your work.
 4. Keep artwork under src/assets/themes/velvet-room/. Use relative CSS URLs or
    imports so Vite resolves the web base and bundles assets for TV. Do not assume
    `/assets` is hosted at the domain root: the web app lives under /finesse/.
-5. Open Settings → Themes. The new choice appears automatically. Select it,
+5. Enable Settings → Appearance → Unfinished themes, then open Settings → Themes.
+   The new preview choice appears automatically. Select it,
    reload, navigate through real content and switch back to Finesse. Confirm no
    styles remain after switching.
 
@@ -141,11 +143,12 @@ shared markup. Keep theme-only components null for other theme IDs.
 
 ## Blender and live 3D
 
-The showcase is a hybrid, not an entirely 3D app. Its board, frames and draw pile
-are rendered images. Its Search orb and first two library boxes are Blender models
-rendered live with Three.js. Study tools/theme/create-scrying-orb.py,
-tools/theme/create-deck-trinkets.py, src/components/ScryingOrb.tsx,
-src/components/DeckTrinket.tsx and src/components/TableNavigation.tsx.
+The showcase is a hybrid, not an entirely 3D app. Generated desk/book/frame textures
+complement Blender geometry. ArcaneLighting.tsx owns the receiving desk, candle,
+orb, boxes, book and enhanced resting cards in one light space. Study that component,
+src/lib/arcaneLiveCards.ts, src/lib/arcaneShaders.ts and the three Blender generators
+under tools/theme. The draw pile remains raster artwork. Phone folios/title details
+use simpler compositions. THEMES.md records exactly what is live and what is baked.
 
 For hinged props, preserve named pivot and content nodes when exporting. The
 deck-box contract uses LidPivot for the lid hinge and CardLift for the card packet.
@@ -153,7 +156,8 @@ Keep animation independent of hover hit targets; keyboard focus must offer the
 same behavior. Open on hover/focus, close on exit/blur, and keep touch activation
 usable without a hover prerequisite. A native selection action must never depend
 on whether a hinge animation has completed. Bound the number of live scenes:
-this prototype allows two live boxes plus one orb and uses stills for extra decks.
+the current showcase uses one shared renderer, first two live boxes, and stills for
+extra libraries. The older standalone orb/box renderers must not run beside it.
 
 1. Model in Blender with a deliberate scale, consistent material names and a clear
    silhouette. Keep bevels where they matter at the displayed size; avoid geometry
@@ -162,8 +166,9 @@ this prototype allows two live boxes plus one orb and uses stills for extra deck
    procedural node graphs do not automatically become browser shaders. Bake useful
    texture detail or author a runtime shader intentionally. Include asset licenses.
 3. Render a matching transparent still. A new theme must remain fully usable if
-   WebGL is unavailable, model loading fails, the user disables 3D, or TV/reduced
-   motion selects the still. Keep accessible button text outside the canvas.
+   WebGL is unavailable, model loading fails or the user disables 3D. Reduced motion
+   may retain steady live lighting while stopping movement. TV support requires a
+   separate reviewed choice; Arcane is excluded. Keep button text outside the canvas.
 4. Choose coherent runtime light directions, environment reflections and exposure.
    A live light in an isolated orb cannot illuminate a separately baked table image.
    Real shadows across all objects require a shared live scene and receiving geometry.
@@ -177,6 +182,23 @@ this prototype allows two live boxes plus one orb and uses stills for extra deck
 Do not copy the showcase's private component selectors as a public plugin API.
 Community packages do not currently execute imported JavaScript or install models.
 A live 3D theme is a reviewed source contribution until a stable contract exists.
+
+## Collections, native controls and idle behavior
+
+ArcaneFolio demonstrates a source-level layout replacement for movies/shows. Keep
+the same API client, user scope and peer routing. Page the actual server collection;
+do not quietly cap browsing at one random batch. Keep filters/selection in route
+state, cancel obsolete requests, bound waiting and offer Retry. The phone inspector
+uses Sheet rather than a decorative canvas dialog. Native actions continue to work
+when model loading fails; per-card enhancement hides art only after its texture loads.
+
+If a theme adds idle scenery, integrate with Marquee and the existing screensaver
+preference. Do not add a competing idle timer. Respect players, audio/video, typing,
+dialogs, menus and busy requests. Consume the waking press, restore focus/inert state
+and never let an idle scene navigate or start media. Arcane's pure candleClock state
+machine is tested separately from rendering. Visible-time session progress is not
+wall-clock elapsed time. Accelerated controls live in ArcaneThemeLab in development
+only; they must not become production query options or user-facing settings.
 
 ## Phones, tablets, foldables and TV
 

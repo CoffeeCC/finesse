@@ -1,0 +1,49 @@
+.arcane-lighting{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity 1.2s}.arcane-lighting canvas{display:block;width:100%;height:100%}.arcane-lighting.lighting-ready{opacity:1}
+.candle-anchor{position:absolute;top:4%;right:25%;width:90px;height:180px;z-index:2;pointer-events:none}.candle-anchor>img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(3px 10px 6px #0008)}
+.candle-fallback-flame{position:absolute;width:8px;height:22px;top:11%;left:49%;border-radius:70% 30% 50% 50%;background:radial-gradient(ellipse at 50% 70%,#fffbd6,#ffd46e 30%,#ff9d2c77 70%,transparent);box-shadow:0 0 14px 4px #ffc05b55;transform-origin:center bottom;animation:candleBreath 3s ease-in-out infinite alternate}
+.candle-fallback-art{position:absolute;left:0;top:50%;width:100%;aspect-ratio:4/5;transform:translateY(-50%)}.candle-fallback-art>img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(3px 10px 6px #0008)}
+.candle-wax-sprite{position:absolute;inset:0;transition:transform 1s linear;pointer-events:none}.candle-wax-sprite>img{width:100%;height:100%;object-fit:contain}
+@media(prefers-reduced-motion:reduce){.candle-wax-sprite{transition:none}}
+html[data-motion=reduce] .candle-wax-sprite{transition:none}
+.no-table-motion .candle-fallback-flame{animation:none}
+.shared-model-ready:not(.folio-spread):not(.arcane-detail-inspection){visibility:hidden}
+.arcane-moon-veil{pointer-events:none;position:absolute;inset:0;z-index:1;background:linear-gradient(120deg,#030a1955,#02071399);opacity:0;transition:opacity 3s;mix-blend-mode:multiply}
+.arcane-moon-veil.phase-moonlight{opacity:.6}.arcane-moon-veil.phase-guttering{opacity:.4}
+.celestial-table>.table-object-nav,.celestial-table>.mat-heading,.celestial-table>.mat-pick-link,.celestial-table>.draw-station,.celestial-table>.deal-action,.celestial-table>.movie-hand,.celestial-table>.hand-pager,.celestial-table>.mat-bottomline,.celestial-table>.table-message{z-index:3}
+html[data-arcane-sleep=true] .vt-nav,html[data-arcane-sleep=true] .vt-tabs,html[data-arcane-sleep=true] .table-intro,html[data-arcane-sleep=true] .table-deal-status,html[data-arcane-sleep=true] .table-pick,html[data-arcane-sleep=true] .table-reservations,html[data-arcane-sleep=true] .club-footer,html[data-arcane-sleep=true] .folio-heading,html[data-arcane-sleep=true] .folio-dividers,html[data-arcane-sleep=true] .folio-tool-ribbon,html[data-arcane-sleep=true] .folio-bottom-note{opacity:0;pointer-events:none;transition:opacity 2s}
+html[data-arcane-sleep=true] .celestial-table .object-label,html[data-arcane-sleep=true] .celestial-table .mat-heading,html[data-arcane-sleep=true] .celestial-table .mat-pick-link,html[data-arcane-sleep=true] .celestial-table .deal-action,html[data-arcane-sleep=true] .celestial-table .hand-pager,html[data-arcane-sleep=true] .celestial-table .mat-bottomline,html[data-arcane-sleep=true] .celestial-table .stock-label,html[data-arcane-sleep=true] .folio-inspect-actions,html[data-arcane-sleep=true] .folio-pagination{opacity:0;pointer-events:none}
+html[data-arcane-sleep=true] .celestial-table .playing-card,html[data-arcane-sleep=true] .folio-card-art{filter:brightness(.25) saturate(.65);transition:filter 3s}
+html[data-arcane-sleep=true] .celestial-table .movie-hand{animation:moonlitDrift 80s ease-in-out infinite alternate}
+@keyframes candleBreath{to{transform:scale(.94,1.07) rotate(3deg);opacity:.85}}
+@keyframes moonlitDrift{to{transform:translate(8px,-5px)}}
+@media(max-width:600px){.celestial-table .candle-anchor{right:6%;top:27%;width:64px;height:115px}}
+@media(prefers-reduced-motion:reduce){.candle-fallback-flame,html[data-arcane-sleep=true] .celestial-table .movie-hand{animation:none}.arcane-lighting,.arcane-moon-veil{transition:none}}
+html[data-motion=reduce] .candle-fallback-flame,html[data-motion=reduce][data-arcane-sleep=true] .celestial-table .movie-hand{animation:none}
+html[data-arcane-sleep=true] .celestial-table{position:fixed;inset:0;width:100%;height:100%;min-height:0;max-height:none;border-radius:0;z-index:90}
+html[data-arcane-sleep=true] .arcane-folio-page{position:fixed;inset:0;min-height:0;padding:0;z-index:90;overflow:hidden}
+html[data-arcane-sleep=true] .arcane-folio-page .folio-binding{position:absolute;left:3%;right:3%;top:50%;transform:translateY(-50%) scale(.78);transform-origin:center;pointer-events:none}
+html[data-arcane-sleep=true] .arcane-folio-page .folio-tool-ribbon{display:none}
+@media(max-width:759px){html[data-arcane-sleep=true] .arcane-folio-page .folio-binding{left:0;right:0;transform:translateY(-50%) scale(.8)}}
+html[data-arcane-sleep=true] .folio-slot-title,html[data-arcane-sleep=true] .folio-slot-year,html[data-arcane-sleep=true] .folio-leaf-heading,html[data-arcane-sleep=true] .folio-inspector>.folio-eyebrow,html[data-arcane-sleep=true] .folio-inspect-meta,html[data-arcane-sleep=true] .folio-inspection h2,html[data-arcane-sleep=true] .folio-inspect-summary{opacity:0;transition:opacity 2s;pointer-events:none}
+html[data-candle-phase=moonlight] .candle-fallback-flame{opacity:0;animation:none}
+html[data-candle-phase=moonlight] .candle-fallback-art>img{filter:brightness(.25) saturate(.6)}
+html[data-candle-phase=moonlight] .candle-wax-sprite{filter:brightness(.25) saturate(.6)}
+html[data-arcane-sleep=true] .page-enter{animation:none!important;transform:none!important}
+html[data-arcane-sleep=true] .celestial-table .mat-heading,html[data-arcane-sleep=true] .celestial-table .object-label{animation:none!important;visibility:hidden!important}
+html[data-arcane-sleep=true] .celestial-table .movie-hand .hand-card .playing-card{filter:brightness(.19) saturate(.6)!important;transform:rotate(var(--card-angle))!important;transition:filter 3s,transform 3s}
+html[data-arcane-sleep=true] .celestial-table .stock-card{filter:brightness(.28) saturate(.65);transition:filter 3s}
+.celestial-table .playing-card.live-card-ready .card-art,.celestial-table .playing-card.live-card-ready::after,.celestial-table .playing-card.live-card-ready::before{visibility:hidden}
+.folio-card-art.live-card-ready>img,.folio-card-art.live-card-ready>.folio-card-frame{visibility:hidden}
+.folio-slot.live-slot-ready{background:transparent}
+.arcane-search-trinket{position:absolute;z-index:5;right:19%;top:22px;width:100px;min-height:130px;color:#d5c6a5;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;pointer-events:auto}
+.folio-orb-art{display:block;width:100%;height:105px}.folio-orb-art>img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(2px 5px 5px #0008)}
+.arcane-search-trinket .object-label{position:static;display:block;font-family:var(--font-display);font-size:19px}
+.arcane-search-trinket:focus-visible{outline:2px solid #b6d9d8;outline-offset:4px;border-radius:12px}
+.arcane-detail-search{right:13%;top:-26px;width:80px;min-height:115px}.arcane-detail-search .folio-orb-art{height:85px}
+html[data-arcane-sleep=true] .arcane-search-trinket .object-label{visibility:hidden}
+html[data-arcane-sleep=true] [data-theme-surface=detail]>:not(.arcane-detail-stage){visibility:hidden}
+html[data-arcane-sleep=true] .arcane-detail-stage>:not(.arcane-detail-inspection){visibility:hidden}
+html[data-arcane-sleep=true] .arcane-detail-inspection{position:fixed;inset:0;width:100%;height:100%;max-width:none;min-height:0;margin:0;z-index:90;transform:none!important}
+html[data-arcane-sleep=true] .arcane-detail-inspection>.min-w-0{opacity:0;pointer-events:none}
+html[data-arcane-sleep=true] .arcane-detail-inspection .arcane-poster-wrap{filter:brightness(.2) saturate(.6)}
+@media(max-width:759px){.arcane-search-trinket{right:24%;top:28px;width:64px;min-height:95px}.folio-orb-art{height:76px}.arcane-search-trinket .object-label{font-size:15px}.arcane-detail-search{right:72px;top:-64px;width:55px;min-height:95px}.arcane-detail-search .folio-orb-art{height:72px}}

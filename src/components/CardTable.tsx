@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useViews } from '../api/queries'
@@ -8,6 +8,8 @@ import TableReservations from './TableReservations'
 import TableNavigation from './TableNavigation'
 import { withHandDeadline } from '../lib/tableDeal'
 import { reducedMotion } from '../lib/settings'
+import ArcaneLighting from './ArcaneLighting'
+const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
 
 type Phase = 'idle' | 'shuffling' | 'waiting' | 'dealing'
 const SHUFFLE_MS = 1150
@@ -202,7 +204,8 @@ export default function CardTable() {
 
 
       <div className="table-scene-wrap">
-      <section ref={boardRef} className={`table-stage celestial-table phase-${phase}`} data-deck-kind={deck?.CollectionType} aria-labelledby="hand-heading" aria-busy={busy} data-phase={phase}>
+      <section ref={boardRef} data-arcane-scene="table" className={`table-stage celestial-table phase-${phase}`} data-deck-kind={deck?.CollectionType} aria-labelledby="hand-heading" aria-busy={busy} data-phase={phase}>
+        <ArcaneLighting />
         <TableNavigation decks={decks} selected={deck?.Id} busy={busy} reduced={motion.reduced} onChoose={changeDeck} />
 
         <div key={pick?.Id ?? deck?.Id} className="mat-heading">
@@ -247,6 +250,7 @@ export default function CardTable() {
 
       <TableReservations />
       <footer className="club-footer"><Link to="/libraries">All libraries, music & games ↗</Link><Link to="/mylist">Your saved picks ↗</Link><Link to="/dashboard">Full Finesse Home ↗</Link></footer>
+      {ThemeLab && new URLSearchParams(location.search).get('theme-lab') === '1' && <Suspense fallback={null}><ThemeLab /></Suspense>}
     </div>
   )
 }

@@ -95,7 +95,7 @@ export default function NavBar() {
 
   // Close the account menu on navigation and on Escape / remote Back.
   const { pathname, search } = useLocation()
-  const tableHome = useTheme() === 'card-table' && pathname === '/'
+  const tableHome = useTheme() === 'card-table' && (pathname === '/' || pathname.startsWith('/library/') || pathname.startsWith('/item/') || pathname === '/mylist')
   useEffect(() => setMenuOpen(false), [pathname])
   useEffect(() => {
     if (!menuOpen) return

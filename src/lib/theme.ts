@@ -45,8 +45,11 @@ function initialTheme(): ThemeId {
     const requested = new URLSearchParams(window.location.search).get('theme')
     const theme = THEMES.find((option) => option.id === requested)
     if (theme) {
-      previews = true
-      try { localStorage.setItem(KEY, theme.id) } catch { /* Keep it in memory. */ }
+      if (theme.preview) previews = true
+      try {
+        localStorage.setItem(KEY, theme.id)
+        if (theme.preview) localStorage.setItem(PREVIEWS_KEY, 'on')
+      } catch { /* Keep it in memory. */ }
       return theme.id
     }
   }
