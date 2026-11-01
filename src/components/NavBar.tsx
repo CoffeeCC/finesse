@@ -1,5 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { getItems } from '../api/client'
+import { useSmartOn } from '../api/smart'
+import { useQueuesOn } from '../api/queues'
+import { useMomentCollectionsOn } from '../api/momentCollections'
+import { useMyLimits } from '../api/parental'
 import { useFinesse } from '../lib/finesseServer'
 import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -30,6 +34,10 @@ export function useSecondaryDestinations() {
   const { data: friends } = useFriends()
   const friendMusic = useFriendMusic()
   const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
+  const smart = useSmartOn()
+  const together = useQueuesOn()
+  const momentCollections = useMomentCollectionsOn()
+  const limits = useMyLimits()
   // Music shows when there's music here, or a friend shares theirs (Groups).
   const hasMusic = (views?.Items.some((v) => v.CollectionType === 'music') ?? false) || friendMusic.rows.length > 0
   return [
@@ -40,7 +48,10 @@ export function useSecondaryDestinations() {
     ...(hasCollections
       ? [{ label: 'Collections', to: COLLECTIONS_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('BoxSet') }]
       : []),
-    { label: 'Requests and downloads', to: '/request', match: (p: string) => p === '/request' },
+    ...(together ? [{ label: 'Watch together', to: '/together', match: (p: string) => p.startsWith('/together') }] : []),
+    ...(momentCollections ? [{ label: 'Moments', to: '/moments', match: (p: string) => p.startsWith('/moments') }] : []),
+    ...(smart ? [{ label: 'Smart collections', to: '/smart', match: (p: string) => p.startsWith('/smart') }] : []),
+    ...(limits && !limits.requests ? [] : [{ label: 'Requests and downloads', to: '/request', match: (p: string) => p === '/request' }]),
     { label: 'Activity', to: '/activity', match: (p: string) => p === '/activity' },
   ]
 }

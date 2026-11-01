@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { isSameTitle, lookupTitles, matchesTerm, mergeTitles } from '../../src/lib/discovery.ts'
+import { isSameTitle, lookupTitles, matchesTerm, mergeSources, mergeTitles, sameById } from '../../src/lib/discovery.ts'
 
 const film = { Id: 'a', Type: 'Movie', Name: 'The Red Turtle', ProductionYear: 2016, ProviderIds: { Tmdb: '337703' } }
 
@@ -78,4 +78,40 @@ test('alternate and original titles count, and id lookups keep everything', () =
   assert.ok(matchesTerm(['The Matrix'], 'tmdb:603'))
   assert.ok(matchesTerm(['The Matrix'], 'tt0133093'))
   assert.ok(matchesTerm(['Anything'], '   '))
+})
+
+// ---------- friends' titles join the one list ----------
+
+test('a friend’s title joins ours only when the ids match, never on the name', () => {
+  const ours = { Id: 'a', Type: 'Movie', Name: 'Sintel', ProductionYear: 2010, ProviderIds: { Tmdb: '45745' } }
+  assert.ok(sameById(ours, { Id: 'f-x-1', Type: 'Movie', Name: 'Sintel (2010)', ProviderIds: { tmdb: '45745' } }))
+  assert.ok(!sameById(ours, { Id: 'f-x-2', Type: 'Movie', Name: 'Sintel', ProductionYear: 2010 }), 'same name, no ids: kept apart')
+  assert.ok(!sameById(ours, { Id: 'f-x-3', Type: 'Movie', Name: 'Sintel', ProviderIds: { Tmdb: '1' } }))
+  assert.ok(!sameById(ours, { Id: 'f-x-4', Type: 'Series', Name: 'Sintel', ProviderIds: { Tmdb: '45745' } }), 'a film is never a show')
+  assert.ok(sameById({ Id: 's', Type: 'Series', ProviderIds: { Tvdb: '9' } }, { Id: 'f', Type: 'Series', ProviderIds: { Tvdb: '9', Tmdb: '1' } }))
+})
+
+test('one list with every source: ours first, then friends’ only, then requestable', () => {
+  const sam = { id: 'aaaaaaaa', name: 'Sam’s server' }
+  const kit = { id: 'bbbbbbbb', name: 'Kit’s server' }
+  type It = { Id: string; Type: string; Name: string; ProductionYear?: number; ProviderIds?: Record<string, string> }
+  const lib: It[] = [{ Id: 'a', Type: 'Movie', Name: 'Sintel', ProviderIds: { Tmdb: '45745' } }]
+  const friends: { item: It; friend: { id: string; name: string } }[] = [
+    { item: { Id: 'f-aaaaaaaa-1', Type: 'Movie', Name: 'Sintel', ProviderIds: { Tmdb: '45745' } }, friend: sam }, // = ours
+    { item: { Id: 'f-aaaaaaaa-2', Type: 'Movie', Name: 'Spring', ProviderIds: { Tmdb: '600' } }, friend: sam },
+    { item: { Id: 'f-bbbbbbbb-3', Type: 'Movie', Name: 'Spring', ProviderIds: { Tmdb: '600' } }, friend: kit }, // = Sam's Spring
+    { item: { Id: 'f-bbbbbbbb-4', Type: 'Movie', Name: 'Sintel', ProductionYear: 2010 }, friend: kit }, // no ids: its own row
+    { item: { Id: 'f-bbbbbbbb-5', Type: 'Episode', Name: 'Pilot' }, friend: kit }, // not a film or show
+  ]
+  const req = [
+    { kind: 'movie' as const, id: 0, hasFile: false, title: 'Spring', year: 2019, tmdbId: 600 }, // = the friends' Spring
+    { kind: 'movie' as const, id: 0, hasFile: false, title: 'Sintel', year: 2010, tmdbId: 45745 }, // we have it
+    { kind: 'movie' as const, id: 0, hasFile: false, title: 'Cosmos Laundromat', year: 2015, tmdbId: 7 },
+  ]
+  const out = mergeSources(lib, friends, req)
+  const show = out.map((t) => t.sources.map((s) => (s.source === 'library' ? 'lib' : s.source === 'friend' ? s.friend.name : `req`)).join('+'))
+  assert.deepEqual(show, ['lib+Sam’s server', 'Sam’s server+Kit’s server+req', 'Kit’s server', 'req'])
+  assert.equal(out[3]!.key, 'movie:7')
+  // Partial results: a friend that didn't answer just isn't there.
+  assert.deepEqual(mergeSources(lib, [], req).map((t) => t.sources[0]!.source), ['library', 'request', 'request'])
 })

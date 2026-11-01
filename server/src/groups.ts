@@ -193,7 +193,7 @@ function wrongPair(req: IncomingMessage): ApiError {
   return new ApiError(404, 'That code didn’t work. Codes work once and last 7 days; ask for a new one.')
 }
 
-export function registerGroups(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth }): GroupsApi {
+export function registerGroups(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth; parental?: import('./parental.ts').Parental }): GroupsApi {
   const { settings, jf, auth } = deps
   const update = (fn: (g: GroupsState) => void) =>
     settings.update((s) => {
@@ -562,6 +562,8 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
   router.get('/api/groups/friends', async ({ req, res }) => {
     const user = await auth.requireUser(req)
     if (user.Id === 'service') throw new ApiError(403, 'Sign in as a person')
+    // Limited profiles (parental.ts) don't reach friends' servers: their ratings can't be checked here.
+    if (deps.parental?.limitOf(user.Id)) return sendJson(res, 200, { friends: [], limited: true })
     sendJson(res, 200, { friends: groupsOf(settings.get()).friends.map((f) => ({ id: f.id, name: f.name })) })
   })
 
@@ -569,6 +571,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
   router.any('/api/groups/friends/:id/jellyfin/*', async ({ req, res, params, url }) => {
     const user = await auth.requireUser(req, { query: url.searchParams })
     if (user.Id === 'service' || !/^[0-9a-f]{32}$/i.test(user.Id)) throw new ApiError(403, 'Sign in as a person')
+    if (deps.parental?.limitOf(user.Id)) throw new ApiError(403, 'Friends’ servers are off for this profile')
     const f = groupsOf(settings.get()).friends.find((x) => x.id === params.id)
     if (!f) throw new ApiError(404, 'That server isn’t shared with you (any more)')
     const own = tokenFrom(req, { query: url.searchParams }) ?? ''
@@ -685,9 +688,21 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     }
   })
 
+  /** A friend's Jellyfin, read as one of our people (their viewer there): only what the allow-list lets through. */
+  async function friendJellyfin<T>(f: GroupFriend, viewer: { id: string; name: string }, path: string): Promise<T> {
+    const r = await fetch(`${f.url}/api/groups/peer/jellyfin/${path.replace(/^\/+/, '')}`, {
+      headers: { Authorization: `FinessePeer ${f.linkId}:${f.secret}`, 'x-finesse-viewer': viewer.id.toLowerCase(), 'x-finesse-viewer-name': encodeURIComponent(viewer.name) },
+      signal: AbortSignal.timeout(15000),
+    }).catch(() => null)
+    if (!r) throw new ApiError(502, `Couldn’t reach ${f.name}`)
+    if (!r.ok) throw new ApiError(r.status === 404 || r.status === 403 ? 404 : 502, `${f.name} answered ${r.status}`)
+    return (await r.json()) as T
+  }
+
   return {
     peerLink,
     callFriend,
+    friendJellyfin,
     ourName,
     friends: () => groupsOf(settings.get()).friends,
     links: () => groupsOf(settings.get()).links,

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getCastTargets, playOnSession } from '../api/client'
+import { waitForStart } from '../lib/transfer'
 import { useToast } from './Toast'
 import { pushBackHandler } from '../lib/back'
 import { setCastTarget } from '../lib/castTarget'
@@ -35,6 +36,8 @@ export default function CastMenu({
   variant,
   startTicks,
   onCast,
+  onSending,
+  onFailed,
   className = '',
 }: {
   item: JfItem
@@ -42,8 +45,14 @@ export default function CastMenu({
   variant?: 'os' | 'player'
   /** Where to start on the other device (the player: its current position). */
   startTicks?: () => number
-  /** After the other device has been told to play (the player pauses and steps back). */
+  /**
+   * Moving playback (the player): once the other device reports it's playing the title, this is
+   * called (the player steps back). Until then this device is paused (onSending); if the other
+   * never starts, onFailed carries on here.
+   */
   onCast?: () => void
+  onSending?: () => void
+  onFailed?: () => void
   className?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -98,19 +107,38 @@ export default function CastMenu({
     }
   }, [open])
 
+  const [waiting, setWaiting] = useState<string | null>(null)
   const cast = async (sessionId: string, deviceName: string) => {
     setSending(sessionId)
+    const moving = Boolean(onCast)
     try {
       const resume = startTicks ? startTicks() : (item.UserData?.PlaybackPositionTicks ?? 0)
+      // Moving it: hold still here while the other device starts, so it picks up where this stopped.
+      if (moving) onSending?.()
       await playOnSession(sessionId, item.Id, resume)
-      setCastTarget({ sessionId, deviceName, itemId: item.Id })
-      toast(`Playing on ${deviceName}`)
-      setOpen(false)
-      onCast?.()
+      if (!moving) {
+        setCastTarget({ sessionId, deviceName, itemId: item.Id })
+        toast(`Playing on ${deviceName}`)
+        setOpen(false)
+        return
+      }
+      setWaiting(deviceName)
+      const started = await waitForStart({ poll: getCastTargets, sessionId, itemId: item.Id, timeoutMs: 20_000 })
+      if (started === 'started') {
+        setCastTarget({ sessionId, deviceName, itemId: item.Id })
+        toast(`Now playing on ${deviceName}`)
+        setOpen(false)
+        onCast?.()
+      } else {
+        toast(started === 'gone' ? `${deviceName} isn’t answering, so it’s still playing here.` : `${deviceName} didn’t start playing, so it’s still playing here.`, 'error')
+        onFailed?.()
+      }
     } catch {
-      toast(`Couldn’t play on ${deviceName}`, 'error')
+      toast(`Couldn’t play on ${deviceName}${moving ? '. It’s still playing here.' : ''}`, 'error')
+      if (moving) onFailed?.()
     } finally {
       setSending(null)
+      setWaiting(null)
     }
   }
 
@@ -156,7 +184,12 @@ export default function CastMenu({
         pos &&
         createPortal(
           <div ref={popRef} role="menu" aria-label="Play on" className="os-menu toast-in fixed z-[95] rounded-[24px] p-1.5 text-sm" style={pos}>
-            <p className="px-3 pb-2 pt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">Play on</p>
+            <p className="px-3 pb-2 pt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">{onCast ? 'Move to' : 'Play on'}</p>
+            {waiting && (
+              <p role="status" className="px-3 pb-2 text-[13px] leading-relaxed text-white/75">
+                Waiting for {waiting} to start. This stays paused here until it does.
+              </p>
+            )}
             {isLoading && <p className="px-3 py-3 text-white/60">Looking for devices…</p>}
             {!isLoading && (!targets || targets.length === 0) && (
               <p className="px-3 py-3 leading-relaxed text-white/70">
@@ -180,7 +213,7 @@ export default function CastMenu({
                     {name}
                     {t.Client && t.DeviceName && <span className="text-white/45"> · {t.Client}</span>}
                   </span>
-                  {sending === t.Id && <span className="shrink-0 text-xs text-white/60">Sending…</span>}
+                  {sending === t.Id && <span className="shrink-0 text-xs text-white/60">{waiting ? 'Waiting…' : 'Sending…'}</span>}
                 </button>
               )
             })}

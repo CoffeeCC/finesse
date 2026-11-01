@@ -30,6 +30,7 @@ import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
 import SearchOverlay from './components/SearchOverlay'
 import QuickMenu from './components/os/QuickMenu'
+import PartyInvites from './components/PartyInvites'
 import { ServerUpdateOverlay } from './components/Update'
 import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
@@ -61,6 +62,9 @@ const PlayGamePage = lazyPage(() => import('./pages/PlayGamePage'))
 const StreamPlayPage = lazyPage(() => import('./pages/StreamPlayPage'))
 const FriendsPage = lazyPage(() => import('./pages/FriendsPage'))
 const RemotePage = lazyPage(() => import('./pages/RemotePage'))
+const SmartCollectionsPage = lazyPage(() => import('./pages/SmartCollectionsPage'))
+const TogetherPage = lazyPage(() => import('./pages/TogetherPage'))
+const MomentsPage = lazyPage(() => import('./pages/MomentsPage'))
 
 export default function App() {
   const { session } = useAuth()
@@ -195,6 +199,9 @@ export default function App() {
                     <Route path="/watchlist" element={<Navigate to="/mylist" replace />} />
                     <Route path="/libraries" element={<LibrariesPage />} />
                     <Route path="/activity" element={<ActivityPage />} />
+                    <Route path="/smart/*" element={<SmartCollectionsPage />} />
+                    <Route path="/together/*" element={<TogetherPage />} />
+                    <Route path="/moments/*" element={<MomentsPage />} />
                     {!__WEBOS__ && <Route path="/add-media" element={<AddMediaPage />} />}
                     {!__WEBOS__ && <Route path="/remote" element={<RemotePage />} />}
                     <Route path="/settings" element={<SettingsPage />} />
@@ -212,6 +219,7 @@ export default function App() {
               {!IS_TV && <SearchOverlay />}
               <QuickMenu />
               <MomentArrivals />
+              <PartyInvites />
               <ServerUpdateOverlay />
               {!__WEBOS__ && <DropToAdd />}
             </>

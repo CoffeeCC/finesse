@@ -669,7 +669,9 @@ export function useMostWatchedAtHome() {
 }
 
 /** Search every friend's server (Groups) too; each hit knows whose it is. */
-export function useFriendSearch(term: string) {
+/** Films and shows on friends' servers (Groups) for a term, each server asked on its own through
+ *  the friend proxy: one that doesn't answer is listed in `failed`, the rest still show. */
+export function useFriendSearch(term: string): { hits: { item: JfItem; friend: { id: string; name: string } }[]; failed: string[] } {
   const { data: friends } = useFriends()
   const q = term.trim()
   const results = useQueries({
@@ -679,10 +681,14 @@ export function useFriendSearch(term: string) {
       retry: false,
       staleTime: 60_000,
       queryFn: async () =>
-        (await api.getItems({ searchTerm: q, recursive: true, includeItemTypes: 'Movie,Series', limit: 8, fields: CARD_FIELDS, peer: f.id })).Items.map((item) => ({ item, friend: f })),
+        // ProviderIds: a friend's title joins ours (or another friend's) only by TMDb/TVDb id.
+        (await api.getItems({ searchTerm: q, recursive: true, includeItemTypes: 'Movie,Series', limit: 8, fields: `${CARD_FIELDS},ProviderIds`, peer: f.id })).Items.map((item) => ({ item, friend: { id: f.id, name: f.name } })),
     })),
   })
-  return results.flatMap((r) => r.data ?? [])
+  return {
+    hits: results.flatMap((r) => r.data ?? []),
+    failed: q.length > 1 ? (friends ?? []).filter((_, i) => results[i]?.isError).map((f) => f.name) : [],
+  }
 }
 
 /** People matching a search term (cast / crew). */

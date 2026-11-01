@@ -17,6 +17,8 @@ import { useQuery } from '@tanstack/react-query'
 
 import { goBack, isBackKey, isTypingTarget, pushBackHandler } from '../lib/back'
 import { onRemoteCommand } from '../lib/remoteControl'
+import { usePartySync } from '../lib/usePartySync'
+import PartyBadge from '../components/PartyBadge'
 import { setReturnMorph } from '../lib/motion'
 import { struggling, type FrameSample } from '../lib/frameDrops'
 import { useToast } from '../components/Toast'
@@ -331,6 +333,10 @@ export default function PlayerPage() {
   const toast = useToast()
   const queryClient = useQueryClient()
   const startTicks = Number(searchParams.get('t') ?? 0)
+  // Continue here (lib/transfer): the device this was taken over from, stopped once this one plays.
+  const handoffFrom = searchParams.get('from')
+  const handoffName = searchParams.get('fromName')
+  const handedOff = useRef(false)
 
   const { data: fetchedItem } = useItem(itemId)
   // Keep the series list alive across an episode switch (the next episode's own
@@ -353,6 +359,14 @@ export default function PlayerPage() {
   const [playing, setPlaying] = useState(false)
   const [ended, setEnded] = useState(false)
   const [absTime, setAbsTime] = useState(ticksToSeconds(startTicks))
+  // Taken over from another device: stop it only once this one is really playing (a second
+  // in), so a stream that fails here leaves the other one going.
+  useEffect(() => {
+    if (!handoffFrom || handedOff.current || !playing || absTime < ticksToSeconds(startTicks) + 1) return
+    handedOff.current = true
+    void api.sendStopToSession(handoffFrom)
+    toast(`Carrying on here. Stopped on ${handoffName || 'the other device'}.`)
+  }, [handoffFrom, handoffName, playing, absTime, startTicks, toast])
   const [bufferedAbs, setBufferedAbs] = useState(0)
   const [volume, setVolume] = useState(() => Number(localStorage.getItem('finesse.volume') ?? 1))
   const [muted, setMuted] = useState(() => localStorage.getItem('finesse.muted') === '1')
@@ -1050,6 +1064,16 @@ export default function PlayerPage() {
     if (v && s) return s.offsetSec + v.currentTime
     return absTime
   }
+
+  // A watch party (?party=): everyone in step, following the party's clock (lib/usePartySync).
+  const partyId = searchParams.get('party')
+  const party = usePartySync(partyId, itemId, { videoRef, position: liveAbsSec, seekTo: (sec) => seekToRef.current(sec), buffering })
+  useEffect(() => {
+    if (party.error) toast(`Couldn’t join the watch party: ${party.error} Playing here on your own.`, 'error')
+  }, [party.error, toast])
+  useEffect(() => {
+    if (party.lost) toast(party.lost)
+  }, [party.lost, toast])
 
   /** Relative seek that accumulates (held key, repeated taps) and commits once. */
   const nudgeSeek = (delta: number) => {
@@ -1885,6 +1909,7 @@ export default function PlayerPage() {
       ref={playerRef}
       className={`fixed inset-0 bg-black select-none overflow-hidden ${controlsVisible ? '' : 'cursor-none'}`}
     >
+      {party.view && <PartyBadge view={party.view} onLeave={party.leave} className={party.view.waitingFor.length ? '' : chromeClass} />}
       {!IS_TV && ambient && (
         <AmbientGlow
           videoRef={videoRef}
@@ -2345,10 +2370,9 @@ export default function PlayerPage() {
               variant="player"
               className={iconBtn}
               startTicks={positionTicks}
-              onCast={() => {
-                videoRef.current?.pause()
-                exitPlayer()
-              }}
+              onSending={() => videoRef.current?.pause()}
+              onFailed={() => void videoRef.current?.play().catch(() => {})}
+              onCast={exitPlayer}
             />
           )}
           <button

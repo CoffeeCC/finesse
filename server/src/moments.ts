@@ -97,6 +97,7 @@ export interface FeedMoment {
 export interface GroupsApi {
   peerLink(req: IncomingMessage): GroupLink
   callFriend<T>(f: GroupFriend, path: string, body?: unknown): Promise<T>
+  friendJellyfin<T>(f: GroupFriend, viewer: { id: string; name: string }, path: string): Promise<T>
   ourName(): Promise<string>
   friends(): GroupFriend[]
   links(): GroupLink[]
@@ -268,8 +269,15 @@ interface JfItemLite {
   ProductionYear?: number
 }
 
-export function registerMoments(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth; groups: GroupsApi; store?: MomentStore }) {
+export function registerMoments(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth; groups: GroupsApi; store?: MomentStore; parental?: import('./parental.ts').Parental }) {
   const { settings, jf, auth, groups } = deps
+  /** Parental limits (parental.ts): a limited profile reaches no friend's title, and only ours within its limit. */
+  const limited = (uid: string) => Boolean(deps.parental?.limitOf(uid))
+  const mayOpen = async (uid: string, item: string) => {
+    if (TAGGED.test(item)) return !limited(uid)
+    return deps.parental ? deps.parental.allows(uid, item.toLowerCase()) : true
+  }
+  const refuse = () => new ApiError(403, 'This profile can’t open that title')
   const store = deps.store ?? new MomentStore(join(settings.paths.configDir, 'moments.db'))
 
   async function person(req: IncomingMessage): Promise<JfUser & { admin: boolean }> {
@@ -375,6 +383,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
   router.get('/api/moments/targets', async ({ req, res, url }) => {
     const me = await person(req)
     const item = String(url.searchParams.get('item') ?? '')
+    if (!(await mayOpen(me.Id.toLowerCase(), item))) throw refuse()
     const here = await people(me.Id)
     const tagged = TAGGED.exec(item)
     if (tagged) {
@@ -398,6 +407,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const note = cleanNote(body.note)
     const spoiler = body.spoiler === true
     const to = Array.isArray(body.to) ? body.to.map(String).slice(0, 100) : []
+    if (!(await mayOpen(me.Id.toLowerCase(), item))) throw refuse()
     limit(`u:${me.Id}`, 30)
     const everyone = to.includes('home')
     const valid = new Set((await people(me.Id)).map((p) => p.id.toLowerCase()))
@@ -444,6 +454,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const me = await person(req)
     const uid = me.Id.toLowerCase()
     const item = String(params.item ?? '')
+    if (!(await mayOpen(uid, item))) throw refuse()
     const tagged = TAGGED.exec(item)
     if (tagged) {
       const f = friendOf(tagged[1]!)
@@ -493,8 +504,13 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
         from: r.author_here ? r.author_name : `${r.author_name} · ${names.get(r.friend)}`,
         created: r.created,
       }))
-    const items = [...local, ...remote]
-      .sort((a, b) => b.created - a.created)
+    let all = [...local, ...remote].sort((a, b) => b.created - a.created)
+    // A limited profile only hears of titles it can open.
+    if (limited(uid)) {
+      const ok = await Promise.all(all.map((m) => mayOpen(uid, m.item)))
+      all = all.filter((_, i) => ok[i])
+    }
+    const items = all
       .slice(0, 60)
       .map((m) => ({ ...m, read: read.has(m.key) }))
     sendJson(res, 200, { moments: items, unread: items.filter((m) => !m.read).length })
@@ -604,7 +620,30 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     sendJson(res, 200, { ok: true })
   })
 
-  return { store, pollAll }
+  /**
+   * A moment as one of our people can see it (sent to them, or theirs), by its key: "l:<id>" for
+   * ours, "r:<friend>:<id>" for one fetched from a friend's server. Null when it isn't theirs to see.
+   */
+  function momentFor(uid: string, key: string): { item: string; title: string; subtitle: string; start: number | null; end: number | null; note: string; from: string } | null {
+    const local = /^l:([\w-]{8,20})$/.exec(key)
+    if (local) {
+      const m = store.get(local[1]!)
+      if (!m) return null
+      const mine = !m.author_server && m.author_user === uid
+      if (!mine && !forPerson(m.aud, uid)) return null
+      return { item: m.item, title: m.title, subtitle: m.subtitle, start: m.start, end: m.end, note: m.note, from: fromLabel(m) }
+    }
+    const remote = /^r:([a-z0-9]{8}):([\w-]{8,20})$/.exec(key)
+    if (!remote) return null
+    const f = friendOf(remote[1]!)
+    if (!f) return null
+    const r = store.remote({ friend: f.id, since: 0 }).find((x) => x.id === remote[2])
+    if (!r) return null
+    if (r.author_here !== uid && !(r.users === null || (JSON.parse(r.users) as string[]).includes(uid))) return null
+    return { item: `f-${f.id}-${r.item}`, title: r.title, subtitle: r.subtitle, start: r.start, end: r.end, note: r.note, from: r.author_here ? r.author_name : `${r.author_name} · ${f.name}` }
+  }
+
+  return { store, pollAll, momentFor }
 }
 
 function validFeed(m: FeedMoment): boolean {

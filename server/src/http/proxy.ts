@@ -43,7 +43,9 @@ export interface ProxyOptions {
    * Rewrites JSON and HLS playlist replies (uncompressed, up to 32 MB) before
    * they're sent on. Ask upstream for `accept-encoding: identity` with it.
    */
-  rewriteText?: (text: string) => string
+  rewriteText?: (text: string) => string | Promise<string>
+  /** What a refused reply says (it couldn't be read to rewrite). */
+  rewriteRefusal?: string
 }
 
 const REWRITABLE = /^(application\/(json|vnd\.apple\.mpegurl|x-mpegurl)|audio\/(x-)?mpegurl)\b/i
@@ -122,7 +124,7 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
           if (!unpack || len > REWRITE_MAX) {
             up.resume()
             res.writeHead(502, { 'Content-Type': 'application/json' })
-            res.end('{"error":"The friend’s server sent a reply Finesse can’t check"}')
+            res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
             return resolve()
           }
           const chunks: Buffer[] = []
@@ -142,16 +144,27 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
               text = plain.toString('utf8')
             } catch {
               res.writeHead(502, { 'Content-Type': 'application/json' })
-              res.end('{"error":"The friend’s server sent a reply Finesse can’t check"}')
+              res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
               return resolve()
             }
-            const out = Buffer.from(opts.rewriteText!(text), 'utf8')
-            delete headers['transfer-encoding']
-            delete headers['content-encoding']
-            headers['content-length'] = String(out.length)
-            res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
-            res.end(out)
-            resolve()
+            Promise.resolve()
+              .then(() => opts.rewriteText!(text))
+              .then(
+                (rewritten) => {
+                  const out = Buffer.from(rewritten, 'utf8')
+                  delete headers['transfer-encoding']
+                  delete headers['content-encoding']
+                  headers['content-length'] = String(out.length)
+                  res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
+                  res.end(out)
+                },
+                () => {
+                  // Couldn't be checked: nothing of it goes out.
+                  res.writeHead(502, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
+                },
+              )
+              .finally(resolve)
           })
           up.on('error', () => {
             res.destroy()

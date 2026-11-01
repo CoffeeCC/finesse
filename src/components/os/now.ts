@@ -3,6 +3,7 @@
 // with the art, colour and action the stage needs. Everything here comes from
 // data the app already loads (resume, next up, sessions, friends, latest).
 
+import { continueHereHref, positionNow } from '../../lib/transfer'
 import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import * as api from '../../api/client'
@@ -37,7 +38,8 @@ export interface NowEntry {
   /** "r, g, b": the colour the room takes on. */
   tint: string
   pct?: number
-  primary: { label: string; to: string; stopSession?: string }
+  /** handoff: "Continue here" takes over from that session (lib/transfer: fresh position, stopped once this plays). */
+  primary: { label: string; to: string; handoff?: { sessionId: string; name: string } }
   /** From the beginning, next to "Resume from 42:10" (lib/playChoice). */
   restart?: string
   info?: string
@@ -146,7 +148,7 @@ function sessionEntry(s: JfSession, artWidth: number): NowEntry | null {
     sub: `On ${where}`,
     badge: 'Live',
     pct: item.RunTimeTicks ? Math.min(100, (pos / item.RunTimeTicks) * 100) : undefined,
-    primary: { label: 'Continue here', to: `/play/${item.Id}${pos > 0 ? `?t=${pos}` : ''}`, stopSession: s.Id },
+    primary: { label: 'Continue here', to: continueHereHref(item.Id, positionNow(s), { sessionId: s.Id, name: where }), handoff: { sessionId: s.Id, name: where } },
     playing: !s.PlayState?.IsPaused,
   }
 }
