@@ -9,6 +9,7 @@ import TableNavigation from './TableNavigation'
 import { withHandDeadline } from '../lib/tableDeal'
 import { reducedMotion } from '../lib/settings'
 import ArcaneLighting from './ArcaneLighting'
+import ArcaneCoin from './ArcaneCoin'
 const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
 
 type Phase = 'idle' | 'shuffling' | 'waiting' | 'dealing'
@@ -206,6 +207,7 @@ export default function CardTable() {
       <div className="table-scene-wrap">
       <section ref={boardRef} data-arcane-scene="table" className={`table-stage celestial-table phase-${phase}`} data-deck-kind={deck?.CollectionType} aria-labelledby="hand-heading" aria-busy={busy} data-phase={phase}>
         <ArcaneLighting />
+        <ArcaneCoin />
         <TableNavigation decks={decks} selected={deck?.Id} busy={busy} reduced={motion.reduced} onChoose={changeDeck} />
 
         <div key={pick?.Id ?? deck?.Id} className="mat-heading">

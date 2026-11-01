@@ -20,6 +20,10 @@ The first two Home boxes are live; additional libraries use stills. Pixel ratio 
 
 The older isolated `ScryingOrb`/`DeckTrinket` renderers remain in source but TableNavigation disables their live mode. Do not enable them alongside the shared scene: isolated canvases do not share light or shadows.
 
+The orb has a larger silhouette than the candle, and the deck boxes have individual clearance. A two-sided Blender sun/moon coin is a native desk toy: activate it to toss, rotate, land and read the result. It shares the scene's light/shadow space and has matching stills with a CSS fallback. Reduced motion resolves the result immediately. Repeated activation during a toss is ignored while keyboard focus stays on the control. Its result never chooses a library, changes the hand or starts media.
+
+Object actions use original synthesized effects: glass/air for the orb, a soft leather/wood contact for boxes, filtered card rustles and metallic coin flip/landing partials. They use Finesse's existing Interface sounds and volume settings, remain silent during unmuted media/hidden tabs, and do not add an ambient loop. The ordinary confirmation is suppressed for these actions to avoid doubled sounds. Audio is activated by the user's action, never by loading the theme.
+
 ## Candle and moonlit idle scene
 
 The original Blender candle has a bronze holder, uneven wax channels/pools and a charred wick. Its flame flickers gently, a wax bead occasionally travels down the body, and the wax envelope shortens over approximately 45 visible minutes spent on a themed scene. Session storage preserves burn progress across navigation/reload; time with the tab hidden or browser closed does not consume it. The still fallback separates wax from holder so burn height and flame position remain coherent without WebGL.

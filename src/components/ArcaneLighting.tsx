@@ -29,7 +29,8 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       import('../assets/card-table/collection-folio-v1.glb?url'), import('../assets/card-table/quiet-desk-v1.webp'),
       import('../assets/card-table/collection-folio-art-v1.webp'),
       import('../assets/card-table/celestial-back-v1.webp'),
-    ]).then(async ([T, { GLTFLoader }, { RoomEnvironment }, candleURL, orbURL, movieURL, showURL, folioURL, deskURL, folioArtURL, backURL]) => {
+      import('../assets/card-table/celestial-coin-v1.glb?url'),
+    ]).then(async ([T, { GLTFLoader }, { RoomEnvironment }, candleURL, orbURL, movieURL, showURL, folioURL, deskURL, folioArtURL, backURL, coinURL]) => {
       if (cancelled) return
       let renderer: InstanceType<typeof T.WebGLRenderer>
       try { renderer = new T.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' }) } catch { return }
@@ -160,6 +161,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
         pending.push(load(orbURL.default, '.search-object .scrying-orb-art').then(() => {}))
         pending.push(load(movieURL.default, '.deck-box-object:nth-child(1) .deck-trinket-art').then(() => {}))
         pending.push(load(showURL.default, '.deck-box-object:nth-child(2) .deck-trinket-art').then(() => {}))
+        pending.push(load(coinURL.default, '.arcane-coin-art').then(() => {}))
       }
       const flameMaterial = new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending,
         uniforms: { time: { value: 0 }, strength: { value: 1 } },
@@ -188,10 +190,14 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       let frame = 0, last = 0, visible = true, graphicsLost = false, time = 0, light = 1, width = 1, height = 1
       let lastLeaf = '', leafTurn = -10
       let moonSince = -10, previousPhase = ''
+      let layoutAt = 0, layoutStamp = ''
       const place = () => {
         if (graphicsLost || cancelled) return
         const bounds = board.getBoundingClientRect()
         width = Math.max(1, bounds.width); height = Math.max(1, bounds.height)
+        const ratio = Math.min(devicePixelRatio || 1, innerWidth < 600 ? 1 : 1.5)
+        if (renderer.getPixelRatio() !== ratio) renderer.setPixelRatio(ratio)
+        renderer.shadowMap.enabled = innerWidth >= 600; flameLight.castShadow = innerWidth >= 600
         renderer.setSize(width, height, false); camera.top = 6 * height / width; camera.bottom = -camera.top; camera.updateProjectionMatrix()
         camera.updateMatrixWorld(true)
         // A phone is a close view of the hide, not a vertically stretched desktop illustration.
@@ -220,6 +226,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           const target = ground((rect.left - bounds.left + rect.width / 2) / width * 2 - 1, 1 - (rect.top - bounds.top + rect.height / 2) / height * 2)
           const origin = ground(center.x, center.y); o.root.position.add(target.sub(origin))
           anchor?.classList.add('shared-model-ready')
+          if (o.selector === '.arcane-coin-art') { o.root.userData.restY = o.root.position.y; o.root.userData.restZ = o.root.position.z }
         }
       }
       const draw = (now: number) => {
@@ -229,6 +236,17 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
         const still = systemMotion.matches || document.documentElement.dataset.motion === 'reduce' || board.closest('.no-table-motion') !== null
         if (last && now - last < (still ? 100 : innerWidth < 600 ? 50 : 33)) return
         const dt = last ? Math.min(.1, (now - last) / 1000) : 0; last = now; time += dt
+        // Late fonts/theme CSS can move an anchor without resizing the board.
+        // Refit resting props at a low rate so visual art stays on its hit target.
+        if (now - layoutAt > 400 && !scope.querySelector('.arcane-coin[aria-busy="true"]')) {
+          layoutAt = now
+          const base = board.getBoundingClientRect()
+          const stamp = objects.map((o) => {
+            const rect = scope.querySelector(o.selector)?.getBoundingClientRect()
+            return rect ? [rect.left - base.left, rect.top - base.top, rect.width, rect.height].map((n) => Math.round(n * 4)).join(',') : '-'
+          }).join('|')
+          if (stamp !== layoutStamp) { layoutStamp = stamp; place() }
+        }
         const state = getCandle()
         if (state.phase !== previousPhase) { if (state.phase === 'moonlight') moonSince = time; previousPhase = state.phase }
         const target = state.phase === 'moonlight' ? 0 : state.phase === 'guttering' ? Math.max(0, 1 - state.transition / 4500) : state.phase === 'relighting' ? Math.min(1, state.transition / 1600) : 1
@@ -286,6 +304,24 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           })
         }
         for (const o of objects) {
+          if (o.selector === '.arcane-coin-art') {
+            const control = board.querySelector<HTMLElement>('.arcane-coin')
+            const toss = control?.dataset.coinToss ?? '0', moonFace = control?.dataset.coinFace === 'Moon'
+            if (o.root.userData.toss !== toss) {
+              const first = o.root.userData.toss === undefined
+              o.root.userData.toss = toss; o.root.userData.tossStart = time
+              o.root.userData.fromAngle = o.root.rotation.x
+              o.root.userData.toAngle = Math.ceil(o.root.rotation.x / (Math.PI * 2)) * Math.PI * 2 + (first ? 0 : Math.PI * 6) + (moonFace ? Math.PI : 0)
+              if (first || still) o.root.rotation.x = o.root.userData.toAngle
+            }
+            const t = Math.min(1, Math.max(0, (time - o.root.userData.tossStart) / 1.5))
+            const airborne = !still && control?.getAttribute('aria-busy') === 'true'
+            const ease = 1 - Math.pow(1 - t, 2)
+            o.root.rotation.x = airborne ? o.root.userData.fromAngle + (o.root.userData.toAngle - o.root.userData.fromAngle) * ease : o.root.userData.toAngle
+            const settle = airborne && t > .78 ? Math.sin((t - .78) / .22 * Math.PI * 3) * (1 - t) * .35 : 0
+            o.root.rotation.z = settle
+            o.root.position.y = (o.root.userData.restY ?? 0) + (airborne ? Math.sin(Math.PI * t) * 1.3 : 0)
+          }
           if (o.lid) {
             const control = board.querySelector(o.selector)?.closest('button')
             const engaged = control?.matches(':hover, :focus-visible') || control?.getAttribute('aria-pressed') === 'true' && control?.hasAttribute('disabled')

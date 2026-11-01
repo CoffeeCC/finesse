@@ -46,6 +46,7 @@ Consistent light direction, contact shadows, object scale and material response 
 - Added a packed Blender lighting study, exact generated-art prompts/provenance, updated current-theme documentation and creator guidance. See ARCANE-SHOWCASE-QA.md for specific evidence and limits.
 - Local web/TV builds, nine theme tests and server type-check passed. Windows full server tests reported existing path/config/backup failures and the stalled run was stopped; no server code changed. Linux CI remains a separate gate for the pushed commit.
 - Checkpoint pushed to draft PR #34; latest master (3.2.6) merged without replacing the prior review stack. GitHub CI passed for implementation head fec8118 (run 41333389968).
+- Follow-up refinement: larger orb, clearer deck spacing, original Blender sun/moon coin with live toss/shadow and motion-off/still behavior, and preference-aware glass/box/card/coin sounds. Native props refit after late CSS/font layout changes. Wax pooling remains a slow geometric approximation, alongside moving beads and a shortening body.
 - Still required before calling this release-ready: physical-device/controller performance and accessibility review, sustained 45-minute idle/endurance checks, cross-server folio exercise and broader player/integration regression. Recheck CI after further changes. Keep preview:true and tv:false. No merge/deploy.
 
 Keep this log updated as implementation and validation actually finish. Source contributions should read this file together with `THEMES.md` and `THEME-AUTHORING.md`.

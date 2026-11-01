@@ -31,11 +31,19 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 ## Automated checks
 
 - Web build and TV build passed locally on Windows.
-- Theme tests: 9/9 passed (clock boundaries, eligibility/relight, deadline/cancellation).
+- Theme tests: 13/13 passed (clock boundaries, eligibility/relight, deadline/cancellation and object-sound mute/volume/media/deduplication policy).
 - Server type-check passed. Tour script syntax and git whitespace checks passed.
 - Production output contains no development-lab controls or accelerated candle query handling. TV output contains no Arcane scene/models/art.
 - Full server tests were attempted on Windows and reported existing path/config/backup-related failures; the stalled run was stopped. No server source changed in this theme work. Do not report the local full server suite as passing. Linux CI must be checked for the pushed commit separately.
 - GitHub CI passed for implementation head `fec8118` on 1 November 2026: [run 41333389968](https://github.com/CoffeeCC/finesse/actions/runs/41333389968). This includes the current 3.2.6 master baseline. The Windows failure above remains documented rather than being relabeled as a local pass.
+
+## Coin, orb and sound follow-up
+
+- Enlarged orb and separated deck boxes checked in desktop, 768-pixel tablet and 320-pixel phone layouts. Small-phone props no longer force a deck scrollbar; a taller composition keeps labels away from the hand. The coin has a separate position beside phone paging and below the stock on tablets.
+- Pointer and Enter coin flips produced Sun/Moon results; settled flips left the selected card unchanged. Keyboard focus stays on the coin during its busy interval. Live 3D off used the still/CSS fallback with zero scene canvases; Animations off resolved immediately without entering the busy/toss state. Preferences restored after testing.
+- Found/fixed: moving native prop anchors through late CSS could leave live models at their old positions. The scene now checks relative anchor layout at a low rate and refits resting models. It also adapts pixel ratio/shadows when resized between phone and desktop.
+- Original synthesized action sounds use the existing interface-sound preference and volume; no loops or downloaded recordings. Automated guards verify silence for muted UI/zero volume/hidden tabs/unmuted active media, bounded sound lifetimes and no double coin confirmation. Physical speaker calibration is not claimed.
+- Regenerated the original coin GLB, editable Blender scene and both fallback faces. Local web/TV builds and type-check passed. The repeated Windows full-server run again reported the same existing configuration/backup failures and stalled; stopped with no server source changes.
 
 ## Remaining release review
 

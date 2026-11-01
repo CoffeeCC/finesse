@@ -40,10 +40,24 @@ html[data-arcane-sleep=true] .celestial-table .stock-card{filter:brightness(.28)
 .arcane-search-trinket .object-label{position:static;display:block;font-family:var(--font-display);font-size:19px}
 .arcane-search-trinket:focus-visible{outline:2px solid #b6d9d8;outline-offset:4px;border-radius:12px}
 .arcane-detail-search{right:13%;top:-26px;width:80px;min-height:115px}.arcane-detail-search .folio-orb-art{height:85px}
+.arcane-search-trinket{width:120px;min-height:155px}.folio-orb-art{height:128px}
+.arcane-detail-search{width:110px;min-height:140px}.arcane-detail-search .folio-orb-art{height:110px}
+.arcane-coin{position:absolute;right:35%;top:14%;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;width:96px;min-height:116px;color:#d9c494;pointer-events:auto}
+.arcane-coin-art{position:relative;display:block;width:88px;height:80px;pointer-events:none;transform-origin:center;filter:drop-shadow(2px 5px 3px #0008)}
+.arcane-coin-art>img{width:100%;height:100%;object-fit:contain}.coin-label{font-family:var(--font-display);font-size:18px}.coin-result{font-family:var(--font-mono);font-size:9px;letter-spacing:.03em;color:#b0b9b7;margin-top:3px}
+.arcane-coin:focus-visible{outline:2px solid #c3dcdf;outline-offset:4px;border-radius:14px}.arcane-coin[aria-disabled=true]{cursor:wait}
+.coin-tossing .arcane-coin-art:not(.shared-model-ready){animation:arcaneCoinToss 1.5s cubic-bezier(.2,.55,.3,1) both}
+@keyframes arcaneCoinToss{0%{transform:translateY(0) rotateX(0deg)}45%{transform:translateY(-70px) rotateX(720deg)}82%{transform:translateY(-7px) rotateX(1060deg)}92%{transform:translateY(-10px) rotateX(1088deg)}100%{transform:translateY(0) rotateX(1080deg)}}
+html[data-arcane-sleep=true] .arcane-coin .coin-label,html[data-arcane-sleep=true] .arcane-coin .coin-result{visibility:hidden}
+html[data-arcane-sleep=true] .arcane-coin-art>img{filter:brightness(.25)}
+@media(max-width:700px){.arcane-coin{left:auto;right:5%;top:auto;bottom:24%;width:68px;min-height:90px}.arcane-coin-art{width:60px;height:55px}.coin-label{font-size:16px}.coin-result{font-size:8px}}
+@media(min-width:701px) and (max-width:1000px){.arcane-coin{right:7%;top:34%;width:80px;min-height:100px}.arcane-coin-art{width:74px;height:65px}}
+@media(prefers-reduced-motion:reduce){.coin-tossing .arcane-coin-art{animation:none}}
+html[data-motion=reduce] .coin-tossing .arcane-coin-art,.no-table-motion .coin-tossing .arcane-coin-art{animation:none}
 html[data-arcane-sleep=true] .arcane-search-trinket .object-label{visibility:hidden}
 html[data-arcane-sleep=true] [data-theme-surface=detail]>:not(.arcane-detail-stage){visibility:hidden}
 html[data-arcane-sleep=true] .arcane-detail-stage>:not(.arcane-detail-inspection){visibility:hidden}
 html[data-arcane-sleep=true] .arcane-detail-inspection{position:fixed;inset:0;width:100%;height:100%;max-width:none;min-height:0;margin:0;z-index:90;transform:none!important}
 html[data-arcane-sleep=true] .arcane-detail-inspection>.min-w-0{opacity:0;pointer-events:none}
 html[data-arcane-sleep=true] .arcane-detail-inspection .arcane-poster-wrap{filter:brightness(.2) saturate(.6)}
-@media(max-width:759px){.arcane-search-trinket{right:24%;top:28px;width:64px;min-height:95px}.folio-orb-art{height:76px}.arcane-search-trinket .object-label{font-size:15px}.arcane-detail-search{right:72px;top:-64px;width:55px;min-height:95px}.arcane-detail-search .folio-orb-art{height:72px}}
+@media(max-width:759px){.arcane-search-trinket{right:24%;top:28px;width:78px;min-height:110px}.folio-orb-art{height:91px}.arcane-search-trinket .object-label{font-size:15px}.arcane-detail-search{right:72px;top:-64px;width:65px;min-height:105px}.arcane-detail-search .folio-orb-art{height:83px}}

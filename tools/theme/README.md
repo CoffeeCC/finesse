@@ -11,6 +11,10 @@ The expanded showcase adds candle/holder/wax sprites and a collection folio:
 
     blender --background --python tools/theme/create-candle-folio.py
 
+The two-sided sun/moon desk coin has its own source and matching stills:
+
+    blender --background --python tools/theme/create-celestial-coin.py
+
 This writes editable scenes, self-contained GLBs, matching WebP stills and
 src/assets/card-table/candle-layout.ts (projected wick/base anchors). Keep that
 generated layout file with its matching sprites. The source folio is inset beneath
@@ -32,7 +36,7 @@ Original image-generation prompts for the table/frame/card back are stored besid
 
 For disposable edge states, run node tools/theme/fixture.mjs. Start a separate Vite instance pointing FINESSE_SERVER=http://127.0.0.1:38212. The fixture binds only to loopback and supplies a fake passwordless Theme Fixture profile, not real media services. Select Arcane Table in Settings → Themes. Edit theme-fixture-state.json and reload to choose single, empty, no-libraries, slow (3 seconds), error (503), or hang. The one-card state has a long name and no art. Do not induce these outages on a real service.
 
-npm run theme:test runs nine deadline/cancellation and candle-clock tests. See docs/THEMES.md and docs/THEME-AUTHORING.md for current behavior, authoring and manual verification requirements.
+npm run theme:test runs thirteen deadline/cancellation, candle-clock and sound-policy tests. See docs/THEMES.md and docs/THEME-AUTHORING.md for current behavior, authoring and manual verification requirements.
 
 ## Local scene verification
 

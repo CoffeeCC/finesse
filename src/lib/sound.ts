@@ -88,6 +88,50 @@ export function playSelect() {
 
 let installed = false
 
+/** Original, restrained object sounds; same context, volume and media guard as Finesse. */
+export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'coin-flip' | 'coin-land') {
+  const prefs = getPrefs(), vol = clamp(prefs.uiSoundsVolume ?? .6, 0, 1)
+  if (!prefs.uiSounds || vol <= 0 || mediaIsPlaying() || document.hidden) return
+  const ac = audioCtx(); if (!ac) return
+  const now = ac.currentTime, jitter = 1 + (Math.random() - .5) * .025
+  const tone = (frequency: number, duration: number, level: number, delay = 0, end = frequency) => {
+    const oscillator = ac.createOscillator(), gain = ac.createGain(), t = now + delay
+    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(frequency * jitter, t)
+    oscillator.frequency.exponentialRampToValueAtTime(end * jitter, t + duration)
+    gain.gain.setValueAtTime(.0001, t); gain.gain.exponentialRampToValueAtTime(Math.max(.0002, level * vol), t + .008)
+    gain.gain.exponentialRampToValueAtTime(.0001, t + duration)
+    oscillator.connect(gain).connect(ac.destination)
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect() }
+    oscillator.start(t); oscillator.stop(t + duration + .015)
+  }
+  const rustle = (delay: number, duration: number, frequency: number, level: number) => {
+    const buffer = ac.createBuffer(1, Math.ceil(ac.sampleRate * duration), ac.sampleRate), data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+    const source = ac.createBufferSource(), filter = ac.createBiquadFilter(), gain = ac.createGain(), t = now + delay
+    source.buffer = buffer; filter.type = 'bandpass'; filter.frequency.value = frequency; filter.Q.value = .8
+    gain.gain.setValueAtTime(.0001, t); gain.gain.exponentialRampToValueAtTime(Math.max(.0002, level * vol), t + .012)
+    gain.gain.exponentialRampToValueAtTime(.0001, t + duration)
+    source.connect(filter).connect(gain).connect(ac.destination)
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect() }
+    source.start(t); source.stop(t + duration)
+  }
+  if (kind === 'orb') {
+    // Two glass partials above a breath of air, rather than a loud magical sting.
+    tone(523.25, .48, .045, 0, 554.37); tone(1569.75, .4, .018, .055, 1663.1); rustle(.02, .23, 900, .035)
+  } else if (kind === 'deck') {
+    rustle(0, .16, 650, .07); tone(180, .16, .05, .05, 125); tone(880, .12, .012, .13)
+  } else if (kind === 'cards') {
+    for (const delay of [0, .075, .15]) rustle(delay, .11, 1900 + delay * 2000, .065)
+    tone(320, .09, .018, .19, 210)
+  } else if (kind === 'coin-flip') {
+    tone(1760, .2, .04); tone(3820, .15, .012, .015); rustle(.01, .2, 2300, .025)
+  } else {
+    // Unequal partials and a softer second contact give the bronze a little weight.
+    tone(1046.5, .33, .055); tone(2458, .24, .025); tone(3990, .14, .01)
+    tone(1046.5, .15, .023, .09); rustle(0, .075, 1150, .045)
+  }
+}
+
 /** Install the global select-confirm (+ optional hover-tick) listeners. */
 export function initUiSounds() {
   if (installed || typeof window === 'undefined') return
@@ -98,7 +142,15 @@ export function initUiSounds() {
     'click',
     (e) => {
       const el = (e.target as HTMLElement | null)?.closest?.('a[href], button')
-      if (el && !(el as HTMLButtonElement).disabled) playSelect()
+      if (!el || (el as HTMLButtonElement).disabled || el.getAttribute('data-ui-sound') === 'handled') return
+      if (document.documentElement.dataset.theme === 'card-table') {
+        if (document.documentElement.dataset.arcaneSleep === 'true') return
+        const kind = el.matches('.search-object, .arcane-search-trinket') ? 'orb'
+          : el.matches('.deck-box-object') ? 'deck'
+          : el.matches('.draw-pile, .deal-action, .hand-card, .playing-card, .folio-slot') || el.closest('.folio-pagination') ? 'cards' : null
+        if (kind) { playArcaneSound(kind); return }
+      }
+      playSelect()
     },
     { capture: true },
   )

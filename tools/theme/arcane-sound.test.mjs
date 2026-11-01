@@ -1,0 +1,52 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import vm from 'node:vm'
+import { transformSync } from 'esbuild'
+
+const compiled = transformSync(readFileSync(new URL('../../src/lib/sound.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'cjs' }).code
+function fixture(prefs = {}, media = [], hidden = false) {
+  let contexts = 0
+  const starts = [], stops = [], gains = [], listeners = {}
+  const parameter = (gain = false) => ({ value: 0, setValueAtTime() {}, exponentialRampToValueAtTime(value) { assert.ok(Number.isFinite(value) && value > 0); if (gain) gains.push(value) } })
+  const node = () => ({ connect(other) { return other }, disconnect() {}, gain: parameter(true), frequency: parameter(), Q: parameter(),
+    start(time) { starts.push(time) }, stop(time) { assert.ok(Number.isFinite(time)); stops.push(time) } })
+  class AudioContext {
+    currentTime = 0; sampleRate = 48000; state = 'running'; destination = {}
+    constructor() { contexts++ }
+    createOscillator = node; createGain = node; createBufferSource = node; createBiquadFilter = node
+    createBuffer(channels, length) { return { getChannelData: () => new Float32Array(length) } }
+  }
+  const module = { exports: {} }
+  vm.runInNewContext(compiled, { module, exports: module.exports, require: (name) => name === './settings'
+    ? { getPrefs: () => ({ uiSounds: true, uiSoundsVolume: .6, ...prefs }) } : { moodHue: () => null },
+    window: { AudioContext, addEventListener: (name, fn, capture) => { listeners[name + (capture === true ? ':capture' : '')] = fn }, setTimeout() {} },
+    document: { hidden, querySelectorAll: () => media, documentElement: { dataset: { theme: 'card-table' } } }, performance: { now: () => 1000 } })
+  return { api: module.exports, starts, stops, gains, listeners, contexts: () => contexts }
+}
+test('theme sounds obey mute, zero volume, hidden tabs and active unmuted media', () => {
+  for (const f of [fixture({ uiSounds: false }), fixture({ uiSoundsVolume: 0 }), fixture({}, [], true),
+    fixture({}, [{ paused: false, muted: false, currentTime: 1 }])]) {
+    f.api.playArcaneSound('coin-land'); assert.equal(f.contexts(), 0); assert.equal(f.starts.length, 0)
+  }
+})
+test('every object sound is bounded and quiet; muted previews do not suppress it', () => {
+  const f = fixture({}, [{ paused: false, muted: true, currentTime: 1 }])
+  for (const kind of ['orb', 'deck', 'cards', 'coin-flip', 'coin-land']) {
+    const before = f.starts.length; f.api.playArcaneSound(kind); assert.ok(f.starts.length > before)
+  }
+  assert.equal(f.contexts(), 1); assert.equal(f.starts.length, f.stops.length)
+  assert.ok(f.stops.every((time) => time < 1)); assert.ok(f.gains.every((value) => value <= .06))
+})
+test('coin-owned sounds are not doubled by the global click confirmation', () => {
+  const f = fixture(); f.api.initUiSounds()
+  f.listeners.click({ target: { closest: () => ({ disabled: false, getAttribute: () => 'handled' }) } })
+  assert.equal(f.contexts(), 0)
+})
+test('a deck click sounds once even when its request immediately disables the button', () => {
+  const f = fixture(); f.api.initUiSounds()
+  const button = { disabled: false, getAttribute: () => null, matches: (selector) => selector === '.deck-box-object' }
+  const event = { target: { closest: () => button } }
+  f.listeners.click(event); const starts = f.starts.length; assert.ok(starts > 0)
+  button.disabled = true; f.listeners.click(event); assert.equal(f.starts.length, starts)
+})

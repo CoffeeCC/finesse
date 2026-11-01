@@ -228,6 +228,28 @@ html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::afte
 }
 @media (prefers-reduced-motion: reduce) { .deck-trinket-art > canvas { transition: none; } }
 
+/* Give the scrying orb the presence of a centerpiece and each box its own space. */
+.celestial-table .table-object-nav{right:22%;gap:24px}
+.celestial-table .search-object{flex:0 0 170px;min-height:180px}
+.celestial-table .scrying-orb-art{width:170px;height:180px}
+.celestial-table .table-deck-boxes{gap:32px}
+@media(min-width:701px) and (max-width:1000px){
+  .celestial-table .table-object-nav{left:5%;right:24%;gap:18px}
+  .celestial-table .search-object{flex-basis:135px;min-width:135px}
+  .celestial-table .scrying-orb-art{width:135px;height:150px}
+  .celestial-table .table-deck-boxes{gap:24px}
+}
+@media(max-width:700px){
+  .celestial-table.table-stage{min-height:760px}
+  .celestial-table .table-object-nav{left:4%;right:4%;gap:8px}
+  .celestial-table .search-object{flex:0 0 98px;min-width:98px;min-height:138px}
+  .celestial-table .scrying-orb-art{width:112px;height:125px}
+  .celestial-table .table-deck-boxes{gap:15px;padding-left:4px;padding-right:4px}
+  .celestial-table .mat-heading{top:225px;max-width:58%}
+  .celestial-table .mat-heading h2{font-size:clamp(26px,4.7vw,32px)}
+  .celestial-table .hand-pager{left:7%;right:32%;gap:8px}
+}
+
 /* Riffle the draw stock without moving its native hit target or taking over a deal. */
 .celestial-table .stock-card { transition: transform .38s cubic-bezier(.2,.7,.25,1); }
 .celestial-table.phase-idle .draw-pile:not(:disabled):hover .stock-card,
