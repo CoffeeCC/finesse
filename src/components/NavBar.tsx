@@ -8,6 +8,7 @@ import { useFriends, useViews } from '../api/queries'
 import { useAuth } from '../auth/AuthContext'
 import { pushBackHandler } from '../lib/back'
 import { openSearch } from '../lib/searchOverlay'
+import { useTheme } from '../lib/theme'
 import { openQuickMenu } from '../lib/quickMenu'
 import { useArrQueue } from '../api/queries'
 import MomentsBell from './moments/MomentsBell'
@@ -82,6 +83,7 @@ export default function NavBar() {
 
   // Close the account menu on navigation and on Escape / remote Back.
   const { pathname, search } = useLocation()
+  const tableHome = useTheme() === 'card-table' && pathname === '/'
   useEffect(() => setMenuOpen(false), [pathname])
   useEffect(() => {
     if (!menuOpen) return
@@ -152,8 +154,8 @@ export default function NavBar() {
           </Link>
         )}
 
-        <nav aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
-          <NavLink to="/" end className={linkClass}>
+        {!tableHome && <nav aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
+          <NavLink to="/" end aria-current={pathname === '/dashboard' ? 'page' : undefined} className={({ isActive }) => linkClass({ isActive: isActive || pathname === '/dashboard' })}>
             Home
           </NavLink>
           {libraries.map((lib) => (
@@ -185,7 +187,7 @@ export default function NavBar() {
               <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
             </svg>
           </ActionMenu>
-        </nav>
+        </nav>}
 
         <div className="flex-1" />
 

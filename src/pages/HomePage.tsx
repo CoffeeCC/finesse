@@ -15,6 +15,8 @@ import {
 } from '../components/HomeRows'
 import { RowControlsContext, RowEmptyContext } from '../components/MediaRow'
 import NowStage from '../components/os/NowStage'
+import CardTable from '../components/CardTable'
+import { useTheme } from '../lib/theme'
 import { useToast } from '../components/Toast'
 import { browseHref } from './BrowsePage'
 import { useAuth } from '../auth/AuthContext'
@@ -212,6 +214,12 @@ function EmptyLibrary() {
 }
 
 export default function HomePage() {
+  const theme = useTheme()
+  return theme === 'card-table' ? <CardTable /> : <StandardHome />
+}
+
+export function StandardHome() {
+  const theme = useTheme()
   const { data: views, isLoading: viewsLoading, isError: viewsError, refetch: refetchViews, isFetching: viewsFetching } = useViews()
   const queryClient = useQueryClient()
 
@@ -300,6 +308,7 @@ export default function HomePage() {
 
   return (
     <div className="pb-16">
+      {theme === 'card-table' && <div className="club-dashboard-banner"><span>Your Finesse Home</span><Link to="/">Back to the card table ↗</Link></div>}
       <div className="aurora" aria-hidden><div /><div /><div /></div>
 
       {/* The 2.0 stage: everything that's "now" in the house (lighter on TVs). */}

@@ -16,6 +16,8 @@ import { useFinesse } from '../lib/finesseServer'
 import { DONATE_URL, PROJECT_URL } from '../lib/project'
 import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
 import ConnectDevices from '../components/ConnectDevices'
+import ThemeSettings from '../components/ThemeSettings'
+import { useLocation } from 'react-router-dom'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
 import { StreamingSettings } from './settings/StreamingAdmin'
@@ -351,12 +353,17 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
 
 const SECTIONS = [
   { id: 'playback', label: 'Playback' },
+  { id: 'themes', label: 'Themes' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'sound', label: 'Sound' },
   { id: 'account', label: 'Account' },
 ] as const
 
 export default function SettingsPage() {
+  const { hash } = useLocation()
+  useEffect(() => {
+    if (hash.startsWith('#settings-')) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [hash])
   const { session, logout } = useAuth()
   const toast = useToast()
   const [prefs, setLocal] = useState<Prefs>(getPrefs())
@@ -495,6 +502,11 @@ export default function SettingsPage() {
                 scope="device"
               />
             </div>
+          </section>
+
+          <section id="settings-themes" aria-labelledby="settings-themes-title" className="scroll-mt-24">
+            {heading('themes', 'Themes')}
+            <div className={SECTION_CARD}><ThemeSettings /></div>
           </section>
 
           <section id="settings-appearance" aria-labelledby="settings-appearance-title" className="scroll-mt-24">

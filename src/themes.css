@@ -1,0 +1,67 @@
+/* Optional device themes. The default remains untouched. Colors on video and
+   artwork keep their original contrast; these tokens cover app surfaces. */
+html[data-theme="midnight"] {
+  --color-ink-950: #090d16;
+  --color-ink-900: #101927;
+  --color-ink-800: #1b2738;
+  --color-ink-700: #293b51;
+  --color-ink-400: #a3afbf;
+  --color-ink-200: #e2dfd6;
+}
+html[data-theme="card-table"] {
+  --color-ink-950: #141020;
+  --color-ink-900: #21182f;
+  --color-ink-800: #32233f;
+  --color-ink-700: #4a3559;
+  --color-ink-400: #b9a9c2;
+  --color-ink-200: #e9decd;
+}
+html[data-theme="midnight"] body {
+  background: radial-gradient(ellipse at 85% 0%, #26364b55, transparent 65%), #090d16;
+}
+html[data-theme="card-table"] body {
+  background: radial-gradient(ellipse at 55% 0%, #58406744, transparent 65%), #141020;
+}
+html[data-theme="midnight"] .grain, html[data-theme="card-table"] .grain { opacity: .025; }
+html[data-theme="midnight"] .aurora { opacity: .22; }
+html[data-theme="card-table"] .aurora { opacity: .1; }
+html[data-theme="midnight"] .mood-wash { opacity: .45; }
+html[data-theme="card-table"] .mood-wash { opacity: .3; }
+html[data-theme="midnight"] .vt-tabs.os-glass { background: rgba(14, 22, 35, .95); }
+html[data-theme="card-table"] .vt-tabs.os-glass { background: rgba(31, 23, 44, .95); border-color: #deb77b44; }
+
+/* Theme choices use native radios: Tab enters the group and arrows select. */
+.theme-picker { min-width: 0; }
+.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.theme-option { position: relative; min-width: 0; cursor: pointer; padding: 18px; border: 1px solid #ffffff24; border-radius: 14px; background: #ffffff04; transition: border-color .18s, background .18s; }
+.theme-option:hover { background: #ffffff09; border-color: #ffffff66; }
+.theme-option-selected { border-color: var(--color-accent-400); background: #ffffff09; }
+.theme-option:focus-within { outline: 2px solid var(--color-accent-300); outline-offset: 4px; }
+.theme-option input { position: absolute; top: 18px; right: 14px; width: 16px; height: 16px; accent-color: var(--color-accent-400); }
+.theme-swatches { display: flex; padding-right: 18px; margin-bottom: 20px; }
+.theme-swatches > span { width: 25px; height: 25px; border-radius: 50%; border: 1px solid #ffffff40; }
+.theme-swatches > span + span { margin-left: -6px; }
+.theme-option-name, .theme-option-description { display: block; }
+.theme-option-name { color: #f5f1e7; font-size: 14px; font-weight: 600; }
+.theme-option-description { color: var(--color-ink-400); font-size: 12px; line-height: 1.6; margin-top: 6px; }
+.theme-scene { display: flex; align-items: flex-end; justify-content: center; position: relative; height: 96px; margin: 12px 0 18px; padding: 22px 20px 12px; border: 1px solid #ffffff16; border-radius: 8px; background: radial-gradient(ellipse at 75% 20%, #525c94, #11141c 80%); overflow: hidden; }
+.theme-scene > span { display: block; width: 26px; height: 36px; margin: 0 3px; border-radius: 3px; background: linear-gradient(140deg, #7694a3, #29334e); border: 1px solid #c5d1ea55; }
+.theme-scene > span:nth-child(2) { height: 41px; background: linear-gradient(140deg, #bc906d, #5b4348); }
+.theme-scene > span:nth-child(3) { background: linear-gradient(140deg, #97a689, #24403e); }
+.theme-scene i { position: absolute; top: 6px; left: 10px; font-family: var(--font-display); color: #eee6d5; font-size: 20px; }
+.theme-scene[data-preview="midnight"] { background: radial-gradient(ellipse at 85% 0%, #31415a, #090d16 80%); border-color: #d8b87755; }
+.theme-scene[data-preview="midnight"] > span { border-color: #d8b87777; }
+.theme-scene[data-preview="card-table"] { background: #231732 url('./assets/card-table/celestial-table-v1.webp') center / cover; }
+.theme-scene[data-preview="card-table"] > span { height: 48px; width: 32px; border: 2px solid #b58a51; background: #2a1e3c url('./assets/card-table/celestial-back-v1.webp') center / cover; margin: 0 -3px; transform: rotate(-14deg); }
+.theme-scene[data-preview="card-table"] > span:nth-child(2) { height: 55px; z-index: 1; transform: translateY(-3px); }
+.theme-scene[data-preview="card-table"] > span:nth-child(3) { transform: rotate(14deg); }
+html[data-theme="midnight"] .page-title { color: #f3eedf; }
+html[data-theme="midnight"] .row-title { color: #e5d3b1; }
+@media (max-width: 640px) {
+  .theme-options { grid-template-columns: 1fr; }
+  .theme-option { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 6px 16px; padding: 16px; }
+  .theme-scene { grid-column: 1; grid-row: 1 / 3; margin: 0; padding: 20px 5px 10px; }
+  .theme-swatches { display: none; }
+  .theme-option-name { grid-column: 2; align-self: end; padding-right: 20px; }
+  .theme-option-description { grid-column: 2; margin-top: 0; }
+}

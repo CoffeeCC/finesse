@@ -8,7 +8,7 @@ import SetupPage from './pages/setup/SetupPage'
 import TvConnectPage from './pages/TvConnectPage'
 import NavBar from './components/NavBar'
 import BottomTabs from './components/BottomTabs'
-import HomePage from './pages/HomePage'
+import HomePage, { StandardHome } from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import ItemPage from './pages/ItemPage'
 import PlayerPage from './pages/PlayerPage'
@@ -164,6 +164,7 @@ export default function App() {
                 <div key={location.pathname} className={enterClass}>
                   <Routes>
                     <Route path="/" element={<HomePage />} />
+                    <Route path="/dashboard" element={<StandardHome />} />
                     <Route path="/library/:viewId" element={<LibraryPage />} />
                     <Route path="/item/:itemId" element={<ItemPage />} />
                     <Route path="/person/:personId" element={<PersonPage />} />

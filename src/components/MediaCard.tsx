@@ -166,6 +166,7 @@ export default function MediaCard({
         morphNavigate(() => navigate(`/item/${linkId}`), { from: tiltRef.current, name: posterMorphName(), event: e })
       }
       className="group block shrink-0 snap-start outline-none"
+      data-poster-card={/^(Movie|Series|Season|Episode)$/.test(item.Type) || undefined}
       style={width ? { width } : undefined}
       data-backdrop={backdropUrl(item, 1280) ?? undefined}
       data-autofocus={autoFocus || undefined}

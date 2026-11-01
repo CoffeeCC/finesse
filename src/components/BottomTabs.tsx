@@ -17,7 +17,7 @@ export default function BottomTabs() {
   const inLibrary = LIBRARY_PATHS.some((p) => pathname.startsWith(p))
 
   const tabs = [
-    { to: '/', label: 'Home', icon: ICONS.home, end: true },
+    { to: '/', label: 'Home', icon: ICONS.home, end: true, forceActive: pathname === '/dashboard' },
     { to: '/search', label: 'Search', icon: ICONS.search, end: false },
     { to: '/libraries', label: 'Library', icon: ICONS.library, end: false, forceActive: inLibrary },
     { to: '/mylist', label: 'My List', icon: ICONS.mylist, end: false },
