@@ -1,7 +1,7 @@
 # Making a theme for Finesse
 
 Author guide — 1 November 2026. Applies to the optional-theme branch based on
-Finesse 3.2.5, not an already-released public theme API.
+Finesse 3.2.6, not an already-released public theme API.
 
 ## What you can make today
 

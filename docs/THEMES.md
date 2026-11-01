@@ -1,6 +1,6 @@
 # Arcane Table — current implementation
 
-Updated 1 November 2026. Optional preview theme on `feat/arcane-table-theme`, based on Finesse 3.2.5. Not a released theme API or a device certification.
+Updated 1 November 2026. Optional preview theme on `feat/arcane-table-theme`, based on Finesse 3.2.6. Not a released theme API or a device certification.
 
 ## Experience
 
