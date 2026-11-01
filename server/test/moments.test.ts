@@ -17,9 +17,9 @@ let samsOnA = '' // Sam's server, as Alex's server knows it
 let alexLinkOnB = '' // Alex's server, as Sam's server knows it
 const id = (jf: typeof jfA, name: string) => [...jf.users.values()].find((u) => u.Name === name)!.Id
 
-type Moment = { key: string; item: string; title: string; start: number | null; end: number | null; note: string; spoiler: boolean; from: string; read: boolean; mine?: boolean }
+type Moment = { key: string; item: string; title: string; start: number | null; end: number | null; note: string; spoiler: boolean; from: string; read: boolean; mine?: boolean; to?: string[] }
 const settle = () => new Promise((r) => setTimeout(r, 3100)) // past the refresh floor
-const inbox = async (base: string, token: string) => (await call(base, 'GET', '/api/moments/inbox?fresh=1', token)).data as unknown as { moments: Moment[]; unread: number }
+const inbox = async (base: string, token: string) => (await call(base, 'GET', '/api/moments/inbox?fresh=1', token)).data as unknown as { moments: Moment[]; unread: number; mine: Moment[] }
 const timeline = async (base: string, token: string, item: string) => ((await call(base, 'GET', `/api/moments/item/${item}`, token)).data.moments ?? []) as Moment[]
 
 before(async () => {
@@ -125,6 +125,42 @@ test('Sam sends a spoiler moment of his film to Alex’s server; Kim’s private
   // What Sam's server tells Alex's about this film is only what's meant for it.
   const robinsView = await timeline(A.url, 'a-robin', `f-${samsOnA}-${jfB.movie}`)
   assert.deepEqual(robinsView.map((m) => m.note).sort(), ['the twist', 'this scene 😭', 'watch this!'])
+})
+
+test('your own moments: in the bell apart, with who they went to, never unread', async () => {
+  // Alex saves one just for himself, and sends Robin one.
+  assert.equal((await call(A.url, 'POST', '/api/moments', 'a-admin', { item: jfA.movie, start: 40, end: 50, note: 'uhhhh test', to: [] })).status, 201)
+  assert.equal((await call(A.url, 'POST', '/api/moments', 'a-admin', { item: jfA.movie, start: 90, end: 99, note: 'for robin', to: [`user:${id(jfA, 'robin')}`] })).status, 201)
+  const alex = await inbox(A.url, 'a-admin')
+  const self = alex.mine.find((m) => m.note === 'uhhhh test')!
+  assert.ok(self, 'saved just for him: under his own')
+  assert.deepEqual(self.to, [])
+  assert.equal(self.read, true)
+  assert.equal(self.mine, true)
+  assert.equal(self.item, jfA.movie)
+  assert.deepEqual([self.start, self.end], [40, 50])
+  assert.deepEqual(alex.mine.find((m) => m.note === 'for robin')!.to, ['robin'])
+  assert.equal(alex.mine[0]!.note, 'for robin', 'newest first')
+  // His own are never in what's been sent to him, so never unread.
+  assert.ok(!alex.moments.some((m) => m.note === 'uhhhh test' || m.note === 'for robin'))
+  // What he sent others is theirs to read; his own stay only his.
+  const robin = await inbox(A.url, 'a-robin')
+  assert.ok(robin.moments.some((m) => m.note === 'for robin' && !m.read))
+  assert.ok(!robin.moments.some((m) => m.note === 'uhhhh test'))
+  assert.ok(!robin.mine.some((m) => m.note === 'uhhhh test' || m.note === 'for robin'))
+  // Robin's own of Sam's film, kept on Sam's server: for everyone here and Sam's household.
+  const hers = robin.mine.find((m) => m.note === 'this scene 😭')!
+  assert.equal(hers.item, `f-${samsOnA}-${jfB.movie}`)
+  assert.deepEqual(hers.to, ['everyone here', 'everyone on Sam’s server'])
+  // Sam's sent one, to Alex's server.
+  assert.deepEqual((await inbox(B.url, 'b-admin')).mine.find((m) => m.note === 'the twist')!.to, ['everyone on Alex’s server'])
+  assert.ok(!(await inbox(B.url, 'b-kim')).mine.some((m) => m.note === 'the twist'))
+  // Yours can go into a collection, and you can delete them.
+  const col = (await call(A.url, 'POST', '/api/moment-collections', 'a-admin', { name: 'Mine' })).data.id
+  assert.equal((await call(A.url, 'POST', `/api/moment-collections/${col}/entries`, 'a-admin', { moment: self.key })).status, 201)
+  assert.equal((await call(A.url, 'DELETE', `/api/moments/${encodeURIComponent(self.key)}`, 'a-robin')).status, 403)
+  assert.equal((await call(A.url, 'DELETE', `/api/moments/${encodeURIComponent(self.key)}`, 'a-admin')).status, 200)
+  assert.ok(!(await inbox(A.url, 'a-admin')).mine.some((m) => m.note === 'uhhhh test'))
 })
 
 test('only people: not the service key, not a friend’s viewer account', async () => {

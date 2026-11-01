@@ -72,6 +72,8 @@ interface RemoteRow {
   author_name: string
   author_here: string | null
   users: string | null
+  /** For one of our people's own: whether they sent it to the friend's household too (null: an older Finesse didn't say). */
+  owner: number | null
   created: number
 }
 
@@ -91,6 +93,8 @@ export interface FeedMoment {
   fromHere: string | null
   /** Which of our people it's for (null: everyone). */
   users: string[] | null
+  /** One of ours: whether it went to the friend's household too. Only sent for our own people's moments. */
+  owner?: boolean
   created: number
 }
 
@@ -173,6 +177,9 @@ export class MomentStore {
         PRIMARY KEY (user, key)
       );
     `)
+    // Added later: for your own moments of a friend's title, whether that household got it too.
+    const cols = (this.db.prepare('PRAGMA table_info(remote)').all() as { name: string }[]).map((c) => c.name)
+    if (!cols.includes('owner')) this.db.exec('ALTER TABLE remote ADD COLUMN owner INTEGER')
   }
 
   add(m: Omit<Row, 'audience'> & { audience: Audience[] }) {
@@ -206,8 +213,8 @@ export class MomentStore {
     this.db.exec('BEGIN')
     try {
       this.db.prepare('DELETE FROM remote WHERE friend = ?').run(friend)
-      const ins = this.db.prepare('INSERT OR REPLACE INTO remote (friend, id, item, title, subtitle, start, "end", note, spoiler, author_name, author_here, users, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      for (const m of feed) ins.run(friend, m.id, m.item, m.title, m.subtitle, m.start, m.end, m.note, m.spoiler ? 1 : 0, m.from, m.fromHere, m.users ? JSON.stringify(m.users) : null, m.created)
+      const ins = this.db.prepare('INSERT OR REPLACE INTO remote (friend, id, item, title, subtitle, start, "end", note, spoiler, author_name, author_here, users, owner, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      for (const m of feed) ins.run(friend, m.id, m.item, m.title, m.subtitle, m.start, m.end, m.note, m.spoiler ? 1 : 0, m.from, m.fromHere, m.users ? JSON.stringify(m.users) : null, m.fromHere && typeof m.owner === 'boolean' ? (m.owner ? 1 : 0) : null, m.created)
       this.db.exec('COMMIT')
     } catch (e) {
       this.db.exec('ROLLBACK')
@@ -472,7 +479,8 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     })
   })
 
-  // What's been sent to you, newest first.
+  // What's been sent to you, newest first; and, apart (never unread, never a
+  // notification), your own: saved just for you, or sent to others.
   router.get('/api/moments/inbox', async ({ req, res, url }) => {
     const me = await person(req)
     const uid = me.Id.toLowerCase()
@@ -513,8 +521,41 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const items = all
       .slice(0, 60)
       .map((m) => ({ ...m, read: read.has(m.key) }))
-    sendJson(res, 200, { moments: items, unread: items.filter((m) => !m.read).length })
+    sendJson(res, 200, { moments: items, unread: items.filter((m) => !m.read).length, mine: await mine(uid, since) })
   })
+
+  /** Your own moments, newest first, each with who it went to (none: just for you). */
+  async function mine(uid: string, since: number) {
+    const own = store.list({ since }).filter((m) => !m.author_server && m.author_user === uid)
+    const names = new Map(groups.friends().map((f) => [f.id, f.name]))
+    const theirs = store.remote({ since }).filter((r) => names.has(r.friend) && r.author_here === uid)
+    // Names of the people picked, only when someone was.
+    const picked = own.some((m) => m.aud.some((a) => a.s === 'home' && a.u?.length)) || theirs.some((r) => r.users && r.users !== '[]')
+    const who = new Map(picked ? (await people(uid)).map((p) => [p.id.toLowerCase(), p.name]) : [])
+    const nameOf = (ids: string[]) => ids.map((u) => who.get(u)).filter((n): n is string => Boolean(n))
+    const links = new Map(groups.links().map((l) => [l.id, l.name]))
+    const base = { from: 'You', read: true, mine: true, canDelete: true }
+    const local = own.map((m) => {
+      const to: string[] = []
+      for (const a of m.aud) {
+        if (a.s === 'home') to.push(...(a.u === null ? ['everyone here'] : nameOf(a.u)))
+        else if (links.has(a.s)) to.push(`everyone on ${links.get(a.s)}`)
+      }
+      return { ...base, key: `l:${m.id}`, item: m.item, title: m.title, subtitle: m.subtitle, start: m.start, end: m.end, note: m.note, spoiler: m.spoiler === 1, to, created: m.created }
+    })
+    const remote = theirs.map((r) => {
+      const users = r.users === null ? null : (JSON.parse(r.users) as string[])
+      const to = users === null ? ['everyone here'] : nameOf(users)
+      if (r.owner === 1) to.push(`everyone on ${names.get(r.friend)}`)
+      return { ...base, key: `r:${r.friend}:${r.id}`, item: `f-${r.friend}-${r.item}`, title: r.title, subtitle: r.subtitle, start: r.start, end: r.end, note: r.note, spoiler: r.spoiler === 1, to, created: r.created }
+    })
+    let list = [...local, ...remote].sort((a, b) => b.created - a.created)
+    if (limited(uid)) {
+      const ok = await Promise.all(list.map((m) => mayOpen(uid, m.item)))
+      list = list.filter((_, i) => ok[i])
+    }
+    return list.slice(0, 60)
+  }
 
   router.post('/api/moments/read', async ({ req, res }) => {
     const me = await person(req)
@@ -575,6 +616,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
       from: m.author_name,
       fromHere: theirs ? m.author_user : null,
       users: slice ? slice.u : theirs ? [] : [],
+      ...(theirs ? { owner: m.aud.some((a) => a.s === 'home') } : {}),
       created: m.created,
     }
   }
@@ -663,5 +705,6 @@ function validFeed(m: FeedMoment): boolean {
     from: cleanNote(m.from).replace(/\s+/g, ' ').slice(0, 40) || 'A friend',
     fromHere: m.fromHere && RAW.test(String(m.fromHere)) ? String(m.fromHere).toLowerCase() : null,
     users: m.users === null ? null : m.users.map(String).filter((u) => RAW.test(u)),
+    owner: typeof m.owner === 'boolean' ? m.owner : undefined,
   }) !== null
 }

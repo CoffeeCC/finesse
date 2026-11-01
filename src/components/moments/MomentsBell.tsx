@@ -5,10 +5,13 @@ import { useMomentCollectionsOn } from '../../api/momentCollections'
 import SaveMoment from './SaveMoment'
 import { pushBackHandler } from '../../lib/back'
 import { useOverlayFocus } from '../../lib/overlayFocus'
-import { clock, getInbox, markMomentsRead, momentHref, useInbox, useMomentsOn, type InboxMoment } from '../../api/moments'
+import { clock, deleteMoment, getInbox, markMomentsRead, momentHref, useInbox, useMomentsOn, type InboxMoment, type MyMoment } from '../../api/moments'
+import { useToast } from '../Toast'
 
 // The bell in the top bar: moments and recommendations sent to you. Opening one
 // marks it read and goes to it (the player at that moment, or the title's page).
+// Below them, apart, your own: saved just for you or sent to others. Those are
+// never new and never pop up.
 
 export function ago(t: number): string {
   const m = Math.round((Date.now() - t) / 60000)
@@ -20,8 +23,9 @@ export function ago(t: number): string {
   return d === 1 ? 'yesterday' : `${d} days ago`
 }
 
-export function MomentLine({ m, onOpen, compact, onSave }: { m: InboxMoment; onOpen: () => void; compact?: boolean; onSave?: () => void }) {
+export function MomentLine({ m, onOpen, compact, onSave, onDelete }: { m: InboxMoment | MyMoment; onOpen: () => void; compact?: boolean; onSave?: () => void; onDelete?: () => void }) {
   const [reveal, setReveal] = useState(false)
+  const to = 'to' in m ? m.to : null
   return (
     <div className={`flex gap-3 rounded-xl px-3 py-2.5 ${m.read ? '' : 'bg-white/[0.04]'} hover:bg-white/[0.07]`}>
       <span aria-hidden className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-400/20 text-[13px] font-semibold text-accent-200">
@@ -30,13 +34,22 @@ export function MomentLine({ m, onOpen, compact, onSave }: { m: InboxMoment; onO
       <div className="min-w-0 flex-1">
         <button type="button" onClick={onOpen} className="block w-full text-left">
           <p className="text-[13.5px] leading-snug text-ink-200">
-            <span className="font-semibold text-white">{m.from}</span> {m.start == null ? 'recommends' : 'flagged a moment in'}{' '}
+            {to ? (
+              <>
+                <span className="font-semibold text-white">You</span> {m.start == null ? 'recommended' : to.length ? 'flagged a moment in' : 'saved a moment in'}{' '}
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-white">{m.from}</span> {m.start == null ? 'recommends' : 'flagged a moment in'}{' '}
+              </>
+            )}
             <span className="font-semibold text-white">{m.title}</span>
             {m.subtitle && <span className="text-ink-400"> · {m.subtitle}</span>}
           </p>
           <p className="mt-0.5 text-[12px] text-ink-400">
             {m.start != null && m.end != null && <span className="mr-2 rounded bg-white/10 px-1.5 py-px font-mono text-[11.5px] text-ink-200">{clock(m.start)}–{clock(m.end)}</span>}
             {ago(m.created)}
+            {to && <span> · {to.length ? `Sent to ${to.join(', ')}` : 'Just for you'}</span>}
           </p>
           {m.note && (!m.spoiler || reveal) && <p className={`mt-1 text-[13.5px] text-white ${compact ? 'line-clamp-2' : ''}`}>“{m.note}”</p>}
           {/* What opening it does. */}
@@ -50,6 +63,11 @@ export function MomentLine({ m, onOpen, compact, onSave }: { m: InboxMoment; onO
         {onSave && (
           <button type="button" onClick={onSave} className="mt-1.5 ml-1 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-ink-200 hover:bg-white/20 hover:text-white">
             Save to a collection
+          </button>
+        )}
+        {onDelete && (
+          <button type="button" onClick={onDelete} className="mt-1.5 ml-1 rounded-full bg-white/10 px-2.5 py-1 text-[12px] font-medium text-ink-200 hover:bg-white/20 hover:text-red-200">
+            Delete
           </button>
         )}
       </div>
@@ -68,6 +86,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
   const panel = useRef<HTMLDivElement>(null)
   const collections = useMomentCollectionsOn()
   const [saving, setSaving] = useState<InboxMoment | null>(null)
+  const toast = useToast()
   // Focus moves into the list, and back to the bell when it closes.
   useOverlayFocus(open, panel)
 
@@ -91,6 +110,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
 
   if (!on) return null
   const list = data?.moments ?? []
+  const mine = data?.mine ?? []
   const unread = data?.unread ?? 0
 
   const openOne = async (m: InboxMoment) => {
@@ -99,6 +119,21 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
     void qc.invalidateQueries({ queryKey: ['moments', 'inbox'] })
     navigate(momentHref(m))
   }
+  const remove = async (m: MyMoment) => {
+    try {
+      await deleteMoment(m.key)
+      toast('Moment deleted')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+    void qc.invalidateQueries({ queryKey: ['moments'] })
+  }
+  const saveOne = collections
+    ? (m: InboxMoment) => () => {
+        setOpen(false)
+        setSaving(m)
+      }
+    : null
   const allRead = async () => {
     await markMomentsRead(list.filter((m) => !m.read).map((m) => m.key)).catch(() => {})
     void qc.invalidateQueries({ queryKey: ['moments', 'inbox'] })
@@ -111,7 +146,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         onClick={() => setOpen((v) => !v)}
         aria-label={`Moments${unread ? ` (${unread} new)` : ''}`}
         aria-expanded={open}
-        title="Moments sent to you"
+        title="Moments: sent to you, and yours"
         className={
           lux
             ? 'relative flex h-10 w-10 items-center justify-center rounded-full os-glass text-white/85 hover:text-white transition-colors'
@@ -135,29 +170,26 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
               </button>
             )}
           </div>
-          {list.length ? (
-            <div className="max-h-[calc(var(--vh,1vh)*65)] overflow-y-auto">
-              {list.map((m) => (
-                <MomentLine
-                  key={m.key}
-                  m={m}
-                  onOpen={() => void openOne(m)}
-                  onSave={
-                    collections
-                      ? () => {
-                          setOpen(false)
-                          setSaving(m)
-                        }
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="px-3 pb-3 pt-1 text-[13.5px] leading-relaxed text-ink-400">
-              Nothing yet. While you watch, tap the flag in the player to send someone a moment, or Recommend a title from its page.
-            </p>
-          )}
+          <div className="max-h-[calc(var(--vh,1vh)*65)] overflow-y-auto">
+            {mine.length > 0 && <p className="px-3 pb-1 pt-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Sent to you</p>}
+            {list.length ? (
+              list.map((m) => <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} onSave={saveOne?.(m)} />)
+            ) : (
+              <p className="px-3 pb-3 pt-1 text-[13.5px] leading-relaxed text-ink-400">
+                {mine.length
+                  ? 'Nothing sent to you yet.'
+                  : 'Nothing yet. While you watch, tap the flag in the player to save a moment or send it to someone, or Recommend a title from its page.'}
+              </p>
+            )}
+            {mine.length > 0 && (
+              <>
+                <p className="mt-2 border-t border-white/5 px-3 pb-1 pt-3 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Saved by you</p>
+                {mine.map((m) => (
+                  <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} onSave={saveOne?.(m)} onDelete={() => void remove(m)} />
+                ))}
+              </>
+            )}
+          </div>
           {collections && (
             <Link to="/moments" onClick={() => setOpen(false)} className="mt-1 block rounded-xl px-3 py-2 text-[13px] font-semibold text-accent-300 hover:bg-white/5 hover:text-white">
               Your moment collections ›
@@ -165,7 +197,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
           )}
         </div>
       )}
-      {saving && <SaveMoment what={{ moment: saving.key }} label={`${saving.from}’s moment in “${saving.title}”`} onClose={() => setSaving(null)} />}
+      {saving && <SaveMoment what={{ moment: saving.key }} label={'to' in saving ? `Your moment in “${saving.title}”` : `${saving.from}’s moment in “${saving.title}”`} onClose={() => setSaving(null)} />}
     </div>
   )
 }

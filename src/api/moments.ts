@@ -26,6 +26,12 @@ export interface InboxMoment extends Moment {
   read: boolean
 }
 
+/** One of your own, in the bell's "Saved by you". */
+export interface MyMoment extends InboxMoment {
+  /** Who it went to; empty when it's just for you. */
+  to: string[]
+}
+
 export interface MomentTargets {
   people: { id: string; name: string }[]
   friends: { id: string; name: string }[]
@@ -44,7 +50,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const getMomentTargets = (item: string) => call<MomentTargets>('GET', `/api/moments/targets?item=${encodeURIComponent(item)}`)
 export const getItemMoments = async (item: string) => (await call<{ moments: Moment[] }>('GET', `/api/moments/item/${encodeURIComponent(item)}`)).moments
-export const getInbox = (fresh = false) => call<{ moments: InboxMoment[]; unread: number }>('GET', `/api/moments/inbox${fresh ? '?fresh=1' : ''}`)
+export const getInbox = (fresh = false) => call<{ moments: InboxMoment[]; unread: number; mine?: MyMoment[] }>('GET', `/api/moments/inbox${fresh ? '?fresh=1' : ''}`)
 export const markMomentsRead = (keys: string[]) => call('POST', '/api/moments/read', { keys })
 export const deleteMoment = (key: string) => call('DELETE', `/api/moments/${encodeURIComponent(key)}`)
 export const sendMoment = (m: { item: string; start: number | null; end: number | null; note: string; spoiler: boolean; to: string[] }) => call<{ key: string }>('POST', '/api/moments', m)
@@ -57,7 +63,7 @@ export function useMomentsOn(): boolean {
   return Boolean(info?.features?.moments)
 }
 
-/** What's been sent to you; checked every minute. */
+/** What's been sent to you (and your own, apart); checked every minute. */
 export function useInbox() {
   const on = useMomentsOn()
   return useQuery({ queryKey: ['moments', 'inbox'], queryFn: () => getInbox(), enabled: on, refetchInterval: 60_000, staleTime: 30_000, retry: false })
