@@ -24,6 +24,7 @@ import { CATALOG, containerName, orderServices, type StackContext, type StackSer
 import type { StackHost } from './host.ts'
 import { Orchestrator } from './orchestrator.ts'
 import { bindQbit } from './wire.ts'
+import { GraphicsManager } from './graphicsManager.ts'
 
 const log = logger('maintain')
 
@@ -117,12 +118,15 @@ export class Maintainer {
   private working = false
   private vpnWasUp: boolean | null = null
   private dockerWasUp: boolean | null = null
+  /** Which graphics card each app uses (graphicsManager.ts). */
+  readonly graphics: GraphicsManager
 
   constructor(settings: SettingsStore, orch: StackHost, paths: Paths, busy: () => boolean = () => false) {
     this.settings = settings
     this.orch = orch
     this.paths = paths
     this.busy = busy
+    this.graphics = new GraphicsManager(settings, orch, (level, m) => this.event(level, m))
     this.health.backups = { last: settings.get().maintenance?.lastBackup ?? null, files: this.listBackups() }
   }
 
@@ -204,14 +208,14 @@ export class Maintainer {
       const c = await this.orch.state(id, ctx)
       if (!c) {
         this.event('warn', `${def.name} was missing — recreating it`)
-        await this.orch.ensureService(id, ctx)
+        await this.orch.ensureService(id, ctx).catch((e) => this.cardTrouble(id, e))
         if (id === 'gluetun') gluetunStarted = Date.now()
         continue
       }
       if (!c.managed) continue
       if (!c.running && !c.restarting) {
         this.event('warn', `${def.name} had stopped (exit code ${c.exitCode}) — starting it again`)
-        await this.orch.start(id)
+        await this.orch.start(id).catch((e) => this.cardTrouble(id, e))
       }
       const started = Date.parse(c.startedAt) || 0
       if (id === 'gluetun') gluetunStarted = Math.max(gluetunStarted, started)
@@ -223,6 +227,20 @@ export class Maintainer {
         })
       }
     }
+  }
+
+  /**
+   * Jellyfin or Wolf wouldn't start. If they were given a graphics card, it may have gone (taken
+   * out, or its driver broke): plan again with the cards that are there now, so the app comes back
+   * on another card or the processor instead of failing every minute. Anything else is passed on.
+   */
+  private async cardTrouble(id: StackServiceId, e: unknown): Promise<void> {
+    const g = this.settings.get().stack?.graphics
+    const planned = id === 'jellyfin' ? g?.plan.jellyfin.gpu : id === 'wolf' ? g?.plan.wolf.gpu : null
+    if (!planned) throw e
+    this.event('warn', `${CATALOG[id].name} wouldn’t start with its graphics card (${(e as Error).message}) — checking the cards again`)
+    const next = await this.graphics.apply(`${CATALOG[id].name} wouldn’t start`, { refresh: true })
+    if (next?.key === g!.key) throw e
   }
 
   // ---------- inspect ----------
@@ -335,6 +353,15 @@ export class Maintainer {
     const quietHours = now.getHours() >= 3 && now.getHours() < 6
     if ((quietHours && age > 20 * 3600e3) || age > 36 * 3600e3) {
       await this.backupNow('nightly').catch(() => {})
+    }
+    // Graphics: once a night, look at the cards again (one may have been added, removed or broken).
+    const g = s.stack?.graphics
+    const lastGraphics = Date.parse(s.maintenance?.lastGraphics ?? '') || 0
+    const streamingOn = Boolean(s.stack?.services.includes('wolf'))
+    const sharedChanged = g && g.plan.jellyfin.gpu && g.plan.jellyfin.gpu === g.plan.wolf.gpu && g.plan.jellyfin.shared !== streamingOn
+    if ((quietHours && now.getTime() - lastGraphics > 20 * 3600e3) || sharedChanged) {
+      await this.graphics.apply(sharedChanged ? (streamingOn ? 'game streaming turned on' : 'game streaming turned off') : 'nightly check', { refresh: !sharedChanged }).catch((e) => this.event('error', `Checking the graphics cards failed: ${(e as Error).message}`))
+      if (!sharedChanged) this.settings.update((x) => void (x.maintenance = { ...x.maintenance, lastGraphics: new Date().toISOString() }))
     }
     const pending = this.health.services.filter((x) => x.updatePending && x.state !== 'missing').map((x) => x.id)
     if (s.updates.auto && pending.length && quietHours) {

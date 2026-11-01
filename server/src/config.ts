@@ -83,14 +83,18 @@ export interface Settings {
     streaming?: { nvidia: boolean }
     /** Services an administrator stopped on purpose (the health loop leaves them alone). */
     paused?: string[]
+    /** Which card Jellyfin and Wolf use (stack/graphicsManager.ts): the plan the containers were built with. */
+    graphics?: import('./stack/graphicsManager.ts').StoredGraphics
   }
+  /** An administrator's choice of card for Jellyfin and game streaming (Settings → Server → Graphics). */
+  graphicsOverride?: import('./stack/graphics.ts').GraphicsOverride
   /** Games (RomM) secrets, saved before RomM's database is first created — it
    *  keeps the password it was initialised with, so these must never change. */
   games?: import('./stack/catalog.ts').GamesConfig
   /** Hover/hero preview clips made from the library (bundle mode, and adopt with Jellyfin in Docker). */
   previews?: { enabled: boolean }
   /** Bookkeeping for the self-maintenance loop. */
-  maintenance?: { lastBackup?: string; lastStackUpdate?: string }
+  maintenance?: { lastBackup?: string; lastStackUpdate?: string; lastGraphics?: string }
   /** Where new requests go, per app: setup's profile names, and choices from Settings → Downloads (requestDefaults.ts). */
   requests?: { profiles: Record<string, string>; defaults?: Partial<Record<'radarr' | 'sonarr' | 'lidarr', import('./requestDefaults.ts').RequestDefault>> }
   /** Groups: libraries shared between Finesse servers (see groups.ts). */

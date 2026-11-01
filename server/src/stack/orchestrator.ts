@@ -46,7 +46,8 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
     portBindings[key] = [{ HostPort: String(p.host) }]
     exposed[key] = {}
   }
-  const present = (p: string) => (ctx.hostDevices ? ctx.hostDevices.includes(p) : existsSync(p))
+  // A render node counts as there when /dev/dri is (the probe lists folders; the graphics plan names nodes in it).
+  const present = (p: string) => (ctx.hostDevices ? ctx.hostDevices.includes(p) || (p.startsWith('/dev/dri/') && ctx.hostDevices.includes('/dev/dri')) : existsSync(p))
   const devices = (def.devices?.(ctx) ?? []).filter((d) => present(d.split(':')[0]!)).map((d) => {
     const [host, cont] = d.split(':')
     return { PathOnHost: host, PathInContainer: cont ?? host, CgroupPermissions: 'rwm' }
@@ -71,7 +72,7 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
       ...(def.deviceCgroupRules ? { DeviceCgroupRules: def.deviceCgroupRules } : {}),
       // Without it, SELinux hosts deny every app its folders. Only there, so no other host's hashes change.
       ...(ctx.selinux ? { SecurityOpt: ['label=disable'] } : {}),
-      ...(def.nvidia?.(ctx) ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] } : {}),
+      ...nvidiaRequest(def.nvidia?.(ctx)),
     },
   }
   const user = def.user?.(ctx)
@@ -80,6 +81,12 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
     spec.NetworkingConfig = { EndpointsConfig: { [ctx.network]: { Aliases: [def.alias, ...(def.extraAliases ?? []), containerName(def.id)] } } }
   }
   return spec
+}
+
+/** Docker's request for NVIDIA cards: the listed UUIDs only, or (before a graphics plan) every card. */
+function nvidiaRequest(want: boolean | string[] | undefined): Record<string, unknown> {
+  if (Array.isArray(want)) return want.length ? { DeviceRequests: [{ Driver: 'nvidia', DeviceIDs: want, Capabilities: [['gpu']] }] } : {}
+  return want ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] } : {}
 }
 
 export function specHash(spec: Record<string, unknown>): string {

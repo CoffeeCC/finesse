@@ -114,6 +114,7 @@ export function stackContext(s: Settings, hostDevices: string[]): StackContext |
     cloudflared: st.remote?.cloudflare,
     games: s.games,
     streaming: st.streaming,
+    ...(st.graphics ? { graphics: { jellyfin: st.graphics.plan.jellyfin, wolf: st.graphics.plan.wolf } } : {}),
   }
 }
 
