@@ -717,12 +717,13 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     await auth.requireAdmin(req)
     const socket = need()
     try {
-      const [waiting, ids] = await Promise.all([pending(socket), clientIds(socket)])
+      const [waiting, ids, open] = await Promise.all([pending(socket), clientIds(socket), sessions(socket).catch(() => [] as WolfSession[])])
       const names = settings.get().streaming?.devices ?? {}
       sendJson(res, 200, {
         ok: true,
         pending: waiting.map((p) => ({ id: pendingId(p.secret), ip: p.ip })),
-        devices: ids.map((id) => ({ id, name: names[id]?.name ?? null, pairedAt: names[id]?.pairedAt ?? null })),
+        // `open`: Moonlight is open on it now (so a game can start there).
+        devices: ids.map((id) => ({ id, name: names[id]?.name ?? null, pairedAt: names[id]?.pairedAt ?? null, open: open.some((x) => x.client_id === id) })),
       })
     } catch (e) {
       sendJson(res, 200, { ok: false, error: wolfProblem(e, socket), pending: [], devices: [] })
@@ -798,6 +799,29 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     })
     log.info(`paired ${name}`)
     sendJson(res, 201, { ok: true, device: { id, name } })
+  })
+
+  // Administrators: name a paired device (or rename it), so everyone can tell which screen is which.
+  router.put('/api/streaming/devices/:id', async ({ req, res, params }) => {
+    await auth.requireAdmin(req)
+    const socket = need()
+    const body = await readJson<{ name?: unknown }>(req)
+    const name = String(body.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)
+    if (!name) throw new ApiError(400, 'Give it a name, like Living room TV')
+    let ids: string[]
+    try {
+      ids = await clientIds(socket)
+    } catch (e) {
+      throw new ApiError(502, wolfProblem(e, socket))
+    }
+    const id = params.id ?? ''
+    if (!ids.includes(id)) throw new ApiError(404, 'No such device')
+    settings.update((s) => {
+      const was = s.streaming?.devices?.[id]
+      s.streaming = { ...s.streaming, devices: { ...s.streaming?.devices, [id]: { name, pairedAt: was?.pairedAt ?? null } } }
+    })
+    log.info(`renamed a device to ${name}`)
+    sendJson(res, 200, { ok: true, device: { id, name } })
   })
 
   router.delete('/api/streaming/devices/:id', async ({ req, res, params }) => {
@@ -893,9 +917,16 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     const socket = need()
     try {
       const [list, apps] = await Promise.all([sessions(socket), allAppsRaw(socket).catch(() => [] as WolfAppRaw[])])
+      const names = settings.get().streaming?.devices ?? {}
       sendJson(res, 200, {
         ok: true,
-        sessions: list.map((x) => ({ id: sessionId(x.client_id as string), ip: String(x.client_ip ?? ''), app: apps.find((a) => a.id === x.app_id)?.title ?? null })),
+        // The name it was paired under (Settings → Server → Game streaming), so people pick the right screen.
+        sessions: list.map((x) => ({
+          id: sessionId(x.client_id as string),
+          ip: String(x.client_ip ?? ''),
+          name: names[x.client_id as string]?.name ?? null,
+          app: apps.find((a) => a.id === x.app_id)?.title ?? null,
+        })),
       })
     } catch (e) {
       log.warn(`sessions: ${wolfProblem(e, socket)}`)

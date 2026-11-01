@@ -1,7 +1,9 @@
 import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import * as api from './client'
-import { arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
+import { arrFailures, arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
+import { useEffect } from 'react'
 import { markRequested } from '../lib/requestState'
+import { isSameTitle, lookupTitles, matchesTerm } from '../lib/discovery'
 import { sabStatus } from './sab'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { type ClipManifest } from '../lib/preview'
@@ -239,14 +241,54 @@ export function useHomeLayout() {
   return useQuery({ queryKey: ['homeLayout'], queryFn: api.getHomeLayout, staleTime: 60_000 })
 }
 
-/** Active Radarr/Sonarr downloads, polled so progress bars move on their own. */
+// The queue rows seen last (shared by every useArrQueue, so one of them acts per change).
+let lastQueue: Set<string> | null = null
+
+/** Active Radarr/Sonarr downloads, polled so progress bars move on their own. When a
+ *  download leaves the queue (imported, or failed), what the request screens know about
+ *  that title is fetched again, so a finished one reads Ready rather than "searching". */
 export function useArrQueue(enabled = true) {
-  return useQuery({
+  const qc = useQueryClient()
+  const q = useQuery({
     queryKey: ['arrQueue'],
     enabled,
     queryFn: arrQueue,
     refetchInterval: 15_000,
     staleTime: 5_000,
+    retry: false,
+  })
+  useEffect(() => {
+    if (!q.data) return
+    const now = new Set(q.data.map((i) => i.key))
+    const gone = lastQueue ? [...lastQueue].some((k) => !now.has(k)) : false
+    lastQueue = now
+    if (gone) for (const key of [['arrLookup'], ['arrLookupAll'], ['arrDiscover'], ['arrMovieDetails'], ['arrRequested'], ['arrFailures'], ['jfByProvider']]) void qc.invalidateQueries({ queryKey: key })
+  }, [q.data, qc])
+  return q
+}
+
+/** The library's copy of a requestable title (same TMDb/TVDb id), so Ready can open it. */
+export function useLibraryMatch(r: ArrResult | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['jfByProvider', r?.kind, r?.tmdbId ?? r?.tvdbId ?? r?.title, r?.year],
+    enabled: enabled && Boolean(r) && r!.kind !== 'artist',
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: async () => {
+      const res = await api.getItems({ searchTerm: r!.title, includeItemTypes: r!.kind === 'movie' ? 'Movie' : 'Series', recursive: true, fields: 'ProviderIds,ProductionYear', limit: 30 })
+      return res.Items.find((i) => isSameTitle(i, r!)) ?? null
+    },
+  })
+}
+
+/** Recent failed downloads by title (`movie-7`), for "searching again" on a request. */
+export function useArrFailures(enabled = true) {
+  return useQuery({
+    queryKey: ['arrFailures'],
+    enabled,
+    queryFn: () => arrFailures(),
+    refetchInterval: 120_000,
+    staleTime: 60_000,
     retry: false,
   })
 }
@@ -265,9 +307,10 @@ export function noteRequested(qc: QueryClient, r: ArrResult, id: number): void {
 }
 
 /** Recent requests still waiting for a release (nothing on disk yet). */
-export function useArrRequested() {
+export function useArrRequested(enabled = true) {
   return useQuery({
     queryKey: ['arrRequested'],
+    enabled,
     queryFn: () => arrRequested(),
     refetchInterval: 60_000,
     staleTime: 15_000,
@@ -562,7 +605,8 @@ export function useSearch(term: string) {
         recursive: true,
         includeItemTypes: 'Movie,Series,Episode',
         limit: 60,
-        fields: CARD_FIELDS,
+        // ProviderIds: search matches requestable titles to these by TMDb/TVDb id.
+        fields: `${CARD_FIELDS},ProviderIds`,
       }),
   })
 }
@@ -661,7 +705,8 @@ export function useRequestLookup(term: string) {
     retry: false,
     queryFn: async (): Promise<ArrResult[]> => {
       const [movies, shows] = await Promise.allSettled([arrLookup('movie', term), arrLookup('series', term)])
-      const pick = (r: PromiseSettledResult<ArrResult[]>) => (r.status === 'fulfilled' ? r.value.slice(0, 5) : [])
+      // Only results that answer the term (the lookups are fuzzy and return something for anything).
+      const pick = (r: PromiseSettledResult<ArrResult[]>) => (r.status === 'fulfilled' ? r.value.filter((x) => matchesTerm(lookupTitles(x), term)).slice(0, 5) : [])
       return [...pick(movies), ...pick(shows)]
     },
   })

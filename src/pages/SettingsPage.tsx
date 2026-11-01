@@ -6,7 +6,8 @@ import { requestTiltPermission } from '../lib/depth'
 import { BITRATE_OPTIONS, PREVIEW_QUALITY_OPTIONS, UI_SCALE_OPTIONS, applyReduceMotion, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
-import { createUser, ApiError, setAccentPref, setPreviewQualityPref } from '../api/client'
+import { createUser, ApiError, getSession, setAccentPref, setPreviewQualityPref } from '../api/client'
+import { rememberOpenProfile } from '../lib/openProfiles'
 import { ACCENT_PRESETS, applyAccent, getStoredAccent, setStoredAccent } from '../lib/accent'
 import { currentVersion } from '../lib/webosUpdate'
 import { applyClientUpdate, beginServerUpdate, useClientUpdate, useServerRun, useServerUpdate } from '../lib/appUpdate'
@@ -57,7 +58,11 @@ function CreateUserForm() {
     setError('')
     setBusy(true)
     try {
-      await createUser({ name: name.trim(), password: password || undefined })
+      const user = await createUser({ name: name.trim(), password: password || undefined })
+      // Jellyfin no longer says which accounts have no password: remember this one on this
+      // device so its profile opens with one click, as promised above.
+      const server = getSession()?.server
+      if (!password && server) rememberOpenProfile(localStorage, server, user.Id, true)
       toast(`Account "${name.trim()}" created`)
       setName('')
       setPassword('')

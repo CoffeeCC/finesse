@@ -41,6 +41,7 @@ export function useSecondaryDestinations() {
       ? [{ label: 'Collections', to: COLLECTIONS_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('BoxSet') }]
       : []),
     { label: 'Requests and downloads', to: '/request', match: (p: string) => p === '/request' },
+    { label: 'Activity', to: '/activity', match: (p: string) => p === '/activity' },
   ]
 }
 
@@ -114,8 +115,27 @@ export default function NavBar() {
   // Narrower screens (a tablet, an unfolded phone held sideways, a small
   // window) keep the spaces under More, so the bar never runs off the edge.
   const wide = useWide()
-  const spaces = lux && wide ? more.filter((d) => SPACES.has(d.label)) : []
-  const rest = lux && wide ? more.filter((d) => !SPACES.has(d.label)) : more
+  // Still too much for the bar (many libraries, long names, a narrow window)? Fold the spaces
+  // into More, then the libraries too, rather than let destinations scroll out of sight.
+  const navRef = useRef<HTMLElement>(null)
+  const [crowd, setCrowd] = useState(0)
+  const crowdKey = `${libraries.map((l) => l.Name).join('|')}#${more.length}#${wide}`
+  useEffect(() => setCrowd(0), [crowdKey])
+  useEffect(() => {
+    const reset = () => setCrowd(0)
+    window.addEventListener('resize', reset)
+    return () => window.removeEventListener('resize', reset)
+  }, [])
+  useLayoutEffect(() => {
+    const el = navRef.current
+    if (el && crowd < 2 && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) setCrowd(crowd + 1)
+  })
+  const spaces = lux && wide && crowd < 1 ? more.filter((d) => SPACES.has(d.label)) : []
+  const barLibraries = crowd < 2 ? libraries : []
+  const rest = [
+    ...(crowd < 2 ? [] : libraries.map((lib) => ({ label: lib.Name, to: `/library/${lib.Id}`, match: (p: string) => p === `/library/${lib.Id}` }))),
+    ...(lux && wide && crowd < 1 ? more.filter((d) => !SPACES.has(d.label)) : more),
+  ]
   const moreActive = rest.some((d) => d.match(pathname, search))
   const { data: queue } = useArrQueue(lux)
   const downloading = (queue ?? []).filter((d) => !d.done).length
@@ -152,11 +172,11 @@ export default function NavBar() {
           </Link>
         )}
 
-        <nav aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
+        <nav ref={navRef} aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
           <NavLink to="/" end className={linkClass}>
             Home
           </NavLink>
-          {libraries.map((lib) => (
+          {barLibraries.map((lib) => (
             <NavLink key={lib.Id} to={`/library/${lib.Id}`} className={linkClass}>
               {lib.Name}
             </NavLink>

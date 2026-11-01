@@ -183,7 +183,7 @@ export function MachineStep({ system, info, recheck, checking }: StepProps & { r
       )}
       {data?.path && (
         <Callout title="Where your media lives">
-          Movies, shows and music go in <code className="rounded bg-white/10 px-1.5 py-0.5 text-[12.5px]">{data.path}/media</code>. Downloads land in the same folder tree, so finished files are moved instantly
+          Movies, shows and music go in <code className="break-all rounded bg-white/10 px-1.5 py-0.5 text-[12.5px]">{data.path}/media</code>. Downloads land in the same folder tree, so finished files are moved instantly
           instead of copied.{data.free !== undefined && <> You have {gb(data.free)} free.</>}
         </Callout>
       )}

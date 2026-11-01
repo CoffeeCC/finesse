@@ -100,7 +100,7 @@ export interface Settings {
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */
   streaming?: {
     socket?: string
-    devices?: Record<string, { name: string; pairedAt: string }>
+    devices?: Record<string, { name: string; pairedAt: string | null }>
     /** The Wolf client Moonlight-Web streams as (games played in Finesse's page), once seen. */
     browserClient?: string
     /** Games (Wolf lobbies) Finesse started, stopped after a while with nobody in them. */

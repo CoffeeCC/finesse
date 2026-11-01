@@ -567,7 +567,7 @@ export function getPeerLatest(peer: string, limit = 24) {
 export function getLatest(parentId: string, limit = 20) {
   return request<JfItem[]>(
     `/Users/${session!.userId}/Items/Latest` +
-      qs({ ParentId: parentId, Limit: limit, Fields: 'PrimaryImageAspectRatio,ProductionYear' }),
+      qs({ ParentId: parentId, Limit: limit, Fields: 'PrimaryImageAspectRatio,ProductionYear,DateCreated' }),
   )
 }
 

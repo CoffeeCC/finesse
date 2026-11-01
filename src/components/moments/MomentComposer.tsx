@@ -229,7 +229,8 @@ export default function MomentComposer({
           </p>
         )}
         {error && <p className="mt-3 text-[13.5px] text-red-200">{error}</p>}
-        <div className="mt-5 flex justify-end gap-3">
+        {/* Stays at the bottom of the dialog while the form scrolls on a short screen. */}
+        <div className="sticky -bottom-5 sm:-bottom-6 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 mt-5 flex justify-end gap-3 border-t border-white/5 bg-ink-900 px-5 sm:px-6 py-4">
           <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-medium text-ink-200 hover:text-white disabled:opacity-50">
             Cancel
           </button>

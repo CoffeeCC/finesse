@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   noteRequested,
-  useArrQueue,
   useGenres,
   useRequestLookup,
   useFriendSearch,
@@ -14,7 +13,10 @@ import {
 } from '../api/queries'
 import { imageUrl, posterUrl, backdropUrl } from '../api/client'
 import { arrAdd, ArrError, type ArrResult } from '../api/arr'
-import { playHref } from './MediaCard'
+import { playChoice } from '../lib/playChoice'
+import { mergeTitles } from '../lib/discovery'
+import { RestartIcon } from './ActionButton'
+import { RequestStatusView, useRequestStatus } from './RequestStatus'
 import { useToast } from './Toast'
 import { browseHref } from '../pages/BrowsePage'
 import { DiceIcon, useSurprise } from '../lib/surprise'
@@ -24,10 +26,11 @@ import { usePlayTrack } from '../lib/playAlbum'
 import { useAudio } from '../audio/AudioPlayerContext'
 import type { JfItem } from '../api/types'
 
-// Universal search: one box for everything. Your library first (a ranked top
-// result, then everything else), the people in it, and — for titles you don't
-// have — Radarr/Sonarr matches with a one-tap Request, so "not in the library"
-// is a next step instead of a dead end (it used to be a separate Request page).
+// Universal search: one box for everything. A ranked top result, then one list
+// of titles: your library's first, then Radarr/Sonarr matches you don't have, each
+// labelled with where it is and one action (Play, Request, or where the request
+// stands), so "not in the library" is a next step instead of a dead end. Then
+// albums, songs, friends' titles and people.
 
 type Scope = 'all' | 'movies' | 'shows' | 'episodes' | 'music' | 'people'
 const SCOPES: { key: Scope; label: string }[] = [
@@ -156,24 +159,26 @@ export default function SearchPanel({
       .map((x) => x.item)
   }, [lib.data, term, scope])
 
-  // "Not in your library": drop anything the library search already found
-  // (a title Radarr doesn't track still shows up in Jellyfin). Ranked like the
-  // library, so the show someone typed exactly isn't below a loose movie match.
-  const missing = useMemo(() => {
+  // Requestable titles (Radarr/Sonarr), ranked like the library so the show someone typed
+  // exactly isn't below a loose movie match. mergeTitles drops the ones the library has.
+  const requestable = useMemo(() => {
     const q = norm(term)
-    const have = new Set((lib.data?.Items ?? []).map((i) => `${norm(i.Name ?? '')}|${i.ProductionYear ?? ''}`))
     return (request.data ?? [])
-      .filter((r) => !(r.id > 0 && r.hasFile))
-      .filter((r) => !have.has(`${norm(r.title)}|${r.year ?? ''}`))
       .filter((r) => (scope === 'movies' ? r.kind === 'movie' : scope === 'shows' ? r.kind === 'series' : true))
       .map((r, i) => ({ r, s: titleScore(r.title, q), i }))
       .sort((a, b) => b.s - a.s || a.i - b.i)
       .map((x) => x.r)
-      .slice(0, 6)
-  }, [request.data, lib.data, scope, term])
+  }, [request.data, scope, term])
 
   const top = scope !== 'people' ? ranked[0] : undefined
   const rest = scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []
+  // One list of titles: the library's first, then what can be requested (never the same
+  // title twice: matched by TMDb/TVDb id, lib/discovery.ts). The top result is above it.
+  const titles = useMemo(
+    () => (scope === 'people' || scope === 'music' ? [] : mergeTitles(ranked, requestable).filter((e) => (e.source === 'library' ? rest.includes(e.item) : true))),
+    [ranked, requestable, rest, scope],
+  )
+  const missing = titles.filter((e) => e.source === 'request')
   const peopleList = people.data?.Items.slice(0, scope === 'people' ? 24 : 6) ?? []
 
   // Albums named like the term first (best match on top), then albums by a
@@ -316,19 +321,16 @@ export default function SearchPanel({
 
             {top && <TopResult item={top} onOpen={opened} />}
 
-            {rest.length > 0 && (
+            {titles.length > 0 && (
               <>
-                <p className={SECTION}>{top ? 'More in your library' : 'In your library'}</p>
-                {rest.map((item) => (
-                  <Link key={item.Id} to={`/item/${item.Id}`} onClick={opened} data-result className={ROW}>
-                    <Thumb item={item} />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
-                      <span className="block text-[13px] text-ink-400 truncate">{typeLabel(item)}</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-ink-400">{watchState(item)}</span>
-                  </Link>
-                ))}
+                <p className={SECTION}>{top ? 'More titles' : 'Titles'}</p>
+                {titles.map((e) =>
+                  e.source === 'library' ? (
+                    <LibraryRow key={e.item.Id} item={e.item} onOpen={opened} />
+                  ) : (
+                    <RequestRow key={`${e.r.kind}:${e.r.tmdbId ?? e.r.tvdbId ?? e.r.title}`} r={e.r} />
+                  ),
+                )}
               </>
             )}
 
@@ -400,14 +402,6 @@ export default function SearchPanel({
               </>
             )}
 
-            {missing.length > 0 && (
-              <>
-                <p className={SECTION}>Not in your library</p>
-                {missing.map((r) => (
-                  <MissingRow key={`${r.kind}:${r.tmdbId ?? r.tvdbId ?? r.title}`} r={r} />
-                ))}
-              </>
-            )}
           </>
         )}
       </div>
@@ -469,7 +463,7 @@ function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
 function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
   const art = backdropUrl(item, 640) ?? posterUrl(item, 300)
   const playable = item.Type === 'Movie' || item.Type === 'Episode'
-  const resuming = !!item.UserData?.PlaybackPositionTicks && !item.UserData.Played
+  const choice = playChoice(item)
   return (
     <>
       <p className={SECTION}>Top result</p>
@@ -483,12 +477,23 @@ function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
           <div className="mt-2.5 flex flex-wrap gap-2">
             {playable && (
               <Link
-                to={playHref(item)}
+                to={choice.href}
                 onClick={onOpen}
                 className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
               >
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-                {resuming ? 'Resume' : 'Play'}
+                {choice.label}
+              </Link>
+            )}
+            {playable && choice.startOver && (
+              <Link
+                to={choice.startOver}
+                onClick={onOpen}
+                aria-label={`Start ${item.Name} over from the beginning`}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/10 border border-white/15 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+              >
+                <RestartIcon className="h-3.5 w-3.5" />
+                Start over
               </Link>
             )}
             <Link
@@ -505,12 +510,55 @@ function TopResult({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
   )
 }
 
-function MissingRow({ r }: { r: ArrResult }) {
+/** Where a title comes from, said plainly on every row. */
+function SourceTag({ library }: { library: boolean }) {
+  return library ? (
+    <span className="shrink-0 rounded bg-emerald-400/15 px-1.5 py-px text-[10.5px] font-semibold text-emerald-200">In your library</span>
+  ) : (
+    <span className="shrink-0 rounded bg-white/10 px-1.5 py-px text-[10.5px] font-semibold text-ink-200">Not in your library</span>
+  )
+}
+
+/** A library title: opens its page; its one action plays it (or opens a show). */
+function LibraryRow({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
+  const playable = item.Type === 'Movie' || item.Type === 'Episode' || item.Type === 'Video'
+  const choice = playChoice(item)
+  const state = watchState(item)
+  return (
+    <div className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/5 transition-colors">
+      <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className={`${ROW} flex-1 min-w-0 hover:bg-transparent`}>
+        <Thumb item={item} />
+        <span className="flex-1 min-w-0">
+          <span className="block text-[15px] font-semibold text-white truncate">{item.Name}</span>
+          <span className="flex items-center gap-2 text-[13px] text-ink-400 min-w-0">
+            <SourceTag library />
+            <span className="truncate">
+              {typeLabel(item)}
+              {state ? ` · ${state}` : ''}
+            </span>
+          </span>
+        </span>
+      </Link>
+      <Link
+        to={playable ? choice.href : `/item/${item.Id}`}
+        onClick={onOpen}
+        aria-label={`${playable ? (choice.resuming ? choice.label : 'Play') : 'Open'}: ${item.Name}`}
+        title={playable && choice.resuming ? choice.label : undefined}
+        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+      >
+        {playable && <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
+        {playable ? (choice.resuming ? 'Resume' : 'Play') : 'Open'}
+      </Link>
+    </div>
+  )
+}
+
+/** A title the library doesn't have: Request, or where its request stands. */
+function RequestRow({ r }: { r: ArrResult }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const { data: queue } = useArrQueue()
   const [state, setState] = useState<'idle' | 'adding' | 'requested'>(r.id > 0 ? 'requested' : 'idle')
-  const dl = r.id > 0 ? queue?.find((q) => q.kind === r.kind && q.refId === r.id) : undefined
+  const status = useRequestStatus(r, { justRequested: state === 'requested' })
 
   const request = async () => {
     if (state !== 'idle') return
@@ -533,17 +581,16 @@ function MissingRow({ r }: { r: ArrResult }) {
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px] font-semibold text-white truncate">{r.title}</span>
-        <span className="block text-[13px] text-ink-400 truncate">
-          {r.kind === 'movie' ? 'Movie' : 'Series'}
-          {r.year ? ` · ${r.year}` : ''}
+        <span className="flex items-center gap-2 text-[13px] text-ink-400 min-w-0">
+          <SourceTag library={false} />
+          <span className="truncate">
+            {r.kind === 'movie' ? 'Movie' : 'Series'}
+            {r.year ? ` · ${r.year}` : ''}
+          </span>
         </span>
       </span>
-      {dl ? (
-        <span className="shrink-0 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-semibold text-amber-200">
-          {dl.done ? dl.status : `Downloading ${dl.progress}%`}
-        </span>
-      ) : state === 'requested' ? (
-        <span className="shrink-0 text-xs font-semibold text-accent-300">Requested</span>
+      {state === 'requested' && status ? (
+        <RequestStatusView status={status} className="shrink-0 max-w-[45%]" />
       ) : (
         <button
           type="button"

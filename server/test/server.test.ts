@@ -29,6 +29,11 @@ before(async () => {
   const rs = createServer((req, res) => {
     seen.push({ path: req.url ?? '', headers: req.headers })
     res.writeHead(200, { 'Content-Type': 'application/json' })
+    if ((req.url ?? '').startsWith('/api/v3/history/since'))
+      return void res.end(JSON.stringify([
+        { id: 1, movieId: 7, eventType: 'downloadFailed', date: '2026-10-30T10:00:00Z', sourceTitle: 'Some.Release-GRP', downloadId: 'SABnzbd_nzo_x', data: { message: 'Not enough repair blocks', downloadClient: 'SABnzbd', downloadUrl: 'https://indexer.example/get?apikey=INDEXER-SECRET' } },
+        { id: 2, movieId: 8, eventType: 'grabbed', date: '2026-10-30T09:00:00Z', data: { nzbInfoUrl: 'https://indexer.example/?apikey=INDEXER-SECRET' } },
+      ]))
     res.end(JSON.stringify({ ok: true, path: req.url }))
   })
   radarr = { url: await listen(rs), seen, server: rs }
@@ -187,6 +192,20 @@ describe('service proxies', () => {
     assert.equal(seen.headers['x-api-key'], 'radarr-secret')
     assert.equal(seen.headers.authorization, undefined)
     assert.equal(seen.headers.cookie, undefined)
+  })
+
+  test('a request’s failed downloads: only which title, when and why — nothing else from the history', async () => {
+    const r = await fetch(`${base}/finesse/arr/radarr/history/since?date=2026-10-01T00:00:00Z&eventType=4`, { headers: auth(USER_TOKEN) })
+    assert.equal(r.status, 200)
+    const text = await r.text()
+    assert.deepEqual(JSON.parse(text), [{ movieId: 7, date: '2026-10-30T10:00:00Z', message: 'Not enough repair blocks' }])
+    assert.doesNotMatch(text, /SECRET|Release-GRP|SABnzbd/)
+    const seen = radarr.seen.at(-1)!
+    assert.equal(seen.path, '/api/v3/history/since?date=2026-10-01T00%3A00%3A00Z&eventType=4')
+    assert.equal(seen.headers['x-api-key'], 'radarr-secret')
+    // Any other history, for a household member: no.
+    assert.equal((await fetch(`${base}/finesse/arr/radarr/history/since?date=2026-10-01T00:00:00Z&eventType=1`, { headers: auth(USER_TOKEN) })).status, 403)
+    assert.equal((await fetch(`${base}/finesse/arr/radarr/history?eventType=4`, { headers: auth(USER_TOKEN) })).status, 403)
   })
 
   test('unconfigured services say so', async () => {

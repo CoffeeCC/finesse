@@ -12,7 +12,7 @@ import { formatRuntime, type JfItem } from '../../api/types'
 import { backdropBlurhash, blurhashAverageColor, primaryBlurhash } from '../../lib/blurhash'
 import { vividRgb } from '../../lib/accent'
 import { useFinesse } from '../../lib/finesseServer'
-import { playHref } from '../MediaCard'
+import { playChoice } from '../../lib/playChoice'
 import { episodeChip } from '../../lib/episodes'
 
 export type NowKind = 'elsewhere' | 'resume' | 'next' | 'music' | 'play' | 'friend' | 'new'
@@ -38,6 +38,8 @@ export interface NowEntry {
   tint: string
   pct?: number
   primary: { label: string; to: string; stopSession?: string }
+  /** From the beginning, next to "Resume from 42:10" (lib/playChoice). */
+  restart?: string
   info?: string
   /** A scene the server draws itself (game streaming). */
   gen?: 'neon' | 'pixel'
@@ -67,7 +69,8 @@ const episodeLabel = (item: JfItem) => episodeChip(item) || 'Episode'
 function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', artWidth: number, extra: Partial<NowEntry> = {}): NowEntry {
   const isEp = item.Type === 'Episode'
   const pos = item.UserData?.PlaybackPositionTicks ?? 0
-  const resuming = !item.UserData?.Played && pos > 0
+  const choice = playChoice(item)
+  const resuming = choice.resuming
   const pct = resuming && item.RunTimeTicks ? Math.min(100, Math.max(2, (pos / item.RunTimeTicks) * 100)) : undefined
   const rest = left(item, pos)
   const title = isEp ? (item.SeriesName ?? item.Name) : item.Name
@@ -102,8 +105,9 @@ function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', ar
     tint: tintOf(item),
     pct,
     primary: playable
-      ? { label: resuming ? 'Resume' : isEp ? `Play ${episodeLabel(item).replace(' · ', ':')}` : 'Play', to: playHref(item) }
+      ? { label: choice.resuming ? choice.label : isEp ? `Play ${episodeLabel(item).replace(' · ', ':')}` : 'Play', to: choice.href }
       : { label: 'Open', to: `/item/${item.Id}` },
+    ...(playable && choice.startOver ? { restart: choice.startOver } : {}),
     info: `/item/${isEp && item.SeriesId ? item.SeriesId : item.Id}`,
     ...extra,
   }

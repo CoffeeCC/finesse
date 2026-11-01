@@ -52,6 +52,8 @@ async function fakeWolf(socket: string) {
     }
     if (req.method === 'GET' && url.pathname === '/api/v1/pair/pending')
       return send(res, 200, { success: true, requests: [...pending].map(([pair_secret, client_ip]) => ({ pair_secret, client_ip })) })
+    if (req.method === 'GET' && url.pathname === '/api/v1/sessions')
+      return send(res, 200, { success: true, sessions: [{ client_id: '111', client_ip: '192.168.1.70', app_id: '5', aes_key: 'k' }] })
     if (req.method === 'GET' && url.pathname === '/api/v1/clients')
       return send(res, 200, { success: true, clients: [...clients].map((client_id) => ({ client_id, app_state_folder: `/var/wolf/${client_id}`, settings: {} })) })
     if (req.method === 'POST' && url.pathname === '/api/v1/pair/client') {
@@ -169,7 +171,7 @@ test('only administrators see waiting devices, and never Wolf’s pairing secret
   assert.equal(pending[0]!.ip, '192.168.1.50')
   assert.match(pending[0]!.id, /^[0-9a-f]{16}$/)
   assert.doesNotMatch(r.text, /secret-living-room/)
-  assert.deepEqual(r.data.devices, [{ id: '111', name: null, pairedAt: null }])
+  assert.deepEqual(r.data.devices, [{ id: '111', name: null, pairedAt: null, open: true }])
 })
 
 test('pairing: checks the PIN, finds the new device and names it', async () => {
@@ -186,6 +188,23 @@ test('pairing: checks the PIN, finds the new device and names it', async () => {
     ['222', 'Living room TV'],
   ])
   assert.deepEqual(after.data.pending, [])
+})
+
+test('administrators name a device, and everyone sees that name on the screen to play on', async () => {
+  assert.equal((await call('PUT', '/api/streaming/devices/111', USER_TOKEN, { name: 'Den TV' })).status, 403)
+  assert.equal((await call('PUT', '/api/streaming/devices/999', ADMIN_TOKEN, { name: 'Den TV' })).status, 404)
+  assert.equal((await call('PUT', '/api/streaming/devices/111', ADMIN_TOKEN, { name: '   ' })).status, 400)
+  const before = await call('GET', '/api/streaming/sessions', USER_TOKEN)
+  assert.equal((before.data.sessions as { name: string | null }[])[0]!.name, null)
+  const r = await call('PUT', '/api/streaming/devices/111', ADMIN_TOKEN, { name: '  Den   TV ' })
+  assert.equal(r.status, 200, r.text)
+  assert.deepEqual(r.data.device, { id: '111', name: 'Den TV' })
+  const admin = await call('GET', '/api/streaming/admin', ADMIN_TOKEN)
+  assert.deepEqual((admin.data.devices as { id: string; name: string; open: boolean }[]).find((d) => d.id === '111'), { id: '111', name: 'Den TV', pairedAt: null, open: true })
+  const after = await call('GET', '/api/streaming/sessions', USER_TOKEN)
+  assert.equal((after.data.sessions as { name: string }[])[0]!.name, 'Den TV')
+  assert.equal((after.data.sessions as { ip: string }[])[0]!.ip, '192.168.1.70')
+  assert.ok(!after.text.includes('"111"'), 'Wolf’s client id stays on the server')
 })
 
 test('a wrong PIN says so instead of pretending it worked', async () => {

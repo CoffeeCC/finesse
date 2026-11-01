@@ -8,9 +8,9 @@ const ICONS = {
 }
 
 // Four tabs, not six: everything beyond Home / Search lives under Library
-// (Movies, Shows, Anime, Music, Games, Collections) or My List (watchlist +
+// (Movies, Shows, Anime, Music, Games, Friends, Collections) or My List (watchlist +
 // requests) — nothing hides in the avatar menu any more.
-const LIBRARY_PATHS = ['/libraries', '/library/', '/browse', '/music', '/album', '/games', '/person/']
+const LIBRARY_PATHS = ['/libraries', '/library/', '/browse', '/music', '/album', '/games', '/friends', '/activity', '/person/']
 
 export default function BottomTabs() {
   const { pathname } = useLocation()

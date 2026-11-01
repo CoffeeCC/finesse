@@ -192,7 +192,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+        <div className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
           {Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)}
         </div>
       ) : shelfMode ? (
@@ -226,7 +226,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
           </section>
         ))
       ) : (
-        <div className="grid gap-2.5 sm:gap-4 grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+        <div className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
           {games.map((rom) => <GameCard key={rom.id} rom={rom} />)}
         </div>
       )}

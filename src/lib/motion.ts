@@ -21,8 +21,9 @@
 import { IS_TV } from './device'
 import { reducedMotion } from './settings'
 
+type ViewTransition = { finished: Promise<void>; skipTransition?: () => void }
 type VTDocument = Document & {
-  startViewTransition?: (update: () => Promise<void> | void) => { finished: Promise<void> }
+  startViewTransition?: (update: () => Promise<void> | void) => ViewTransition
 }
 
 export function motionEnabled(): boolean {
@@ -109,17 +110,47 @@ function inViewportRows(el: HTMLElement): boolean {
   return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight
 }
 
+// A tap, click or key while a morph plays ends it on the spot (the page underneath is already
+// the new one), so a transition never holds up someone who knows where they're going.
+let current: ViewTransition | null = null
+function interrupt(e: Event) {
+  if (!current) return
+  if (e instanceof KeyboardEvent && ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return
+  try {
+    current.skipTransition?.()
+  } catch {
+    /* already over */
+  }
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', interrupt, true)
+  window.addEventListener('keydown', interrupt, true)
+  window.addEventListener('wheel', interrupt, { capture: true, passive: true })
+}
+
 function run(update: () => Promise<void>) {
+  // One at a time: a new navigation mid-morph finishes the old one first.
+  if (current) {
+    try {
+      current.skipTransition?.()
+    } catch {
+      /* ignore */
+    }
+  }
   active = true
   const html = document.documentElement
   html.classList.add('vt-active')
+  let vt: ViewTransition | null = null
   const done = () => {
+    if (current === vt) current = null
     active = false
     html.classList.remove('vt-active')
     clearNames()
   }
   try {
-    ;(document as VTDocument).startViewTransition!(update).finished.then(done, done)
+    vt = (document as VTDocument).startViewTransition!(update)
+    current = vt
+    vt.finished.then(done, done)
   } catch {
     done()
     update()
