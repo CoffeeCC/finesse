@@ -7,8 +7,6 @@ import './index.css'
 import './lib/accent' // applies the saved accent color before first paint
 import './lib/theme' // device theme before first paint; independent of the account accent
 import './themes.css'
-import './card-table.css'
-import './celestial-table.css'
 import { applyReduceMotion, applyUiScale } from './lib/settings'
 import { applyTimeAmbience } from './lib/timeAmbience'
 import { IS_TV } from './lib/device'

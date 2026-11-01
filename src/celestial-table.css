@@ -144,18 +144,6 @@ html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::afte
 .search-object:hover .object-label, .search-object:focus-visible .object-label { color: #c6e7ff; }
 .table-other-spaces { display: flex; flex: 0 0 110px; flex-direction: column; gap: 2px; font-size: 12px; color: #c7b797; }
 .table-other-spaces > a { display: flex; align-items: center; min-height: 44px; padding: 4px 10px; border-bottom: 1px solid #ac87482b; }
-.theme-section-intro { margin-bottom: 22px; color: #b8b4aa; font-size: 13px; line-height: 1.7; }
-.theme-settings-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
-.theme-settings-actions > * { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 16px; border-radius: 10px; border: 1px solid #ffffff30; font-size: 13px; }
-.theme-effects-setting { display: flex; align-items: center; gap: 24px; padding: 20px 0; border-top: 1px solid #ffffff15; }
-.theme-effects-setting > div { flex: 1; }
-.theme-effects-setting p, .theme-creator-note p { margin-top: 7px; font-size: 13px; line-height: 1.7; color: #b8b4aa; }
-.theme-effects-setting small { color: #b8b4aa; font-size: 11px; }
-.theme-effects-setting button { flex-shrink: 0; min-width: 64px; min-height: 44px; border: 1px solid #ffffff40; border-radius: 24px; font-size: 13px; }
-.theme-effects-setting button[aria-checked="true"] { background: #728da633; border-color: #8faac5; }
-.theme-creator-note { margin-top: 16px; padding-top: 20px; border-top: 1px solid #ffffff15; }
-.theme-creator-note h3 { font-size: 16px; font-weight: 600; }
-.theme-creator-note a { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; color: #d7c49d; font-size: 13px; text-decoration: underline; text-underline-offset: 4px; }
 @media (max-width: 700px) {
   .table-object-nav { flex-wrap: wrap; justify-content: center; padding: 0 6px 16px; gap: 6px; }
   .search-object { flex: 0 0 100px; min-width: 90px; min-height: 132px; }

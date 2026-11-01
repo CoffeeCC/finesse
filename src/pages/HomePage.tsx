@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useGenres, useHomeLayout, useLatest, useViews } from '../api/queries'
@@ -15,8 +15,10 @@ import {
 } from '../components/HomeRows'
 import { RowControlsContext, RowEmptyContext } from '../components/MediaRow'
 import NowStage from '../components/os/NowStage'
-import CardTable from '../components/CardTable'
 import { useTheme } from '../lib/theme'
+
+// Arcane Table (an unfinished, opt-in theme): fetched only when it's chosen; not in the TV app.
+const CardTable = __WEBOS__ ? null : lazy(() => import('../components/CardTable'))
 import { useToast } from '../components/Toast'
 import { browseHref } from './BrowsePage'
 import { useAuth } from '../auth/AuthContext'
@@ -228,7 +230,7 @@ function EmptyLibrary() {
 
 export default function HomePage() {
   const theme = useTheme()
-  return theme === 'card-table' ? <CardTable /> : <StandardHome />
+  return theme === 'card-table' && CardTable ? <Suspense fallback={null}><CardTable /></Suspense> : <StandardHome />
 }
 
 export function StandardHome() {

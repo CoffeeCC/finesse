@@ -18,6 +18,7 @@ import { DONATE_URL, PROJECT_URL } from '../lib/project'
 import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
 import ConnectDevices from '../components/ConnectDevices'
 import ThemeSettings from '../components/ThemeSettings'
+import { setThemePreviews, useThemePreviews } from '../lib/theme'
 import { useLocation } from 'react-router-dom'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
@@ -379,6 +380,7 @@ export default function SettingsPage() {
   const [accent, setAccent] = useState(getStoredAccent())
   const [active, setActive] = useState<string>('playback')
   const { info: finesseInfo } = useFinesse()
+  const unfinishedThemes = useThemePreviews()
 
   const update = (patch: Partial<Prefs>) => {
     const next = setPrefs(patch)
@@ -394,7 +396,7 @@ export default function SettingsPage() {
 
   const sections = [
     ...(__WEBOS__ ? [] : [{ id: 'devices', label: 'Other devices' }]),
-    ...SECTIONS,
+    ...SECTIONS.filter((x) => x.id !== 'themes' || unfinishedThemes),
     { id: 'updates', label: 'Updates' },
     { id: 'about', label: 'About' },
     ...(session?.isAdmin && finesseInfo?.features?.requests ? [{ id: 'downloads', label: 'Downloads' }] : []),
@@ -515,10 +517,12 @@ export default function SettingsPage() {
             </div>
           </section>
 
-          <section id="settings-themes" aria-labelledby="settings-themes-title" className="scroll-mt-24">
-            {heading('themes', 'Themes')}
-            <div className={SECTION_CARD}><ThemeSettings /></div>
-          </section>
+          {unfinishedThemes && (
+            <section id="settings-themes" aria-labelledby="settings-themes-title" className="scroll-mt-24">
+              {heading('themes', 'Themes')}
+              <div className={SECTION_CARD}><ThemeSettings /></div>
+            </section>
+          )}
 
           <section id="settings-appearance" aria-labelledby="settings-appearance-title" className="scroll-mt-24">
             {heading('appearance', 'Appearance')}
@@ -584,6 +588,16 @@ export default function SettingsPage() {
                 onChange={(v) => {
                   update({ reduceMotion: v })
                   applyReduceMotion(v)
+                }}
+                scope="device"
+              />
+              <Toggle
+                label="Unfinished themes"
+                hint={`Try themes that are still being made${__WEBOS__ ? '' : ', like Arcane Table'}, under Settings → Themes. They may look rough or change in an update. Off puts this device back on the standard look.`}
+                checked={unfinishedThemes}
+                onChange={(v) => {
+                  setThemePreviews(v)
+                  if (v) setTimeout(() => document.getElementById('settings-themes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
                 }}
                 scope="device"
               />

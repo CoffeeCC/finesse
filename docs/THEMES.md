@@ -38,6 +38,8 @@ Object hit targets remain stationary while artwork moves. The whole hand has spa
 
 ## Themes settings
 
+**Unfinished themes are opt-in.** Midnight Cinema and Arcane Table are marked `preview` in `src/lib/theme.ts`. Settings shows the Themes section only after Settings → Appearance → Unfinished themes is turned on (per device); turning it off returns the device to the standard look, and a saved preview theme is ignored while it's off. Arcane Table's stylesheets (and so its artwork), its Home and Three.js load only once it's chosen, and the TV app doesn't include it (`tv: false`). When a theme is ready, set `preview: false` (and `tv: true` once it's been tried on the LG CX).
+
 Settings now has a dedicated Themes section. It includes built-in choices, immediate selection, Try your theme, Restore Finesse, the Live 3D objects switch for Arcane Table and a downloadable creator guide. Accent and display controls remain in Appearance. Themes and 3D preferences are browser-local, with storage-event synchronization between same-origin tabs. A local development link ending ?theme=card-table selects that theme explicitly; production does not honor this development shortcut.
 
 Theme selection uses src/lib/theme.ts. Shared palettes use themes.css; scene overrides use celestial-table.css after the legacy card-table.css. The three built-in IDs remain default, midnight and card-table. No theme ZIP importer, visual editor, gallery, account sync, custom script loader or foldable-aware renderer is implemented.

@@ -1,3 +1,12 @@
+/* Arcane Table's large artwork, each referenced once: the TV build embeds every url() it
+   meets, so a picture named in twelve rules was shipped twelve times. */
+:root {
+  --arcane-back: url('./assets/card-table/celestial-back-v1.webp');
+  --arcane-table: url('./assets/card-table/celestial-table-v1.webp');
+  --arcane-phone: url('./assets/card-table/celestial-phone-v1.webp');
+  --arcane-frame: url('./assets/card-table/celestial-frame-v1.webp');
+}
+
 /* A physical tabletop: navigation targets stay flat; artwork provides depth. */
 .card-table-page {
   --table-paper: #efe2c3;
