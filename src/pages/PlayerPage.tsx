@@ -17,6 +17,8 @@ import { useQuery } from '@tanstack/react-query'
 
 import { goBack, isBackKey, isTypingTarget, pushBackHandler } from '../lib/back'
 import { onRemoteCommand } from '../lib/remoteControl'
+import { usePartySync } from '../lib/usePartySync'
+import PartyBadge from '../components/PartyBadge'
 import { setReturnMorph } from '../lib/motion'
 import { struggling, type FrameSample } from '../lib/frameDrops'
 import { useToast } from '../components/Toast'
@@ -1063,6 +1065,16 @@ export default function PlayerPage() {
     return absTime
   }
 
+  // A watch party (?party=): everyone in step, following the party's clock (lib/usePartySync).
+  const partyId = searchParams.get('party')
+  const party = usePartySync(partyId, itemId, { videoRef, position: liveAbsSec, seekTo: (sec) => seekToRef.current(sec), buffering })
+  useEffect(() => {
+    if (party.error) toast(`Couldn’t join the watch party: ${party.error} Playing here on your own.`, 'error')
+  }, [party.error, toast])
+  useEffect(() => {
+    if (party.lost) toast(party.lost)
+  }, [party.lost, toast])
+
   /** Relative seek that accumulates (held key, repeated taps) and commits once. */
   const nudgeSeek = (delta: number) => {
     const base = pendingSeekRef.current ?? liveAbsSec()
@@ -1897,6 +1909,7 @@ export default function PlayerPage() {
       ref={playerRef}
       className={`fixed inset-0 bg-black select-none overflow-hidden ${controlsVisible ? '' : 'cursor-none'}`}
     >
+      {party.view && <PartyBadge view={party.view} onLeave={party.leave} className={party.view.waitingFor.length ? '' : chromeClass} />}
       {!IS_TV && ambient && (
         <AmbientGlow
           videoRef={videoRef}

@@ -12,6 +12,7 @@ import { openLists } from './lists.ts'
 import { registerSmartCollections } from './smartCollections.ts'
 import { Parental, registerParental } from './parental.ts'
 import { registerQueues } from './queues.ts'
+import { registerParties } from './parties.ts'
 import { registerMomentCollections } from './momentCollections.ts'
 import { Access } from './access.ts'
 import { join } from 'node:path'
@@ -85,6 +86,8 @@ function features(s: Settings) {
     momentCollections: true,
     /** Per-profile rating limits (parental.ts). */
     parental: true,
+    /** Watching one title together, in step (parties.ts). */
+    parties: true,
   }
 }
 
@@ -153,6 +156,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   access.ratingAllows = (userId, raw) => parental.allows(userId, raw)
   registerSmartCollections(router, { auth, db: lists })
   registerQueues(router, { auth, settings, db: lists, access })
+  registerParties(router, { auth, settings, access })
   registerMomentCollections(router, { auth, settings, db: lists, access, momentFor: moments.momentFor })
   deps.browserStream = registerStreaming(router, { settings, auth })
   const uploads = new Uploads(settings)

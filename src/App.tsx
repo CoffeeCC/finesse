@@ -30,6 +30,7 @@ import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
 import SearchOverlay from './components/SearchOverlay'
 import QuickMenu from './components/os/QuickMenu'
+import PartyInvites from './components/PartyInvites'
 import { ServerUpdateOverlay } from './components/Update'
 import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
@@ -218,6 +219,7 @@ export default function App() {
               {!IS_TV && <SearchOverlay />}
               <QuickMenu />
               <MomentArrivals />
+              <PartyInvites />
               <ServerUpdateOverlay />
               {!__WEBOS__ && <DropToAdd />}
             </>

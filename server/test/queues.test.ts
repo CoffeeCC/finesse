@@ -91,7 +91,7 @@ test('adding titles: only ones the adder can open; each says who can open it', a
   assert.ok(hidden)
   assert.equal(hidden.item, null)
   assert.equal(hidden.availability, null)
-  assert.doesNotMatch(JSON.stringify(kim), /Home Video|9{32}/)
+  assert.doesNotMatch(JSON.stringify(kim), /Home Video|6{32}/)
 })
 
 test('one vote each, moved by voting again; not for a title you can’t open', async () => {

@@ -20,6 +20,7 @@ import {
 } from '../api/queues'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import PeoplePicker from '../components/PeoplePicker'
+import { usePartiesOn, usePartyInvites } from '../api/parties'
 import { useToast } from '../components/Toast'
 import { playChoice } from '../lib/playChoice'
 import type { JfItem } from '../api/types'
@@ -59,8 +60,9 @@ function TogetherHome() {
     <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
       <h1 className="page-title">Watch together</h1>
       <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-400">
-        Pick something to watch with people here. Start a shortlist, add titles, everyone votes once, and whoever started it picks. Only the people in a shortlist see it.
+        Pick something to watch with people here, then watch it together. Shortlists: add titles, everyone votes once, whoever started it picks. Watch parties: everyone plays the same title in step, each on their own screen.
       </p>
+      <PartiesSection />
       <section className="mt-8" aria-label="Shortlists">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-ink-400">Shortlists</h2>
@@ -475,6 +477,37 @@ function AddTitles({ q, onAdded }: { q: Queue; onAdded: (q: Queue) => void }) {
         </ul>
       )}
       <p className="mt-2 text-[12.5px] text-ink-400">Titles on friends’ servers: open one, then More → Add to a shortlist.</p>
+    </section>
+  )
+}
+
+/** Watch parties you're invited to or in (start one from a title's More menu). */
+function PartiesSection() {
+  const on = usePartiesOn()
+  const { data } = usePartyInvites()
+  if (!on) return null
+  return (
+    <section className="mt-8" aria-label="Watch parties">
+      <h2 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-ink-400">Watch parties</h2>
+      {data?.length ? (
+        <ul className="mt-2 space-y-1">
+          {data.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold text-white">{p.title}</span>
+                <span className="block truncate text-[12.5px] text-ink-400">
+                  {p.host} hosting · {p.people} watching
+                </span>
+              </span>
+              <Link to={`/play/${p.item}?party=${encodeURIComponent(p.id)}`} className={BTN_MAIN}>
+                {p.joined ? 'Back to it' : 'Join'}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-[14px] text-ink-400">None right now. To start one, open a film or episode and choose More → Watch party: everyone plays it in step, each on their own screen.</p>
+      )}
     </section>
   )
 }

@@ -33,7 +33,7 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
   ]
   const movie = 'd'.repeat(32)
   /** A film only the Private library has, and an R-rated one in Movies. */
-  const privateMovie = '9'.repeat(32)
+  const privateMovie = '6'.repeat(32)
   const rated = '8'.repeat(32)
   const titles = [
     { Id: movie, Name: 'Sintel', Type: 'Movie', ParentId: libs[0]!.Id, ProductionYear: 2010, OfficialRating: 'PG-13' },
@@ -132,8 +132,8 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
     if (p === '/Items' && req.method === 'GET') {
       const ids = (url.searchParams.get('Ids') ?? '').split(',')
       const parent = url.searchParams.get('ParentId')
-      const hit = ids.includes(movie) && (!parent || parent === libs[0]!.Id)
-      return send(200, { Items: hit ? [{ Id: movie, Name: 'Sintel', Type: 'Movie', ProductionYear: 2010 }] : [], TotalRecordCount: hit ? 1 : 0 })
+      const hits = titles.filter((t) => ids.includes(t.Id) && (!parent || parent === t.ParentId))
+      return send(200, { Items: hits, TotalRecordCount: hits.length })
     }
     send(404)
   })

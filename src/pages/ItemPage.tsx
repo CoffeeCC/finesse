@@ -47,6 +47,8 @@ import type { JfItem } from '../api/types'
 import { episodeCode, groupEpisodeVersions } from '../lib/episodes'
 import ItemUnavailable from '../components/ItemUnavailable'
 import AddToShortlist from '../components/AddToShortlist'
+import StartParty from '../components/StartParty'
+import { usePartiesOn } from '../api/parties'
 import { useQueuesOn } from '../api/queues'
 
 function youTubeId(url: string): string | null {
@@ -386,6 +388,8 @@ export default function ItemPage() {
   const [recommending, setRecommending] = useState(false)
   const queuesOn = useQueuesOn()
   const [shortlisting, setShortlisting] = useState(false)
+  const partiesOn = usePartiesOn()
+  const [partying, setPartying] = useState(false)
   const canDeleteHere = useCanDelete()
   const [refreshing, setRefreshing] = useState(false)
   const [previewOn, setPreviewOn] = useState(false)
@@ -512,6 +516,7 @@ export default function ItemPage() {
   const moreItems: ActionItem[] = [
     ...(isPlayable || isSeries ? [{ label: played ? 'Mark as unwatched' : 'Mark as watched', onSelect: togglePlayed }] : []),
     ...(momentsOn && (isPlayable || isSeries) ? [{ label: 'Recommend…', onSelect: () => setRecommending(true) }] : []),
+    ...(partiesOn && !friendId && (item.Type === 'Movie' || item.Type === 'Episode') ? [{ label: 'Watch party…', onSelect: () => setPartying(true) }] : []),
     ...(queuesOn && (item.Type === 'Movie' || item.Type === 'Series' || item.Type === 'Episode') ? [{ label: 'Add to a shortlist…', onSelect: () => setShortlisting(true) }] : []),
     ...(tabs.includes('details') ? [{ label: 'Cast and details', onSelect: () => setTabSel('details') }] : []),
     ...(isAdmin
@@ -529,6 +534,7 @@ export default function ItemPage() {
       {recommending && (
         <MomentComposer item={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setRecommending(false)} />
       )}
+      {partying && <StartParty itemId={item.Id} title={item.Name ?? ''} position={ticksToSeconds(item.UserData?.PlaybackPositionTicks)} onClose={() => setPartying(false)} />}
       {shortlisting && <AddToShortlist itemId={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setShortlisting(false)} />}
       {deleting && <DeleteFromLibrary itemId={item.Id} onClose={() => setDeleting(false)} onDeleted={() => goBack(navigate)} />}
       {/* Ambilight: the backdrop, blown out and breathing, washes the whole page */}

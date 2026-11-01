@@ -94,7 +94,7 @@ test('sharing: chosen people read it; a title they can’t open shows without it
   assert.equal(hidden.item, null)
   assert.equal(hidden.title, 'A title you can’t open')
   assert.equal(hidden.note, '')
-  assert.doesNotMatch(JSON.stringify(view), /grandma|Home Video|9{32}/)
+  assert.doesNotMatch(JSON.stringify(view), /grandma|Home Video|6{32}/)
   // Lee isn't in it.
   assert.equal((await call(A.url, 'GET', `/api/moment-collections/${robins}`, 'lee')).status, 404)
   // Read-only for Kim.
