@@ -18,7 +18,7 @@ const pci = (g: GpuInfo) => (g.pci ? g.pci.replace(/^0000:/, '') : '')
 const label = (g: GpuInfo) => `${g.name}${g.pci ? ` (${pci(g)})` : ''}`
 
 function CardRow({ g }: { g: GpuInfo }) {
-  const test = g.encodes === true ? 'Passed a test video conversion.' : g.encodes === false ? `Failed a test video conversion${g.problem ? `: ${g.problem}` : ''}. Finesse doesn’t use it.` : 'Not tested yet.'
+  const test = g.strikes ? `Failed its last test${g.strikes > 1 ? `s (${g.strikes} in a row)` : ''}${g.problem ? `: ${g.problem}` : ''}. Finesse keeps using it unless it fails 3 in a row.` : g.encodes === true ? 'Passed a test video conversion.' : g.encodes === false ? `Failed a test video conversion${g.problem ? `: ${g.problem}` : ''}. Finesse doesn’t use it.` : 'Not tested yet.'
   const facts = [g.integrated ? 'Built in' : 'Graphics card', g.vramMiB ? `${Math.round(g.vramMiB / 1024)} GB` : '', g.sessionLimit ? `up to ${g.sessionLimit} conversions at once` : ''].filter(Boolean).join(' · ')
   return (
     <li className="flex gap-3 px-5 py-3">
@@ -121,7 +121,14 @@ export default function GraphicsAdmin() {
                 {n}
               </p>
             ))}
+            {st.unknown && <p className="text-[12.5px] leading-relaxed text-amber-200">Finesse couldn’t finish looking at the cards just now, so nothing changes. These are the cards it found last time.</p>}
             {st.note && <p className="text-[12.5px] leading-relaxed text-ink-400">{st.note}</p>}
+            {st.offer && (
+              <button type="button" className={smallBtn} disabled={busy === 'enc'} onClick={() => act('enc', () => graphicsApi.useOurEncoding(), 'Jellyfin now uses Finesse’s video settings')}>
+                {busy === 'enc' ? 'Setting…' : 'Use Finesse’s video settings in Jellyfin'}
+              </button>
+            )}
+            {st.waiting && <p className="text-[12.5px] leading-relaxed text-ink-300">{st.waiting}. Finesse tries again in a minute or so.</p>}
             {working ? (
               <p className="flex items-center gap-2 text-[12.5px] text-ink-300">
                 <Spinner className="h-3 w-3" /> Moving the apps to their cards…
@@ -129,7 +136,7 @@ export default function GraphicsAdmin() {
             ) : (
               st.pending && (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/[0.03] px-4 py-3">
-                  <p className="text-[12.5px] leading-relaxed text-ink-300">{st.applied ? 'This is a change from what the apps use now.' : 'The apps don’t use this yet.'} It happens tonight, or now: Jellyfin restarts, which stops anything playing.</p>
+                  <p className="text-[12.5px] leading-relaxed text-ink-300">{st.applied ? 'This is a change from what the apps use now.' : 'The apps don’t use this yet.'} It happens tonight, or now: Jellyfin and game streaming restart on their cards as soon as nobody is using them.</p>
                   <button type="button" className={smallBtn} disabled={busy === 'apply'} onClick={() => act('apply', () => graphicsApi.choose({}), 'Moving the apps to their cards')}>
                     Do it now
                   </button>

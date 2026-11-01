@@ -18,9 +18,15 @@
 //
 // Clips are named by Jellyfin item id. When Jellyfin's ids change (an upgrade
 // or a rebuilt library), the old clips match nothing: after a complete listing
-// of the library, clips of ids Jellyfin no longer has are removed.
+// of the library, clips of ids Jellyfin no longer has are removed, carefully:
+// never when the library shrank by more than a tenth since the last listing
+// (a Jellyfin mid-rebuild), and only an id missing from two listings in a row.
+//
+// manifest.json (what the app shows previews for) is rebuilt from the folder
+// each time, written to a temporary file and renamed into place, and never
+// written empty while clip files are there: it always matches the files.
 
-import { accessSync, chownSync, constants, copyFileSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { accessSync, chownSync, constants, copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Paths, Settings, SettingsStore } from '../config.ts'
 import { logger } from '../log.ts'
@@ -77,6 +83,71 @@ export function orphanClips(names: string[], ids: Set<string>): string[] {
   })
 }
 
+/** What pruning remembers between runs (.prune.json in the previews folder). */
+export interface PruneState {
+  /** Titles in the last complete listing. */
+  count?: number
+  /** Ids with clips that the last listing didn't have. */
+  candidates?: string[]
+}
+
+/**
+ * Which clip files to remove now, and what to remember (pure). Nothing when the listing is empty or
+ * has over 10% fewer titles than the last one; a clip goes only when its id was missing from the
+ * last listing too.
+ */
+export function pruneOrphans(names: string[], ids: Set<string>, prev: PruneState): { remove: string[]; next: PruneState; skipped: boolean } {
+  if (!ids.size) return { remove: [], next: prev, skipped: true }
+  if (prev.count && ids.size < prev.count * 0.9) return { remove: [], next: { ...prev, count: ids.size }, skipped: true }
+  const orphans = orphanClips(names, ids)
+  const missing = [...new Set(orphans.map((n) => CLIP_RE.exec(n)![1]!))]
+  const before = new Set(prev.candidates ?? [])
+  const remove = orphans.filter((n) => before.has(CLIP_RE.exec(n)![1]!))
+  return { remove, next: { count: ids.size, candidates: missing.filter((id) => !before.has(id)) }, skipped: false }
+}
+
+/** manifest.json (ids with a base clip) and manifest-hd.json ({id: [720, 1080]}) for these file names (pure). */
+export function manifestsFor(names: string[]): { base: string[]; hd: Record<string, number[]> } {
+  const mp4 = names.filter((n) => n.endsWith('.mp4') && !n.startsWith('.'))
+  const base = mp4.filter((n) => !/\.(720|1080)\.mp4$/.test(n)).map((n) => n.slice(0, -4)).sort()
+  const hd: Record<string, number[]> = {}
+  for (const n of mp4) {
+    const m = /^(.+)\.(720|1080)\.mp4$/.exec(n)
+    if (m) (hd[m[1]!] ??= []).push(Number(m[2]))
+  }
+  return { base, hd }
+}
+
+/**
+ * Writes the manifests from the folder as it is now: each to a temporary file, then renamed into
+ * place. Refuses to write an empty manifest while clip files are there (the old one stays):
+ * returns false then.
+ */
+export function writeManifestFiles(dir: string): boolean {
+  const names = readdirSync(dir)
+  const { base, hd } = manifestsFor(names)
+  if (!base.length && names.some((n) => n.endsWith('.mp4') && !n.startsWith('.'))) {
+    log.warn('not writing an empty manifest.json while clip files are there')
+    return false
+  }
+  const write = (file: string, data: unknown) => {
+    const tmp = join(dir, `.${file}.tmp`)
+    writeFileSync(tmp, JSON.stringify(data))
+    renameSync(tmp, join(dir, file))
+  }
+  write('manifest-hd.json', hd)
+  write('manifest.json', base)
+  return true
+}
+
+/** Clips wait for the night on servers with no usable graphics card (graphics.ts clipsNightOnly): why, or null when it's time. */
+export function clipsWait(s: Settings, now = new Date()): string | null {
+  const g = s.mode === 'bundle' ? s.stack?.graphics : undefined
+  if (!g?.plan.clipsNightOnly) return null
+  const h = now.getHours()
+  return h >= 1 && h < 7 ? null : 'There’s no graphics card here, so clips are made at night (1 to 7 am), when the processor is free.'
+}
+
 /** The mount of `src`'s folder: the deepest mount whose destination holds it. */
 export function mountFor<M extends { Destination: string }>(mounts: M[], src: string): M | null {
   let best: M | null = null
@@ -103,7 +174,8 @@ export function adoptEncoder(docker: Docker, jf: JellyfinContainer, ffmpeg: stri
       const inside = `/tmp/${out}`
       const cmd = `T=; command -v timeout >/dev/null 2>&1 && T='timeout 1200'; $T nice -n 19 ${q(ffmpeg)} ${args.map(q).join(' ')} ${q(inside)}`
       const r = await docker.runJob(jf.info.Image || jf.image, ['sh', '-c', cmd], {
-        binds: [`${from}:${m.Destination}:ro`],
+        // The Mounts form: a folder with a ":" in its path works too.
+        mounts: [{ Type: m.Type === 'volume' && m.Name ? 'volume' : 'bind', Source: from, Target: m.Destination, ReadOnly: true }],
         user,
         // The lowest CPU share Docker allows: anyone watching always comes first.
         host: { CpuShares: 2, ...(groups.length ? { GroupAdd: groups } : {}) },
@@ -249,11 +321,22 @@ export class ClipMaker {
         this.block(`Finesse couldn’t read the list of titles from Jellyfin (${(e as Error).message}). It tries again in a few minutes.`)
         return this.status
       }
-      // A complete listing: clips of titles that left (or whose id changed) go.
+      // A complete listing: clips of titles that left (or whose id changed) go, carefully (pruneOrphans).
       const ids = new Set(all.map((i) => i.Id.toLowerCase()))
-      const gone = orphanClips(readdirSync(dir), ids)
+      const stateFile = join(dir, '.prune.json')
+      let prev: PruneState = {}
+      try {
+        prev = JSON.parse(readFileSync(stateFile, 'utf8')) as PruneState
+      } catch {
+        /* first run */
+      }
+      const prune = pruneOrphans(readdirSync(dir), ids, prev)
+      const gone = prune.remove
       for (const n of gone) rmSync(join(dir, n), { force: true })
       if (gone.length) log.info(`removed ${gone.length} clip${gone.length > 1 ? 's' : ''} of titles Jellyfin no longer has`)
+      if (prune.skipped && ids.size) log.info(`Jellyfin lists ${ids.size} titles, over a tenth fewer than last time: no clips removed this run`)
+      writeFileSync(join(dir, '.prune.tmp'), JSON.stringify(prune.next))
+      renameSync(join(dir, '.prune.tmp'), stateFile)
       for (const n of readdirSync(dir)) if (n.endsWith('.part')) rmSync(join(dir, n), { force: true })
       this.writeManifests()
 
@@ -351,21 +434,8 @@ export class ClipMaker {
     return false
   }
 
-  /** manifest.json (ids with a base clip) + manifest-hd.json ({id: [720, 1080]}). */
+  /** manifest.json (ids with a base clip) + manifest-hd.json ({id: [720, 1080]}), from the folder (writeManifestFiles). */
   private writeManifests() {
-    const names = readdirSync(this.paths.previews).filter((n) => n.endsWith('.mp4'))
-    const base = names.filter((n) => !/\.(720|1080)\.mp4$/.test(n)).map((n) => n.slice(0, -4))
-    const hd: Record<string, number[]> = {}
-    for (const n of names) {
-      const m = /^(.+)\.(720|1080)\.mp4$/.exec(n)
-      if (m) (hd[m[1]!] ??= []).push(Number(m[2]))
-    }
-    const write = (file: string, data: unknown) => {
-      const tmp = join(this.paths.previews, `.${file}.tmp`)
-      writeFileSync(tmp, JSON.stringify(data))
-      renameSync(tmp, join(this.paths.previews, file))
-    }
-    write('manifest.json', base)
-    write('manifest-hd.json', hd)
+    writeManifestFiles(this.paths.previews)
   }
 }

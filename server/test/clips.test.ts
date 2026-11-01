@@ -90,7 +90,12 @@ test('a run prunes clips of ids Jellyfin no longer has, rebuilds the manifests, 
   }
   try {
     const clips = new ClipMaker(s, {} as StackHost, s.paths, () => true, { encoder: async () => enc })
-    const st = await clips.run()
+    // The first listing without id 9 only notes it; the clip goes when the next listing lacks it too.
+    let st = await clips.run()
+    assert.equal(st.removed, 0)
+    assert.ok(existsSync(join(previews, `${id(9)}.720.mp4`)))
+    assert.deepEqual(JSON.parse(readFileSync(join(previews, 'manifest.json'), 'utf8')).sort(), [id(1), id(2), id(9)])
+    st = await clips.run()
     assert.deepEqual(readdirSync(previews).filter((n) => n.endsWith('.mp4')).sort(), [`${id(1)}.mp4`, `${id(2)}.mp4`])
     assert.ok(!existsSync(join(previews, `.${id(3)}.mp4.part`)))
     assert.deepEqual(asked, [`${id(2)}.mp4`])
@@ -195,10 +200,13 @@ test('adopt: ffmpeg runs in a throwaway container from Jellyfin’s image, libra
     assert.match(name, /^finesse-clip-/)
     assert.equal(body.Image, 'jellyfin/jellyfin:10.11.11')
     assert.equal(body.User, '568:568')
-    assert.deepEqual(body.HostConfig.Binds, ['/mnt/HDDs/Movies:/movies:ro'])
+    // The Mounts form, so a folder with a ":" in its name works; nothing as a bind string.
+    assert.deepEqual(body.HostConfig.Mounts, [{ Type: 'bind', Source: '/mnt/HDDs/Movies', Target: '/movies', ReadOnly: true }])
+    assert.deepEqual(body.HostConfig.Binds, [])
     assert.equal(body.HostConfig.NetworkMode, 'none')
     assert.equal(body.HostConfig.CpuShares, 2)
     assert.equal(body.Labels['finesse.managed'], 'true')
+    assert.equal(body.Labels['finesse.role'], 'helper')
     assert.match(body.Cmd[2], /nice -n 19 '\/usr\/lib\/jellyfin-ffmpeg\/ffmpeg'/)
     // Jellyfin's own container: looked at, never touched.
     assert.ok(!fd.calls.some((c) => / (jf|ix-jellyfin-jellyfin-1)$/.test(c)), fd.calls.join('\n'))

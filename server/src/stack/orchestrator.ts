@@ -109,6 +109,8 @@ export class Orchestrator implements StackHost {
   constructor(docker = new Docker(), instance?: string) {
     this.docker = docker
     this.instance = instance
+    // The helpers it starts (probes, card tests, clips) carry this Finesse's stamp too.
+    if (instance) docker.instance ??= instance
   }
 
   /**
@@ -282,18 +284,29 @@ export class Orchestrator implements StackHost {
     return { devices, nvidiaRuntime, nvidiaModeset }
   }
 
-  private gpus: { at: number; inv: Promise<Inventory> } | null = null
+  private gpus: { at: number; testImage: string | null; inv: Promise<Inventory> } | null = null
 
   /**
-   * The host's graphics cards, each tested with a short conversion (gpus.ts). Kept 30 minutes:
+   * The host's graphics cards, each tested with a short conversion (gpus.ts). Kept 30 minutes
+   * (per test image: an inventory tested with another image, or none, isn't the same answer):
    * the tests start a container per card. `testImage` has Jellyfin's ffmpeg (null: no tests).
+   * A probe that couldn't finish isn't kept.
    */
   graphicsInventory(testImage: string | null, refresh = false): Promise<Inventory> {
-    if (!refresh && this.gpus && Date.now() - this.gpus.at < 30 * 60000) return this.gpus.inv
+    if (!refresh && this.gpus && this.gpus.testImage === testImage && Date.now() - this.gpus.at < 30 * 60000) return this.gpus.inv
     const inv = (async () => probeGpus(this.docker, { probeImage: await this.selfImage(), testImage, inDocker: Boolean(process.env.FINESSE_IN_DOCKER) }))()
-    this.gpus = { at: Date.now(), inv }
-    inv.catch(() => (this.gpus = null))
+    const entry = { at: Date.now(), testImage, inv }
+    this.gpus = entry
+    const drop = () => {
+      if (this.gpus === entry) this.gpus = null
+    }
+    inv.then((x) => x.complete === false && drop(), drop)
     return inv
+  }
+
+  /** How old the kept inventory is (ms), or null when there's none. */
+  graphicsAge(): number | null {
+    return this.gpus ? Date.now() - this.gpus.at : null
   }
 
   /** Whether a TCP port is free on the host (a probe container on the host network tries to bind it). */
@@ -375,9 +388,13 @@ export class Orchestrator implements StackHost {
     })
   }
 
-  /** Converges one service; returns true if its container was (re)created. */
-  async ensureService(id: StackServiceId, ctx: StackContext, onProgress?: ProgressSink, opts: { forceRecreate?: boolean } = {}): Promise<boolean> {
-    const def = CATALOG[id]
+  /**
+   * Converges one service; returns true if its container was (re)created. `image` builds it from
+   * that image instead of the pinned one (a graphics change keeps the image the app runs now: only
+   * the update flow moves an app to a new pin).
+   */
+  async ensureService(id: StackServiceId, ctx: StackContext, onProgress?: ProgressSink, opts: { forceRecreate?: boolean; image?: string } = {}): Promise<boolean> {
+    const def = opts.image ? { ...CATALOG[id], image: opts.image } : CATALOG[id]
     const name = containerName(id)
     await this.ensureImage(def, onProgress)
     if (ctx.gpu && !ctx.gpuGroups) ctx.gpuGroups = await this.hostGpuGroups().catch(() => [])

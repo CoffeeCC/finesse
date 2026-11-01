@@ -11,7 +11,10 @@
 //     VA-API), Wolf on the card;
 //   • two or more cards: Wolf on the strongest, Jellyfin on another.
 // Cards are always named exactly (an NVIDIA UUID, or one /dev/dri render
-// node), never "all". A card that fails its test encode isn't used.
+// node), never "all". A card that fails its test encode isn't used, but a card
+// an app already uses keeps it until it fails three runs in a row (one bad test
+// never moves the apps), and only a probe that finished can say a card is gone
+// (settleInventory).
 // An administrator's choice (Settings → Server → Graphics) wins while that
 // card is still there and working.
 
@@ -19,7 +22,7 @@ export type Vendor = 'nvidia' | 'intel' | 'amd' | 'other'
 export type Accel = 'nvenc' | 'qsv' | 'vaapi' | 'none'
 
 export interface Gpu {
-  /** "nvidia:GPU-…" or "dri:renderD128". */
+  /** "nvidia:GPU-…", or "dri:0000:00:02.0" (Intel/AMD, by PCI address: render node numbers can change between boots). */
   id: string
   vendor: Vendor
   /** As people know it: "NVIDIA GeForce RTX 3060", "Intel graphics". */
@@ -39,8 +42,13 @@ export interface Gpu {
   problem?: string
   /** Hardware video conversions it allows at once (GeForce: 8); null when there's no limit. */
   sessionLimit: number | null
-  /** Codecs it can decode, as Jellyfin names them. */
+  /**
+   * Codecs it decodes, as Jellyfin names them, plus "hevc-10bit" and "vp9-10bit" for 10-bit
+   * decoding: measured by the card's test where it ran, conservative otherwise.
+   */
   decode: string[]
+  /** Failed tests in a row (kept while the card stays in use: it leaves after STRIKES). */
+  strikes?: number
 }
 
 export interface Inventory {
@@ -48,6 +56,11 @@ export interface Inventory {
   gpus: Gpu[]
   /** Docker can hand NVIDIA cards to containers (the NVIDIA container toolkit). */
   nvidiaRuntime: boolean
+  /**
+   * False when the look couldn't finish (the probe failed or printed nothing, or Docker didn't
+   * say what it can run): the cards are then unknown, and nothing is planned from it.
+   */
+  complete?: boolean
 }
 
 /** What an administrator picked: a card id, "cpu" (Jellyfin only), or nothing (automatic). */
@@ -95,9 +108,9 @@ export function nvidiaSessionLimit(name: string): number | null {
   return /quadro|tesla|\brtx a\d|\b(a|l)\d{1,3}\b|\bt4\b|\bh100\b|rtx \d{4} ada/i.test(name) ? null : NVENC_CONSUMER_LIMIT
 }
 
-/** Codecs an NVIDIA card decodes, by generation from its name (conservative when unsure). */
+/** Codecs an NVIDIA card decodes, by generation from its name (conservative when unsure): used until its test has decoded each. */
 export function nvidiaDecode(name: string): string[] {
-  const base = ['h264', 'hevc', 'mpeg2video', 'vc1', 'vp8', 'vp9']
+  const base = ['h264', 'hevc', 'hevc-10bit', 'mpeg2video', 'vc1', 'vp8', 'vp9', 'vp9-10bit']
   // Ampere (RTX 30, A-series) and newer decode AV1.
   if (/rtx\s*(3|4|5)0\d0|rtx a\d|\b(a|l)\d{1,3}\b|ada|blackwell/i.test(name)) return [...base, 'av1']
   // Pascal and Turing (GTX 10/16, RTX 20): HEVC 10-bit and VP9.
@@ -106,12 +119,8 @@ export function nvidiaDecode(name: string): string[] {
   return ['h264', 'mpeg2video', 'vc1']
 }
 
-/** Codecs Intel and AMD chips decode through VA-API / Quick Sync (conservative). */
-export function driDecode(vendor: Vendor, modern: boolean): string[] {
-  if (vendor === 'intel') return ['h264', 'hevc', 'mpeg2video', 'vc1', 'vp8', 'vp9', ...(modern ? ['av1'] : [])]
-  if (vendor === 'amd') return ['h264', 'hevc', 'mpeg2video', 'vc1', 'vp9', ...(modern ? ['av1'] : [])]
-  return []
-}
+/** Codecs Intel and AMD chips decode before their test says more: H.264, which every one does. */
+export const DRI_DECODE_DEFAULT = ['h264']
 
 const VENDOR_RANK: Record<Vendor, number> = { nvidia: 3, amd: 2, intel: 1, other: 0 }
 
@@ -131,7 +140,7 @@ export function strongestFirst(gpus: Gpu[]): Gpu[] {
 export function unusable(g: Gpu, inv: Pick<Inventory, 'nvidiaRuntime'>): string | null {
   if (g.vendor === 'other') return `${g.name} isn’t a card Jellyfin can convert video on.`
   if (g.vendor === 'nvidia' && !inv.nvidiaRuntime) return `${g.name} needs the NVIDIA Container Toolkit before apps in Docker can use it.`
-  if (g.vendor === 'nvidia' && !g.uuid) return `${g.name} couldn’t be identified (no NVIDIA id), so Finesse can’t give it to an app.`
+  if (g.vendor === 'nvidia' && (!g.uuid || g.uuid.includes('?'))) return `${g.name} couldn’t be identified (no NVIDIA id), so Finesse can’t give it to an app.`
   if (g.encodes === false) return `${g.name}${g.pci ? ` (${g.pci.replace(/^0000:/, '')})` : ''} failed a test video conversion${g.problem ? ` (${g.problem})` : ''}, so Finesse doesn’t use it.`
   return null
 }
@@ -184,9 +193,11 @@ export function planGraphics(inv: Inventory, opts: { streaming: boolean; overrid
   const pick = (who: 'Jellyfin' | 'game streaming', want: string | undefined): Gpu | null | undefined => {
     if (!want) return undefined
     if (want === 'cpu' && who === 'Jellyfin') return null
-    const g = usable.find((x) => x.id === want)
+    // Chosen before cards were known by PCI address: "dri:renderD128" names the card at that node.
+    const same = (x: Gpu) => x.id === want || (/^dri:renderD\d+$/.test(want) && x.vendor !== 'nvidia' && x.renderNode === `/dev/dri/${want.slice(4)}`)
+    const g = usable.find(same)
     if (g) return g
-    const gone = inv.gpus.find((x) => x.id === want)
+    const gone = inv.gpus.find(same)
     notes.push(`The card chosen for ${who}${gone ? ` (${gone.name})` : ''} ${gone ? 'can’t be used right now' : 'isn’t here any more'}, so Finesse chose automatically.`)
     return undefined
   }
@@ -215,10 +226,53 @@ export function planGraphics(inv: Inventory, opts: { streaming: boolean; overrid
   }
 }
 
+/** What decides one app's container: the same key, no change. */
+export function assignKey(x: Pick<Assignment, 'gpu' | 'accel' | 'uuid' | 'renderNode'> | undefined | null): string {
+  return x ? [x.gpu ?? 'cpu', x.accel, x.uuid ?? '', x.renderNode ?? ''].join(',') : 'unplanned'
+}
+
 /** What decides the containers: two plans with the same key need no change. */
-export function planKey(p: Pick<GraphicsPlan, 'jellyfin' | 'wolf'>): string {
-  const a = (x: Assignment) => [x.gpu ?? 'cpu', x.accel, x.uuid ?? '', x.renderNode ?? ''].join(',')
-  return `${a(p.jellyfin)}|${a(p.wolf)}`
+export function planKey(p: { jellyfin?: Assignment | null; wolf?: Assignment | null }): string {
+  return `${assignKey(p.jellyfin)}|${assignKey(p.wolf)}`
+}
+
+// ---------- settling what a probe found ----------
+
+/** Failed tests in a row before a card an app uses is let go. */
+export const STRIKES = 3
+
+/** What a card is known by across probes: NVIDIA's UUID, else its PCI address. */
+export const cardKey = (g: Pick<Gpu, 'uuid' | 'pci' | 'id'>) => g.uuid || g.pci || g.id
+
+/**
+ * The cards to plan with, from a finished probe (pure). `fresh` is a new probe (its failed
+ * tests count; a probe kept from before doesn't count twice). A card an app uses (`inUse`, card
+ * ids) that failed its test stays usable until it has failed STRIKES runs in a row; a test that
+ * couldn't run keeps what was known. Counts of cards no longer there are dropped.
+ */
+export function settleInventory(
+  inv: Inventory,
+  prev: { failures?: Record<string, number>; inventory?: Inventory; inUse: (Pick<Assignment, 'gpu' | 'uuid'> | null | undefined)[] },
+  fresh: boolean,
+): { inv: Inventory; failures: Record<string, number> } {
+  const failures: Record<string, number> = { ...prev.failures }
+  const used = (g: Gpu) => prev.inUse.some((a) => a && a.gpu && (a.gpu === g.id || (g.uuid && a.uuid === g.uuid)))
+  const gpus = inv.gpus.map((raw): Gpu => {
+    const k = cardKey(raw)
+    const before = prev.inventory?.gpus.find((x) => cardKey(x) === k)
+    if (fresh && raw.encodes === false) failures[k] = (failures[k] ?? 0) + 1
+    else if (fresh && raw.encodes === true) delete failures[k]
+    let g = raw
+    // Not tested this time (Docker hiccuped, no test image): what was known stands.
+    if (g.encodes === null && before && before.encodes !== null) g = { ...g, encodes: before.encodes, decode: before.decode, ...(before.problem ? { problem: before.problem } : {}) }
+    const n = failures[k] ?? 0
+    if (g.encodes === false && n < STRIKES && used(g)) {
+      return { ...g, encodes: true, decode: before?.decode ?? g.decode, vramMiB: g.vramMiB ?? before?.vramMiB, strikes: n }
+    }
+    return n ? { ...g, strikes: n } : g
+  })
+  for (const k of Object.keys(failures)) if (!inv.gpus.some((g) => cardKey(g) === k)) delete failures[k]
+  return { inv: { ...inv, gpus }, failures }
 }
 
 // ---------- Jellyfin's encoding settings ----------
@@ -242,12 +296,13 @@ export function encodingFor(a: Pick<JellyfinPlan, 'accel' | 'decode' | 'renderNo
     // The processor: no hardware, and Jellyfin stops converting ahead of the viewer when it's far enough along.
     return { HardwareAccelerationType: 'none', EnableHardwareEncoding: false, HardwareDecodingCodecs: [], EnableThrottling: true }
   }
+  // 10-bit decoding is its own switch in Jellyfin, on only where the card's test decoded it.
   const out: Record<string, unknown> = {
     HardwareAccelerationType: a.accel,
     EnableHardwareEncoding: true,
-    HardwareDecodingCodecs: a.decode,
-    EnableDecodingColorDepth10Hevc: a.decode.includes('hevc'),
-    EnableDecodingColorDepth10Vp9: a.decode.includes('vp9'),
+    HardwareDecodingCodecs: a.decode.filter((c) => !c.endsWith('-10bit')),
+    EnableDecodingColorDepth10Hevc: a.decode.includes('hevc-10bit'),
+    EnableDecodingColorDepth10Vp9: a.decode.includes('vp9-10bit'),
     EnableTonemapping: true,
   }
   if (a.accel === 'vaapi' && a.renderNode) out.VaapiDevice = a.renderNode

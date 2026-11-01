@@ -177,7 +177,7 @@ test('apply: pins each app by UUID, changes nothing when the plan stands, and fa
   const orch = new Orchestrator(docker, 'mine')
   orch.waitReady = async () => {}
   const events: string[] = []
-  const g = new GraphicsManager(settings, orch, (_l, m) => events.push(m))
+  const g = new GraphicsManager(settings, orch, (_l, m) => events.push(m), { inUse: async () => null })
   try {
     const first = await g.apply('test', { refresh: true })
     assert.equal(first!.plan.wolf.uuid, A)
@@ -195,17 +195,31 @@ test('apply: pins each app by UUID, changes nothing when the plan stands, and fa
     assert.equal(appCalls(), calls)
     assert.equal(jfEnc.posts.length, 1)
 
-    // The NAS's case: card A fails its test. Both apps move to B (shared while streaming).
+    // The NAS's case: card A fails its test. One failed test moves nothing; the third in a row does.
     failing = new Set([A])
+    for (const n of [1, 2]) {
+      const kept = await g.apply('test', { refresh: true })
+      assert.equal(kept!.plan.wolf.uuid, A)
+      assert.equal(kept!.failures![A], n)
+      assert.equal(appCalls(), calls)
+    }
     const shared = await g.apply('test', { refresh: true })
     assert.equal(shared!.plan.wolf.uuid, B)
     assert.equal(shared!.plan.jellyfin.shared, true)
     assert.equal(shared!.plan.jellyfin.maxTranscodes, 2)
+    assert.equal(shared!.built!.wolf!.uuid, B)
     assert.deepEqual(fd.created['finesse-wolf'].HostConfig.DeviceRequests[0].DeviceIDs, [B])
     assert.match(shared!.plan.notes.join(' '), /failed a test video conversion/)
 
-    // Every card gone: back to the processor, nothing pinned, Jellyfin told.
+    // A probe that printed nothing is "unknown", not "no cards": nothing changes.
     probe = ''
+    const afterShared = appCalls()
+    const unknown = await g.apply('test', { refresh: true })
+    assert.equal(unknown!.built!.wolf!.uuid, B)
+    assert.equal(appCalls(), afterShared)
+
+    // Every card really gone (the probe finished and found none): back to the processor, nothing pinned, Jellyfin told.
+    probe = 'END\n'
     const cpu = await g.apply('test', { refresh: true })
     assert.equal(cpu!.plan.jellyfin.accel, 'none')
     assert.equal(fd.created['finesse-jellyfin'].HostConfig.DeviceRequests, undefined)

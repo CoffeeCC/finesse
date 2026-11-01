@@ -36,8 +36,21 @@ export interface ContainerInspect {
   Mounts: { Source: string; Destination: string; Type?: string; Name?: string; RW?: boolean }[]
 }
 
+/** Labels of a short-lived helper container (probes, card tests, clips): Finesse's own, of this Finesse, and only a helper. */
+export const LABEL_ROLE = 'finesse.role'
+export const HELPER_SERVICES = ['probe', 'gpu-test', 'clip', 'job']
+
+/** A helper container (never an app): by its role label, or, before that label, by its service name. */
+export function isHelper(labels: Record<string, string> | null | undefined): boolean {
+  if (!labels) return false
+  if (labels[LABEL_ROLE] === 'helper') return true
+  return labels['finesse.managed'] === 'true' && HELPER_SERVICES.includes(labels['finesse.service'] ?? '')
+}
+
 export class Docker {
   readonly socketPath: string
+  /** This Finesse's instanceId: stamped on the helper containers it starts. */
+  instance?: string
 
   constructor(socketPath = process.env.DOCKER_SOCKET || '/var/run/docker.sock') {
     this.socketPath = socketPath
@@ -275,10 +288,30 @@ export class Docker {
     return out.join('')
   }
 
+  /** The labels of a helper container this Finesse starts. */
+  helperLabels(service: string): Record<string, string> {
+    return { 'finesse.managed': 'true', 'finesse.service': service, [LABEL_ROLE]: 'helper', ...(this.instance ? { 'finesse.instance': this.instance } : {}) }
+  }
+
+  /**
+   * Removes helper containers this Finesse left behind (it stopped while one ran). Only its own:
+   * labelled as a helper and with this Finesse's instance. Returns how many went.
+   */
+  async sweepHelpers(): Promise<number> {
+    if (!this.instance) return 0
+    const list = await this.list({ label: [`${LABEL_ROLE}=helper`, `finesse.instance=${this.instance}`] })
+    let n = 0
+    for (const c of list) {
+      if (c.Labels?.[LABEL_ROLE] !== 'helper' || c.Labels['finesse.instance'] !== this.instance) continue
+      await this.remove(c.Id, { force: true }).then(() => n++, () => {})
+    }
+    return n
+  }
+
   /** Runs a one-off container to completion; returns its exit code and output. */
   async runOnce(image: string, cmd: string[], binds: string[] = [], network = 'none'): Promise<{ code: number; output: string }> {
     const name = `finesse-probe-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-    const id = await this.create(name, { Image: image, Cmd: cmd, Entrypoint: [], Labels: { 'finesse.managed': 'true', 'finesse.service': 'probe' }, HostConfig: { Binds: binds, NetworkMode: network, SecurityOpt: ['label=disable'] } })
+    const id = await this.create(name, { Image: image, Cmd: cmd, Entrypoint: [], Labels: this.helperLabels('probe'), HostConfig: { Binds: binds, NetworkMode: network, SecurityOpt: ['label=disable'] } })
     try {
       await this.start(id)
       const waited = await this.call<{ StatusCode: number }>('POST', `/containers/${id}/wait`)
@@ -291,12 +324,23 @@ export class Docker {
 
   /**
    * Runs a one-off container to completion and copies `file` out of it before it's removed
-   * (null when the command didn't leave it). `host` is merged into its HostConfig.
+   * (null when the command didn't leave it). `host` is merged into its HostConfig. `mounts` uses
+   * Docker's Mounts form, so paths holding a ":" work.
    */
   async runJob(
     image: string,
     cmd: string[],
-    opts: { binds?: string[]; user?: string; host?: Record<string, unknown>; env?: string[]; file?: string; maxBytes?: number; timeoutMs?: number; service?: string } = {},
+    opts: {
+      binds?: string[]
+      mounts?: { Type: 'bind' | 'volume'; Source: string; Target: string; ReadOnly?: boolean }[]
+      user?: string
+      host?: Record<string, unknown>
+      env?: string[]
+      file?: string
+      maxBytes?: number
+      timeoutMs?: number
+      service?: string
+    } = {},
   ): Promise<{ code: number; output: string; data: Buffer | null }> {
     const name = `finesse-${opts.service ?? 'job'}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     const id = await this.create(name, {
@@ -305,8 +349,8 @@ export class Docker {
       Entrypoint: [],
       Env: opts.env ?? [],
       ...(opts.user ? { User: opts.user } : {}),
-      Labels: { 'finesse.managed': 'true', 'finesse.service': opts.service ?? 'job' },
-      HostConfig: { Binds: opts.binds ?? [], NetworkMode: 'none', SecurityOpt: ['label=disable'], ...opts.host },
+      Labels: this.helperLabels(opts.service ?? 'job'),
+      HostConfig: { Binds: opts.binds ?? [], ...(opts.mounts?.length ? { Mounts: opts.mounts } : {}), NetworkMode: 'none', SecurityOpt: ['label=disable'], ...opts.host },
     })
     try {
       await this.start(id)

@@ -60,11 +60,15 @@ test('parseProbe: Intel built-in plus an AMD card; an AMD APU counts as built in
   assert.deepEqual(
     g.map((x) => [x.id, x.vendor, x.integrated, x.vramMiB ?? null]),
     [
-      ['dri:renderD128', 'intel', true, null],
-      ['dri:renderD129', 'amd', false, 16368],
-      ['dri:renderD130', 'amd', true, 512],
+      // By PCI address: render node numbers can change between boots.
+      ['dri:0000:00:02.0', 'intel', true, null],
+      ['dri:0000:03:00.0', 'amd', false, 16368],
+      ['dri:0000:07:00.0', 'amd', true, 512],
     ],
   )
+  assert.deepEqual(g.map((x) => x.renderNode), ['/dev/dri/renderD128', '/dev/dri/renderD129', '/dev/dri/renderD130'])
+  // Before its test decodes anything: H.264 only.
+  assert.deepEqual(g[0]!.decode, ['h264'])
   assert.equal(parseProbe('').length, 0)
 })
 
@@ -184,7 +188,7 @@ test('encoding settings: what each card sets, merged without touching anything e
   assert.deepEqual(want, {
     HardwareAccelerationType: 'nvenc',
     EnableHardwareEncoding: true,
-    HardwareDecodingCodecs: nvidiaDecode('NVIDIA GeForce RTX 3060'),
+    HardwareDecodingCodecs: nvidiaDecode('NVIDIA GeForce RTX 3060').filter((c) => !c.endsWith('-10bit')),
     EnableDecodingColorDepth10Hevc: true,
     EnableDecodingColorDepth10Vp9: true,
     EnableTonemapping: true,

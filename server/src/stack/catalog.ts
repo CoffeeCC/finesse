@@ -51,7 +51,7 @@ export interface StackContext {
    * Which card Jellyfin and Wolf use (graphics.ts), once Finesse has planned it. Unset: the
    * pre-plan behaviour (Jellyfin gets /dev/dri, Wolf every NVIDIA card), so nothing changes until a plan exists.
    */
-  graphics?: { jellyfin: GpuAssignment; wolf: GpuAssignment }
+  graphics?: { jellyfin?: GpuAssignment; wolf?: GpuAssignment }
   /** Docker labels containers for SELinux (Fedora, Bazzite…): bind mounts then need label=disable (filled in by the orchestrator). */
   selinux?: boolean
 }

@@ -620,6 +620,8 @@ export interface GpuInfo {
   vramMiB?: number
   /** Its test conversion worked (true), failed (false), or wasn't tried (null). */
   encodes: boolean | null
+  /** Failed tests in a row while an app still uses it. */
+  strikes?: number
   problem?: string
   sessionLimit: number | null
   decode: string[]
@@ -648,8 +650,14 @@ export type GraphicsStatus =
       plan: GraphicsPlanInfo | null
       applied: { at: string; key: string; plan: GraphicsPlanInfo } | null
       pending: boolean
+      /** Why part of the plan isn't in effect yet (someone watching, a change that failed). */
+      waiting?: string | null
+      /** The last look at the cards didn't finish: what's shown is from before. */
+      unknown?: boolean
       override: { jellyfin?: string; wolf?: string }
       note: string | null
+      /** Jellyfin has video settings of its own: Finesse's can be used in one click. */
+      offer?: boolean
       streaming: boolean
       working: boolean
     }
@@ -664,5 +672,7 @@ export const graphicsApi = {
   get: (refresh = false) => call<GraphicsStatus>('GET', `/api/system/graphics${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 180000 }),
   /** null or "auto": Finesse chooses. "cpu" (Jellyfin only): the processor. */
   choose: (pick: { jellyfin?: string | null; wolf?: string | null }) => call<{ override: { jellyfin?: string; wolf?: string } }>('PUT', '/api/system/graphics', pick),
+  /** Finesse's video settings in Jellyfin, over Jellyfin's own (servers Finesse set up). */
+  useOurEncoding: () => call<{ ok: boolean }>('POST', '/api/system/graphics/encoding', undefined, { timeoutMs: 60000 }),
   fixJellyfin: (gpu: string) => call<{ card: string }>('POST', '/api/system/graphics/jellyfin', { gpu }, { timeoutMs: 180000 }),
 }

@@ -10,7 +10,7 @@
 // running.
 
 import type { Settings } from '../config.ts'
-import type { ContainerInspect, ContainerSummary, Docker } from './docker.ts'
+import { isHelper, type ContainerInspect, type ContainerSummary, type Docker } from './docker.ts'
 
 export interface JellyfinContainer {
   id: string
@@ -42,7 +42,8 @@ export function pickJellyfin(
   url: string | undefined,
   opts: { known?: string; self?: string; instance?: string } = {},
 ): { id: string; how: string } | { reason: string } {
-  const running = list.filter((c) => c.State === 'running' && c.Id !== opts.self)
+  // Finesse's own helpers (a clip made from Jellyfin's image, a card test) are never Jellyfin.
+  const running = list.filter((c) => c.State === 'running' && c.Id !== opts.self && !isHelper(c.Labels))
   // Our own stack's Jellyfin is Finesse's in bundle mode, never "someone's own".
   const theirs = running.filter((c) => !(c.Labels?.['finesse.managed'] === 'true' && (!opts.instance || c.Labels['finesse.instance'] === opts.instance)))
   const named = (n: string) => theirs.find((c) => c.Names.some((x) => strip(x).toLowerCase() === n.toLowerCase()))

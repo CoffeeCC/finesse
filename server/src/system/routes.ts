@@ -12,11 +12,13 @@ import { VERSION } from '../jellyfin.ts'
 import type { SetupRunner } from '../setup/apply.ts'
 import { CATALOG, type StackServiceId } from '../stack/catalog.ts'
 import { dockerOf, Orchestrator } from '../stack/orchestrator.ts'
-import { ClipMaker } from '../stack/clips.ts'
+import { ClipMaker, clipsWait } from '../stack/clips.ts'
 import { GamesNudger } from '../stack/games.ts'
 import { LibraryNudger } from '../stack/libraries.ts'
 import { BACKUP_FILE, describeParts, isPart } from '../stack/backup.ts'
 import { Maintainer } from '../stack/maintain.ts'
+import { builtOf } from '../stack/graphicsManager.ts'
+import { planKey } from '../stack/graphics.ts'
 import { randomBytes } from 'node:crypto'
 import { imageFor, selfContainer, startSelfUpdate } from '../stack/selfupdate.ts'
 import { windowsUpdater } from '../stack/winupdate.ts'
@@ -45,7 +47,11 @@ export function systemPlugin(ref: StackRef): Plugin {
     const clips = new ClipMaker(settings, orch, settings.paths, () => runner.status.state !== 'running' && !maint.isWorking, {
       docker,
       self: async () => (docker ? (await selfContainer(docker))?.Id : undefined),
+      // No graphics card: clips only at night (graphics.ts clipsNightOnly).
+      waitFor: () => clipsWait(settings.get()),
     })
+    // Helpers this Finesse left running when it stopped (a probe, a card test, a clip): its own only.
+    if (docker) void docker.sweepHelpers().catch(() => 0)
     if (process.env.FINESSE_MAINTENANCE !== 'off') {
       maint.start()
       clips.start()
@@ -301,17 +307,24 @@ export function systemPlugin(ref: StackRef): Plugin {
       const refresh = url.searchParams.has('refresh')
       if (s.mode === 'bundle' && s.stack) {
         const stored = s.stack.graphics
-        const inventory = refresh || !stored?.inventory ? await maint.graphics.inventory(refresh).catch(() => null) : stored.inventory
-        const plan = inventory ? maint.graphics.plan(inventory) : (stored?.plan ?? null)
+        // A look that didn't finish says nothing about the cards: what was last found stands.
+        const looked = refresh || !stored?.inventory ? await maint.graphics.inventory(refresh).catch(() => null) : null
+        const fresh = looked && looked.complete !== false ? maint.graphics.settle(looked) : null
+        const inventory = fresh ?? stored?.inventory ?? null
+        const plan = fresh ? maint.graphics.plan(fresh) : (stored?.plan ?? null)
+        const built = builtOf(stored)
         sendJson(res, 200, {
           mode: 'bundle',
           inventory,
           plan,
           // The plan the apps run with now, and whether a new one is waiting for tonight (or a click).
-          applied: stored ? { at: stored.at, key: stored.key, plan: stored.plan } : null,
-          pending: Boolean(plan && stored && maint.graphics.planKey(plan) !== stored.key) || Boolean(plan && !stored),
+          applied: stored && built.jellyfin && built.wolf ? { at: stored.at, key: planKey(built), plan: { ...stored.plan, jellyfin: built.jellyfin, wolf: built.wolf } } : null,
+          pending: Boolean(plan && planKey(plan) !== planKey(built)) || Boolean(stored?.pending),
+          waiting: stored?.pending?.why ?? null,
+          unknown: Boolean(looked && looked.complete === false),
           override: s.graphicsOverride ?? {},
           note: stored?.note ?? null,
+          offer: Boolean(stored?.offer),
           streaming: s.stack.services.includes('wolf'),
           working: maint.graphics.isWorking,
         })
@@ -327,7 +340,7 @@ export function systemPlugin(ref: StackRef): Plugin {
       needStack()
       const body = await readJson<{ jellyfin?: string | null; wolf?: string | null; apply?: boolean }>(req)
       const inv = await maint.graphics.inventory().catch(() => null)
-      const known = new Set((inv?.gpus ?? []).map((g) => g.id))
+      const known = new Set([...(inv?.complete !== false ? (inv?.gpus ?? []) : []), ...(settings.get().stack?.graphics?.inventory?.gpus ?? [])].map((g) => g.id))
       for (const [who, v] of [['jellyfin', body.jellyfin], ['wolf', body.wolf]] as const) {
         if (v === undefined || v === null || v === 'auto') continue
         if (!(known.has(v) || (who === 'jellyfin' && v === 'cpu'))) throw new ApiError(400, 'That card isn’t on this server. Check again, then pick one from the list.')
@@ -345,6 +358,18 @@ export function systemPlugin(ref: StackRef): Plugin {
       })
       void maint.graphics.apply('chosen by an administrator').catch((e) => maint.event('error', `Setting the graphics cards failed: ${(e as Error).message}`))
       sendJson(res, 202, { override: settings.get().graphicsOverride ?? {} })
+    })
+
+    // Servers Finesse set up: Finesse's video settings in Jellyfin, over the ones Jellyfin had (an administrator's click).
+    router.post('/api/system/graphics/encoding', async ({ req, res }) => {
+      await auth.requireAdmin(req)
+      needStack()
+      try {
+        await maint.graphics.useOurEncoding()
+      } catch (e) {
+        throw new ApiError(409, (e as Error).message)
+      }
+      sendJson(res, 200, { ok: true })
     })
 
     // Someone's own Jellyfin: set its encoding settings for a card its container can already use.

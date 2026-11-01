@@ -9,6 +9,7 @@ import type { Settings, SettingsStore } from '../config.ts'
 import { clearSetupCode } from '../auth.ts'
 import { logger } from '../log.ts'
 import { addSamples } from '../stack/samples.ts'
+import { builtOf } from '../stack/graphicsManager.ts'
 import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type GamesConfig, type StackContext, type StackServiceId } from '../stack/catalog.ts'
 import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
@@ -114,7 +115,8 @@ export function stackContext(s: Settings, hostDevices: string[]): StackContext |
     cloudflared: st.remote?.cloudflare,
     games: s.games,
     streaming: st.streaming,
-    ...(st.graphics ? { graphics: { jellyfin: st.graphics.plan.jellyfin, wolf: st.graphics.plan.wolf } } : {}),
+    // What each container was really built with (graphicsManager.ts), never a plan not yet applied.
+    ...(st.graphics ? { graphics: builtOf(st.graphics) } : {}),
   }
 }
 
