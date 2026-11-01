@@ -11,6 +11,7 @@
 // Updating the native shell itself (icon, bootstrap, appinfo) still needs a real
 // .ipk reinstall from a PC — that's what webos/update-webos.bat is for.
 
+import { cmpVersion, offersRelease } from './otaVersion'
 import { PROJECT_REPO } from './project'
 
 // owner/repo that publishes the webOS bundle as release assets.
@@ -42,16 +43,7 @@ export function currentVersion(): string {
   return staged || __APP_VERSION__
 }
 
-/** Compare dotted numeric versions. >0 if a is newer than b. */
-export function cmpVersion(a: string, b: string): number {
-  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
-  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0)
-    if (d !== 0) return d > 0 ? 1 : -1
-  }
-  return 0
-}
+export { cmpVersion }
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -99,8 +91,10 @@ export async function checkForUpdate(): Promise<UpdateInfo> {
   }
   const latest = (rel.tag_name || '0.0.0').replace(/^v/, '')
   const asset = (rel.assets || []).find((a) => /finesse-webos.*\.json$/i.test(a.name))
+  // A bundle already downloaded at this version or newer isn't fetched again.
+  const staged = await getStagedBundle()
   return {
-    available: cmpVersion(latest, current) > 0 && !!asset,
+    available: offersRelease(latest, current, staged?.version) && !!asset,
     current,
     latest,
     notes: rel.body || '',
