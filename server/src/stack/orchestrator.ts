@@ -12,6 +12,8 @@ import { CATALOG, containerName, proxyFor, type ServiceDef, type StackContext, t
 import { Docker, DockerError } from './docker.ts'
 import { NotOnThisHost, type AppState, type ProgressSink, type StackHost } from './host.ts'
 import type { StreamingProbe } from './wolf.ts'
+import type { Inventory } from './graphics.ts'
+import { probeGpus } from './gpus.ts'
 
 export type { ProgressSink } from './host.ts'
 
@@ -271,6 +273,20 @@ export class Orchestrator implements StackHost {
       }
     }
     return { devices, nvidiaRuntime, nvidiaModeset }
+  }
+
+  private gpus: { at: number; inv: Promise<Inventory> } | null = null
+
+  /**
+   * The host's graphics cards, each tested with a short conversion (gpus.ts). Kept 30 minutes:
+   * the tests start a container per card. `testImage` has Jellyfin's ffmpeg (null: no tests).
+   */
+  graphicsInventory(testImage: string | null, refresh = false): Promise<Inventory> {
+    if (!refresh && this.gpus && Date.now() - this.gpus.at < 30 * 60000) return this.gpus.inv
+    const inv = (async () => probeGpus(this.docker, { probeImage: await this.selfImage(), testImage, inDocker: Boolean(process.env.FINESSE_IN_DOCKER) }))()
+    this.gpus = { at: Date.now(), inv }
+    inv.catch(() => (this.gpus = null))
+    return inv
   }
 
   /** Whether a TCP port is free on the host (a probe container on the host network tries to bind it). */
