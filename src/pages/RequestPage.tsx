@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueries } from '@tanstack/react-query'
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
 import {
   arrAdd,
+  artistAlbums,
   arrDiscover,
+  requestArtistAlbum,
+  type ArtistAlbum,
   arrLibraryQuality,
   arrLookup,
   ArrError,
@@ -13,7 +16,8 @@ import {
   type DiscoverMovie,
   type DiscoverSection,
 } from '../api/arr'
-import { useArrQueue } from '../api/queries'
+import { noteRequested, useArrQueue } from '../api/queries'
+import { discoverStatus } from '../lib/requestState'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
 import RequestedSection from '../components/RequestedSection'
@@ -37,10 +41,13 @@ export default function RequestPage() {
   const kind = KINDS.some((k) => k.kind === kindParam) ? kindParam : 'movie'
   const [input, setInput] = useState(term)
   const toast = useToast()
+  const qc = useQueryClient()
   // Per-result override so a freshly-requested item flips state immediately.
   const [overrides, setOverrides] = useState<Record<string, ItemState>>({})
   /** Open quality/upgrade modal for an in-library title. */
   const [qualityItem, setQualityItem] = useState<ArrResult | null>(null)
+  /** The artist whose albums and EPs are open (one at a time). */
+  const [albumsFor, setAlbumsFor] = useState<string | null>(null)
 
   // URL is the source of truth, debounced from typing.
   useEffect(() => {
@@ -91,10 +98,12 @@ export default function RequestPage() {
 
   const request = async (r: ArrResult) => {
     const k = keyOf(r)
+    if (overrides[k] === 'adding' || overrides[k] === 'requested') return
     setOverrides((o) => ({ ...o, [k]: 'adding' }))
     try {
-      await arrAdd(r)
+      const id = await arrAdd(r)
       setOverrides((o) => ({ ...o, [k]: 'requested' }))
+      noteRequested(qc, r, id)
       toast(`Added “${r.title}” — Radarr/Sonarr is searching for a release`)
     } catch (e) {
       setOverrides((o) => ({ ...o, [k]: 'idle' }))
@@ -267,7 +276,18 @@ export default function RequestPage() {
                         )}
                       </button>
                     )}
+                    {r.kind === 'artist' && Boolean(r.raw.foreignArtistId) && (
+                      <button
+                        type="button"
+                        aria-expanded={albumsFor === keyOf(r)}
+                        onClick={() => setAlbumsFor(albumsFor === keyOf(r) ? null : keyOf(r))}
+                        className="inline-flex items-center rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors"
+                      >
+                        {albumsFor === keyOf(r) ? 'Hide albums & EPs' : 'Albums & EPs'}
+                      </button>
+                    )}
                   </div>
+                  {albumsFor === keyOf(r) && <ArtistAlbums artist={r} />}
                 </div>
               </div>
             )
@@ -356,7 +376,11 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
       </Link>
       <p className="text-[11px] text-ink-400">{m.year ?? ''}</p>
       <div className="mt-1.5">
-        {m.existing ? (
+        {discoverStatus(m) === 'in-library' ? (
+          <span className="text-xs font-medium text-emerald-300">In your library</span>
+        ) : discoverStatus(m) === 'requested' ? (
+          <span className="text-xs font-medium text-accent-300">Requested</span>
+        ) : m.existing ? (
           <span className="text-xs font-medium text-emerald-300">Already in Finesse</span>
         ) : state === 'requested' ? (
           <span className="text-xs font-medium text-accent-300">Added — searching</span>
@@ -379,4 +403,66 @@ function titleHue(title: string): number {
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) % 360
   return h
+}
+
+/**
+ * An artist's albums and EPs, each requestable on its own. Requesting a whole artist only
+ * gets what Lidarr's metadata profile follows (often albums only), so an EP-only artist
+ * came up empty; asking for the EP itself gets it.
+ */
+function ArtistAlbums({ artist }: { artist: ArrResult }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const key = ['artistAlbums', String(artist.raw.foreignArtistId)]
+  const q = useQuery({ queryKey: key, queryFn: () => artistAlbums(artist), staleTime: 5 * 60_000, retry: false })
+  const [busy, setBusy] = useState<string | null>(null)
+  const [done, setDone] = useState<Record<string, string>>({})
+  const ask = async (a: ArtistAlbum) => {
+    if (busy) return
+    setBusy(a.foreignAlbumId)
+    try {
+      const r = await requestArtistAlbum(artist, a)
+      setDone((d) => ({ ...d, [a.foreignAlbumId]: r.state === 'have' ? 'In your music' : 'Requested' }))
+      toast(r.profileChanged ? `${r.message} ${artist.title} now follows EPs too.` : r.message)
+      void qc.invalidateQueries({ queryKey: key })
+      void qc.invalidateQueries({ queryKey: ['arrQueue'] })
+      void qc.invalidateQueries({ queryKey: ['arrRequested'] })
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t request “${a.title}”`, 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+  if (q.isLoading) return <p className="mt-3 text-xs text-ink-400">Asking Lidarr for {artist.title}’s albums and EPs…</p>
+  if (q.isError) return <p className="mt-3 text-xs text-red-300">{(q.error as Error).message}</p>
+  const list = q.data ?? []
+  if (!list.length) return <p className="mt-3 text-xs text-ink-400">Lidarr doesn’t list any albums or EPs for {artist.title} yet.</p>
+  return (
+    <ul className="mt-3 divide-y divide-white/5 rounded-xl border border-white/5">
+      {list.slice(0, 40).map((a) => {
+        const status = done[a.foreignAlbumId] ?? (a.downloaded ? 'In your music' : a.monitored ? 'Requested' : null)
+        return (
+          <li key={a.foreignAlbumId} className="flex min-w-0 items-center gap-3 px-3 py-2">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] text-white">{a.title}</span>
+              <span className="block text-[11px] text-ink-400">{[a.type, a.year].filter(Boolean).join(' · ')}</span>
+            </span>
+            {status ? (
+              <span className={`shrink-0 text-xs font-medium ${status === 'In your music' ? 'text-emerald-300' : 'text-accent-300'}`}>{status}</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void ask(a)}
+                disabled={busy !== null}
+                aria-label={`Request ${a.title}`}
+                className="shrink-0 rounded-full bg-accent-fill px-3 py-1 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
+              >
+                {busy === a.foreignAlbumId ? 'Requesting…' : 'Request'}
+              </button>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
 }

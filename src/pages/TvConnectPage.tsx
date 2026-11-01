@@ -23,7 +23,10 @@ export default function TvConnectPage() {
       return
     }
     setContentOrigin(found.base)
-    // Everything that talks to the server reads the address at start-up.
+    // Everything that talks to the server reads the address at start-up, so reload,
+    // but not here: at #/connect the reload came back to this form. The start
+    // (#/) goes on to the profiles (or Home, when already signed in).
+    window.history.replaceState(null, '', '#/')
     window.location.reload()
   }
 

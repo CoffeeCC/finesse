@@ -30,7 +30,7 @@ export const STEP_META: Record<StepId, { nav: string; title: string; lead: React
   usenet: { nav: 'Usenet', title: 'Your Usenet provider', lead: 'The service that stores the files (usually $3–10 a month). Sign up with any provider, then copy its address, username and password here — Finesse does the rest.' },
   vpn: { nav: 'VPN', title: 'Your VPN', lead: 'Torrents only ever connect through your VPN: if it drops, they stop, and nothing leaks. Use the VPN account you already have.' },
   indexers: { nav: 'Search sites', title: 'Where to search', lead: 'Search sites find what you ask for. To use your own, sign up with one and paste its address and API key (it’s in your account settings on their site). Two find more than one.' },
-  quality: { nav: 'Quality', title: 'How good should it look?', lead: 'The default for new requests. You can pick a different quality for any single request.' },
+  quality: { nav: 'Quality', title: 'How good should it look?', lead: 'Every new request downloads in this quality. You can change it later by running setup again.' },
   remote: { nav: 'Away from home', title: 'Watching away from home', lead: 'Optional. Reach Finesse from anywhere — and share with friends’ servers — without opening ports on your router.' },
   email: { nav: 'Invite emails', title: 'Emailing invites', lead: 'Optional. Send invites straight to people’s inboxes. You can always share an invite link instead.' },
   review: { nav: 'Review', title: 'Ready to build', lead: 'Here’s everything Finesse will set up. Nothing is installed until you press Build.' },

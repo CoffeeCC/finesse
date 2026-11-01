@@ -7,6 +7,9 @@ import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { listen, tmp, webBuild } from './helpers.ts'
 
+/** A compact Jellyfin id in its hyphenated (GUID) spelling. */
+export const dashed = (id: string) => `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`
+
 type User = { Id: string; Name: string; Password?: string; Policy: Record<string, unknown> }
 
 /** A Jellyfin with users, sign-in, libraries, items, playback info and an HLS playlist. */
@@ -102,9 +105,11 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
       return void res.end(gzipSync(JSON.stringify({ MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${movie}/master.m3u8?ApiKey=${tok}` }] })))
     }
     if (p === `/Items/${movie}/PlaybackInfo` && req.method === 'POST') {
-      return send(200, { MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${movie}/master.m3u8?MediaSourceId=${movie}&ApiKey=${tok}` }], PlaySessionId: 'ps1' })
+      // Like Jellyfin: ids are compact in JSON, but hyphenated in the media URLs it builds.
+      return send(200, { MediaSources: [{ Id: movie, TranscodingUrl: `/videos/${dashed(movie)}/master.m3u8?MediaSourceId=${movie}&ApiKey=${tok}` }], PlaySessionId: 'ps1' })
     }
     if (p === `/videos/${movie}/master.m3u8`) return send(200, `#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmain.m3u8?ApiKey=${tok}\n`, 'application/vnd.apple.mpegurl')
+    if (p.toLowerCase() === `/videos/${movie}/hls1/main/0.ts`) return send(200, 'binary-segment', 'video/mp2t')
     if (p === `/Videos/${movie}/stream.mp4`) return send(200, 'binary-video', 'video/mp4')
     // For Moments: people, a title's details and the library it's in.
     if (p === '/Users' && req.method === 'GET') return admin ? send(200, [...users.values()]) : send(403)

@@ -12,6 +12,7 @@ import WatchlistButton from '../WatchlistButton'
 import CastMenu from '../CastMenu'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
 import { useInView } from '../../lib/inView'
+import { episodeChip } from '../../lib/episodes'
 
 /** Resting this long on a title starts its preview clip behind the stage. */
 const CLIP_DWELL_MS = 2200
@@ -98,7 +99,8 @@ function useChips(entry: NowEntry) {
     if (!it) return { chips: [], line: '' }
     const chips: string[] = []
     if (it.Type === 'Episode') {
-      chips.push(`S${it.ParentIndexNumber ?? '?'} · E${it.IndexNumber ?? '?'}`)
+      const code = episodeChip(it)
+      if (code) chips.push(code)
       if (it.Name) chips.push(it.Name)
     } else {
       if (it.ProductionYear) chips.push(String(it.ProductionYear))

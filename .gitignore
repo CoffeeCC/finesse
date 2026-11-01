@@ -8,3 +8,4 @@ webos/release
 previews/
 windows/installer/bin/
 windows/installer/obj/
+*.tsbuildinfo

@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
 import { ApiError, getSetupCode, setSetupCode, setupApi, type Problem, type RunStatus, type SetupInfo, type SystemItem } from '../../api/setup'
 import { bundledJellyfin, discover, type FinesseInfo } from '../../lib/finesseServer'
+import { forgetArrConfig } from '../../api/arr'
 import { DOCS_URL } from '../../lib/project'
 import { FinesseWordmark } from '../../components/AuthShell'
 import { clearDraft, fromDoc, loadDraft, newDraft, saveDraft, toDoc, type Draft } from './draft'
@@ -273,6 +274,8 @@ export default function SetupPage() {
     finishLofi(2)
     setSigningIn(true)
     setSignInError('')
+    // Setup may have changed the download quality: new requests read it again.
+    forgetArrConfig()
     const info2 = await discover({ force: true })
     const server = bundledJellyfin(info2 ?? finesse)
     try {
@@ -295,6 +298,8 @@ export default function SetupPage() {
     finishLofi(2)
     setSigningIn(true)
     setSignInError('')
+    // Setup may have changed the download quality: new requests read it again.
+    forgetArrConfig()
     const info2 = await discover({ force: true })
     const server = bundledJellyfin(info2 ?? finesse)
     try {
@@ -407,7 +412,7 @@ export default function SetupPage() {
   const visible = steps.filter((s) => s !== 'welcome')
 
   return (
-    <Backdrop>
+    <Backdrop music={false}>
       <div className="mx-auto flex min-h-[calc(var(--vh)*100)] max-w-6xl">
         {/* Step rail (desktop) */}
         <aside className="sticky top-0 hidden h-[calc(var(--vh)*100)] w-72 shrink-0 flex-col px-8 py-10 lg:flex">
@@ -485,7 +490,7 @@ export default function SetupPage() {
                     : meta.lead}
               </p>
               <div className="mt-9">
-                {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} />}
+                {step === 'welcome' && <WelcomeStep code={code} setCode={setCode} error={codeError} onSubmit={submitCode} native={finesse?.setup.host === 'native'} />}
                 {step === 'start' && <StartStep path={path} setPath={setPath} />}
                 {step === 'machine' && <MachineStep {...props} recheck={runSystemCheck} checking={checking} />}
                 {step === 'account' && <AccountStep {...props} />}
@@ -514,9 +519,13 @@ export default function SetupPage() {
           {/* Footer actions */}
           <div className="sticky bottom-0 z-20 border-t border-white/[0.06] bg-ink-950/85 px-5 backdrop-blur pb-safe sm:px-10">
             <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 py-4">
-              <GhostButton onClick={() => go(-1)} disabled={stepIdx === 0 || step === 'start'}>
-                Back
-              </GhostButton>
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <GhostButton onClick={() => go(-1)} disabled={stepIdx === 0 || step === 'start'}>
+                  Back
+                </GhostButton>
+                {/* Its own slot, never over the step's button. */}
+                <LoFinessaToggle inline />
+              </div>
               <div className="flex items-center gap-4">
                 {blocker && step !== 'welcome' && <span className="hidden text-right text-[12.5px] text-ink-400 sm:block">{blocker}</span>}
                 <PrimaryButton onClick={() => void next()} disabled={Boolean(blocker) && !(step === 'welcome' && code.trim())} busy={codeBusy}>
@@ -583,7 +592,8 @@ function buildEstimate(services: string[]): string {
   return 'This usually takes 5–15 minutes, mostly downloading about 3 GB of apps (much less if they’re already on this machine).'
 }
 
-function Backdrop({ children }: { children: ReactNode }) {
+/** `music`: the floating Lo-Finessa toggle (the wizard puts it in its footer instead). */
+function Backdrop({ children, music = true }: { children: ReactNode; music?: boolean }) {
   return (
     <div className="relative min-h-[calc(var(--vh)*100)] bg-ink-950 text-white">
       <div className="aurora" aria-hidden>
@@ -593,12 +603,12 @@ function Backdrop({ children }: { children: ReactNode }) {
       </div>
       <div className="grain" aria-hidden />
       {children}
-      <LoFinessaToggle />
+      {music && <LoFinessaToggle />}
     </div>
   )
 }
 
-function WelcomeStep({ code, setCode, error, onSubmit }: { code: string; setCode: (c: string) => void; error: string; onSubmit: (e: FormEvent) => void }) {
+function WelcomeStep({ code, setCode, error, onSubmit, native }: { code: string; setCode: (c: string) => void; error: string; onSubmit: (e: FormEvent) => void; native: boolean }) {
   const format = (raw: string) => {
     const c = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
     return c.length > 4 ? `${c.slice(0, 4)}-${c.slice(4)}` : c
@@ -638,7 +648,17 @@ function WelcomeStep({ code, setCode, error, onSubmit }: { code: string; setCode
           <p className="mt-2 text-[13px] text-red-300">{error}</p>
         ) : (
           <p className="mt-2 text-[12.5px] leading-relaxed text-ink-400">
-            The installer showed it when it finished. Lost it? Run <code className="rounded bg-white/10 px-1.5 py-0.5 text-[12px]">docker exec finesse finesse setup-code</code> on the server.
+            {native ? (
+              // Windows (no Docker): where the Windows service keeps it (windows/installer/Service.cs).
+              <>
+                Finesse Setup showed it when it finished. Lost it? On the PC running Finesse, open{' '}
+                <code className="break-all rounded bg-white/10 px-1.5 py-0.5 text-[12px]">C:\ProgramData\Finesse\config\finesse\setup-code</code> in Notepad.
+              </>
+            ) : (
+              <>
+                The installer showed it when it finished. Lost it? Run <code className="rounded bg-white/10 px-1.5 py-0.5 text-[12px]">docker exec finesse finesse setup-code</code> on the server.
+              </>
+            )}
           </p>
         )}
       </div>

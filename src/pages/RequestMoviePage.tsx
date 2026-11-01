@@ -7,7 +7,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { arrAdd, arrMovieDetails, ArrError, toMovieDetails, type MovieDetails } from '../api/arr'
 import { getItems } from '../api/client'
-import { useArrQueue } from '../api/queries'
+import { noteRequested, useArrQueue } from '../api/queries'
 import { ACTION_BTN, ActionButton, PLAY_BTN } from '../components/ActionButton'
 import TrailerHero from '../components/TrailerHero'
 import { useToast } from '../components/Toast'
@@ -58,13 +58,12 @@ export default function RequestMoviePage() {
   })
 
   const request = async () => {
-    if (!m) return
+    if (!m || requested !== 'idle') return
     setRequested('adding')
     try {
-      await arrAdd(m)
+      const id = await arrAdd(m)
       setRequested('requested')
-      void qc.invalidateQueries({ queryKey: ['arrDiscover'] })
-      void qc.invalidateQueries({ queryKey: ['arrMovieDetails', tmdbId] })
+      noteRequested(qc, m, id)
       toast(`Added “${m.title}”. Radarr is looking for it now.`)
     } catch (e) {
       setRequested('idle')

@@ -19,6 +19,10 @@ import { Jellyfin, VERSION } from './jellyfin.ts'
 import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
+import { registerRequestDefaults } from './requestDefaults.ts'
+import { registerAlbumRequests } from './albumRequests.ts'
+import { checkConnections, type ConnReport } from './connections.ts'
+import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
 const log = logger('http')
@@ -95,7 +99,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       mode: s.mode,
       instanceId: s.instanceId,
       jellyfin: s.jellyfin.url ? { path: '/jellyfin' } : null,
-      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready' },
+      // host: what runs the apps (the Windows service sets FINESSE_HOST=native), so help text names commands that exist there.
+      setup: { state: s.setup.state, needsCode: s.mode === 'bundle' && s.setup.state !== 'ready', host: process.env.FINESSE_HOST === 'native' ? 'native' : 'docker' },
       features: features(s),
       publicUrl: s.publicUrl ?? null,
       lanHost,
@@ -129,6 +134,35 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   const uploads = new Uploads(settings)
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
+  registerRequestDefaults(router, { settings, auth })
+  registerAlbumRequests(router, { settings, auth })
+  // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
+  let conns: { at: number; report: Promise<ConnReport> } | null = null
+  router.get('/api/system/connections', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    // Its tests ask indexers and download clients: at most once a minute unless asked.
+    if (!conns || url.searchParams.has('refresh') || Date.now() - conns.at > 60_000) {
+      const report = checkConnections(settings.get())
+      conns = { at: Date.now(), report }
+      report.catch(() => (conns = null))
+    }
+    sendJson(res, 200, await conns.report)
+  })
+  // Library health: read-only (libraryHealth.ts). It reads whole libraries, so at most every 5 minutes unless asked.
+  let libHealth: { at: number; report: Promise<LibraryHealth> } | null = null
+  router.get('/api/system/library-health', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    if (!libHealth || url.searchParams.has('refresh') || Date.now() - libHealth.at > 300_000) {
+      const report = libraryHealth(settings.get(), (path) => jf.request(path, { timeoutMs: 60000 }))
+      libHealth = { at: Date.now(), report }
+      report.catch(() => (libHealth = null))
+    }
+    try {
+      sendJson(res, 200, await libHealth.report)
+    } catch {
+      throw new ApiError(502, 'Couldn’t read the library from Jellyfin. Check Jellyfin is running, then try again.')
+    }
+  })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
   const updater = new WebUpdater(web, releases, VERSION)

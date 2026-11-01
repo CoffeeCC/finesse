@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { groupsApi, type GroupsOverview } from '../../api/setup'
+import { groupsApi, type FriendHealth, type GroupsOverview } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { Spinner } from '../setup/ui'
 import { getMomentSettings, setMomentSettings } from '../../api/moments'
@@ -273,7 +273,8 @@ export default function GroupsAdmin() {
                       <p className="text-[13px] font-medium text-white">{f.name}</p>
                       <p className="truncate text-[12px] text-ink-400">{f.url}</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <FriendCheck id={f.id} />
                       {!o.links.some((l) => l.name === f.name) && (
                         <button type="button" className={smallBtn} onClick={() => setBackFor(backFor === f.id ? null : f.id)}>
                           Share yours back
@@ -313,5 +314,37 @@ export default function GroupsAdmin() {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Check a friend's server: connected (and how much it shares), unreachable, or no longer
+ * sharing, with when that was checked (it's a check, not a live connection).
+ */
+function FriendCheck({ id }: { id: string }) {
+  const [h, setH] = useState<FriendHealth | null>(null)
+  const [busy, setBusy] = useState(false)
+  const check = async () => {
+    setBusy(true)
+    try {
+      setH(await groupsApi.checkFriend(id))
+    } catch (e) {
+      setH({ checkedAt: new Date().toISOString(), state: 'error', message: e instanceof Error ? e.message : 'Couldn’t check' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const tone = h?.state === 'ok' ? 'text-emerald-300' : h?.state === 'outdated' || h?.state === 'busy' ? 'text-amber-200' : 'text-red-300'
+  return (
+    <>
+      <button type="button" className={smallBtn} disabled={busy} onClick={() => void check()}>
+        {busy ? 'Checking…' : h ? 'Check again' : 'Check connection'}
+      </button>
+      {h && (
+        <p role="status" className={`basis-full text-[12px] leading-relaxed ${tone}`}>
+          {h.message} <span className="text-ink-400">· checked {new Date(h.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+        </p>
+      )}
+    </>
   )
 }

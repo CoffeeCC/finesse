@@ -334,6 +334,15 @@ export const groupsApi = {
   offer: (id: string, libraries: string[]) => call<{ ok: boolean }>('POST', `/api/groups/friends/${id}/offer`, { libraries }, { timeoutMs: 45000 }),
   acceptOffer: (id: string) => call<Friend>('POST', `/api/groups/offers/${id}/accept`, undefined, { timeoutMs: 45000 }),
   dismissOffer: (id: string) => call<{ ok: boolean }>('DELETE', `/api/groups/offers/${id}`),
+  /** Administrators: is a friend's server reachable, and still sharing with us? */
+  checkFriend: (id: string) => call<FriendHealth>('POST', `/api/groups/friends/${id}/check`, undefined, { timeoutMs: 30000 }),
+}
+
+export interface FriendHealth {
+  checkedAt: string
+  state: 'ok' | 'unreachable' | 'revoked' | 'busy' | 'outdated' | 'error'
+  message: string
+  libraries?: number
 }
 
 // ---------- Game streaming (Wolf + Moonlight) ----------
@@ -524,4 +533,54 @@ export const playApi = {
       /* signed out */
     }
   },
+}
+
+// ---------- Where new requests go (Settings → Downloads; server/src/requestDefaults.ts) ----------
+
+export type RequestApp = 'radarr' | 'sonarr' | 'lidarr'
+
+export interface RequestAppConfig {
+  app: RequestApp
+  profileName?: string
+  profileId?: number
+  rootFolder?: string
+  source: 'settings' | 'setup' | 'none'
+  stale?: boolean
+}
+
+export const requestDefaultsApi = {
+  get: () => call<{ apps: RequestAppConfig[] }>('GET', '/api/requests/defaults'),
+  /** Save a quality profile (by the app's id) and folder for one app; null goes back to setup's choice. */
+  set: (app: RequestApp, profileId: number | null, rootFolder?: string) =>
+    call<{ apps: RequestAppConfig[] }>('PUT', '/api/requests/defaults', { app, profileId, ...(rootFolder ? { rootFolder } : {}) }),
+}
+
+// ---------- Connected apps' own health (server/src/connections.ts) ----------
+
+export interface ConnCheck {
+  id: string
+  name: string
+  ok: boolean | null
+  summary: string
+  problems: string[]
+}
+export interface ConnReport {
+  checkedAt: string
+  apps: ConnCheck[]
+  vpn: { ok: boolean | null; summary: string; source: 'gluetun' | 'inferred' } | null
+}
+export const connectionsApi = {
+  get: (refresh = false) => call<ConnReport>('GET', `/api/system/connections${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 60000 }),
+}
+
+// ---------- Library health (read-only; server/src/libraryHealth.ts) ----------
+
+export interface LibraryFinding {
+  kind: 'duplicate' | 'unfollowed' | 'short' | 'misfiled'
+  title: string
+  detail: string
+  items: string[]
+}
+export const libraryHealthApi = {
+  get: (refresh = false) => call<{ checkedAt: string; findings: LibraryFinding[]; skipped: string[] }>('GET', `/api/system/library-health${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 120000 }),
 }

@@ -4,9 +4,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import Hls from 'hls.js'
 import * as api from '../api/client'
 import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
+import { adjacentEpisodes, episodeCode } from '../lib/episodes'
 import { EMPTY_MANIFEST, prefetchClip, previewClipUrl } from '../lib/preview'
 import { pickSubtitle } from '../lib/tracks'
-import { getPrefs, setPrefs, BITRATE_OPTIONS } from '../lib/settings'
+import { getPrefs, setPrefs, BITRATE_OPTIONS, reducedMotion } from '../lib/settings'
 import { IS_TV, TOUCH_UI, inSpatialMode } from '../lib/device'
 import CastMenu from '../components/CastMenu'
 import MomentComposer from '../components/moments/MomentComposer'
@@ -320,10 +321,7 @@ function moveFocus(root: HTMLElement | null, dir: Dir): boolean {
 }
 
 function episodeLabel(ep: JfItem): string {
-  const s = ep.ParentIndexNumber
-  const e = ep.IndexNumber
-  const code = s != null && e != null ? (s === 0 ? `Special ${e}` : `S${s}:E${e}`) : ''
-  return [code, ep.Name].filter(Boolean).join(' · ')
+  return [episodeCode(ep), ep.Name].filter(Boolean).join(' · ')
 }
 
 export default function PlayerPage() {
@@ -347,6 +345,8 @@ export default function PlayerPage() {
   const streamRef = useRef<StreamInfo | null>(null)
   /** Bumped per loadStream — a superseded PlaybackInfo reply must not attach. */
   const loadGenRef = useRef(0)
+  /** While a new stream is loading: whether it should stay paused once it's up (null when not loading). */
+  const loadPausedRef = useRef<boolean | null>(null)
 
   const [error, setError] = useState('')
   const [buffering, setBuffering] = useState(true)
@@ -486,20 +486,13 @@ export default function PlayerPage() {
   const durationSec = ticksToSeconds(item?.RunTimeTicks)
 
   // ---------- Prev / next episode (whole series, crosses seasons) ----------
-  // Missing (virtual) episodes can't play, and Specials (season 0) aren't part
-  // of the main run — they only chain among themselves when you're in them.
+  // By episode, not by file: another copy of this episode is never "next"
+  // (src/lib/episodes.ts). Missing (virtual) episodes can't play, and Specials
+  // (season 0) only chain among themselves when you're in them.
   const { prevEp, nextEp } = useMemo(() => {
-    const none = { prevEp: undefined as JfItem | undefined, nextEp: undefined as JfItem | undefined }
-    if (!item || item.Type !== 'Episode' || !seriesEps?.Items?.length) return none
-    const inSpecials = (item.ParentIndexNumber ?? 0) === 0
-    const chain = seriesEps.Items.filter(
-      (e) =>
-        e.Id === item.Id ||
-        (e.LocationType !== 'Virtual' && ((e.ParentIndexNumber ?? 0) === 0) === inSpecials),
-    )
-    const i = chain.findIndex((e) => e.Id === item.Id)
-    if (i < 0) return none
-    return { prevEp: chain[i - 1], nextEp: chain[i + 1] }
+    if (!item || item.Type !== 'Episode' || !seriesEps?.Items?.length) return { prevEp: undefined, nextEp: undefined }
+    const { prev, next } = adjacentEpisodes(seriesEps.Items, item.Id)
+    return { prevEp: prev, nextEp: next }
   }, [item, seriesEps])
 
   /** Switch to another episode in place (same <video>, so mobile autoplay
@@ -567,10 +560,18 @@ export default function PlayerPage() {
   }, [])
 
   const loadStream = useCallback(
-    async (atTicks: number, audio?: number, sub?: number) => {
+    async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean } = {}) => {
       const video = videoRef.current
       if (!video || !itemId) return
       const gen = ++loadGenRef.current
+      // Replacing the stream of a paused video (quality, audio, subtitles) keeps it paused:
+      // the new stream shows the same frame and waits. <video autoPlay> would start it.
+      const stayPaused = opts.paused === true
+      loadPausedRef.current = stayPaused
+      video.autoplay = !stayPaused
+      const loaded = () => {
+        if (gen === loadGenRef.current) loadPausedRef.current = null
+      }
       // Capture resume BEFORE teardown so subtitle toggles don't lose place.
       const resumeSec = Math.max(0, ticksToSeconds(atTicks))
       if (atTicks > 0) lastTicks.current = atTicks
@@ -674,7 +675,8 @@ export default function PlayerPage() {
             applyResumeSeek()
             repaintOverlay()
             setBuffering(false)
-            video.play().catch(() => {})
+            loaded()
+            if (!stayPaused) video.play().catch(() => {})
           })
           hls.on(Hls.Events.FRAG_BUFFERED, () => {
             const s = streamRef.current
@@ -687,13 +689,15 @@ export default function PlayerPage() {
             video.addEventListener('loadedmetadata', applyResumeSeek, { once: true })
             video.addEventListener('canplay', applyResumeSeek, { once: true })
           }
-          await video.play().catch(() => {})
+          if (!stayPaused) await video.play().catch(() => {})
           if (gen === loadGenRef.current) setBuffering(false)
+          loaded()
         }
 
         report(api.reportPlaybackStart)
       } catch (e) {
         if (gen !== loadGenRef.current) return
+        loaded()
         setError(e instanceof Error ? e.message : 'Could not start playback')
         setBuffering(false)
       }
@@ -958,6 +962,13 @@ export default function PlayerPage() {
     localStorage.setItem('finesse.muted', muted ? '1' : '0')
   }, [volume, muted])
 
+  /** Paused (or about to be: a stream loading for a paused video), so a new stream should wait too. */
+  const pausedNow = useCallback(() => {
+    if (loadPausedRef.current !== null) return loadPausedRef.current
+    const v = videoRef.current
+    return Boolean(v && v.paused && !v.ended)
+  }, [])
+
   // ---------- Actions ----------
   const togglePlay = useCallback(() => {
     const v = videoRef.current
@@ -981,7 +992,7 @@ export default function PlayerPage() {
       const subArg = burnedInSubRef.current && subIndex !== -1 ? subIndex : undefined
       const renegotiate = () => {
         setBuffering(true)
-        loadStream(secondsToTicks(absSec), audioIndex, subArg)
+        loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
       }
 
       // ----- Direct play: full media timeline -----
@@ -999,7 +1010,7 @@ export default function PlayerPage() {
             if (!vv || !ss || ss.transcoding) return
             // Seek was ignored (common on some mkv remuxes) → new stream at target.
             if (Math.abs(vv.currentTime - absSec) > 5) {
-              loadStream(secondsToTicks(absSec), audioIndex, subArg)
+              loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
             }
           }, 400)
         }
@@ -1022,12 +1033,12 @@ export default function PlayerPage() {
           if (!vv || !ss) return
           const now = ss.offsetSec + vv.currentTime
           if (Math.abs(now - absSec) > 10) {
-            loadStream(secondsToTicks(absSec), audioIndex, subArg)
+            loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
           }
         }, 500)
       }
     },
-    [durationSec, loadStream, audioIndex, subIndex],
+    [durationSec, loadStream, audioIndex, subIndex, pausedNow],
   )
   const seekToRef = useRef(seekTo)
   seekToRef.current = seekTo
@@ -1119,7 +1130,7 @@ export default function PlayerPage() {
         if (overlayForRef.current !== chosen.Index) return
         // Fallback: burn-in (no client-side delay on that path).
         burnedInSubRef.current = true
-        loadStream(secondsToTicks(atSec), audio, chosen.Index)
+        loadStream(secondsToTicks(atSec), audio, chosen.Index, { paused: pausedNow() })
       })
   }
 
@@ -1142,7 +1153,7 @@ export default function PlayerPage() {
     const at = liveAbsSec()
     setAudioIndex(idx)
     setAbsTime(at)
-    loadStream(secondsToTicks(at), idx, burnedSub())
+    loadStream(secondsToTicks(at), idx, burnedSub(), { paused: pausedNow() })
     rememberTrack({ audioLang: langOfStream(idx) })
   }
   const changeSub = (idx: number) => {
@@ -1165,7 +1176,7 @@ export default function PlayerPage() {
     if (idx === -1) {
       if (wasBurnedIn) {
         burnedInSubRef.current = false
-        loadStream(secondsToTicks(at), audioIndex, undefined)
+        loadStream(secondsToTicks(at), audioIndex, undefined, { paused: pausedNow() })
       } else {
         requestAnimationFrame(() => {
           const v = videoRef.current
@@ -1180,7 +1191,7 @@ export default function PlayerPage() {
     // even during HLS transcode — no restart, and delay slider works.
     if (isImageSubtitle(chosen) || !s || !itemId || !chosen) {
       burnedInSubRef.current = true
-      loadStream(secondsToTicks(at), audioIndex, idx)
+      loadStream(secondsToTicks(at), audioIndex, idx, { paused: pausedNow() })
       return
     }
 
@@ -1191,8 +1202,8 @@ export default function PlayerPage() {
     setPrefs({ maxBitrate: bitrate })
     setMaxBitrate(bitrate)
     setAbsTime(at)
-    // Re-negotiate the stream at the new cap from the current position
-    loadStream(secondsToTicks(at), audioIndex, burnedSub())
+    // Re-negotiate the stream at the new cap from the current position (paused stays paused)
+    loadStream(secondsToTicks(at), audioIndex, burnedSub(), { paused: pausedNow() })
   }
 
   // ---------- Panels (Audio & subtitles / Settings) ----------
@@ -2216,7 +2227,7 @@ export default function PlayerPage() {
           <span className="w-14 shrink-0 text-xs tabular-nums text-ink-400">{fmt(durationSec)}</span>
         </div>
 
-        <div className="mt-1 flex items-center gap-0.5 sm:gap-1.5 text-white">
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-0.5 sm:gap-1.5 text-white">
           {!TOUCH_UI && (
             <>
               {isEpisode && (
@@ -2230,13 +2241,16 @@ export default function PlayerPage() {
                   <IconPrev className="h-6 w-6" />
                 </button>
               )}
-              <button onClick={() => nudgeSeek(-SEEK_STEP)} className={iconBtn} aria-label="Back 10 seconds" title="Back 10s (←)">
+              {/* Narrow windows: the ±10 s buttons and volume step aside (the seek bar,
+                  arrow keys and the device's volume still do it), so settings,
+                  captions, cast and fullscreen stay on screen. */}
+              <button onClick={() => nudgeSeek(-SEEK_STEP)} className={`${iconBtn} max-sm:hidden`} aria-label="Back 10 seconds" title="Back 10s (←)">
                 <IconReplay className="h-7 w-7" />
               </button>
               <button data-play-toggle onClick={togglePlay} className={`${iconBtn} !h-12 !w-12`} aria-label={playing ? 'Pause' : 'Play'} title="Play/Pause (space)">
                 {playing ? <IconPause className="h-8 w-8" /> : <IconPlay className="h-8 w-8 translate-x-px" />}
               </button>
-              <button onClick={() => nudgeSeek(SEEK_STEP)} className={iconBtn} aria-label="Forward 10 seconds" title="Forward 10s (→)">
+              <button onClick={() => nudgeSeek(SEEK_STEP)} className={`${iconBtn} max-sm:hidden`} aria-label="Forward 10 seconds" title="Forward 10s (→)">
                 <IconForward className="h-7 w-7" />
               </button>
               {isEpisode && (
@@ -2251,7 +2265,7 @@ export default function PlayerPage() {
                 </button>
               )}
               {!IS_TV && (
-                <div className="flex items-center group/vol">
+                <div className="flex items-center group/vol max-sm:hidden">
                   <button onClick={() => setMuted((m) => !m)} className={iconBtn} aria-label={muted ? 'Unmute' : 'Mute'} title="Mute (m)">
                     {muted || volume === 0 ? <IconMuted className="h-5 w-5" /> : <IconVolume className="h-5 w-5" />}
                   </button>
@@ -2371,9 +2385,11 @@ export default function PlayerPage() {
           >
             {TOUCH_UI && <div className="mx-auto -mt-1 mb-3 h-1 w-10 rounded-full bg-white/20" aria-hidden />}
             {menu === 'tracks' ? (
-              <div className={`grid gap-4 ${audioTracks.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+              // minmax(0, 1fr): long track names wrap inside their column instead of
+              // widening the panel (it scrolled sideways on phones).
+              <div className={`grid grid-cols-[minmax(0,1fr)] gap-4 ${audioTracks.length > 1 ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : ''}`}>
                 {audioTracks.length > 1 && (
-                  <section>
+                  <section className="min-w-0">
                     <h3 className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Audio</h3>
                     {audioTracks.map((t) => (
                       <PanelOption
@@ -2386,7 +2402,7 @@ export default function PlayerPage() {
                     ))}
                   </section>
                 )}
-                <section>
+                <section className="min-w-0">
                   <h3 className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Subtitles</h3>
                   <PanelOption selected={subIndex === -1} onSelect={() => changeSub(-1)}>
                     Off
@@ -2531,8 +2547,7 @@ export default function PlayerPage() {
   )
 }
 
-const REDUCED_MOTION =
-  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const REDUCED_MOTION = typeof window !== 'undefined' && reducedMotion()
 
 /** Ambient mode: the current scene, shrunk to a few pixels and blurred huge,
  *  glows in the letterbox bars behind the picture (phones held upright, wide
@@ -2762,7 +2777,8 @@ function PanelOption({
           </svg>
         )}
       </span>
-      <span className="min-w-0 truncate">{children}</span>
+      {/* Wraps rather than cuts off: two English tracks differ further along their names. */}
+      <span className="min-w-0 flex-1 break-words">{children}</span>
     </button>
   )
 }

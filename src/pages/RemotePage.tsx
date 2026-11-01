@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
 import { ticksToSeconds } from '../api/types'
+import { episodeCode } from '../lib/episodes'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
 
@@ -24,7 +25,7 @@ function fmt(sec: number): string {
 
 function titleOf(item: api.JfSession['NowPlayingItem']): string {
   if (!item) return ''
-  if (item.Type === 'Episode') return `${item.SeriesName ?? ''} · S${item.ParentIndexNumber ?? '?'}:E${item.IndexNumber ?? '?'} · ${item.Name ?? ''}`
+  if (item.Type === 'Episode') return [item.SeriesName, episodeCode(item), item.Name].filter(Boolean).join(' · ')
   if (item.Type === 'Audio') return [item.Name, (item as { AlbumArtist?: string }).AlbumArtist].filter(Boolean).join(' · ')
   return item.Name ?? ''
 }

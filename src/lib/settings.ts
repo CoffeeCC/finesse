@@ -54,6 +54,8 @@ export interface Prefs {
   onlineLyrics: boolean
   /** Player: a note pops up when you reach a moment someone sent you. */
   momentPopups: boolean
+  /** Reduce motion here even when the device doesn't ask for it (it's always reduced when it does). */
+  reduceMotion: boolean
 }
 
 const KEY = 'finesse.prefs'
@@ -75,6 +77,7 @@ const DEFAULTS: Prefs = {
   tiltParallax: false,
   onlineLyrics: true,
   momentPopups: true,
+  reduceMotion: false,
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike
@@ -87,6 +90,18 @@ export const UI_SCALE_OPTIONS: { label: string; value: number }[] = [
   { label: '175%', value: 1.75 },
   { label: '200% (couch / big TV)', value: 2 },
 ]
+
+/** Less motion: the device asks for it (prefers-reduced-motion), or this app was told to. */
+export function reducedMotion(): boolean {
+  if (getPrefs().reduceMotion) return true
+  return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
+/** The app's own Reduce motion switch: html[data-motion="reduce"] (index.css stills animations). Before first paint. */
+export function applyReduceMotion(on = getPrefs().reduceMotion) {
+  if (on) document.documentElement.dataset.motion = 'reduce'
+  else delete document.documentElement.dataset.motion
+}
 
 /** Apply the saved UI zoom to the document. Safe to call before React mounts. */
 export function applyUiScale(scale = getPrefs().uiScale) {

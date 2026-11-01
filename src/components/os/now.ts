@@ -13,6 +13,7 @@ import { backdropBlurhash, blurhashAverageColor, primaryBlurhash } from '../../l
 import { vividRgb } from '../../lib/accent'
 import { useFinesse } from '../../lib/finesseServer'
 import { playHref } from '../MediaCard'
+import { episodeChip } from '../../lib/episodes'
 
 export type NowKind = 'elsewhere' | 'resume' | 'next' | 'music' | 'play' | 'friend' | 'new'
 
@@ -61,7 +62,7 @@ function seriesLogo(item: JfItem): string | null {
 }
 
 const left = (item: JfItem, pos: number) => (item.RunTimeTicks ? formatRuntime(item.RunTimeTicks - pos) : '')
-const episodeLabel = (item: JfItem) => `S${item.ParentIndexNumber ?? '?'} · E${item.IndexNumber ?? '?'}`
+const episodeLabel = (item: JfItem) => episodeChip(item) || 'Episode'
 
 function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', artWidth: number, extra: Partial<NowEntry> = {}): NowEntry {
   const isEp = item.Type === 'Episode'
@@ -77,7 +78,12 @@ function watchEntry(item: JfItem, kind: 'resume' | 'next' | 'friend' | 'new', ar
     kicker = rest ? `Continue · ${rest} left` : 'Continue'
     sub = isEp ? `${episodeLabel(item)} · ${rest} left` : `${rest} left`
   } else if (kind === 'next') {
-    kicker = `Up next · season ${item.ParentIndexNumber ?? '?'}, episode ${item.IndexNumber ?? '?'}`
+    kicker =
+      item.ParentIndexNumber != null && item.IndexNumber != null
+        ? `Up next · season ${item.ParentIndexNumber}, episode ${item.IndexNumber}`
+        : item.IndexNumber != null
+          ? `Up next · episode ${item.IndexNumber}`
+          : 'Up next'
     sub = `${episodeLabel(item)} next`
   } else if (kind === 'new') {
     kicker = 'New on your server'

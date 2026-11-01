@@ -43,6 +43,8 @@ import { useAuth } from '../auth/AuthContext'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
+import { episodeCode, groupEpisodeVersions } from '../lib/episodes'
+import ItemUnavailable from '../components/ItemUnavailable'
 
 function youTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/.*[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/)
@@ -114,7 +116,7 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
   const ep = data?.Items?.[0]
   if (!ep) return null
   const resumeTicks = ep.UserData?.PlaybackPositionTicks ?? 0
-  const code = `S${ep.ParentIndexNumber ?? '?'}:E${ep.IndexNumber ?? '?'}`
+  const code = episodeCode(ep)
   const href = `/play/${ep.Id}${resumeTicks > 0 ? `?t=${resumeTicks}` : ''}`
   return (
     <div className="w-full sm:w-auto min-w-0">
@@ -127,14 +129,14 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
           <path d="M8 5v14l11-7z" />
         </svg>
-        {resumeTicks > 0 ? 'Resume' : 'Play'} {code}
+        {[resumeTicks > 0 ? 'Resume' : 'Play', code].filter(Boolean).join(' ')}
       </Link>
       <ResumeMeta item={ep} episodeName={ep.Name} />
     </div>
   )
 }
 
-function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
+function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {
   const navigate = useNavigate()
   const thumbRef = useRef<HTMLDivElement>(null)
   const thumb = episodeThumbUrl(ep)
@@ -181,6 +183,7 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
         </p>
         <p className="text-xs text-ink-400 mt-0.5">
           {missing ? 'Not in library' : formatRuntime(ep.RunTimeTicks)}
+          {versions.length > 1 && <span className="ml-2">· {versions.length} versions</span>}
           {upNext && !missing && <span className="ml-2 font-semibold text-accent-300">Up next</span>}
         </p>
         {ep.Overview && (
@@ -189,7 +192,7 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
       </div>
     </>
   )
-  return missing ? (
+  const row = missing ? (
     <div className={rowClass}>{body}</div>
   ) : (
     <Link
@@ -200,6 +203,28 @@ function EpisodeRow({ ep, upNext }: { ep: JfItem; upNext?: boolean }) {
     >
       {body}
     </Link>
+  )
+  if (versions.length < 2) return row
+  // Copies of this episode: play a particular one (the row plays the one you started, or the first).
+  return (
+    <div className="min-w-0">
+      {row}
+      <div role="group" aria-label={`Versions of ${ep.Name}`} className="-mt-1 mb-1 flex flex-wrap gap-2 px-2 sm:px-3">
+        {versions.map((v, i) => (
+          <Link
+            key={v.Id}
+            to={playHref(v)}
+            aria-current={v.Id === ep.Id ? 'true' : undefined}
+            className={`inline-flex h-7 items-center rounded-full border px-2.5 text-[12px] transition-colors ${
+              v.Id === ep.Id ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-ink-300 hover:text-white'
+            }`}
+          >
+            Version {i + 1}
+            {v.RunTimeTicks ? ` · ${formatRuntime(v.RunTimeTicks)}` : ''}
+          </Link>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -248,7 +273,11 @@ function Seasons({ series }: { series: JfItem }) {
           instead of one long scroll. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-1">
         {isLoading && <p className="text-ink-400 text-sm px-3 py-6">Loading episodes…</p>}
-        {episodes?.Items.map((ep) => <EpisodeRow key={ep.Id} ep={ep} upNext={ep.Id === upNext?.Id} />)}
+        {/* One row per episode; extra copies of it are versions inside that row. */}
+        {episodes &&
+          groupEpisodeVersions(episodes.Items).map((g) => (
+            <EpisodeRow key={g.main.Id} ep={g.main} versions={g.versions} upNext={g.versions.some((v) => v.Id === upNext?.Id)} />
+          ))}
       </div>
     </section>
   )
@@ -335,7 +364,7 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
 
 export default function ItemPage() {
   const { itemId } = useParams()
-  const { data: item, isLoading } = useItem(itemId)
+  const { data: item, isLoading, isError, error, refetch, isFetching } = useItem(itemId)
   // Back from here morphs into the card that opened this page.
   useEffect(() => (itemId ? setReturnMorph(itemId, posterMorphName()) : undefined), [itemId])
   const heroRef = useDepthParallax<HTMLDivElement>()
@@ -387,8 +416,10 @@ export default function ItemPage() {
     return () => clearTimeout(t)
   }, [previewKind, itemId, stopPreview])
 
-  if (isLoading || !item) {
-    return <div className="h-[calc(var(--vh)*50)] shimmer -mt-16" />
+  if (!item) {
+    // Loading, or it failed / isn't there: then say so, with Back and Try again.
+    if (isLoading || (isFetching && !isError)) return <div className="h-[calc(var(--vh)*50)] shimmer -mt-16" />
+    return <ItemUnavailable kind="title" error={error} id={itemId} onRetry={() => void refetch()} retrying={isFetching} />
   }
 
   const backdrop = backdropUrl(item)
@@ -572,7 +603,7 @@ export default function ItemPage() {
               titleText
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm text-ink-200 mb-4">
-              {item.ProductionYear && (
+              {!!item.ProductionYear && (
                 <span>
                   {item.ProductionYear}
                   {isSeries && item.EndDate
@@ -582,13 +613,13 @@ export default function ItemPage() {
                       : ''}
                 </span>
               )}
-              {item.RunTimeTicks && !isSeries && <span>{formatRuntime(item.RunTimeTicks)}</span>}
+              {!!item.RunTimeTicks && !isSeries && <span>{formatRuntime(item.RunTimeTicks)}</span>}
               {item.OfficialRating && (
                 <span className="px-1.5 py-0.5 rounded border border-white/20 text-xs">
                   {item.OfficialRating}
                 </span>
               )}
-              {item.CommunityRating && (
+              {!!item.CommunityRating && (
                 <span className="flex items-center gap-1">
                   <svg className="h-3.5 w-3.5 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />

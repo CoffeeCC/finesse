@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { DeleteFromLibrary, useCanDelete } from '../components/DeleteFromLibrary'
 import { goBack } from '../lib/back'
 import { useQuery } from '@tanstack/react-query'
+import ItemUnavailable from '../components/ItemUnavailable'
 import { useAlbums, useFriends, useItem, useTracks, useViews } from '../api/queries'
 import { posterUrl } from '../api/client'
 import { useAudio } from '../audio/AudioPlayerContext'
@@ -34,7 +35,7 @@ function Equalizer({ paused }: { paused: boolean }) {
 
 export default function AlbumPage() {
   const { albumId } = useParams()
-  const { data: album, isLoading } = useItem(albumId)
+  const { data: album, isLoading, isError, error, refetch, isFetching } = useItem(albumId)
   const { data: tracks } = useTracks(albumId)
   const { playQueue, current, playing, toggle } = useAudio()
   const { data: views } = useViews()
@@ -49,7 +50,10 @@ export default function AlbumPage() {
   const [deleting, setDeleting] = useState(false)
   const canDelete = useCanDelete() && !friendId
 
-  if (isLoading || !album) return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
+  if (!album) {
+    if (isLoading || (isFetching && !isError)) return <div className="h-[calc(var(--vh)*40)] shimmer -mt-16" />
+    return <ItemUnavailable kind="album" error={error} id={albumId} onRetry={() => void refetch()} retrying={isFetching} />
+  }
 
   const cover = posterUrl(album, 700)
   const items = tracks?.Items ?? []

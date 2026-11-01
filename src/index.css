@@ -46,7 +46,6 @@ html {
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
-  border-radius: 8px;
 }
 
 /* After the first real D-pad/arrow press, spatialNav sets data-nav-mode=spatial.
@@ -57,7 +56,22 @@ html {
 html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
+}
+
+/* The ring's corners: 8px for a control that has none of its own; never over a
+   control's own shape (pills, circles, rounded inputs keep theirs: those carry a
+   rounded-* class, which the :not() leaves alone). The dark band between the
+   control and its ring makes the ring show on accent buttons and bright art; it
+   skips controls with their own ring or shadow. Written with :not() rather than
+   relying on layers/zero specificity, so the TV sheet (layers unwrapped, :where()
+   expanded by webos/downlevel-css.mjs) behaves the same. */
+:where(a, button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus {
   border-radius: 8px;
+}
+:where(a, button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus {
+  box-shadow: 0 0 0 2px var(--color-ink-950);
 }
 
 /* No body background: html already paints ink-950, and an opaque body would
@@ -551,6 +565,25 @@ html[data-nav-mode='spatial'][data-nav-dir='up'] .group:focus-visible .tilt {
   border: 3px solid rgba(255, 255, 255, 0.15);
   border-top-color: var(--color-accent-400);
   animation: spin 0.9s linear infinite;
+}
+
+/* ---------- Accessibility: the app's own Reduce motion switch (Settings → Appearance) ----------
+   Same calm as the device setting below, for people who want it here only.
+   Animations jump to their end state (so nothing that fades in stays hidden),
+   transitions are instant, and the scroll-linked depth effects are off. */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-motion="reduce"] .depth-row,
+html[data-motion="reduce"] .hero-scroll {
+  animation: none !important;
 }
 
 /* ---------- Accessibility: calm everything down on request ---------- */
