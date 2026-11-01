@@ -221,7 +221,11 @@ html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::afte
 .deck-trinket-art.deck-live > .deck-trinket-art { visibility: hidden; }
 .celestial-table .deck-box-object > .deck-trinket-art { width: 125px; height: 125px; transform: rotate(var(--object-angle)); }
 @media (min-width: 701px) and (max-width: 1000px) { .celestial-table .deck-box-object > .deck-trinket-art { width: 105px; height: 105px; } }
-@media (max-width: 700px) { .celestial-table .deck-box-object > .deck-trinket-art { width: 90px; height: 90px; } }
+@media (max-width: 700px) {
+  .celestial-table .deck-box-object > .deck-trinket-art { width: 70px; height: 82px; }
+  .celestial-table .table-object-nav, .celestial-table .table-deck-boxes { gap: 8px; }
+  .celestial-table .scrying-orb-art { width: 90px; height: 100px; }
+}
 @media (prefers-reduced-motion: reduce) { .deck-trinket-art > canvas { transition: none; } }
 
 /* Riffle the draw stock without moving its native hit target or taking over a deal. */

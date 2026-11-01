@@ -16,7 +16,7 @@ html[data-arcane-sleep=true] .celestial-table .playing-card,html[data-arcane-sle
 html[data-arcane-sleep=true] .celestial-table .movie-hand{animation:moonlitDrift 80s ease-in-out infinite alternate}
 @keyframes candleBreath{to{transform:scale(.94,1.07) rotate(3deg);opacity:.85}}
 @keyframes moonlitDrift{to{transform:translate(8px,-5px)}}
-@media(max-width:600px){.celestial-table .candle-anchor{right:6%;top:27%;width:64px;height:115px}}
+@media(max-width:600px){.celestial-table .candle-anchor{right:6%;top:27%;width:64px;height:115px}.celestial-table.table-stage .mat-heading{max-width:58%}}
 @media(prefers-reduced-motion:reduce){.candle-fallback-flame,html[data-arcane-sleep=true] .celestial-table .movie-hand{animation:none}.arcane-lighting,.arcane-moon-veil{transition:none}}
 html[data-motion=reduce] .candle-fallback-flame,html[data-motion=reduce][data-arcane-sleep=true] .celestial-table .movie-hand{animation:none}
 html[data-arcane-sleep=true] .celestial-table{position:fixed;inset:0;width:100%;height:100%;min-height:0;max-height:none;border-radius:0;z-index:90}

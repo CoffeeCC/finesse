@@ -204,6 +204,9 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           if (o.selector.includes('.folio-spread') && innerWidth < 760) { o.root.visible = false; anchor?.classList.remove('shared-model-ready'); continue }
           o.root.visible = Boolean(rect && rect.width > 0)
           if (!rect || !rect.width) continue
+          if (o.selector.includes('deck-box-object')) {
+            o.root.rotation.y = (parseFloat(getComputedStyle(anchor!).getPropertyValue('--object-angle')) || 0) * Math.PI / 180
+          }
           o.root.scale.setScalar(1); o.root.position.set(0, 0, 0); o.root.updateMatrixWorld(true)
           const box = (o.root.userData.restBounds ??= new T.Box3().setFromObject(o.root)) as InstanceType<typeof T.Box3>, points = []
           for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) points.push(new T.Vector3(x, y, z).project(camera))

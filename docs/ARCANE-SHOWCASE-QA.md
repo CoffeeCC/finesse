@@ -25,6 +25,7 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 - Genuine WEBGL_lose_context was triggered with the development lab. Native art returned, remained after resizing to phone width, and the search orb still navigated. Native controls do not depend on the scene.
 - Isolated loopback fixture: a one-card library with a long name and no poster retained readable fallback/inspector; HTTP 503 and a hanging request produced the collection error with Try again. The hanging transport reached the bounded deadline. Normal fixture data was restored afterward; no real server outage was induced.
 - Still-candle flame anchoring was corrected to use the sprite's actual 4:5 bounds, avoiding letterbox offsets. Wide folios are bounded to 1320 pixels; lower card captions have extra clearance from the binding.
+- Final 320/689-pixel Home checks corrected overlapping deck art and reserved candle clearance beside long title labels. Live boxes retain their individually angled placement. Full title text remains in the selected-title panel and accessible card names.
 - Blender sources regenerated successfully. A packed editable lighting study and a four-second rendered study were produced locally. That film is a Blender material study, not a screen recording of the application.
 
 ## Automated checks
