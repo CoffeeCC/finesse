@@ -34,6 +34,7 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 - Server type-check passed. Tour script syntax and git whitespace checks passed.
 - Production output contains no development-lab controls or accelerated candle query handling. TV output contains no Arcane scene/models/art.
 - Full server tests were attempted on Windows and reported existing path/config/backup-related failures; the stalled run was stopped. No server source changed in this theme work. Do not report the local full server suite as passing. Linux CI must be checked for the pushed commit separately.
+- GitHub CI passed for implementation head `fec8118` on 1 November 2026: [run 41333389968](https://github.com/CoffeeCC/finesse/actions/runs/41333389968). This includes the current 3.2.6 master baseline. The Windows failure above remains documented rather than being relabeled as a local pass.
 
 ## Remaining release review
 
