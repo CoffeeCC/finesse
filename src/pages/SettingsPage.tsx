@@ -23,6 +23,7 @@ import DownloadsSettings from './settings/DownloadsSettings'
 import ConnectionsHealth from './settings/ConnectionsHealth'
 import LibraryHealth from './settings/LibraryHealth'
 import PreviewClips from './settings/PreviewClips'
+import GraphicsAdmin from './settings/GraphicsAdmin'
 import ParentalAdmin from './settings/ParentalAdmin'
 import { StreamingSettings } from './settings/StreamingAdmin'
 import SecureConnection from './settings/SecureConnection'
@@ -720,6 +721,7 @@ export default function SettingsPage() {
               <div className="space-y-8">
                 <SystemPanel />
                 <PreviewClips />
+                <GraphicsAdmin />
                 <ConnectionsHealth />
                 <LibraryHealth />
                 <GroupsAdmin />
