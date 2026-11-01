@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
 import { after, before, test } from 'node:test'
-import { cleanNote, cleanSpan } from '../src/moments.ts'
+import { cleanNote, cleanSpan, firstAllowed, MomentStore, type FeedMoment } from '../src/moments.ts'
 import { call, fakeJellyfin, finesse } from './peers.ts'
 
 let jfA: Awaited<ReturnType<typeof fakeJellyfin>>
@@ -17,9 +17,9 @@ let samsOnA = '' // Sam's server, as Alex's server knows it
 let alexLinkOnB = '' // Alex's server, as Sam's server knows it
 const id = (jf: typeof jfA, name: string) => [...jf.users.values()].find((u) => u.Name === name)!.Id
 
-type Moment = { key: string; item: string; title: string; start: number | null; end: number | null; note: string; spoiler: boolean; from: string; read: boolean; mine?: boolean }
+type Moment = { key: string; item: string; title: string; start: number | null; end: number | null; note: string; spoiler: boolean; from: string; read: boolean; mine?: boolean; to?: string[] }
 const settle = () => new Promise((r) => setTimeout(r, 3100)) // past the refresh floor
-const inbox = async (base: string, token: string) => (await call(base, 'GET', '/api/moments/inbox?fresh=1', token)).data as unknown as { moments: Moment[]; unread: number }
+const inbox = async (base: string, token: string) => (await call(base, 'GET', '/api/moments/inbox?fresh=1', token)).data as unknown as { moments: Moment[]; unread: number; mine: Moment[] }
 const timeline = async (base: string, token: string, item: string) => ((await call(base, 'GET', `/api/moments/item/${item}`, token)).data.moments ?? []) as Moment[]
 
 before(async () => {
@@ -127,6 +127,42 @@ test('Sam sends a spoiler moment of his film to Alex’s server; Kim’s private
   assert.deepEqual(robinsView.map((m) => m.note).sort(), ['the twist', 'this scene 😭', 'watch this!'])
 })
 
+test('your own moments: in the bell apart, with who they went to, never unread', async () => {
+  // Alex saves one just for himself, and sends Robin one.
+  assert.equal((await call(A.url, 'POST', '/api/moments', 'a-admin', { item: jfA.movie, start: 40, end: 50, note: 'uhhhh test', to: [] })).status, 201)
+  assert.equal((await call(A.url, 'POST', '/api/moments', 'a-admin', { item: jfA.movie, start: 90, end: 99, note: 'for robin', to: [`user:${id(jfA, 'robin')}`] })).status, 201)
+  const alex = await inbox(A.url, 'a-admin')
+  const self = alex.mine.find((m) => m.note === 'uhhhh test')!
+  assert.ok(self, 'saved just for him: under his own')
+  assert.deepEqual(self.to, [])
+  assert.equal(self.read, true)
+  assert.equal(self.mine, true)
+  assert.equal(self.item, jfA.movie)
+  assert.deepEqual([self.start, self.end], [40, 50])
+  assert.deepEqual(alex.mine.find((m) => m.note === 'for robin')!.to, ['robin'])
+  assert.equal(alex.mine[0]!.note, 'for robin', 'newest first')
+  // His own are never in what's been sent to him, so never unread.
+  assert.ok(!alex.moments.some((m) => m.note === 'uhhhh test' || m.note === 'for robin'))
+  // What he sent others is theirs to read; his own stay only his.
+  const robin = await inbox(A.url, 'a-robin')
+  assert.ok(robin.moments.some((m) => m.note === 'for robin' && !m.read))
+  assert.ok(!robin.moments.some((m) => m.note === 'uhhhh test'))
+  assert.ok(!robin.mine.some((m) => m.note === 'uhhhh test' || m.note === 'for robin'))
+  // Robin's own of Sam's film, kept on Sam's server: for everyone here and Sam's household.
+  const hers = robin.mine.find((m) => m.note === 'this scene 😭')!
+  assert.equal(hers.item, `f-${samsOnA}-${jfB.movie}`)
+  assert.deepEqual(hers.to, ['everyone here', 'everyone on Sam’s server'])
+  // Sam's sent one, to Alex's server.
+  assert.deepEqual((await inbox(B.url, 'b-admin')).mine.find((m) => m.note === 'the twist')!.to, ['everyone on Alex’s server'])
+  assert.ok(!(await inbox(B.url, 'b-kim')).mine.some((m) => m.note === 'the twist'))
+  // Yours can go into a collection, and you can delete them.
+  const col = (await call(A.url, 'POST', '/api/moment-collections', 'a-admin', { name: 'Mine' })).data.id
+  assert.equal((await call(A.url, 'POST', `/api/moment-collections/${col}/entries`, 'a-admin', { moment: self.key })).status, 201)
+  assert.equal((await call(A.url, 'DELETE', `/api/moments/${encodeURIComponent(self.key)}`, 'a-robin')).status, 403)
+  assert.equal((await call(A.url, 'DELETE', `/api/moments/${encodeURIComponent(self.key)}`, 'a-admin')).status, 200)
+  assert.ok(!(await inbox(A.url, 'a-admin')).mine.some((m) => m.note === 'uhhhh test'))
+})
+
 test('only people: not the service key, not a friend’s viewer account', async () => {
   assert.equal((await call(A.url, 'GET', '/api/moments/inbox', 'a-service')).status, 403)
   assert.equal((await call(A.url, 'GET', '/api/moments/inbox')).status, 401)
@@ -185,4 +221,42 @@ test('when Alex stops watching Sam’s server, Sam’s moments go from Alex’s 
   assert.ok((await inbox(A.url, 'a-robin')).moments.some((m) => m.note === 'watch this!'))
   assert.equal((await call(A.url, 'DELETE', `/api/groups/friends/${samsOnA}`, 'a-admin')).status, 200)
   assert.ok(!(await inbox(A.url, 'a-robin')).moments.some((m) => m.note === 'watch this!'))
+})
+
+test('a friend’s server can’t make a moment look like one of ours: only one we sent, by that person', () => {
+  const store = new MomentStore(':memory:')
+  const alex = 'a'.repeat(32)
+  const robin = 'b'.repeat(32)
+  const feed = (id: string, fromHere: string | null): FeedMoment => ({ id, item: 'd'.repeat(32), title: 'Sintel', subtitle: '', start: 1, end: 2, note: id, spoiler: false, from: 'x', fromHere, users: [], owner: true, created: Date.now() })
+  store.recordSent('friend01', 'sentByAlex1', alex)
+  store.replaceRemote('friend01', [feed('sentByAlex1', alex), feed('forged00001', alex), feed('sentByAlex1x', robin), feed('theirs00001', null)])
+  const rows = new Map(store.remote({ friend: 'friend01', since: 0 }).map((r) => [r.id, r]))
+  assert.equal(rows.get('sentByAlex1')!.author_here, alex)
+  assert.equal(rows.get('sentByAlex1')!.owner, 1)
+  // Never sent by us, or claimed for someone else: just a friend's moment.
+  assert.equal(rows.get('forged00001')!.author_here, null)
+  assert.equal(rows.get('forged00001')!.owner, null)
+  assert.equal(rows.get('sentByAlex1x')!.author_here, null)
+  // Another friend can't claim what we sent to the first one.
+  store.replaceRemote('friend02', [feed('sentByAlex1', alex)])
+  assert.equal(store.remote({ friend: 'friend02', since: 0 })[0]!.author_here, null)
+})
+
+test('a limited profile’s list stops asking once it has 60', async () => {
+  let asked = 0
+  const list = Array.from({ length: 1000 }, (_, i) => i)
+  const got = await firstAllowed(list, 60, async (i) => (asked++, i % 2 === 0))
+  assert.equal(got.length, 60)
+  assert.deepEqual(got.slice(0, 3), [0, 2, 4])
+  assert.ok(asked <= 130, `asked ${asked}`)
+  assert.deepEqual(await firstAllowed([1, 2, 3], 60, async () => true), [1, 2, 3])
+})
+
+test('who’s on the server is asked of Jellyfin at most once a minute', async () => {
+  const users = () => jfA.calls.filter((c) => c.method === 'GET' && c.path === '/Users').length
+  await call(A.url, 'GET', `/api/moments/targets?item=${jfA.movie}`, 'a-admin')
+  const n = users()
+  await call(A.url, 'GET', `/api/moments/targets?item=${jfA.movie}`, 'a-admin')
+  await call(A.url, 'GET', '/api/moments/inbox', 'a-robin')
+  assert.equal(users(), n)
 })

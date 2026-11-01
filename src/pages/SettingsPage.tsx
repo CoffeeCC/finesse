@@ -502,7 +502,7 @@ export default function SettingsPage() {
               )}
               <Toggle
                 label="Moment pop-ups"
-                hint="When you reach a moment someone sent you, their note pops up for a few seconds (spoilers stay hidden until you tap). Off: they still show on the progress bar and in the bell."
+                hint="When you reach a moment someone sent you, their note pops up for a few seconds (spoilers stay hidden until you tap). Your own moments show a quieter “Your note”. Off: they still show on the progress bar and in the bell."
                 checked={prefs.momentPopups}
                 onChange={(v) => update({ momentPopups: v })}
                 scope="device"

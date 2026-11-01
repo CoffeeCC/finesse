@@ -66,7 +66,7 @@ function CollectionsHome() {
     <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
       <h1 className="page-title">Moments</h1>
       <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-400">
-        Keep favourite moments together. Save one from the Moments bell (what’s been sent to you). A collection holds where each moment is and its note, not the video, and only you see it until you share it.
+        Keep favourite moments together. Save one from the Moments bell: what’s been sent to you, or one of yours under Saved by you. A collection holds where each moment is and its note, not the video, and only you see it until you share it.
       </p>
       <form
         className="mt-6 flex max-w-md gap-2"
@@ -101,7 +101,7 @@ function CollectionsHome() {
         <>
           <section className="mt-8" aria-label="Your collections">
             <h2 className={H2}>Your collections</h2>
-            {data?.mine.length ? <ul className="mt-2 space-y-1">{data.mine.map((c) => row(c, true))}</ul> : <p className="mt-2 px-3 text-[14px] text-ink-400">None yet. Make one above, or save a moment from the bell.</p>}
+            {data?.mine.length ? <ul className="mt-2 space-y-1">{data.mine.map((c) => row(c, true))}</ul> : <p className="mt-2 px-3 text-[14px] text-ink-400">None yet. Make one above, or save a moment from the bell (one sent to you, or one of yours).</p>}
           </section>
           {Boolean(data?.shared.length) && (
             <section className="mt-8" aria-label="Shared with you">
@@ -172,7 +172,7 @@ function CollectionPage() {
         </p>
       )}
       {c.entries.length === 0 ? (
-        <p className="mt-8 text-[14px] text-ink-400">{c.mine ? 'Nothing in it yet. Open the Moments bell and choose Save to a collection on one.' : 'Nothing in it yet.'}</p>
+        <p className="mt-8 text-[14px] text-ink-400">{c.mine ? 'Nothing in it yet. Open the Moments bell and choose Save to a collection on a moment sent to you, or on one of yours under Saved by you.' : 'Nothing in it yet.'}</p>
       ) : (
         <ul className="mt-6 space-y-2">
           {c.entries.map((e) => (

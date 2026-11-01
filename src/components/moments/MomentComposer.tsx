@@ -212,9 +212,9 @@ export default function MomentComposer({
           )}
           <p className="mt-2 text-[12.5px] leading-relaxed text-ink-400">
             {to.size
-              ? `They’ll get a notification${span ? ', and the note pops up when they reach it' : ''}.`
+              ? `They’ll get a notification${span ? ', and the note pops up when they reach it' : ''}. It’s under Saved by you in your bell too.`
               : span
-                ? 'Nobody picked: it’s saved just for you.'
+                ? 'Nobody picked, so it’s just for you. You’ll find it under Saved by you in the bell, and on this title’s progress bar.'
                 : 'Pick who to send it to.'}
             {friendName && ` It’s kept on ${friendName}, where the video is, so whoever runs it can see it.`}
           </p>

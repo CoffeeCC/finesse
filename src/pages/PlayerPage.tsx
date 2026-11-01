@@ -1337,13 +1337,14 @@ export default function PlayerPage() {
     // Only when playback runs into a moment, not when you jump past or onto it.
     if (absTime <= prev || absTime - prev > 2.5) return
     if (popupSession.quiet || !getPrefs().momentPopups || Date.now() - popupSession.last < 30_000) return
-    const hit = itemMoments.find((m) => m.start != null && !m.mine && !popupSession.shown.has(m.key) && m.start > prev && m.start <= absTime)
+    // Yours too, as a quieter "Your note" (they're never unread, so nothing to mark).
+    const hit = itemMoments.find((m) => m.start != null && !popupSession.shown.has(m.key) && m.start > prev && m.start <= absTime)
     if (!hit) return
     popupSession.shown.add(hit.key)
     popupSession.last = Date.now()
     setPopupReveal(false)
     setPopup(hit)
-    void markMomentsRead([hit.key]).catch(() => {})
+    if (!hit.mine) void markMomentsRead([hit.key]).catch(() => {})
   }, [absTime, playing, itemMoments])
   useEffect(() => {
     if (!popup) return
@@ -2496,8 +2497,28 @@ export default function PlayerPage() {
         </>
       )}
 
-      {/* A moment someone sent you, as playback reaches it: top right, clear of the controls and subtitles */}
-      {popup && (
+      {/* A moment someone sent you, as playback reaches it: top right, clear of the controls and subtitles.
+          Your own shows quieter, as "Your note". */}
+      {popup && popup.mine && (
+        <div
+          role="status"
+          aria-live="polite"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="toast-in absolute right-3 sm:right-6 top-16 sm:top-20 z-[25] w-[min(18rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-xl border border-white/10 bg-black/60 px-3 py-2.5 shadow-xl"
+        >
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-ink-400">Your note</p>
+              <p className="mt-0.5 text-[13.5px] leading-snug text-ink-100">{popup.note || 'You saved this moment'}</p>
+            </div>
+            <button type="button" onClick={() => setPopup(null)} className="-mr-1 -mt-0.5 h-6 w-6 shrink-0 rounded-full text-ink-400 hover:bg-white/10 hover:text-white" aria-label="Close">
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+      {popup && !popup.mine && (
         <div
           role="status"
           aria-live="polite"
