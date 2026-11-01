@@ -17,7 +17,8 @@ export interface QueueItem {
   votes: number
   mine: boolean
   canRemove: boolean
-  availability: { id: string; name: string; state: Availability }[] | null
+  /** Whether this profile can open it, and how many members can ("yes"): never who can't. */
+  availability: { state: Availability; canOpen: number; members: number } | null
 }
 
 export interface Queue {

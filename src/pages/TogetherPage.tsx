@@ -172,13 +172,12 @@ function NewShortlist({ onCancel }: { onCancel: () => void }) {
   )
 }
 
-/** "Everyone can open it", or who can't, or that a friend's title can't be checked for each person. */
+/** "Everyone can open it", or how many can't, or that a friend's title can't be checked for each person. */
 function availabilityLine(it: QueueItem): { text: string; tone: string } {
-  const a = it.availability ?? []
-  const no = a.filter((x) => x.state === 'no')
-  const unknown = a.filter((x) => x.state === 'unknown')
-  if (no.length) return { text: `${no.map((x) => x.name).join(', ')} can’t open it`, tone: 'text-amber-200' }
-  if (unknown.length) return { text: 'On a friend’s server: Finesse can’t check it for each person', tone: 'text-ink-400' }
+  const a = it.availability
+  if (!a || a.state === 'unknown') return { text: 'On a friend’s server: Finesse can’t check it for each person', tone: 'text-ink-400' }
+  const cant = a.members - a.canOpen
+  if (cant > 0) return { text: cant === 1 ? '1 person in the shortlist can’t open it' : `${cant} people in the shortlist can’t open it`, tone: 'text-amber-200' }
   return { text: 'Everyone in the shortlist can open it', tone: 'text-emerald-300/90' }
 }
 

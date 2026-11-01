@@ -18,7 +18,7 @@ let sams = ''
 const servers: Server[] = []
 const id = (name: string) => [...jf.users.values()].find((u) => u.Name === name)!.Id.toLowerCase()
 
-type Item = { key: string; hidden: boolean; item: string | null; title: string; votes: number; mine: boolean; canRemove: boolean; availability: { name: string; state: string }[] | null }
+type Item = { key: string; hidden: boolean; item: string | null; title: string; votes: number; mine: boolean; canRemove: boolean; availability: { state: string; canOpen: number; members: number } | null }
 type Q = { id: string; name: string; isHost: boolean; members: { id: string; name: string }[]; items: Item[]; myVote: string | null; picked: string | null; archived: boolean }
 
 before(async () => {
@@ -78,12 +78,14 @@ test('adding titles: only ones the adder can open; each says who can open it', a
   assert.equal(robin.items.length, 3)
   const sintel = robin.items.find((i) => i.item === jf.movie)!
   assert.equal(sintel.title, 'Sintel')
-  assert.deepEqual(sintel.availability!.map((a) => `${a.name}:${a.state}`).sort(), ['kim:yes', 'robin:yes'])
+  assert.deepEqual(sintel.availability, { state: 'yes', canOpen: 2, members: 2 })
+  // Robin learns that one member can't open it, not who (or why).
   const home = robin.items.find((i) => i.item === jf.privateMovie)!
-  assert.deepEqual(home.availability!.map((a) => `${a.name}:${a.state}`).sort(), ['kim:no', 'robin:yes'])
+  assert.deepEqual(home.availability, { state: 'yes', canOpen: 1, members: 2 })
+  assert.doesNotMatch(JSON.stringify(robin.items.map((i) => i.availability)), /kim|name|"no"/)
   const friends = robin.items.find((i) => i.item?.startsWith('f-'))!
   assert.equal(friends.title, 'Sintel')
-  assert.deepEqual(friends.availability!.map((a) => a.state), ['unknown', 'unknown'])
+  assert.deepEqual(friends.availability, { state: 'unknown', canOpen: 0, members: 2 })
 
   // Kim sees that something's there, but not what.
   const kim = await get('kim')
@@ -140,6 +142,21 @@ test('the host picks, renames, archives; members can leave; removing titles', as
   assert.equal((await call(A.url, 'DELETE', `/api/queues/${qid}`, 'lee')).status, 403)
   assert.equal((await call(A.url, 'DELETE', `/api/queues/${qid}`, 'robin')).status, 200)
   assert.equal((await call(A.url, 'GET', `/api/queues/${qid}`, 'lee')).status, 404)
+})
+
+test('availability lookups for a big shortlist run a few at a time', async () => {
+  const { pooled, LOOKUPS_AT_ONCE } = await import('../src/queues.ts')
+  let now = 0
+  let most = 0
+  const out = await pooled(Array.from({ length: 50 }, (_, i) => i), LOOKUPS_AT_ONCE, async (i) => {
+    most = Math.max(most, ++now)
+    await new Promise((r) => setTimeout(r, 2))
+    now--
+    return i * 2
+  })
+  assert.equal(most, LOOKUPS_AT_ONCE)
+  assert.deepEqual(out.slice(0, 3), [0, 2, 4])
+  assert.equal(out.length, 50)
 })
 
 test('only people: no service key, no sign-in, no friends’ viewers', async () => {

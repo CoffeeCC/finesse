@@ -5,8 +5,9 @@
 //
 // Who sees what: only members see a shortlist. A title someone can't open (a library they're
 // not in, their profile's limits) shows to them without its name or id, and they can't vote
-// for it. Each title says, per member, whether they can open it ("yes"), can't ("no"), or
-// it's on a friend's server Finesse can't check for them ("unknown").
+// for it. Each title says whether the viewer can open it ("yes"), can't ("no"), or it's on a
+// friend's server Finesse can't check for them ("unknown"), and how many members can: never
+// who can't (that would tell members about each other's libraries and limits).
 //
 // Stored in lists.db (step 2). Friends' servers can't be members yet; their titles can be added.
 
@@ -45,6 +46,23 @@ interface ItemRow {
 
 const newId = (n = 9) => randomBytes(n).toString('base64url')
 
+/** Availability lookups at once, for one shortlist (members × titles can be 20 × 100). */
+export const LOOKUPS_AT_ONCE = 6
+
+/** Runs fn over every entry, at most `at` at a time. */
+export async function pooled<T, R>(list: T[], at: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(list.length)
+  let next = 0
+  const worker = async () => {
+    while (next < list.length) {
+      const i = next++
+      out[i] = await fn(list[i]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(at, list.length) }, worker))
+  return out
+}
+
 export function cleanQueueName(v: unknown): string {
   const s = String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX)
   if (!s) throw new ApiError(400, 'Give the shortlist a name, like “Friday film”')
@@ -75,11 +93,16 @@ export function registerQueues(router: Router, deps: { auth: Auth; settings: Set
     const items = db.prepare('SELECT * FROM queue_items WHERE queue = ? ORDER BY added_at').all(q.id) as unknown as ItemRow[]
     const votes = db.prepare('SELECT user, key FROM queue_votes WHERE queue = ?').all(q.id) as { user: string; key: string }[]
     const mine = votes.find((v) => v.user === me)?.key ?? null
+    const avail = new Map<string, Availability>()
+    await pooled(
+      items.flatMap((it) => who.map((u) => [it.item, u] as const)),
+      LOOKUPS_AT_ONCE,
+      async ([item, u]) => void avail.set(`${item}/${u}`, await access.availability(u, item)),
+    )
     const out = await Promise.all(
       items.map(async (it) => {
-        const avail: Record<string, Availability> = {}
-        await Promise.all(who.map(async (u) => void (avail[u] = await access.availability(u, it.item))))
-        const open = avail[me] !== 'no'
+        const state = (u: string) => avail.get(`${it.item}/${u}`) ?? 'no'
+        const open = state(me) !== 'no'
         const base = { key: it.key, votes: votes.filter((v) => v.key === it.key).length, mine: mine === it.key, canRemove: it.added_by === me || q.host === me }
         // Someone who can't open it doesn't learn what it is.
         if (!open) return { ...base, hidden: true as const, item: null, title: 'A title you can’t open', subtitle: '', addedBy: null, availability: null }
@@ -90,7 +113,8 @@ export function registerQueues(router: Router, deps: { auth: Auth; settings: Set
           title: it.title,
           subtitle: it.subtitle,
           addedBy: names.get(it.added_by) ?? 'Someone',
-          availability: who.map((u) => ({ id: u, name: names.get(u) ?? 'Someone', state: avail[u]! })),
+          // Only the viewer's own answer, and a count: not who can't.
+          availability: { state: state(me), canOpen: who.filter((u) => state(u) === 'yes').length, members: who.length },
         }
       }),
     )
