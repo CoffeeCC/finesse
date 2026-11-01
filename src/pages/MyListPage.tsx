@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useWatchlistItems } from '../api/queries'
 import MediaCard from '../components/MediaCard'
+import ThemePageBanner from '../components/ThemePageBanner'
 import DownloadsSection from '../components/DownloadsSection'
 import { CardSkeleton } from '../components/Skeletons'
 import { DiceIcon, useSurprise } from '../lib/surprise'
@@ -13,12 +14,14 @@ export default function MyListPage() {
   const empty = !isLoading && (!items || items.length === 0)
 
   return (
-    <div className="pb-16 px-4 sm:px-6 lg:px-12 py-6">
+    <div data-theme-surface="journal" className="pb-16 px-4 sm:px-6 lg:px-12 py-6">
+      <ThemePageBanner label="Your story journal" />
       <h1 className="page-title mb-1">My List</h1>
       <p className="text-sm text-ink-400 mb-6">Saved to watch later, synced across your devices.</p>
 
+      <div className="arcane-journal-shelf">
       {empty ? (
-        <div className="rounded-2xl border border-white/5 bg-ink-900/50 px-6 py-10 sm:p-12 text-center max-w-2xl">
+        <div className="arcane-empty rounded-2xl border border-white/5 bg-ink-900/50 px-6 py-10 sm:p-12 text-center max-w-2xl">
           <p className="text-lg font-semibold text-white">Your list is empty</p>
           <p className="text-sm text-ink-300 mt-1.5">
             Tap <span className="font-semibold text-white">My List</span> on any movie or show and it lands here, on every device.
@@ -49,6 +52,7 @@ export default function MyListPage() {
         </div>
       )}
 
+      </div>
       <div className="mt-10">
         <DownloadsSection title="Your requests" />
         <Link to="/request" className="inline-flex items-center gap-1.5 text-sm font-semibold text-accent-300 hover:text-white transition-colors">

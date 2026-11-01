@@ -123,6 +123,22 @@ motion under prefers-reduced-motion. An animation cannot determine whether data
 has finished loading. Give real requests cancellation, useful errors and Retry.
 Do not autoplay extra sound. Existing playback and subtitle behavior take priority.
 
+## Expanding a theme beyond Home
+
+Use one material and typography system across discovery, libraries, title details,
+search, saved picks, settings and menus. Arcane Table demonstrates shared treatments
+in src/arcane-surfaces.css and optional wayfinding in ThemePageBanner.tsx. Current
+surface hooks include data-theme-surface on catalogue, search, journal, library
+hub and detail containers, and data-theme-search on the search panel. These are
+source-author hooks, not a versioned community-pack contract.
+
+Decorative frames must not intercept pointer input or cover badges and controls.
+The example uses aria-hidden frame spans with pointer-events:none and explicitly
+positions progress and action badges above them. Keep alternate layouts, filtering,
+virtualization, lazy loading, previews, episode selection and playback intact.
+Always check the unchanged default theme as well as your new one after changing
+shared markup. Keep theme-only components null for other theme IDs.
+
 ## Blender and live 3D
 
 The showcase is a hybrid, not an entirely 3D app. Its board, frames and draw pile

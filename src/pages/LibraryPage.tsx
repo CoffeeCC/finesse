@@ -13,6 +13,7 @@ import {
 } from '../api/queries'
 import { Link } from 'react-router-dom'
 import MediaCard from '../components/MediaCard'
+import ThemePageBanner from '../components/ThemePageBanner'
 import AlphabetRail from '../components/AlphabetRail'
 import { CardSkeleton } from '../components/Skeletons'
 import { MultiSelectMenu, SelectMenu } from '../components/Menu'
@@ -255,15 +256,16 @@ export default function LibraryPage() {
   const narrowed = Boolean(filtersParam || genresParam)
 
   return (
-    <div className="px-4 sm:px-6 lg:px-12 pb-16">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-5 sm:pt-6 pb-3">
+    <div data-theme-surface="catalog" className="px-4 sm:px-6 lg:px-12 pb-16">
+      <ThemePageBanner label="Browse your collection" />
+      <div className="arcane-catalog-heading flex flex-wrap items-center gap-x-4 gap-y-3 pt-5 sm:pt-6 pb-3">
         <h1 className="page-title">{view?.Name ?? 'Library'}</h1>
         {searching && searchCount !== undefined ? (
-          <span className="text-sm text-ink-400">
+          <span className="text-sm text-ink-400" role="status">
             {searchCount.toLocaleString()} of {total.toLocaleString()} {narrowed ? 'filtered titles' : 'titles'}
           </span>
         ) : (
-          total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {narrowed ? 'match' : 'titles'}</span>
+          total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {narrowed ? 'matches' : 'titles'}</span>
         )}
         <div className="flex-1" />
         <div className="flex w-full sm:w-auto items-center gap-2">
@@ -309,7 +311,7 @@ export default function LibraryPage() {
 
       {/* Filters: watch state, genres, sort — the app's own menus, not native selects. On a
           phone they wrap: Genre and Sort get a row of their own instead of hiding off screen. */}
-      <div className="flex flex-wrap items-center gap-2 pb-4">
+      <div className="arcane-catalog-filters flex flex-wrap items-center gap-2 pb-4">
         <div role="group" aria-label="Watch state" className="inline-flex max-w-full shrink-0 overflow-x-auto no-scrollbar p-0.5 rounded-full bg-ink-800/80 border border-white/10">
           {WATCH_STATES.map((w) => (
             <button

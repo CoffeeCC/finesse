@@ -1,6 +1,6 @@
 # Arcane Table — current implementation
 
-Updated 31 October 2026. Applies to the optional-theme branch based on Finesse 3.2.5, not a public release.
+Updated 1 November 2026. Applies to the optional-theme branch based on Finesse 3.2.5, not a public release.
 
 ## Visual direction
 
@@ -14,7 +14,7 @@ Search is an accessible native button whose artwork is an actual 3D scene. tools
 
 ScryingOrb.tsx loads Three.js and the GLB on demand. Runtime materials, environment reflections, warm key light, cool rim light and an animated internal point light illuminate the model. An animated noise shader and drifting star points provide the swirling core. This is a hybrid scene: the orb and library boxes are live 3D; the board, frames and draw pile are rendered images. Live light affects the models, not the baked table image. This is not path-traced global illumination in the browser.
 
-The renderer caps pixel ratio at 1.5 and updates at roughly 30 frames per second. It pauses offscreen and in a hidden tab, releases resources on unmount, and falls back to the still if loading or WebGL initialization fails. Context loss returns to the still. TV, system reduced motion, Animations off and the Live 3D objects preference use the still. Hover/focus gently increases the orb's internal energy. Search works with either representation; TV uses its search page rather than the desktop overlay.
+The renderer caps pixel ratio at 1.5 and updates at roughly 30 frames per second. It pauses offscreen and in a hidden tab, releases resources on unmount, and falls back to the still if loading or WebGL initialization fails. Context loss returns to the still. System reduced motion, Animations off and the Live 3D objects preference use the still. Hover/focus gently increases the orb's internal energy. Search works with either representation. Arcane Table is currently excluded from the TV app.
 
 Regenerate with the installed Blender executable:
 
@@ -26,7 +26,7 @@ The Blender scene and runtime shader are complementary sources. Editing procedur
 
 tools/theme/create-deck-trinkets.py generates separate sun/amber movie and moon/blue show boxes, each with an editable .blend, self-contained GLB and matching transparent still. DeckTrinket.tsx animates a named LidPivot and CardLift: the lid opens on pointer hover or keyboard focus, revealing and lifting the cards, then closes on leaving and blurring. A busy selected deck opens during dealing, with restrained particles and stronger ward light. Lights, reflections and receiving shadow geometry are live in each model scene.
 
-The first two library boxes render live to bound the scene to three WebGL contexts including the orb; additional libraries use their matching still. All stills remain fully clickable. Each box updates at about 24 fps with pixel ratio capped at 1.25; rendering pauses offscreen or in hidden tabs and resources are disposed on unmount. Shared Live 3D objects, reduced motion and Animations off select stills. The TV build aliases both live components to static replacements, excluding Three.js.
+The first two library boxes render live to bound the scene to three WebGL contexts including the orb; additional libraries use their matching still. All stills remain fully clickable. Each box updates at about 24 fps with pixel ratio capped at 1.25; rendering pauses offscreen or in hidden tabs and resources are disposed on unmount. Shared Live 3D objects, reduced motion and Animations off select stills. The TV app excludes the entire Arcane Table theme; static component replacements remain available in source for future TV work.
 
 The draw pile has a hover/keyboard-focus riffle and top-card lift only while idle. Leaving settles the stack; shuffling/dealing retains its own animation. Selected card crests have a brief one-time catchlight, and the title changes with a short fade. Reduced motion and Animations off suppress these effects. The draw pile is not a live 3D model.
 
@@ -35,6 +35,26 @@ The draw pile has a hover/keyboard-focus riffle and top-card lift only while idl
 Movies and Shows deck boxes select actual accessible libraries. Five live titles form a hand on desktop. Phones show the selected title and two neighbors, with previous/next controls reaching every card. Open title navigates to the existing title page. The stock and Deal again collect, shuffle and deal actual random results; repeats are possible. Loading completion controls the reveal, with cancellation, a deadline and Retry.
 
 Object hit targets remain stationary while artwork moves. The whole hand has space inside the rim. Card details and full title remain below the scene. Continue Watching retains real Resume links. Full Finesse Home opens /dashboard. Standard navigation remains on other routes; the table Home replaces the desktop Main menu with its labelled objects. Quick menu, account, Moments and mobile navigation remain available.
+
+## Shared screens beyond the table
+
+The theme now carries its materials and wayfinding into library browsing, the library
+hub, search (page and overlay), My List and title details. Movie/show poster cards
+use the same rendered frame across shelves; year/episode metadata remains visible.
+Existing lazy loading, previews, watched badges, progress and dismissal controls
+remain in the original components. Detail posters use a matching sleeve, while
+Play, episodes, cast, recommendations and server actions keep their existing flows.
+
+ThemePageBanner provides a labelled Return to table link on these screens. A bronze
+navigation treatment ties the app shell together. Search and saved-story surfaces
+use restrained blue/leather panels. Music, games, requests and social areas retain
+their specialized layouts with the shared palette and navigation styling.
+
+These are styling enhancements, not replacement data or playback implementations.
+All overrides are scoped to html[data-theme="card-table"]. Default and Midnight
+continue to use their existing styling. src/arcane-surfaces.css owns the new screen
+treatments; the existing celestial-table.css owns the interactive table. Both load
+on demand through loadThemeStyles rather than entering the default or TV bundle.
 
 ## Themes settings
 

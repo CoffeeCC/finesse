@@ -60,7 +60,10 @@ let current = initialTheme()
 let arcaneStyles: Promise<unknown> | null = null
 export function loadThemeStyles(theme: ThemeId) {
   if (__WEBOS__ || theme !== 'card-table' || arcaneStyles) return
-  arcaneStyles = import('../card-table.css').then(() => import('../celestial-table.css')).catch(() => { arcaneStyles = null })
+  arcaneStyles = import('../card-table.css')
+    .then(() => import('../celestial-table.css'))
+    .then(() => import('../arcane-surfaces.css'))
+    .catch(() => { arcaneStyles = null })
 }
 
 export function applyTheme(theme: ThemeId): void {

@@ -2,6 +2,7 @@ import MomentComposer from '../components/moments/MomentComposer'
 import { useMomentsOn } from '../api/moments'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import TitleLogo from '../components/TitleLogo'
+import ThemePageBanner from '../components/ThemePageBanner'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
@@ -530,7 +531,7 @@ export default function ItemPage() {
   ]
 
   return (
-    <div className="pb-16" style={gradeStyle}>
+    <div data-theme-surface="detail" className="pb-16" style={gradeStyle}>
       {recommending && (
         <MomentComposer item={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setRecommending(false)} />
       )}
@@ -596,15 +597,19 @@ export default function ItemPage() {
             above the sections below — the depth transform makes it a stacking context. */}
         <div className="vt-detail-head depth-front relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
           {poster && (
+            <div className="arcane-poster-wrap hidden md:block w-52 shrink-0">
             <img
               src={poster}
               alt={item.Name}
               data-vt-static="vt-poster"
               style={{ boxShadow: `0 25px 60px -12px rgba(${accentRgb}, 0.35)` }}
-              className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0"
+              className="block w-full rounded-xl ring-1 ring-white/10"
             />
+            <span className="arcane-media-frame" aria-hidden="true" />
+            </div>
           )}
           <div className="min-w-0 pb-2">
+            <ThemePageBanner label="Title details" compact />
             {logo ? (
               <TitleLogo
                 src={logo}

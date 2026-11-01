@@ -244,6 +244,7 @@ export default function MediaCard({
                 e.stopPropagation()
                 onDismiss(item)
               }}
+              data-card-dismiss
               className="absolute top-2 left-2 h-6 w-6 rounded-full bg-black/70 backdrop-blur flex items-center justify-center text-ink-300 hover:text-white hover:bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity shadow-md shadow-black/40"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -253,26 +254,27 @@ export default function MediaCard({
           )}
 
           {played && (
-            <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-fill flex items-center justify-center shadow-md shadow-black/40">
+            <div data-card-badge className="absolute top-2 right-2 h-6 w-6 rounded-full bg-accent-fill flex items-center justify-center shadow-md shadow-black/40">
               <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
               </svg>
             </div>
           )}
           {!played && unplayedCount != null && unplayedCount > 0 && (
-            <div className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-accent-fill flex items-center justify-center text-xs font-semibold text-white shadow-md shadow-black/40">
+            <div data-card-badge className="absolute top-2 right-2 min-w-6 h-6 px-1.5 rounded-full bg-accent-fill flex items-center justify-center text-xs font-semibold text-white shadow-md shadow-black/40">
               {unplayedCount}
             </div>
           )}
 
           {pct != null && (
-            <div className="absolute bottom-0 inset-x-0 h-1 bg-black/60">
+            <div data-card-progress className="absolute bottom-0 inset-x-0 h-1 bg-black/60">
               <div
                 className="h-full bg-accent-400 shadow-[0_0_8px_rgba(117,137,216,0.8)]"
                 style={{ width: `${pct}%` }}
               />
             </div>
           )}
+          <span className="arcane-media-frame" aria-hidden="true" />
         </div>
       </div>
 
@@ -282,7 +284,7 @@ export default function MediaCard({
         </p>
         {/* Quiet captions: posters already carry their title, so the year /
             episode line waits for hover or focus (always shown on touch). */}
-        <p className="text-xs text-ink-400 truncate opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
+        <p className="arcane-card-meta text-xs text-ink-400 truncate opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
           {subtitle(item)}
         </p>
       </div>

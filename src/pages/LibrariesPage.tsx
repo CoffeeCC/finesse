@@ -5,6 +5,7 @@ import { backdropUrl, imageUrl } from '../api/client'
 import { useSecondaryDestinations } from '../components/NavBar'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 import { useTheme } from '../lib/theme'
+import ThemePageBanner from '../components/ThemePageBanner'
 
 // The phone's Library tab: every place to browse, one tap away (on desktop and
 // TV these live in the navbar and its More menu).
@@ -76,7 +77,8 @@ export default function LibrariesPage() {
   }
 
   return (
-    <div className="table-deck-hub pb-16 px-4 sm:px-6 lg:px-12 py-6">
+    <div data-theme-surface="libraries" className="table-deck-hub pb-16 px-4 sm:px-6 lg:px-12 py-6">
+      <ThemePageBanner label="Your library vault" />
       <h1 className="page-title mb-5">Library</h1>
       {theme === 'card-table' ? <>
         <section aria-label="Movie and show decks">

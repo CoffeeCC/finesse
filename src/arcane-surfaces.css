@@ -1,0 +1,95 @@
+/* Shared theme surfaces. Media, video and subtitle colors remain their source colors. */
+.arcane-media-frame { display: none; }
+html[data-theme="card-table"] {
+  --arcane-bronze: #ab8350;
+  --arcane-border: #b391594a;
+  --arcane-paper: #f1e4c9;
+  --arcane-surface: #101e2b;
+}
+html[data-theme="card-table"] .vt-nav {
+  background: linear-gradient(#0a111beF,#0a111bd9);
+  border-bottom: 1px solid #b3915926;
+}
+html[data-theme="card-table"] .vt-nav nav[aria-label="Main"] {
+  background: #17222df0; border: 1px solid var(--arcane-border);
+  box-shadow: inset 0 1px #e9c89118,0 8px 25px #0004;
+}
+html[data-theme="card-table"] .vt-tabs { border: 1px solid var(--arcane-border); box-shadow: inset 0 1px #e9c89118,0 8px 25px #0006; }
+html[data-theme="card-table"] [data-theme-surface] .page-title { color: var(--arcane-paper); }
+html[data-theme="card-table"] .arcane-page-banner {
+  display: flex; align-items: center; min-height: 68px; gap: 14px; margin: 0 0 20px;
+  padding: 10px 18px; border: 1px solid var(--arcane-border); border-radius: 14px 5px 14px 5px;
+  color: #dac49f; background: linear-gradient(115deg,#1b2d3b,#101b27);
+  box-shadow: inset 0 1px #f1d2910f,0 5px 18px #0002;
+}
+.arcane-banner-crest { font-size: 29px; color: #d7b77b; flex-shrink: 0; text-shadow: 0 2px 5px #0008; }
+.arcane-banner-label { flex: 1; min-width: 0; font-family: var(--font-display); font-size: 25px; line-height: 1.2; }
+.arcane-return { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; gap: 12px; font-size: 12px; color: #e7d4ac; padding: 6px 10px; border-radius: 8px; }
+.arcane-return:hover { background: #c5a36a17; }
+.arcane-return:focus-visible { outline: 2px solid var(--color-accent-300); outline-offset: 2px; }
+html[data-theme="card-table"] [data-theme-surface="catalog"] > .arcane-page-banner { margin-top: 24px; margin-bottom: 4px; }
+html[data-theme="card-table"] .arcane-catalog-heading { padding-bottom: 18px; }
+html[data-theme="card-table"] .arcane-catalog-filters { margin-bottom: 22px; padding-top: 12px; border-top: 1px solid var(--arcane-border); border-bottom: 1px solid var(--arcane-border); }
+html[data-theme="card-table"] .arcane-catalog-heading input,
+html[data-theme="card-table"] .arcane-catalog-heading button,
+html[data-theme="card-table"] .arcane-catalog-filters > button,
+html[data-theme="card-table"] .arcane-catalog-filters > [role="group"] {
+  border-color: var(--arcane-border); background-color: #142332; min-height: 44px;
+}
+
+/* The same real card frame now follows movie/show posters through every shelf. */
+html[data-theme="card-table"] [data-poster-card] .tilt {
+  border: 0; border-radius: 12px; background: transparent; box-shadow: none;
+}
+html[data-theme="card-table"] [data-poster-card] .tilt > img,
+html[data-theme="card-table"] [data-poster-card] .tilt > video {
+  position: absolute; inset: 12% 8%; width: 84%; height: 76%; object-fit: cover; border-radius: 4px;
+}
+html[data-theme="card-table"] [data-poster-card] .arcane-media-frame,
+html[data-theme="card-table"] .arcane-poster-wrap .arcane-media-frame {
+  display: block; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: url('./assets/card-table/celestial-frame-v1.webp') center / 100% 100% no-repeat;
+}
+html[data-theme="card-table"] [data-poster-card] .arcane-card-meta { opacity: 1; color: #c4b69f; }
+html[data-theme="card-table"] [data-poster-card]:focus-visible .tilt { outline: 2px solid var(--color-accent-300); outline-offset: 3px; }
+html[data-theme="card-table"] [data-poster-card] [data-card-badge] { z-index: 3; top: 15%; right: 10%; }
+html[data-theme="card-table"] [data-poster-card] [data-card-dismiss] { z-index: 3; top: 15%; left: 10%; }
+html[data-theme="card-table"] [data-poster-card] [data-card-progress] { z-index: 3; left: 10%; right: 10%; bottom: 13%; }
+
+/* A title is inspected in a card sleeve; all original actions stay in place. */
+html[data-theme="card-table"] .arcane-poster-wrap { position: relative; padding: 28px 18px; border-radius: 15px; background: transparent; }
+html[data-theme="card-table"] .arcane-poster-wrap > img { border-radius: 4px; box-shadow: none !important; }
+html[data-theme="card-table"] .arcane-banner-compact {
+  min-height: 44px; padding: 2px 0; margin-bottom: 12px; border: 0; border-radius: 0;
+  background: none; box-shadow: none;
+}
+.arcane-banner-compact .arcane-banner-crest { font-size: 22px; }
+.arcane-banner-compact .arcane-banner-label { font-family: var(--font-sans); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+html[data-theme="card-table"] [data-theme-surface="detail"] > section > [role="tablist"] { border-color: var(--arcane-border); }
+html[data-theme="card-table"] [data-theme-surface="detail"] [role="tab"] { color: #c8bca8; }
+html[data-theme="card-table"] [data-theme-surface="detail"] [role="tab"][aria-selected="true"] { color: #f6e8cc; }
+
+/* Search and saved stories share the board's materials, without new data flows. */
+html[data-theme="card-table"] [data-theme-surface="search-dialog"] { background: #101e2bf5; border: 1px solid #bd965c88; border-radius: 20px; box-shadow: inset 0 0 0 3px #172a3b,0 24px 80px #0009; }
+html[data-theme="card-table"] [data-theme-search="page"] { padding: 18px; border: 1px solid var(--arcane-border); border-radius: 16px; background: #101e2b; box-shadow: inset 0 1px #edcf8c0f; }
+html[data-theme="card-table"] [data-theme-search] > div:first-child { border-color: #bc965c55; }
+html[data-theme="card-table"] [data-theme-surface="journal"] .arcane-page-banner { border-left: 5px solid #89633d; }
+html[data-theme="card-table"] .arcane-empty { border: 1px solid var(--arcane-border); background: linear-gradient(125deg,#142735,#101a25); box-shadow: inset 0 0 0 4px #13222e; }
+html[data-theme="card-table"] .arcane-journal-shelf {
+  padding: 24px 26px; min-height: 300px; border: 1px solid var(--arcane-border); border-radius: 5px 16px 16px 5px;
+  background: url('./assets/card-table/paper-grain.svg'),linear-gradient(115deg,#132534,#101c28);
+  box-shadow: inset 5px 0 #795a35,inset 6px 0 #be9d5d55,0 10px 28px #0003;
+}
+html[data-theme="card-table"] .arcane-empty a, html[data-theme="card-table"] .arcane-empty button { min-height: 44px; }
+html[data-theme="card-table"] .arcane-catalog-heading [aria-label="Layout"] button { min-height: 40px; min-width: 40px; }
+html[data-theme="card-table"] .library-deck-tile { border-color: #ac8350; }
+
+@media (max-width: 600px) {
+  html[data-theme="card-table"] .arcane-page-banner { gap: 8px; padding: 8px 10px; min-height: 60px; margin-bottom: 16px; }
+  .arcane-banner-crest { font-size: 23px; }
+  .arcane-banner-label { font-size: 21px; }
+  .arcane-return { font-size: 10px; gap: 4px; padding: 5px; max-width: 110px; }
+  html[data-theme="card-table"] [data-theme-search="page"] { padding: 10px; }
+  html[data-theme="card-table"] .arcane-journal-shelf { padding: 16px 14px; min-height: 0; }
+  html[data-theme="card-table"] .arcane-banner-compact { padding: 0; min-height: 44px; margin-bottom: 8px; }
+}
