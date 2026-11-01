@@ -38,6 +38,23 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Your graphics card, put to work — v3.2.7 (2026-11-01)
+
+- **Finesse uses your graphics card.** It finds every card, tests that it can really convert
+  video, and gives Jellyfin and game streaming the right one each: with two cards, one each;
+  with built-in graphics beside a card, Jellyfin gets the built-in one; with no card,
+  everything is tuned for the processor. It never restarts Jellyfin or a game while someone is
+  watching or playing. **Settings → Server → Graphics** shows who uses which, and lets you choose.
+- **Your own Jellyfin on the processor?** If Jellyfin converts video on the CPU while a working
+  card sits idle (or is set to a card that can't), **Connected apps** says so, with a one-click fix.
+- **Preview clips on every install.** Finesse now makes hover and title-page clips on servers
+  where it uses apps you already had, and clears out clips of titles that are gone. Settings →
+  Server → **Preview clips** shows how far along it is.
+- **Moments you save for yourself** are in the bell, under **Saved by you** (with the ones you
+  sent, and who to). They can go in a collection, and a quiet "Your note" appears when you
+  reach one. With nobody picked, the button says **Save for me**.
+- **Fixes:** the LG TV no longer re-downloads an update it already has.
+
 ## Watch together, parental limits, and a long list of fixes — v3.2.6 (2026-11-01)
 
 - **Parental limits.** Administrators can give a profile a rating limit, block unrated titles
