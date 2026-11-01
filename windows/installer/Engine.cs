@@ -402,7 +402,7 @@ namespace Finesse.Setup
                 foreach (var need in new[] { "node.exe", @"server\finesse-server.mjs", @"web\index.html", "VERSION" })
                     if (!File.Exists(Path.Combine(tmp, need))) throw new FriendlyException("The Finesse download is incomplete (" + need + " is missing). Try again.");
                 string version = File.ReadAllText(Path.Combine(tmp, "VERSION")).Trim();
-                if (!Regex.IsMatch(version, @"^\d+\.\d+\.\d+$")) throw new FriendlyException("The Finesse download doesn't say which version it is. Try again.");
+                if (!Regex.IsMatch(version, @"^\d+\.\d+\.\d+(\.\d+)?$")) throw new FriendlyException("The Finesse download doesn't say which version it is. Try again.");
                 string dest = Path.Combine(apps, version);
                 // The running version is stopped by now, so its folder can be replaced (a repair).
                 if (Directory.Exists(dest)) Directory.Delete(dest, true);
