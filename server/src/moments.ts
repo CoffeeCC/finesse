@@ -35,6 +35,24 @@ export const SPAN_MAX = 600
 const KEEP = 5000
 const FEED_DAYS = 60
 const FEED_MAX = 300
+/** How long we remember which of our people wrote a moment on a friend's server (well past the feed). */
+const SENT_KEEP_MS = 4 * FEED_DAYS * 86400e3
+/** Who's on this server changes rarely: /Users is asked at most once a minute. */
+const PEOPLE_TTL_MS = 60e3
+
+/**
+ * The first `n` of `list` that pass `ok`, in order, asking no more than it must (a few at a time).
+ * A limited profile's moments are checked one title at a time, so a long list isn't all asked.
+ */
+export async function firstAllowed<T>(list: T[], n: number, ok: (x: T) => Promise<boolean>, batch = 10): Promise<T[]> {
+  const out: T[] = []
+  for (let i = 0; i < list.length && out.length < n; i += batch) {
+    const part = list.slice(i, i + batch)
+    const yes = await Promise.all(part.map(ok))
+    for (let j = 0; j < part.length && out.length < n; j++) if (yes[j]) out.push(part[j]!)
+  }
+  return out
+}
 const POLL_MS = 2 * 60e3
 
 /** Who a moment is for: "home" (people on this server) or a friend server's link id; `u` narrows it to some people there. */
@@ -171,6 +189,13 @@ export class MomentStore {
         created INTEGER NOT NULL,
         PRIMARY KEY (friend, id)
       );
+      CREATE TABLE IF NOT EXISTS sent (
+        friend TEXT NOT NULL,
+        id TEXT NOT NULL,
+        user TEXT NOT NULL,
+        created INTEGER NOT NULL,
+        PRIMARY KEY (friend, id)
+      );
       CREATE TABLE IF NOT EXISTS reads (
         user TEXT NOT NULL,
         key TEXT NOT NULL,
@@ -208,8 +233,28 @@ export class MomentStore {
     return rows.map((r) => ({ ...r, aud: JSON.parse(r.audience) as Audience[] }))
   }
 
+  /** One of our people wrote a moment on a friend's server: who, so that server can't claim it's anyone else's. */
+  recordSent(friend: string, id: string, user: string) {
+    this.db.prepare('INSERT OR REPLACE INTO sent (friend, id, user, created) VALUES (?, ?, ?, ?)').run(friend, id, user, Date.now())
+    this.db.prepare('DELETE FROM sent WHERE created < ?').run(Date.now() - SENT_KEEP_MS)
+  }
+
+  /**
+   * A friend's feed with "one of yours wrote it" kept only where it's true: we sent that moment
+   * to that server, for that person. A friend's server can't make a moment look like any of ours.
+   */
+  trustFeed(friend: string, feed: FeedMoment[]): FeedMoment[] {
+    const get = this.db.prepare('SELECT user FROM sent WHERE friend = ? AND id = ?')
+    return feed.map((m) => {
+      if (!m.fromHere) return m
+      const r = get.get(friend, m.id) as { user: string } | undefined
+      return r?.user === m.fromHere ? m : { ...m, fromHere: null, owner: undefined }
+    })
+  }
+
   /** Replaces everything we know of a friend's moments with what they sent just now. */
   replaceRemote(friend: string, feed: FeedMoment[]) {
+    feed = this.trustFeed(friend, feed)
     this.db.exec('BEGIN')
     try {
       this.db.prepare('DELETE FROM remote WHERE friend = ?').run(friend)
@@ -336,8 +381,18 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
   }
 
   /** People on this server you can send a moment to (not friends' viewer accounts, not you). */
+  let usersCache: { at: number; users: Promise<{ Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[]> } | null = null
   async function people(except: string): Promise<{ id: string; name: string }[]> {
-    const users = await jf.request<{ Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[]>('/Users').catch(() => [])
+    if (!usersCache || Date.now() - usersCache.at > PEOPLE_TTL_MS) {
+      const users = jf.request<{ Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[]>('/Users').then((u) => (Array.isArray(u) ? u : []))
+      const entry = { at: Date.now(), users }
+      usersCache = entry
+      // A failed ask isn't kept.
+      users.catch(() => {
+        if (usersCache === entry) usersCache = null
+      })
+    }
+    const users = await usersCache.users.catch(() => [])
     const viewers = groupUserIds(settings.get())
     return (Array.isArray(users) ? users : [])
       .filter((u) => u.Id !== except && !viewers.has(u.Id) && !u.Policy?.IsDisabled)
@@ -435,6 +490,8 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
         owner: to.includes('owner'),
         users: everyone ? null : picked,
       })
+      // Remembered, so that server can only ever call this one ours (and only this person's).
+      if (typeof r?.id === 'string' && /^[\w-]{8,20}$/.test(r.id)) store.recordSent(f.id, r.id, me.Id.toLowerCase())
       await pollFriend(f, true)
       return sendJson(res, 201, { key: `r:${f.id}:${r.id}` })
     }
@@ -467,7 +524,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
       const f = friendOf(tagged[1]!)
       if (!f) return sendJson(res, 200, { moments: [] })
       const r = await groups.callFriend<{ moments?: FeedMoment[] }>(f, `/api/groups/peer/moments?item=${tagged[2]!.toLowerCase()}`).catch(() => ({ moments: [] as FeedMoment[] }))
-      const list = (r.moments ?? []).filter(validFeed).filter((m) => m.fromHere === uid || (m.users === null ? true : m.users.includes(uid)))
+      const list = store.trustFeed(f.id, (r.moments ?? []).filter(validFeed)).filter((m) => m.fromHere === uid || (m.users === null ? true : m.users.includes(uid)))
       return sendJson(res, 200, {
         moments: list.map((m) => ({ key: `r:${f.id}:${m.id}`, start: m.start, end: m.end, note: m.note, spoiler: m.spoiler, from: m.fromHere ? m.from : `${m.from} · ${f.name}`, mine: m.fromHere === uid, created: m.created })),
       })
@@ -513,14 +570,9 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
         created: r.created,
       }))
     let all = [...local, ...remote].sort((a, b) => b.created - a.created)
-    // A limited profile only hears of titles it can open.
-    if (limited(uid)) {
-      const ok = await Promise.all(all.map((m) => mayOpen(uid, m.item)))
-      all = all.filter((_, i) => ok[i])
-    }
-    const items = all
-      .slice(0, 60)
-      .map((m) => ({ ...m, read: read.has(m.key) }))
+    // A limited profile only hears of titles it can open (checked only until there are 60).
+    all = limited(uid) ? await firstAllowed(all, 60, (m) => mayOpen(uid, m.item)) : all.slice(0, 60)
+    const items = all.map((m) => ({ ...m, read: read.has(m.key) }))
     sendJson(res, 200, { moments: items, unread: items.filter((m) => !m.read).length, mine: await mine(uid, since) })
   })
 
@@ -549,12 +601,8 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
       if (r.owner === 1) to.push(`everyone on ${names.get(r.friend)}`)
       return { ...base, key: `r:${r.friend}:${r.id}`, item: `f-${r.friend}-${r.item}`, title: r.title, subtitle: r.subtitle, start: r.start, end: r.end, note: r.note, spoiler: r.spoiler === 1, to, created: r.created }
     })
-    let list = [...local, ...remote].sort((a, b) => b.created - a.created)
-    if (limited(uid)) {
-      const ok = await Promise.all(list.map((m) => mayOpen(uid, m.item)))
-      list = list.filter((_, i) => ok[i])
-    }
-    return list.slice(0, 60)
+    const list = [...local, ...remote].sort((a, b) => b.created - a.created)
+    return limited(uid) ? firstAllowed(list, 60, (m) => mayOpen(uid, m.item)) : list.slice(0, 60)
   }
 
   router.post('/api/moments/read', async ({ req, res }) => {

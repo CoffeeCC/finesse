@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
 import { after, before, test } from 'node:test'
-import { cleanNote, cleanSpan } from '../src/moments.ts'
+import { cleanNote, cleanSpan, firstAllowed, MomentStore, type FeedMoment } from '../src/moments.ts'
 import { call, fakeJellyfin, finesse } from './peers.ts'
 
 let jfA: Awaited<ReturnType<typeof fakeJellyfin>>
@@ -221,4 +221,42 @@ test('when Alex stops watching Sam’s server, Sam’s moments go from Alex’s 
   assert.ok((await inbox(A.url, 'a-robin')).moments.some((m) => m.note === 'watch this!'))
   assert.equal((await call(A.url, 'DELETE', `/api/groups/friends/${samsOnA}`, 'a-admin')).status, 200)
   assert.ok(!(await inbox(A.url, 'a-robin')).moments.some((m) => m.note === 'watch this!'))
+})
+
+test('a friend’s server can’t make a moment look like one of ours: only one we sent, by that person', () => {
+  const store = new MomentStore(':memory:')
+  const alex = 'a'.repeat(32)
+  const robin = 'b'.repeat(32)
+  const feed = (id: string, fromHere: string | null): FeedMoment => ({ id, item: 'd'.repeat(32), title: 'Sintel', subtitle: '', start: 1, end: 2, note: id, spoiler: false, from: 'x', fromHere, users: [], owner: true, created: Date.now() })
+  store.recordSent('friend01', 'sentByAlex1', alex)
+  store.replaceRemote('friend01', [feed('sentByAlex1', alex), feed('forged00001', alex), feed('sentByAlex1x', robin), feed('theirs00001', null)])
+  const rows = new Map(store.remote({ friend: 'friend01', since: 0 }).map((r) => [r.id, r]))
+  assert.equal(rows.get('sentByAlex1')!.author_here, alex)
+  assert.equal(rows.get('sentByAlex1')!.owner, 1)
+  // Never sent by us, or claimed for someone else: just a friend's moment.
+  assert.equal(rows.get('forged00001')!.author_here, null)
+  assert.equal(rows.get('forged00001')!.owner, null)
+  assert.equal(rows.get('sentByAlex1x')!.author_here, null)
+  // Another friend can't claim what we sent to the first one.
+  store.replaceRemote('friend02', [feed('sentByAlex1', alex)])
+  assert.equal(store.remote({ friend: 'friend02', since: 0 })[0]!.author_here, null)
+})
+
+test('a limited profile’s list stops asking once it has 60', async () => {
+  let asked = 0
+  const list = Array.from({ length: 1000 }, (_, i) => i)
+  const got = await firstAllowed(list, 60, async (i) => (asked++, i % 2 === 0))
+  assert.equal(got.length, 60)
+  assert.deepEqual(got.slice(0, 3), [0, 2, 4])
+  assert.ok(asked <= 130, `asked ${asked}`)
+  assert.deepEqual(await firstAllowed([1, 2, 3], 60, async () => true), [1, 2, 3])
+})
+
+test('who’s on the server is asked of Jellyfin at most once a minute', async () => {
+  const users = () => jfA.calls.filter((c) => c.method === 'GET' && c.path === '/Users').length
+  await call(A.url, 'GET', `/api/moments/targets?item=${jfA.movie}`, 'a-admin')
+  const n = users()
+  await call(A.url, 'GET', `/api/moments/targets?item=${jfA.movie}`, 'a-admin')
+  await call(A.url, 'GET', '/api/moments/inbox', 'a-robin')
+  assert.equal(users(), n)
 })
