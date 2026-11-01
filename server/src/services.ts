@@ -3,6 +3,7 @@
 // added server-side and never reach a browser, and the caller's own
 // credentials are stripped before anything leaves for a third-party service.
 
+import { capPlaybackInfo, deviceOf, TranscodeCounter } from './transcodeCap.ts'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Auth } from './auth.ts'
@@ -182,11 +183,12 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
   // passes straight through (Jellyfin checks it). In bundle mode Jellyfin's
   // BaseUrl is /jellyfin, so paths map 1:1; a plain Jellyfin (basePath "")
   // gets the prefix stripped and its redirects re-prefixed.
+  const conversions = new TranscodeCounter(settings)
   router.any('/jellyfin', async ({ req, res, url }) => {
-    await proxyJellyfin(settings, req, res, '/', url.search, parental)
+    await proxyJellyfin(settings, req, res, '/', url.search, parental, conversions)
   })
   router.any('/jellyfin/*', async ({ req, res, params, url }) => {
-    await proxyJellyfin(settings, req, res, `/${params.rest ?? ''}`, url.search, parental)
+    await proxyJellyfin(settings, req, res, `/${params.rest ?? ''}`, url.search, parental, conversions)
   })
 }
 
@@ -197,7 +199,7 @@ function jellyfinTarget(settings: SettingsStore, rest: string, search: string) {
   return { target: joinUrl(j.url, `${base}${rest}`, search), base }
 }
 
-async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res: import('node:http').ServerResponse, rest: string, search: string, parental: Parental) {
+async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res: import('node:http').ServerResponse, rest: string, search: string, parental: Parental, conversions?: TranscodeCounter) {
   // When any profile is limited (parental.ts), the request goes on with only the one token
   // Jellyfin would have used, and that token's profile is the one checked.
   const caller = await parental.jellyfinCaller(req, search)
@@ -217,12 +219,21 @@ async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res:
     if (!ok) throw new ApiError(403, 'This profile can’t open that title')
   }
   const accept = String(req.headers.accept ?? '')
+  // The graphics plan's cap on conversions at once (transcodeCap.ts): checked only when it's reached.
+  const cap = conversions?.cap()
+  let capText: ((t: string) => string) | null = null
+  if (cap && req.method === 'POST' && /^\/Items\/[^/]+\/PlaybackInfo$/i.test(rest)) {
+    const busy = await conversions!.busy(deviceOf(String(req.headers['x-emby-authorization'] ?? req.headers.authorization ?? ''))).catch(() => 0)
+    if (busy >= cap) capText = (t) => capPlaybackInfo(t, busy, cap)
+  }
+  const kidText = kid ? (t: string) => (t.trimStart().startsWith('#EXTM3U') ? t : parental.filterJson(t, kid.limit)) : null
   await proxyHttp(req, res, {
     target,
     // A plain Jellyfin redirects to "/web/…"; keep the browser under /jellyfin.
     rewriteLocation: base === '' ? { from: '/', to: '/jellyfin/' } : undefined,
     timeoutMs: 60000,
     ...(caller ? { setHeaders: caller.upstream.headers } : {}),
+    ...(capText && !kid ? { rewriteText: capText, rewriteRefusal: 'Couldn’t check how busy the server is' } : {}),
     ...(kid
       ? {
           setHeaders: {
@@ -231,7 +242,10 @@ async function proxyJellyfin(settings: SettingsStore, req: IncomingMessage, res:
             // Plain JSON only: no "profile=CamelCase" replies with keys the filter doesn't expect.
             ...(/json|profile/i.test(accept) ? { accept: 'application/json' } : {}),
           },
-          rewriteText: (t: string) => (t.trimStart().startsWith('#EXTM3U') ? t : parental.filterJson(t, kid.limit)),
+          rewriteText: async (t: string) => {
+            const checked = await kidText!(t)
+            return capText ? capText(checked) : checked
+          },
           rewriteRefusal: 'Couldn’t check this against the profile’s limits',
         }
       : {}),

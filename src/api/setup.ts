@@ -238,6 +238,21 @@ export interface BackupPartInfo {
   why?: string
 }
 
+/** Preview clips (server/src/stack/clips.ts): bundle and adopt alike. */
+export interface PreviewStatus {
+  enabled: boolean
+  state: 'making' | 'idle' | 'blocked' | 'off'
+  /** Why clips can't be made, or are waiting. */
+  reason: string | null
+  where: string | null
+  made: number
+  pending: number
+  total: number
+  failed: number
+  removed: number
+  lastRun: string | null
+}
+
 export interface SystemStatus {
   version: string
   web: string | null
@@ -246,7 +261,7 @@ export interface SystemStatus {
   stack: { root: string; data: string; services: string[]; quality?: string; paused: string[]; jellyfinPort: number | null } | null
   updates: { auto: boolean; lastStackUpdate: string | null }
   busy: boolean
-  previews?: { enabled: boolean; made: number; pending: number; total: number; lastRun: string | null }
+  previews?: PreviewStatus
   games?: { enabled: boolean; folder: string | null; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   streaming?: { enabled: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   backup?: { job: { state: 'idle' | 'working' | 'done' | 'error'; step?: string; file?: BackupFile; error?: string } }
@@ -292,6 +307,7 @@ export const systemApi = {
   setStreaming: (enabled: boolean) => call<{ job: unknown }>('PUT', '/api/system/streaming', { enabled }),
   streamingCheck: () => call<StreamingCheck>('GET', '/api/system/streaming/check', undefined, { timeoutMs: 60000 }),
   makePreviews: () => call<{ started: boolean }>('POST', '/api/system/previews'),
+  previews: () => call<PreviewStatus>('GET', '/api/system/previews'),
   setAutoUpdates: (auto: boolean) => call<{ auto: boolean }>('PUT', '/api/system/updates', { auto }),
   backupParts: () => call<{ parts: BackupPartInfo[] }>('GET', '/api/system/backups/parts'),
   /** Starts a backup in the background; follow it in status().backup.job. */
@@ -567,6 +583,8 @@ export interface ConnCheck {
   ok: boolean | null
   summary: string
   problems: string[]
+  /** One click puts it right (Jellyfin's card on someone's own Jellyfin). */
+  fix?: { label: string; gpu: string }
 }
 export interface ConnReport {
   checkedAt: string
@@ -587,4 +605,74 @@ export interface LibraryFinding {
 }
 export const libraryHealthApi = {
   get: (refresh = false) => call<{ checkedAt: string; findings: LibraryFinding[]; skipped: string[] }>('GET', `/api/system/library-health${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 120000 }),
+}
+
+// ---------- Graphics (server/src/stack/graphics.ts, graphicsManager.ts) ----------
+
+export interface GpuInfo {
+  id: string
+  vendor: 'nvidia' | 'intel' | 'amd' | 'other'
+  name: string
+  integrated: boolean
+  pci?: string
+  renderNode?: string
+  uuid?: string
+  vramMiB?: number
+  /** Its test conversion worked (true), failed (false), or wasn't tried (null). */
+  encodes: boolean | null
+  /** Failed tests in a row while an app still uses it. */
+  strikes?: number
+  problem?: string
+  sessionLimit: number | null
+  decode: string[]
+}
+export interface GpuAssignmentInfo {
+  gpu: string | null
+  name: string | null
+  accel: 'nvenc' | 'qsv' | 'vaapi' | 'none'
+  why: string
+}
+export interface GraphicsPlanInfo {
+  jellyfin: GpuAssignmentInfo & { maxTranscodes: number | null; shared: boolean; decode: string[] }
+  wolf: GpuAssignmentInfo
+  clipsNightOnly: boolean
+  notes: string[]
+}
+export interface GraphicsInventoryInfo {
+  checkedAt: string
+  gpus: GpuInfo[]
+  nvidiaRuntime: boolean
+}
+export type GraphicsStatus =
+  | {
+      mode: 'bundle'
+      inventory: GraphicsInventoryInfo | null
+      plan: GraphicsPlanInfo | null
+      applied: { at: string; key: string; plan: GraphicsPlanInfo } | null
+      pending: boolean
+      /** Why part of the plan isn't in effect yet (someone watching, a change that failed). */
+      waiting?: string | null
+      /** The last look at the cards didn't finish: what's shown is from before. */
+      unknown?: boolean
+      override: { jellyfin?: string; wolf?: string }
+      note: string | null
+      /** Jellyfin has video settings of its own: Finesse's can be used in one click. */
+      offer?: boolean
+      streaming: boolean
+      working: boolean
+    }
+  | {
+      mode: 'adopt'
+      inventory: GraphicsInventoryInfo | null
+      check: ConnCheck | null
+      jellyfin: { name: string; encoding: string | null } | null
+      reason: string | null
+    }
+export const graphicsApi = {
+  get: (refresh = false) => call<GraphicsStatus>('GET', `/api/system/graphics${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 180000 }),
+  /** null or "auto": Finesse chooses. "cpu" (Jellyfin only): the processor. */
+  choose: (pick: { jellyfin?: string | null; wolf?: string | null }) => call<{ override: { jellyfin?: string; wolf?: string } }>('PUT', '/api/system/graphics', pick),
+  /** Finesse's video settings in Jellyfin, over Jellyfin's own (servers Finesse set up). */
+  useOurEncoding: () => call<{ ok: boolean }>('POST', '/api/system/graphics/encoding', undefined, { timeoutMs: 60000 }),
+  fixJellyfin: (gpu: string) => call<{ card: string }>('POST', '/api/system/graphics/jellyfin', { gpu }, { timeoutMs: 180000 }),
 }

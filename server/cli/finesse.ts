@@ -209,6 +209,7 @@ interface Health {
   web: string | null
   mode: string
   setup: { state: string; completedAt: string | null }
+  previews?: { enabled: boolean; state: string; reason: string | null; made: number; pending: number; total: number; removed?: number }
   health: {
     docker: boolean
     network: boolean
@@ -264,11 +265,20 @@ async function doctor(argv: string[]): Promise<number> {
       for (const e of recent) console.log(`    ${dim(e.at.slice(0, 16).replace('T', ' '))} ${e.message}`)
     }
   }
+  // Preview clips: both modes (someone's own Jellyfin in Docker makes them too).
+  const pv = r.data.previews
+  if (pv && !argv.includes('--json')) console.log('')
+  if (pv && !pv.enabled) line(true, 'Preview clips', 'off')
+  else if (pv) {
+    const count = pv.total ? `${pv.made} of ${pv.total} titles have clips` : 'library not read yet'
+    line(pv.state === 'blocked' ? null : true, 'Preview clips', [count, pv.reason ?? ''].filter(Boolean).join(' · '))
+  }
   if (conns) {
     if (!argv.includes('--json') && (conns.apps.length || conns.vpn)) console.log(`\n  ${bold('Connected apps')}`)
     for (const a of conns.apps) {
       line(a.ok, a.name, a.ok === true ? '' : a.summary)
       if (!argv.includes('--json')) for (const p of a.problems) console.log(`      ${dim(p)}`)
+      if (!argv.includes('--json') && a.fix) console.log(`      ${dim(`One click fixes it: Settings → Server → Connected apps → “${a.fix.label}”.`)}`)
     }
     if (conns.vpn) line(conns.vpn.ok, conns.vpn.source === 'gluetun' ? 'VPN' : 'VPN (guessed from the apps)', conns.vpn.summary)
   } else if (!argv.includes('--json')) {

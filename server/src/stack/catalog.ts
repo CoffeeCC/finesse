@@ -47,9 +47,25 @@ export interface StackContext {
   games?: GamesConfig
   /** Game streaming (Wolf): whether Docker can hand it an Nvidia card. */
   streaming?: { nvidia: boolean }
+  /**
+   * Which card Jellyfin and Wolf use (graphics.ts), once Finesse has planned it. Unset: the
+   * pre-plan behaviour (Jellyfin gets /dev/dri, Wolf every NVIDIA card), so nothing changes until a plan exists.
+   */
+  graphics?: { jellyfin?: GpuAssignment; wolf?: GpuAssignment }
   /** Docker labels containers for SELinux (Fedora, Bazzite…): bind mounts then need label=disable (filled in by the orchestrator). */
   selinux?: boolean
 }
+
+/** One app's card: NVIDIA by UUID, Intel/AMD by render node; accel "none" for the CPU. */
+export interface GpuAssignment {
+  gpu: string | null
+  accel: 'nvenc' | 'qsv' | 'vaapi' | 'none'
+  uuid?: string
+  renderNode?: string
+}
+
+/** NVIDIA's container settings for one card, pinned by UUID (never "all"). */
+const nvidiaEnv = (uuid: string, caps: string) => ({ NVIDIA_VISIBLE_DEVICES: uuid, NVIDIA_DRIVER_CAPABILITIES: caps })
 
 export interface GamesConfig {
   dbPassword: string
@@ -144,8 +160,8 @@ export interface ServiceDef {
   hostNetwork?: boolean
   /** Extra device rules (Wolf: the virtual controllers it creates while it runs). */
   deviceCgroupRules?: string[]
-  /** Asks Docker for the Nvidia card(s). */
-  nvidia?(ctx: StackContext): boolean
+  /** Asks Docker for NVIDIA cards: true for every card, or the UUIDs of the ones it gets. */
+  nvidia?(ctx: StackContext): boolean | string[]
 }
 
 const cfg = (ctx: StackContext, id: string) => `${ctx.hostRoot}/config/${id}`
@@ -170,13 +186,29 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     port: 8096,
     basePath: '/jellyfin',
     healthPath: '/jellyfin/System/Info/Public',
-    env: (ctx) => ({ TZ: ctx.timezone, JELLYFIN_PublishedServerUrl: '' }),
+    env: (ctx) => {
+      const g = ctx.graphics?.jellyfin
+      return { TZ: ctx.timezone, JELLYFIN_PublishedServerUrl: '', ...(g?.accel === 'nvenc' && g.uuid ? nvidiaEnv(g.uuid, 'compute,video,utility') : {}) }
+    },
     binds: (ctx) => [`${cfg(ctx, 'jellyfin')}:/config`, `${cfg(ctx, 'jellyfin')}/cache:/cache`, `${ctx.hostData}/media:/data/media:ro`],
     ports: (ctx) => (ctx.exposeJellyfin ? [{ host: ctx.jellyfinPort, container: 8096 }] : []),
-    devices: (ctx) => (ctx.gpu ? ['/dev/dri:/dev/dri'] : []),
+    // Planned: only its own card's render node (Intel/AMD); NVIDIA comes through the runtime.
+    devices: (ctx) => {
+      const g = ctx.graphics?.jellyfin
+      if (g) return (g.accel === 'qsv' || g.accel === 'vaapi') && g.renderNode ? [`${g.renderNode}:${g.renderNode}`] : []
+      return ctx.gpu ? ['/dev/dri:/dev/dri'] : []
+    },
     user: (ctx) => `${ctx.puid}:${ctx.pgid}`,
     // By number: Jellyfin's image has no "render" group, and Docker refuses group names an image doesn't know.
-    groupAdd: (ctx) => (ctx.gpu ? (ctx.gpuGroups ?? []) : []),
+    groupAdd: (ctx) => {
+      const g = ctx.graphics?.jellyfin
+      if (g) return (g.accel === 'qsv' || g.accel === 'vaapi') && g.renderNode ? (ctx.gpuGroups ?? []) : []
+      return ctx.gpu ? (ctx.gpuGroups ?? []) : []
+    },
+    nvidia: (ctx) => {
+      const g = ctx.graphics?.jellyfin
+      return g?.accel === 'nvenc' && g.uuid ? [g.uuid] : false
+    },
     dataDirs: ['media/movies', 'media/tv', 'media/music'],
   },
   prowlarr: {
@@ -384,7 +416,7 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
         // Games keep their saves as the same user as every other app.
         WOLF_DEFAULT_RUN_UID: String(ctx.puid),
         WOLF_DEFAULT_RUN_GID: String(ctx.pgid),
-        ...(ctx.streaming?.nvidia ? { NVIDIA_DRIVER_CAPABILITIES: 'all', NVIDIA_VISIBLE_DEVICES: 'all' } : {}),
+        ...wolfGpuEnv(ctx),
       }
     },
     binds: (ctx) => [
@@ -396,8 +428,19 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     ],
     devices: () => ['/dev/dri:/dev/dri', '/dev/uinput:/dev/uinput', '/dev/uhid:/dev/uhid'],
     deviceCgroupRules: ['c 13:* rmw'],
-    nvidia: (ctx) => Boolean(ctx.streaming?.nvidia),
+    nvidia: (ctx) => {
+      const g = ctx.graphics?.wolf
+      if (g) return g.accel === 'nvenc' && g.uuid ? [g.uuid] : false
+      return Boolean(ctx.streaming?.nvidia)
+    },
   },
+}
+
+/** Wolf's card: planned (one NVIDIA card by UUID, and the render node it encodes on), or every NVIDIA card as before. */
+function wolfGpuEnv(ctx: StackContext): Record<string, string> {
+  const g = ctx.graphics?.wolf
+  if (!g) return ctx.streaming?.nvidia ? { NVIDIA_DRIVER_CAPABILITIES: 'all', NVIDIA_VISIBLE_DEVICES: 'all' } : {}
+  return { ...(g.accel === 'nvenc' && g.uuid ? nvidiaEnv(g.uuid, 'all') : {}), ...(g.renderNode ? { WOLF_RENDER_NODE: g.renderNode } : {}) }
 }
 
 function gluetunEnv(ctx: StackContext): Record<string, string> {

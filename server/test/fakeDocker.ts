@@ -21,7 +21,12 @@ export interface FakeContainer {
   ports?: Record<string, string>
   /** Path inside the container → text, or { file } to read a real file. */
   files?: Record<string, string | { file: string }>
-  mounts?: { Source: string; Destination: string }[]
+  mounts?: { Source: string; Destination: string; Type?: string; Name?: string }[]
+  /** Config.User */
+  user?: string
+  /** HostConfig.DeviceRequests and Devices (graphics). */
+  deviceRequests?: unknown[]
+  devices?: unknown[]
 }
 
 export interface FakeDocker {
@@ -36,7 +41,11 @@ export interface FakeDocker {
 }
 
 /** `run` answers one-off containers (Docker's runOnce): what the command prints, given its create body. */
-export async function fakeDocker(containers: FakeContainer[], opts: { run?: (body: any) => string; exec?: (container: string, cmd: string[]) => string } = {}): Promise<FakeDocker> {
+/** `file` answers a file read out of a container Finesse created (by its create body), or undefined when it isn't there. */
+export async function fakeDocker(
+  containers: FakeContainer[],
+  opts: { run?: (body: any) => string; exec?: (container: string, cmd: string[]) => string; file?: (body: any, path: string) => Buffer | string | undefined } = {},
+): Promise<FakeDocker> {
   const execs = new Map<string, { container: string; cmd: string[] }>()
   const created: Record<string, any> = {}
   const joined: { network: string; container: string }[] = []
@@ -105,7 +114,21 @@ export async function fakeDocker(containers: FakeContainer[], opts: { run?: (bod
       return void res.end()
     }
     if (url.pathname === '/containers/json') {
-      return send(200, containers.map((c) => ({ Id: c.id, Names: [`/${c.name}`], Image: c.image, State: c.running === false ? 'exited' : 'running', Status: '', Labels: c.labels ?? {} })))
+      const all = url.searchParams.get('all') !== '0'
+      return send(
+        200,
+        containers
+          .filter((c) => all || c.running !== false)
+          .map((c) => ({
+            Id: c.id,
+            Names: [`/${c.name}`],
+            Image: c.image,
+            State: c.running === false ? 'exited' : 'running',
+            Status: '',
+            Labels: c.labels ?? {},
+            Ports: Object.entries(c.ports ?? {}).map(([k, v]) => ({ IP: '0.0.0.0', PrivatePort: Number(k.split('/')[0]), PublicPort: Number(v), Type: k.split('/')[1] ?? 'tcp' })),
+          })),
+      )
     }
     let m = /^\/containers\/([^/]+)\/json$/.exec(url.pathname)
     if (m) {
@@ -115,9 +138,9 @@ export async function fakeDocker(containers: FakeContainer[], opts: { run?: (bod
         Id: c.id,
         Name: `/${c.name}`,
         Image: c.image,
-        Config: { Image: c.image, Env: c.env ?? [], Labels: c.labels ?? {} },
+        Config: { Image: c.image, Env: c.env ?? [], Labels: c.labels ?? {}, User: c.user ?? '' },
         State: { Status: c.running === false ? 'exited' : 'running', Running: c.running !== false, Restarting: false, ExitCode: 0, StartedAt: '' },
-        HostConfig: { NetworkMode: c.networkMode ?? Object.keys(c.networks ?? {})[0] ?? 'bridge' },
+        HostConfig: { NetworkMode: c.networkMode ?? Object.keys(c.networks ?? {})[0] ?? 'bridge', DeviceRequests: c.deviceRequests ?? null, Devices: c.devices ?? [] },
         NetworkSettings: {
           Networks: c.networks ?? {},
           Ports: Object.fromEntries(Object.entries(c.ports ?? {}).map(([k, v]) => [k, [{ HostIp: '0.0.0.0', HostPort: v }]])),
@@ -129,6 +152,13 @@ export async function fakeDocker(containers: FakeContainer[], opts: { run?: (bod
     if (m && req.method === 'GET') {
       const c = find(decodeURIComponent(m[1]!))
       const path = url.searchParams.get('path') ?? ''
+      const made = created[decodeURIComponent(m[1]!)]
+      if (!c && made) {
+        const got = opts.file?.(made, path)
+        if (got === undefined) return send(404, { message: `Could not find the file ${path} in container` })
+        res.writeHead(200, { 'Content-Type': 'application/x-tar' })
+        return void res.end(writeTar([{ path: path.split('/').pop()!, data: Buffer.from(got) }]))
+      }
       const f = c?.files?.[path]
       if (!c || f === undefined) return send(404, { message: `Could not find the file ${path} in container` })
       let data: Buffer

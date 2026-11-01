@@ -914,7 +914,7 @@ function buildDeviceProfile() {
   }
 }
 
-export function getPlaybackInfo(
+export async function getPlaybackInfo(
   itemId: string,
   startTimeTicks = 0,
   audioStreamIndex?: number,
@@ -941,7 +941,7 @@ export function getPlaybackInfo(
       tp.MaxHeight = 1080
     }
   }
-  return request<JfPlaybackInfo>(
+  const info = await request<JfPlaybackInfo>(
     `/Items/${itemId}/PlaybackInfo` + qs({ UserId: session!.userId }),
     {
       method: 'POST',
@@ -969,6 +969,11 @@ export function getPlaybackInfo(
       },
     },
   )
+  // The server is converting as many videos as it can at once (Finesse's cap): say so plainly.
+  if (info.ErrorCode && !info.MediaSources?.some((m) => m.SupportsDirectPlay || m.SupportsDirectStream || m.TranscodingUrl)) {
+    throw new Error(info.FinesseMessage ?? 'The server can’t play this right now. Try again in a little while.')
+  }
+  return info
 }
 
 export function directStreamUrl(itemId: string, mediaSourceId: string, container?: string): string {

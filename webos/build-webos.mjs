@@ -13,9 +13,10 @@
 //
 // Run via: npm run package:webos
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, existsSync, renameSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { downlevelCss } from './downlevel-css.mjs'
+import { appinfoVersion } from './version.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const r = (p) => root + p
@@ -46,7 +47,8 @@ mkdirSync(staging, { recursive: true })
 cpSync(r('/webos/bootstrap'), staging, { recursive: true })
 
 const appinfo = JSON.parse(readFileSync(r('/webos/bootstrap/appinfo.json'), 'utf8'))
-appinfo.version = version // appinfo version must track package.json
+// appinfo version tracks package.json, in the three numbers webOS accepts (3.2.6.1 → 3.2.6).
+appinfo.version = appinfoVersion(version)
 writeFileSync(staging + '/appinfo.json', JSON.stringify(appinfo, null, 2))
 
 // Ship the bundle as real files (webOS rejects ~1 MB inline <script> injection).
@@ -63,10 +65,13 @@ console.log(`\n✔ OTA asset: webos/release/finesse-webos-${version}.json`)
 
 try {
   execSync(`ares-package "${staging}" -o "${release}"`, { cwd: root, stdio: 'inherit' })
+  // ares-package names the file by appinfo's version; releases name it by the whole one.
+  const made = `${release}/com.finesse.tv_${appinfo.version}_all.ipk`
+  if (appinfo.version !== version && existsSync(made)) renameSync(made, `${release}/com.finesse.tv_${version}_all.ipk`)
   console.log(`\n✔ Package: webos/release/com.finesse.tv_${version}_all.ipk\n`)
 } catch {
   console.log(
-    '\n⚠ ares-package not found (LG webOS CLI). Staging is ready at webos/staging.\n' +
+    '\n⚠ ares-package is missing (LG webOS CLI) or failed. Staging is ready at webos/staging.\n' +
       '  Install the CLI with:  npm i -g @webos-tools/cli\n' +
       '  Then run:              ares-package webos/staging -o webos/release\n',
   )

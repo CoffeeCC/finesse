@@ -25,6 +25,8 @@ export interface ConnCheck {
   summary: string
   /** Each problem the app reports, with what to do. */
   problems: string[]
+  /** Something an administrator can put right in one click (Settings → Server). */
+  fix?: { label: string; gpu: string }
 }
 
 export interface ConnReport {

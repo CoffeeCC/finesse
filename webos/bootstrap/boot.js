@@ -13,7 +13,8 @@
   function cmp(a, b) {
     a = String(a || '0').replace(/^v/, '').split('.')
     b = String(b || '0').replace(/^v/, '').split('.')
-    for (var i = 0; i < 3; i++) {
+    // Every part: 3.2.6.1 is newer than 3.2.6.
+    for (var i = 0; i < Math.max(a.length, b.length); i++) {
       var d = (parseInt(a[i], 10) || 0) - (parseInt(b[i], 10) || 0)
       if (d !== 0) return d > 0 ? 1 : -1
     }

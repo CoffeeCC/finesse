@@ -3,8 +3,10 @@
 // or indexers pass their tests, and the VPN. For servers Finesse set up and for
 // apps someone runs themselves alike.
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { connectionsApi, type ConnCheck } from '../../api/setup'
+import { connectionsApi, graphicsApi, type ConnCheck } from '../../api/setup'
+import { useToast } from '../../components/Toast'
 
 function Dot({ ok }: { ok: boolean | null }) {
   return <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${ok === true ? 'bg-emerald-400' : ok === null ? 'bg-amber-300' : 'bg-red-400'}`} />
@@ -13,6 +15,8 @@ function Dot({ ok }: { ok: boolean | null }) {
 const word = (ok: boolean | null) => (ok === true ? 'Working' : ok === null ? 'Needs a look' : 'Not working')
 
 export default function ConnectionsHealth() {
+  const toast = useToast()
+  const [fixing, setFixing] = useState('')
   const q = useQuery({ queryKey: ['connections'], queryFn: () => connectionsApi.get(), staleTime: 60_000, retry: false })
   const recheck = useQuery({ queryKey: ['connections', 'refresh'], queryFn: () => connectionsApi.get(true), enabled: false, retry: false })
   const data = recheck.data && (!q.data || recheck.data.checkedAt > q.data.checkedAt) ? recheck.data : q.data
@@ -49,6 +53,27 @@ export default function ConnectionsHealth() {
                 {r.name} <span className="sr-only">: {word(r.ok)}</span>
               </p>
               {r.ok !== true || r.summary !== 'Working' ? <p className="break-words text-[12.5px] leading-relaxed text-ink-300">{r.summary}</p> : null}
+              {'fix' in r && r.fix && (
+                <button
+                  type="button"
+                  disabled={fixing === r.id}
+                  onClick={async () => {
+                    setFixing(r.id)
+                    try {
+                      const res = await graphicsApi.fixJellyfin(r.fix!.gpu)
+                      toast(`Jellyfin now converts video on ${res.card}`)
+                      await recheck.refetch()
+                    } catch (e) {
+                      toast((e as Error).message, 'error')
+                    } finally {
+                      setFixing('')
+                    }
+                  }}
+                  className="mt-2 h-8 rounded-full bg-white px-3 text-[12.5px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-60"
+                >
+                  {fixing === r.id ? 'Switching…' : r.fix.label}
+                </button>
+              )}
               {r.problems.length > 0 && (
                 <ul className="mt-1 space-y-0.5">
                   {r.problems.map((p, i) => (

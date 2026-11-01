@@ -125,6 +125,10 @@ export interface JfAuthResult {
 export interface JfPlaybackInfo {
   MediaSources: JfMediaSource[]
   PlaySessionId: string
+  /** Jellyfin's refusal ("RateLimitExceeded" when Finesse's conversion cap is reached). */
+  ErrorCode?: string
+  /** Finesse's plain words for it. */
+  FinesseMessage?: string
 }
 
 export const TICKS_PER_SECOND = 10_000_000

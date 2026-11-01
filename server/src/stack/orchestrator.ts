@@ -12,6 +12,8 @@ import { CATALOG, containerName, proxyFor, type ServiceDef, type StackContext, t
 import { Docker, DockerError } from './docker.ts'
 import { NotOnThisHost, type AppState, type ProgressSink, type StackHost } from './host.ts'
 import type { StreamingProbe } from './wolf.ts'
+import type { Inventory } from './graphics.ts'
+import { probeGpus } from './gpus.ts'
 
 export type { ProgressSink } from './host.ts'
 
@@ -44,7 +46,8 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
     portBindings[key] = [{ HostPort: String(p.host) }]
     exposed[key] = {}
   }
-  const present = (p: string) => (ctx.hostDevices ? ctx.hostDevices.includes(p) : existsSync(p))
+  // A render node counts as there when /dev/dri is (the probe lists folders; the graphics plan names nodes in it).
+  const present = (p: string) => (ctx.hostDevices ? ctx.hostDevices.includes(p) || (p.startsWith('/dev/dri/') && ctx.hostDevices.includes('/dev/dri')) : existsSync(p))
   const devices = (def.devices?.(ctx) ?? []).filter((d) => present(d.split(':')[0]!)).map((d) => {
     const [host, cont] = d.split(':')
     return { PathOnHost: host, PathInContainer: cont ?? host, CgroupPermissions: 'rwm' }
@@ -69,7 +72,7 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
       ...(def.deviceCgroupRules ? { DeviceCgroupRules: def.deviceCgroupRules } : {}),
       // Without it, SELinux hosts deny every app its folders. Only there, so no other host's hashes change.
       ...(ctx.selinux ? { SecurityOpt: ['label=disable'] } : {}),
-      ...(def.nvidia?.(ctx) ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] } : {}),
+      ...nvidiaRequest(def.nvidia?.(ctx)),
     },
   }
   const user = def.user?.(ctx)
@@ -78,6 +81,12 @@ export function containerSpec(def: ServiceDef, ctx: StackContext): Record<string
     spec.NetworkingConfig = { EndpointsConfig: { [ctx.network]: { Aliases: [def.alias, ...(def.extraAliases ?? []), containerName(def.id)] } } }
   }
   return spec
+}
+
+/** Docker's request for NVIDIA cards: the listed UUIDs only, or (before a graphics plan) every card. */
+function nvidiaRequest(want: boolean | string[] | undefined): Record<string, unknown> {
+  if (Array.isArray(want)) return want.length ? { DeviceRequests: [{ Driver: 'nvidia', DeviceIDs: want, Capabilities: [['gpu']] }] } : {}
+  return want ? { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] } : {}
 }
 
 export function specHash(spec: Record<string, unknown>): string {
@@ -100,6 +109,8 @@ export class Orchestrator implements StackHost {
   constructor(docker = new Docker(), instance?: string) {
     this.docker = docker
     this.instance = instance
+    // The helpers it starts (probes, card tests, clips) carry this Finesse's stamp too.
+    if (instance) docker.instance ??= instance
   }
 
   /**
@@ -273,6 +284,31 @@ export class Orchestrator implements StackHost {
     return { devices, nvidiaRuntime, nvidiaModeset }
   }
 
+  private gpus: { at: number; testImage: string | null; inv: Promise<Inventory> } | null = null
+
+  /**
+   * The host's graphics cards, each tested with a short conversion (gpus.ts). Kept 30 minutes
+   * (per test image: an inventory tested with another image, or none, isn't the same answer):
+   * the tests start a container per card. `testImage` has Jellyfin's ffmpeg (null: no tests).
+   * A probe that couldn't finish isn't kept.
+   */
+  graphicsInventory(testImage: string | null, refresh = false): Promise<Inventory> {
+    if (!refresh && this.gpus && this.gpus.testImage === testImage && Date.now() - this.gpus.at < 30 * 60000) return this.gpus.inv
+    const inv = (async () => probeGpus(this.docker, { probeImage: await this.selfImage(), testImage, inDocker: Boolean(process.env.FINESSE_IN_DOCKER) }))()
+    const entry = { at: Date.now(), testImage, inv }
+    this.gpus = entry
+    const drop = () => {
+      if (this.gpus === entry) this.gpus = null
+    }
+    inv.then((x) => x.complete === false && drop(), drop)
+    return inv
+  }
+
+  /** How old the kept inventory is (ms), or null when there's none. */
+  graphicsAge(): number | null {
+    return this.gpus ? Date.now() - this.gpus.at : null
+  }
+
   /** Whether a TCP port is free on the host (a probe container on the host network tries to bind it). */
   async hostPortFree(port: number): Promise<boolean> {
     if (!process.env.FINESSE_IN_DOCKER) {
@@ -352,9 +388,13 @@ export class Orchestrator implements StackHost {
     })
   }
 
-  /** Converges one service; returns true if its container was (re)created. */
-  async ensureService(id: StackServiceId, ctx: StackContext, onProgress?: ProgressSink, opts: { forceRecreate?: boolean } = {}): Promise<boolean> {
-    const def = CATALOG[id]
+  /**
+   * Converges one service; returns true if its container was (re)created. `image` builds it from
+   * that image instead of the pinned one (a graphics change keeps the image the app runs now: only
+   * the update flow moves an app to a new pin).
+   */
+  async ensureService(id: StackServiceId, ctx: StackContext, onProgress?: ProgressSink, opts: { forceRecreate?: boolean; image?: string } = {}): Promise<boolean> {
+    const def = opts.image ? { ...CATALOG[id], image: opts.image } : CATALOG[id]
     const name = containerName(id)
     await this.ensureImage(def, onProgress)
     if (ctx.gpu && !ctx.gpuGroups) ctx.gpuGroups = await this.hostGpuGroups().catch(() => [])

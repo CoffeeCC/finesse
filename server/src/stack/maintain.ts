@@ -24,6 +24,8 @@ import { CATALOG, containerName, orderServices, type StackContext, type StackSer
 import type { StackHost } from './host.ts'
 import { Orchestrator } from './orchestrator.ts'
 import { bindQbit } from './wire.ts'
+import { assignKey } from './graphics.ts'
+import { builtOf, GraphicsManager } from './graphicsManager.ts'
 
 const log = logger('maintain')
 
@@ -117,12 +119,15 @@ export class Maintainer {
   private working = false
   private vpnWasUp: boolean | null = null
   private dockerWasUp: boolean | null = null
+  /** Which graphics card each app uses (graphicsManager.ts). */
+  readonly graphics: GraphicsManager
 
   constructor(settings: SettingsStore, orch: StackHost, paths: Paths, busy: () => boolean = () => false) {
     this.settings = settings
     this.orch = orch
     this.paths = paths
     this.busy = busy
+    this.graphics = new GraphicsManager(settings, orch, (level, m) => this.event(level, m))
     this.health.backups = { last: settings.get().maintenance?.lastBackup ?? null, files: this.listBackups() }
   }
 
@@ -201,18 +206,21 @@ export class Maintainer {
     for (const id of ids) {
       const def = CATALOG[id]
       if (paused.has(id)) continue
+      const card = id === 'jellyfin' || id === 'wolf'
+      // The graphics pass is changing this app's container: leave it to that.
+      if (card && this.graphics.isWorking) continue
       const c = await this.orch.state(id, ctx)
       if (!c) {
         this.event('warn', `${def.name} was missing — recreating it`)
-        await this.orch.ensureService(id, ctx)
+        await this.cardSafe(id, () => this.orch.ensureService(id, this.withGraphics(ctx))).catch((e) => this.cardTrouble(id, e))
         if (id === 'gluetun') gluetunStarted = Date.now()
         continue
       }
       if (!c.managed) continue
       if (!c.running && !c.restarting) {
         this.event('warn', `${def.name} had stopped (exit code ${c.exitCode}) — starting it again`)
-        await this.orch.start(id)
-      }
+        await this.cardSafe(id, () => this.orch.start(id)).catch((e) => this.cardTrouble(id, e))
+      } else if (card) this.trouble.delete(id)
       const started = Date.parse(c.startedAt) || 0
       if (id === 'gluetun') gluetunStarted = Math.max(gluetunStarted, started)
       // qBittorrent lives in Gluetun's network: when Gluetun restarts, it's cut off until it restarts too.
@@ -223,6 +231,44 @@ export class Maintainer {
         })
       }
     }
+  }
+
+  /** Jellyfin and Wolf: one change to the container at a time (the graphics pass takes the same lock). */
+  private cardSafe<T>(id: StackServiceId, fn: () => Promise<T>): Promise<T> {
+    return id === 'jellyfin' || id === 'wolf' ? this.graphics.lock(id, fn) : fn()
+  }
+
+  /** `ctx` with the cards the apps are built with now (the graphics pass may have just changed them). */
+  private withGraphics(ctx: StackContext): StackContext {
+    const g = this.settings.get().stack?.graphics
+    return { ...ctx, ...(g ? { graphics: builtOf(g) } : {}) }
+  }
+
+  /** When each app's card trouble may look at the cards again, and how many times it has. */
+  private readonly trouble = new Map<StackServiceId, { attempts: number; next: number }>()
+
+  /**
+   * Jellyfin or Wolf wouldn't start. If they were given a graphics card, it may have gone (taken
+   * out, or its driver broke): plan again with the cards that are there now, so the app comes back
+   * on another card or the processor instead of failing every minute. The same rules as every
+   * graphics pass (an unknown probe changes nothing, a card leaves only when it's gone or failed
+   * three tests in a row); the cards are looked at again only when the last look is over 30
+   * minutes old, and repeated trouble waits longer each time. Anything else is passed on.
+   */
+  private async cardTrouble(id: StackServiceId, e: unknown): Promise<void> {
+    const g = this.settings.get().stack?.graphics
+    const planned = id === 'jellyfin' || id === 'wolf' ? builtOf(g)[id]?.gpu : null
+    if (!planned) throw e
+    const t = this.trouble.get(id) ?? { attempts: 0, next: 0 }
+    if (Date.now() < t.next) throw e
+    t.attempts++
+    t.next = Date.now() + Math.min(5 * 60000 * 2 ** (t.attempts - 1), 6 * 3600e3)
+    this.trouble.set(id, t)
+    this.event('warn', `${CATALOG[id].name} wouldn’t start with its graphics card (${(e as Error).message}) — checking the cards again`)
+    const was = assignKey(builtOf(g)[id as 'jellyfin' | 'wolf'])
+    // The inventory is kept 30 minutes: a look newer than that isn't taken again.
+    const next = await this.graphics.apply(`${CATALOG[id].name} wouldn’t start`)
+    if (assignKey(builtOf(next ?? undefined)[id as 'jellyfin' | 'wolf']) === was) throw e
   }
 
   // ---------- inspect ----------
@@ -336,6 +382,18 @@ export class Maintainer {
     if ((quietHours && age > 20 * 3600e3) || age > 36 * 3600e3) {
       await this.backupNow('nightly').catch(() => {})
     }
+    // Graphics: once a night, look at the cards again (one may have been added, removed or broken).
+    const g = s.stack?.graphics
+    const lastGraphics = Date.parse(s.maintenance?.lastGraphics ?? '') || 0
+    const streamingOn = Boolean(s.stack?.services.includes('wolf'))
+    const sharedChanged = g && g.plan.jellyfin.gpu && g.plan.jellyfin.gpu === g.plan.wolf.gpu && g.plan.jellyfin.shared !== streamingOn
+    if ((quietHours && now.getTime() - lastGraphics > 20 * 3600e3) || sharedChanged) {
+      await this.graphics.apply(sharedChanged ? (streamingOn ? 'game streaming turned on' : 'game streaming turned off') : 'nightly check', { refresh: !sharedChanged }).catch((e) => this.event('error', `Checking the graphics cards failed: ${(e as Error).message}`))
+      if (!sharedChanged) this.settings.update((x) => void (x.maintenance = { ...x.maintenance, lastGraphics: new Date().toISOString() }))
+    } else if (this.graphics.due()) {
+      // A change that waited (someone was watching) or failed: the stored plan again, no new look at the cards.
+      await this.graphics.apply('trying again', { retry: true }).catch((e) => this.event('error', `Setting the graphics cards failed: ${(e as Error).message}`))
+    }
     const pending = this.health.services.filter((x) => x.updatePending && x.state !== 'missing').map((x) => x.id)
     if (s.updates.auto && pending.length && quietHours) {
       await this.updateStack(pending).catch((e) => this.event('error', `Updating apps failed: ${(e as Error).message}`))
@@ -356,7 +414,7 @@ export class Maintainer {
       let gluetunNew = false
       for (const id of orderServices(pending)) {
         this.event('info', `Updating ${CATALOG[id].name}…`)
-        const created = await this.orch.ensureService(id, ctx, undefined, { forceRecreate: id === 'qbittorrent' && gluetunNew })
+        const created = await this.cardSafe(id, () => this.orch.ensureService(id, this.withGraphics(ctx), undefined, { forceRecreate: id === 'qbittorrent' && gluetunNew }))
         if (id === 'gluetun') gluetunNew = created
         if (CATALOG[id].healthPath) await this.orch.waitReady(id, undefined, 300000)
         done.push(id)

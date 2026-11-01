@@ -458,30 +458,6 @@ export default function SystemPanel() {
         </div>
       </Block>
 
-      {/* Preview clips */}
-      {s.previews && (
-        <Block title="Preview clips">
-          <div className={`${CARD} space-y-3 px-5 py-4`}>
-            <Toggle
-              checked={s.previews.enabled}
-              onChange={(v) => act('previews', () => systemApi.setPreviews(v), v ? 'Preview clips on' : 'Preview clips off')}
-              label="Make preview clips"
-              description="Short clips play when you hover a poster or open a title, and episodes get a “next time on…” teaser. Made quietly in the background at low priority."
-            />
-            {s.previews.enabled && s.previews.total > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-3 text-[13px] text-ink-300">
-                <span>{s.previews.pending > 0 ? `${s.previews.total - s.previews.pending} of ${s.previews.total} titles have clips — the rest are on the way.` : `All ${s.previews.total} titles have clips.`}</span>
-                {s.previews.pending > 0 && (
-                  <button type="button" className={smallBtn} disabled={busy === 'mkclips'} onClick={() => act('mkclips', () => systemApi.makePreviews(), 'Making clips in the background')}>
-                    Make them now
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </Block>
-      )}
-
       {/* Games (RomM) */}
       {s.games && (
         <Block title="Games">
