@@ -42,7 +42,8 @@ html[data-theme="card-table"] [data-poster-card] .tilt {
   border: 0; border-radius: 12px; background: transparent; box-shadow: none;
 }
 html[data-theme="card-table"] [data-poster-card] .tilt > img,
-html[data-theme="card-table"] [data-poster-card] .tilt > video {
+html[data-theme="card-table"] [data-poster-card] .tilt > video,
+html[data-theme="card-table"] [data-poster-card] .tilt > [data-card-preview] {
   position: absolute; inset: 12% 8%; width: 84%; height: 76%; object-fit: cover; border-radius: 4px;
 }
 html[data-theme="card-table"] [data-poster-card] .arcane-media-frame,

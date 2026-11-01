@@ -460,7 +460,7 @@ function ThumbFlip({ itemId, onReady }: { itemId: string; onReady: () => void })
   }, [itemId, qc])
   if (!f) return null
   return (
-    <div aria-hidden className="absolute inset-0 overflow-hidden">
+    <div data-card-preview aria-hidden className="absolute inset-0 overflow-hidden">
       <div
         className="absolute left-1/2 top-0 h-full -translate-x-1/2"
         style={{ aspectRatio: String(f.aspect), backgroundImage: `url("${f.url}")`, backgroundSize: f.size, backgroundPosition: f.pos, backgroundRepeat: 'no-repeat' }}
