@@ -571,7 +571,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
   router.any('/api/groups/friends/:id/jellyfin/*', async ({ req, res, params, url }) => {
     const user = await auth.requireUser(req, { query: url.searchParams })
     if (user.Id === 'service' || !/^[0-9a-f]{32}$/i.test(user.Id)) throw new ApiError(403, 'Sign in as a person')
-    if (await deps.parental?.limitedIn(req, url.searchParams)) throw new ApiError(403, 'Friends’ servers are off for this profile')
+    if (deps.parental?.limitOf(user.Id)) throw new ApiError(403, 'Friends’ servers are off for this profile')
     const f = groupsOf(settings.get()).friends.find((x) => x.id === params.id)
     if (!f) throw new ApiError(404, 'That server isn’t shared with you (any more)')
     const own = tokenFrom(req, { query: url.searchParams }) ?? ''

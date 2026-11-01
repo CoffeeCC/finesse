@@ -197,21 +197,20 @@ const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function registerAlbumRequests(router: Router, deps: { settings: SettingsStore; auth: Auth; parental?: import('./parental.ts').Parental }) {
   const { settings, auth } = deps
-  const requestsOff = async (req: import('node:http').IncomingMessage) => {
-    const kid = await deps.parental?.limitedIn(req)
-    if (kid && !kid.limit.requests) throw new ApiError(403, 'Requests are off for this profile. Ask whoever runs the server.')
+  /** The profile is the one the sign-in was checked as. */
+  const requestsOff = (user: { Id: string }) => {
+    const kid = deps.parental?.limitOf(user.Id)
+    if (kid && !kid.requests) throw new ApiError(403, 'Requests are off for this profile. Ask whoever runs the server.')
   }
   router.get('/api/requests/artist-albums', async ({ req, res, url }) => {
-    await auth.requireUser(req)
-    await requestsOff(req)
+    requestsOff(await auth.requireUser(req))
     const id = url.searchParams.get('artist') ?? ''
     const name = (url.searchParams.get('name') ?? '').trim().slice(0, 200)
     if (!MBID.test(id) || !name) throw new ApiError(400, 'Which artist?')
     sendJson(res, 200, { albums: await artistAlbums(lidarrCaller(settings.get().services.lidarr), id, name) })
   })
   router.post('/api/requests/album', async ({ req, res }) => {
-    await auth.requireUser(req)
-    await requestsOff(req)
+    requestsOff(await auth.requireUser(req))
     const b = await readJson<Partial<AlbumAsk>>(req)
     if (typeof b.foreignAlbumId !== 'string' || !MBID.test(b.foreignAlbumId)) throw new ApiError(400, 'Which album?')
     if (typeof b.artistName !== 'string' || !b.artistName.trim()) throw new ApiError(400, 'Which artist?')

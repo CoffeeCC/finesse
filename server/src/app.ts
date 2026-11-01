@@ -15,7 +15,7 @@ import { registerQueues } from './queues.ts'
 import { registerParties } from './parties.ts'
 import { registerMomentCollections } from './momentCollections.ts'
 import { Access } from './access.ts'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { registerStreaming } from './streaming.ts'
 import { caPem } from './tls.ts'
 import { savedTailscaleCert } from './tailscale.ts'
@@ -241,7 +241,17 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
         if (isPreview) {
           // A <video> can't send a header: the app's cookie (same origin) or, from another origin, ApiKey.
           const who = await auth.requireUser(req, { cookie: 'finesse_media_token', query: url.searchParams })
-          const clip = /^\/previews\/([0-9a-f]{32})(?:\.(?:720|1080))?\.mp4$/.exec(path)
+          // Checked as the file that would be served (decoded, normalised), and only in its one
+          // canonical form: "/previews//<id>.mp4" or "%62…" can't slip past the checks below.
+          let clean: string
+          try {
+            clean = posix.normalize(decodeURIComponent(path))
+          } catch {
+            throw new ApiError(404, 'Not found')
+          }
+          const clip = /^\/previews\/([0-9a-f]{32})(?:\.(?:720|1080))?\.mp4$/.exec(clean)
+          if (!clip && clean !== '/previews/manifest.json' && clean !== '/previews/manifest-hd.json') throw new ApiError(404, 'Not found')
+          path = clean
           // A clip is of one item: someone who can't see that item (a library they're not in) can't see its clip.
           if (clip && !who.Policy?.IsAdministrator && !(await canSee(tokenFrom(req, { cookie: 'finesse_media_token', query: url.searchParams })!, who.Id, clip[1]!))) {
             throw new ApiError(404, 'Not found')
@@ -268,7 +278,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   })
 
   server.on('upgrade', (req, socket, head) => {
-    if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head)) socket.destroy()
+    if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head, parental)) socket.destroy()
   })
 
   // Keep-alive sockets shouldn't hold shutdown open for long.

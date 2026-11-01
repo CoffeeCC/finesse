@@ -16,7 +16,7 @@ export default function ParentalAdmin() {
       <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Limits for profiles</h3>
       <div className="space-y-4 rounded-2xl border border-white/5 bg-ink-900/60 px-5 py-4">
         <p className="text-[12.5px] leading-relaxed text-ink-400">
-          Limit a profile to titles rated up to an age. Finesse checks it on the server for browsing, search, title pages and links, playing (including titles sent from another device), Moments, shortlists and preview clips, and sets the same limit in Jellyfin. Limited profiles can’t use friends’ servers (their ratings can’t be checked) and can’t request unless you allow it.
+          Limit a profile to titles rated up to an age. Finesse checks it on the server for browsing, search, title pages and links, playing (including titles sent from another device), Moments, shortlists and preview clips, and sets the same limit in Jellyfin. Limited profiles can’t use friends’ servers or Live TV (their ratings can’t be checked), don’t show up as a “Play on…” device, and can’t request unless you allow it.
         </p>
         <p className="text-[12.5px] leading-relaxed text-amber-200/90">
           Not covered: games and game streaming have no ratings, so they aren’t limited. And a profile without a password can be opened by anyone on a device that shows it, so give the other profiles passwords.
