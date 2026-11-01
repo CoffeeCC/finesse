@@ -87,7 +87,7 @@ export interface Settings {
   /** Games (RomM) secrets, saved before RomM's database is first created — it
    *  keeps the password it was initialised with, so these must never change. */
   games?: import('./stack/catalog.ts').GamesConfig
-  /** Hover/hero preview clips made from the library (bundle mode). */
+  /** Hover/hero preview clips made from the library (bundle mode, and adopt with Jellyfin in Docker). */
   previews?: { enabled: boolean }
   /** Bookkeeping for the self-maintenance loop. */
   maintenance?: { lastBackup?: string; lastStackUpdate?: string }

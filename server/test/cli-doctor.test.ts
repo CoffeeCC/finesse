@@ -12,6 +12,7 @@ const STATUS = {
   version: '9.9.9',
   mode: 'adopt',
   setup: { state: 'ready', completedAt: '2026-10-01T00:00:00Z' },
+  previews: { enabled: true, state: 'blocked', reason: 'Finesse can’t write to its previews folder (/config/previews).', made: 0, pending: 924, total: 924 },
   health: { docker: true, network: true, services: [], vpn: null, disks: [], backups: { last: null }, events: [] },
 }
 const CONNECTIONS = {
@@ -47,6 +48,8 @@ test('doctor --json: one object, connected apps inside, and the exit code counts
     assert.match(plain.out, /Connected apps/)
     assert.match(plain.out, /All indexers are unavailable/)
     assert.match(plain.out, /1 problem found/)
+    // Preview clips: why none are made (a warning, not a problem).
+    assert.match(plain.out, /Preview clips.*0 of 924 titles have clips.*can’t write to its previews folder/)
   } finally {
     srv.closeAllConnections()
     srv.close()

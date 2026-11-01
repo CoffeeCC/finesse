@@ -21,17 +21,19 @@ export interface ContainerSummary {
   State: string
   Status: string
   Labels: Record<string, string>
+  /** Published and exposed ports (Docker's list fills these in). */
+  Ports?: { IP?: string; PrivatePort: number; PublicPort?: number; Type: string }[]
 }
 
 export interface ContainerInspect {
   Id: string
   Name: string
   Image: string
-  Config: { Image: string; Env: string[] | null; Labels: Record<string, string> | null }
+  Config: { Image: string; Env: string[] | null; Labels: Record<string, string> | null; User?: string }
   State: { Status: string; Running: boolean; Restarting: boolean; ExitCode: number; StartedAt: string; Health?: { Status: string } }
   HostConfig: Record<string, unknown>
   NetworkSettings: { Networks: Record<string, { IPAddress: string; Gateway?: string; NetworkID?: string }>; Ports?: Record<string, { HostIp: string; HostPort: string }[] | null> | null }
-  Mounts: { Source: string; Destination: string }[]
+  Mounts: { Source: string; Destination: string; Type?: string; Name?: string; RW?: boolean }[]
 }
 
 export class Docker {
@@ -282,6 +284,40 @@ export class Docker {
       const waited = await this.call<{ StatusCode: number }>('POST', `/containers/${id}/wait`)
       const output = await this.logs(id, 100).catch(() => '')
       return { code: waited?.StatusCode ?? -1, output }
+    } finally {
+      await this.remove(id, { force: true }).catch(() => {})
+    }
+  }
+
+  /**
+   * Runs a one-off container to completion and copies `file` out of it before it's removed
+   * (null when the command didn't leave it). `host` is merged into its HostConfig.
+   */
+  async runJob(
+    image: string,
+    cmd: string[],
+    opts: { binds?: string[]; user?: string; host?: Record<string, unknown>; env?: string[]; file?: string; maxBytes?: number; timeoutMs?: number; service?: string } = {},
+  ): Promise<{ code: number; output: string; data: Buffer | null }> {
+    const name = `finesse-${opts.service ?? 'job'}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const id = await this.create(name, {
+      Image: image,
+      Cmd: cmd,
+      Entrypoint: [],
+      Env: opts.env ?? [],
+      ...(opts.user ? { User: opts.user } : {}),
+      Labels: { 'finesse.managed': 'true', 'finesse.service': opts.service ?? 'job' },
+      HostConfig: { Binds: opts.binds ?? [], NetworkMode: 'none', SecurityOpt: ['label=disable'], ...opts.host },
+    })
+    try {
+      await this.start(id)
+      const wait = this.call<{ StatusCode: number }>('POST', `/containers/${id}/wait`)
+      const waited = opts.timeoutMs
+        ? await Promise.race([wait, new Promise<null>((r) => setTimeout(() => r(null), opts.timeoutMs).unref())])
+        : await wait
+      if (!waited) await this.stop(id, 1).catch(() => {})
+      const output = await this.logs(id, 100).catch(() => '')
+      const data = opts.file && waited?.StatusCode === 0 ? await this.readFile(id, opts.file, opts.maxBytes ?? 256 << 20).catch(() => null) : null
+      return { code: waited?.StatusCode ?? -1, output, data }
     } finally {
       await this.remove(id, { force: true }).catch(() => {})
     }

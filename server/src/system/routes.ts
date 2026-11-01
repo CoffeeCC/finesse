@@ -40,7 +40,12 @@ export function systemPlugin(ref: StackRef): Plugin {
     // Hands off while setup or the Games switch is changing which apps exist.
     const maint = new Maintainer(settings, orch, settings.paths, () => runner.status.state === 'running' || runner.gamesJob.state === 'working' || runner.streamingJob.state === 'working')
     ref.maintainer = maint
-    const clips = new ClipMaker(settings, orch, settings.paths, () => runner.status.state !== 'running' && !maint.isWorking)
+    // Docker: someone's own Jellyfin in a container can make clips too (clips.ts).
+    const docker = orch instanceof Orchestrator ? orch.docker : null
+    const clips = new ClipMaker(settings, orch, settings.paths, () => runner.status.state !== 'running' && !maint.isWorking, {
+      docker,
+      self: async () => (docker ? (await selfContainer(docker))?.Id : undefined),
+    })
     if (process.env.FINESSE_MAINTENANCE !== 'off') {
       maint.start()
       clips.start()
@@ -93,7 +98,7 @@ export function systemPlugin(ref: StackRef): Plugin {
         stack: s.stack ? { root: s.stack.hostRoot, data: s.stack.hostData, services: s.stack.services, quality: s.stack.quality, paused: s.stack.paused ?? [], jellyfinPort: s.stack.exposeJellyfin ? s.stack.jellyfinPort : null } : null,
         updates: { auto: s.updates.auto, lastStackUpdate: s.maintenance?.lastStackUpdate ?? null },
         busy: maint.isWorking,
-        previews: { enabled: s.previews?.enabled !== false, ...clips.status },
+        previews: { ...clips.status, enabled: s.previews?.enabled !== false },
         // Docker only for now: Windows installs show neither switch.
         ...(orch.kind === 'docker'
           ? {
@@ -268,12 +273,19 @@ export function systemPlugin(ref: StackRef): Plugin {
       settings.update((x) => {
         x.previews = { enabled: body.enabled! }
       })
+      if (body.enabled) void clips.run().catch(() => {})
+      else clips.status = { ...clips.status, enabled: false, state: 'off', reason: null }
       sendJson(res, 200, { enabled: body.enabled })
+    })
+
+    // Bundle and adopt alike: someone's own Jellyfin in Docker makes clips too.
+    router.get('/api/system/previews', async ({ req, res }) => {
+      await auth.requireAdmin(req)
+      sendJson(res, 200, { ...clips.status, enabled: settings.get().previews?.enabled !== false })
     })
 
     router.post('/api/system/previews', async ({ req, res }) => {
       await auth.requireAdmin(req)
-      needStack()
       void clips.run(30 * 60000).catch(() => {})
       sendJson(res, 202, { started: true, ...clips.status })
     })

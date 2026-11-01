@@ -238,6 +238,21 @@ export interface BackupPartInfo {
   why?: string
 }
 
+/** Preview clips (server/src/stack/clips.ts): bundle and adopt alike. */
+export interface PreviewStatus {
+  enabled: boolean
+  state: 'making' | 'idle' | 'blocked' | 'off'
+  /** Why clips can't be made, or are waiting. */
+  reason: string | null
+  where: string | null
+  made: number
+  pending: number
+  total: number
+  failed: number
+  removed: number
+  lastRun: string | null
+}
+
 export interface SystemStatus {
   version: string
   web: string | null
@@ -246,7 +261,7 @@ export interface SystemStatus {
   stack: { root: string; data: string; services: string[]; quality?: string; paused: string[]; jellyfinPort: number | null } | null
   updates: { auto: boolean; lastStackUpdate: string | null }
   busy: boolean
-  previews?: { enabled: boolean; made: number; pending: number; total: number; lastRun: string | null }
+  previews?: PreviewStatus
   games?: { enabled: boolean; folder: string | null; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   streaming?: { enabled: boolean; job: { state: 'idle' | 'working' | 'done' | 'error'; detail?: string; error?: string } }
   backup?: { job: { state: 'idle' | 'working' | 'done' | 'error'; step?: string; file?: BackupFile; error?: string } }
@@ -292,6 +307,7 @@ export const systemApi = {
   setStreaming: (enabled: boolean) => call<{ job: unknown }>('PUT', '/api/system/streaming', { enabled }),
   streamingCheck: () => call<StreamingCheck>('GET', '/api/system/streaming/check', undefined, { timeoutMs: 60000 }),
   makePreviews: () => call<{ started: boolean }>('POST', '/api/system/previews'),
+  previews: () => call<PreviewStatus>('GET', '/api/system/previews'),
   setAutoUpdates: (auto: boolean) => call<{ auto: boolean }>('PUT', '/api/system/updates', { auto }),
   backupParts: () => call<{ parts: BackupPartInfo[] }>('GET', '/api/system/backups/parts'),
   /** Starts a backup in the background; follow it in status().backup.job. */

@@ -1,16 +1,32 @@
 // Preview clips for hover previews and the detail hero: a short 480p clip per
 // movie (plus 720p/1080p tiers when the source has them) and, for episodes, a
 // spoiler-light "next time on…" teaser of four 5-second cuts from the first
-// half. Jellyfin's own ffmpeg does it (it can read the library: inside the
-// Jellyfin container, or next to Jellyfin on Windows) at the lowest CPU priority, one item at a time, so it never gets in the way
-// of anyone watching. Incremental: finished clips are skipped, so a big
-// library fills in over a few quiet hours. Manifests match deploy/genclips.sh.
+// half. Jellyfin's own ffmpeg does it, at the lowest CPU priority, one item at
+// a time, so it never gets in the way of anyone watching. Incremental:
+// finished clips are skipped, so a big library fills in over a few quiet hours.
+// Manifests match deploy/genclips.sh.
+//
+// Where ffmpeg runs:
+//   • servers Finesse set up: inside its own Jellyfin container (or next to
+//     Jellyfin on Windows), as before;
+//   • someone's own Jellyfin in Docker ("adopt"): in a short-lived container
+//     Finesse makes from Jellyfin's image, with only the folder holding the
+//     title mounted read-only, at the lowest CPU priority, no network. The clip
+//     is copied out into Finesse's own previews folder, and the container is
+//     removed. Jellyfin's container is only looked at, never changed.
+//   • anything else: no clips, and the status says why.
+//
+// Clips are named by Jellyfin item id. When Jellyfin's ids change (an upgrade
+// or a rebuilt library), the old clips match nothing: after a complete listing
+// of the library, clips of ids Jellyfin no longer has are removed.
 
-import { chownSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { accessSync, chownSync, constants, copyFileSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Paths, SettingsStore } from '../config.ts'
+import type { Paths, Settings, SettingsStore } from '../config.ts'
 import { logger } from '../log.ts'
+import type { Docker } from './docker.ts'
 import type { StackHost } from './host.ts'
+import { findJellyfin, type JellyfinContainer } from './jellyfinContainer.ts'
 
 const log = logger('clips')
 
@@ -22,6 +38,98 @@ interface Item {
   MediaStreams?: { Type: string; Height?: number }[]
 }
 
+/** Runs ffmpeg for one clip. `file` is where the finished clip is on this machine (moved into the previews folder). */
+export interface ClipEncoder {
+  /** In words, for the status line. */
+  where: string
+  encode(args: string[], out: string, src: string): Promise<{ file: string | null; output: string }>
+}
+
+export interface ClipStatus {
+  enabled: boolean
+  /** making: working through the list · idle: nothing to do (or waiting for quiet) · blocked: can't (see reason) · off */
+  state: 'making' | 'idle' | 'blocked' | 'off'
+  /** Why clips can't be made (or are waiting), in plain words. */
+  reason: string | null
+  /** Where ffmpeg runs, in words. */
+  where: string | null
+  /** Titles with a clip, of `total` titles with a video file. */
+  made: number
+  pending: number
+  total: number
+  /** Titles whose clip failed twice (skipped until Finesse restarts). */
+  failed: number
+  /** Clips of titles Jellyfin no longer has, removed on the last run. */
+  removed: number
+  lastRun: string | null
+}
+
+/** Jellyfin's ffmpeg in its official and LinuxServer images. */
+export const JELLYFIN_FFMPEG = '/usr/lib/jellyfin-ffmpeg/ffmpeg'
+const CLIP_RE = /^([0-9a-f]{32})(?:\.(720|1080))?\.mp4$/
+
+/** Clip files whose title isn't among `ids` (pure). Nothing when the list is empty: an empty library is more likely a Jellyfin mid-rebuild. */
+export function orphanClips(names: string[], ids: Set<string>): string[] {
+  if (!ids.size) return []
+  return names.filter((n) => {
+    const m = CLIP_RE.exec(n)
+    return m ? !ids.has(m[1]!) : false
+  })
+}
+
+/** The mount of `src`'s folder: the deepest mount whose destination holds it. */
+export function mountFor<M extends { Destination: string }>(mounts: M[], src: string): M | null {
+  let best: M | null = null
+  const len = (m: M) => m.Destination.replace(/\/+$/, '').length
+  for (const m of mounts) {
+    const d = m.Destination.replace(/\/+$/, '')
+    if ((src === d || src.startsWith(`${d}/`)) && (!best || d.length > len(best))) best = m
+  }
+  return best
+}
+
+const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`
+
+/** ffmpeg in a throwaway container made from Jellyfin's image (someone's own Jellyfin in Docker). */
+export function adoptEncoder(docker: Docker, jf: JellyfinContainer, ffmpeg: string, previews: string): ClipEncoder {
+  const user = jf.info.Config.User || undefined
+  const groups = (jf.info.HostConfig.GroupAdd as string[] | null | undefined) ?? []
+  return {
+    where: `in a short-lived helper made from Jellyfin’s image (${jf.name}), reading your library read-only`,
+    async encode(args, out, src) {
+      const m = mountFor(jf.info.Mounts, src)
+      if (!m) return { file: null, output: `${src} isn’t in a folder Jellyfin’s container mounts` }
+      const from = m.Type === 'volume' && m.Name ? m.Name : m.Source
+      const inside = `/tmp/${out}`
+      const cmd = `T=; command -v timeout >/dev/null 2>&1 && T='timeout 1200'; $T nice -n 19 ${q(ffmpeg)} ${args.map(q).join(' ')} ${q(inside)}`
+      const r = await docker.runJob(jf.info.Image || jf.image, ['sh', '-c', cmd], {
+        binds: [`${from}:${m.Destination}:ro`],
+        user,
+        // The lowest CPU share Docker allows: anyone watching always comes first.
+        host: { CpuShares: 2, ...(groups.length ? { GroupAdd: groups } : {}) },
+        file: inside,
+        timeoutMs: 25 * 60000,
+        service: 'clip',
+      })
+      if (!r.data?.length) return { file: null, output: r.output }
+      const part = join(previews, `.${out}.part`)
+      writeFileSync(part, r.data)
+      return { file: part, output: r.output }
+    },
+  }
+}
+
+export interface ClipOptions {
+  /** Docker, for someone's own Jellyfin in a container. */
+  docker?: Docker | null
+  /** Finesse's own container id (never mistaken for Jellyfin's). */
+  self?: () => Promise<string | undefined>
+  /** Overrides how the encoder is found (tests). */
+  encoder?: (s: Settings) => Promise<ClipEncoder | { reason: string }>
+  /** Clips only at some times (no graphics card: the quiet hours). Says why when it's not time. */
+  waitFor?: () => string | null
+}
+
 export class ClipMaker {
   private running = false
   private timer: NodeJS.Timeout | null = null
@@ -30,13 +138,16 @@ export class ClipMaker {
   readonly host: StackHost
   readonly paths: Paths
   private readonly idle: () => boolean
-  status = { made: 0, pending: 0, total: 0, lastRun: null as string | null }
+  private readonly opts: ClipOptions
+  private found: { at: number; enc: ClipEncoder | { reason: string } } | null = null
+  status: ClipStatus = { enabled: true, state: 'idle', reason: null, where: null, made: 0, pending: 0, total: 0, failed: 0, removed: 0, lastRun: null }
 
-  constructor(settings: SettingsStore, host: StackHost, paths: Paths, idle: () => boolean) {
+  constructor(settings: SettingsStore, host: StackHost, paths: Paths, idle: () => boolean, opts: ClipOptions = {}) {
     this.settings = settings
     this.host = host
     this.paths = paths
     this.idle = idle
+    this.opts = opts
   }
 
   start(everyMs = 5 * 60000) {
@@ -47,36 +158,133 @@ export class ClipMaker {
     this.timer.unref()
   }
 
-
-  private async items(): Promise<Item[]> {
-    const s = this.settings.get()
+  /** Every movie and episode Jellyfin has. Throws unless the listing is complete. */
+  private async items(s: Settings): Promise<Item[]> {
     const base = `${s.jellyfin.url!.replace(/\/+$/, '')}${s.jellyfin.basePath}`
-    const r = await fetch(`${base}/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=Path,MediaStreams&EnableImages=false&EnableUserData=false`, {
+    const r = await fetch(`${base}/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=Path,MediaStreams&EnableImages=false&EnableUserData=false&EnableTotalRecordCount=true`, {
       headers: { Authorization: `MediaBrowser Token="${s.jellyfin.apiKey}"` },
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(120000),
     })
     if (!r.ok) throw new Error(`Jellyfin answered ${r.status}`)
-    return ((await r.json()) as { Items: Item[] }).Items.filter((i) => i.Path && i.RunTimeTicks)
+    const body = (await r.json()) as { Items?: Item[]; TotalRecordCount?: number }
+    if (!Array.isArray(body.Items)) throw new Error('its answer had no list of titles')
+    if (typeof body.TotalRecordCount === 'number' && body.TotalRecordCount > body.Items.length) throw new Error(`it listed ${body.Items.length} of ${body.TotalRecordCount} titles`)
+    return body.Items
   }
 
-  /** One pass: make clips for items that don't have them yet (bounded by time). */
-  async run(budgetMs = 4 * 60000): Promise<void> {
+  /** How clips get made here, or why they can't (looked up at most every 10 minutes). */
+  private async encoder(s: Settings): Promise<ClipEncoder | { reason: string }> {
+    if (this.opts.encoder) return this.opts.encoder(s)
+    if (this.found && Date.now() - this.found.at < 10 * 60000) return this.found.enc
+    let enc: ClipEncoder | { reason: string }
+    if (s.mode === 'bundle' && s.stack) {
+      const root = s.stack.hostRoot
+      enc = { where: 'with Jellyfin’s own ffmpeg, inside its container', encode: (args, out) => this.host.ffmpeg(args, out, root) }
+    } else if (this.opts.docker) {
+      const jf = await findJellyfin(this.opts.docker, s, await this.opts.self?.()).catch((e) => ({ reason: `Finesse couldn’t look for Jellyfin’s container (${(e as Error).message}).` }))
+      enc = 'reason' in jf ? jf : adoptEncoder(this.opts.docker, jf, await this.ffmpegPath(s), this.paths.previews)
+    } else {
+      enc = { reason: 'Preview clips need Jellyfin in Docker on this server (or a server Finesse set up), so Finesse can use Jellyfin’s ffmpeg.' }
+    }
+    this.found = { at: Date.now(), enc }
+    return enc
+  }
+
+  /** Jellyfin's ffmpeg, as its own settings name it. */
+  private async ffmpegPath(s: Settings): Promise<string> {
+    try {
+      const r = await fetch(`${s.jellyfin.url!.replace(/\/+$/, '')}${s.jellyfin.basePath}/System/Configuration/encoding`, {
+        headers: { Authorization: `MediaBrowser Token="${s.jellyfin.apiKey}"` },
+        signal: AbortSignal.timeout(10000),
+      })
+      const e = r.ok ? ((await r.json()) as { EncoderAppPathDisplay?: string; EncoderAppPath?: string }) : {}
+      const p = e.EncoderAppPathDisplay || e.EncoderAppPath
+      if (p && p.startsWith('/')) return p
+    } catch {
+      /* the usual place */
+    }
+    return JELLYFIN_FFMPEG
+  }
+
+  private block(reason: string) {
+    this.status = { ...this.status, state: 'blocked', reason }
+  }
+
+  /** One pass: tidy up, then make clips for titles that don't have them yet (bounded by time). */
+  async run(budgetMs = 4 * 60000): Promise<ClipStatus> {
     const s = this.settings.get()
-    if (this.running || s.mode !== 'bundle' || !s.stack || !s.jellyfin.apiKey || s.previews?.enabled === false || !this.idle()) return
-    const root = s.stack.hostRoot
+    this.status.enabled = s.previews?.enabled !== false
+    if (!this.status.enabled) {
+      this.status = { ...this.status, state: 'off', reason: null }
+      return this.status
+    }
+    if (this.running) return this.status
+    if (!s.jellyfin.url || !s.jellyfin.apiKey) {
+      this.block('Finesse isn’t connected to Jellyfin yet.')
+      return this.status
+    }
+    if (!this.idle()) return this.status
     this.running = true
     const until = Date.now() + budgetMs
     try {
-      mkdirSync(this.paths.previews, { recursive: true })
+      const dir = this.paths.previews
       try {
-        chownSync(this.paths.previews, Number(process.env.PUID ?? 1000), Number(process.env.PGID ?? 1000))
+        mkdirSync(dir, { recursive: true })
+        accessSync(dir, constants.W_OK)
+        writeFileSync(join(dir, '.write-test'), '')
+        rmSync(join(dir, '.write-test'), { force: true })
+      } catch {
+        this.block(`Finesse can’t write to its previews folder (${dir}). It may be mounted read-only: give Finesse’s container that folder with write access, and clips can be made.`)
+        return this.status
+      }
+      try {
+        chownSync(dir, Number(process.env.PUID ?? 1000), Number(process.env.PGID ?? 1000))
       } catch {
         /* not root (dev): the folder is already ours */
       }
-      const items = await this.items()
-      const have = new Set(readdirSync(this.paths.previews).filter((n) => n.endsWith('.mp4')))
-      const todo = items.filter((i) => !have.has(`${i.Id}.mp4`) && (this.failed.get(i.Id) ?? 0) < 2)
-      this.status = { ...this.status, total: items.length, pending: todo.length, lastRun: new Date().toISOString() }
+      let all: Item[]
+      try {
+        all = await this.items(s)
+      } catch (e) {
+        this.block(`Finesse couldn’t read the list of titles from Jellyfin (${(e as Error).message}). It tries again in a few minutes.`)
+        return this.status
+      }
+      // A complete listing: clips of titles that left (or whose id changed) go.
+      const ids = new Set(all.map((i) => i.Id.toLowerCase()))
+      const gone = orphanClips(readdirSync(dir), ids)
+      for (const n of gone) rmSync(join(dir, n), { force: true })
+      if (gone.length) log.info(`removed ${gone.length} clip${gone.length > 1 ? 's' : ''} of titles Jellyfin no longer has`)
+      for (const n of readdirSync(dir)) if (n.endsWith('.part')) rmSync(join(dir, n), { force: true })
+      this.writeManifests()
+
+      const items = all.filter((i) => i.Path && i.RunTimeTicks)
+      const have = new Set(readdirSync(dir).filter((n) => n.endsWith('.mp4')))
+      const missing = items.filter((i) => !have.has(`${i.Id}.mp4`))
+      const todo = missing.filter((i) => (this.failed.get(i.Id) ?? 0) < 2)
+      this.status = {
+        ...this.status,
+        state: todo.length ? 'making' : 'idle',
+        reason: null,
+        total: items.length,
+        made: items.length - missing.length,
+        pending: todo.length,
+        failed: missing.length - todo.length,
+        removed: gone.length,
+        lastRun: new Date().toISOString(),
+      }
+      if (!todo.length) return this.status
+      const wait = this.opts.waitFor?.() ?? null
+      if (wait) {
+        this.status = { ...this.status, state: 'idle', reason: wait }
+        return this.status
+      }
+      const enc = await this.encoder(s)
+      if ('reason' in enc) {
+        this.status.where = null
+        this.block(enc.reason)
+        return this.status
+      }
+      this.status.where = enc.where
       for (const it of todo) {
         if (Date.now() > until || !this.idle()) break
         const height = Math.max(0, ...(it.MediaStreams ?? []).filter((m) => m.Type === 'Video').map((m) => m.Height ?? 0))
@@ -86,30 +294,30 @@ export class ClipMaker {
         let ok = true
         for (const [h, crf, out] of tiers) {
           if (have.has(out)) continue
-          ok = (await this.encode(it, h, crf, out, root)) && ok
+          ok = (await this.encode(enc, it, h, crf, out)) && ok
           if (!ok) break
         }
         if (ok) this.status.made++
-        else this.failed.set(it.Id, (this.failed.get(it.Id) ?? 0) + 1)
+        else {
+          const n = (this.failed.get(it.Id) ?? 0) + 1
+          this.failed.set(it.Id, n)
+          if (n >= 2) this.status.failed++
+        }
         this.status.pending = Math.max(0, this.status.pending - 1)
       }
-      // Forget clips of titles that left the library.
-      const ids = new Set(items.map((i) => i.Id))
-      for (const n of readdirSync(this.paths.previews)) {
-        const id = n.split('.')[0]!
-        if (n.endsWith('.mp4') && !ids.has(id)) rmSync(join(this.paths.previews, n), { force: true })
-      }
       this.writeManifests()
+      if (!this.status.pending) this.status.state = 'idle'
+      return this.status
     } finally {
       this.running = false
     }
   }
 
-  private async encode(it: Item, h: number, crf: number, out: string, root: string): Promise<boolean> {
+  private async encode(enc: ClipEncoder, it: Item, h: number, crf: number, out: string): Promise<boolean> {
     const dur = Math.floor((it.RunTimeTicks ?? 0) / 1e7)
     const src = it.Path!
-    const enc = ['-c:v', 'libx264', '-crf', String(crf), '-preset', 'veryfast', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart']
-    const single = (off: number) => ['-nostdin', '-y', '-loglevel', 'error', '-ss', String(off), '-i', src, '-t', '20', '-vf', `scale=-2:${h}`, ...enc]
+    const codec = ['-c:v', 'libx264', '-crf', String(crf), '-preset', 'veryfast', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart']
+    const single = (off: number) => ['-nostdin', '-y', '-loglevel', 'error', '-ss', String(off), '-i', src, '-t', '20', '-vf', `scale=-2:${h}`, ...codec]
     // Movies: 20 s from a fifth of the way in (the opening credits are rarely a good preview).
     const tries = [single(dur > 150 ? Math.max(30, Math.floor(dur / 5)) : Math.floor(dur / 10))]
     if (it.Type === 'Episode' && dur >= 120) {
@@ -120,14 +328,21 @@ export class ClipMaker {
         .join('')
       const pairs = cuts.map((_, i) => `[v${i}][a${i}]`).join('')
       // The teaser first; a single cut from later on if the source won't split.
-      tries.unshift(['-nostdin', '-y', '-loglevel', 'error', ...ins, '-filter_complex', `${chains}${pairs}concat=n=4:v=1:a=1[v][a]`, '-map', '[v]', '-map', '[a]', ...enc])
+      tries.unshift(['-nostdin', '-y', '-loglevel', 'error', ...ins, '-filter_complex', `${chains}${pairs}concat=n=4:v=1:a=1[v][a]`, '-map', '[v]', '-map', '[a]', ...codec])
       tries[1] = single(Math.max(30, Math.floor(dur / 5)))
     }
     let output = ''
     for (const args of tries) {
-      const r = await this.host.ffmpeg(args, out, root).catch((e) => ({ file: null, output: String(e) }))
+      const r = await enc.encode(args, out, src).catch((e) => ({ file: null, output: String(e) }))
       if (r.file) {
-        renameSync(r.file, join(this.paths.previews, out))
+        const dest = join(this.paths.previews, out)
+        try {
+          renameSync(r.file, dest)
+        } catch {
+          // Another filesystem (Jellyfin's folder → Finesse's): copy, then tidy up.
+          copyFileSync(r.file, dest)
+          rmSync(r.file, { force: true })
+        }
         return true
       }
       output = r.output
