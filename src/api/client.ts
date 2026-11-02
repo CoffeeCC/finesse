@@ -909,7 +909,19 @@ function buildDeviceProfile() {
       { Format: 'ass', Method: 'External' },
       { Format: 'ssa', Method: 'External' },
     ],
-    CodecProfiles: [],
+    // 10-bit H.264 ("High 10", common in anime encodes) decodes almost nowhere: not in
+    // browsers, phones or the LG TV. Without this, Jellyfin passes it through untouched
+    // and the player can't show it, so it converts those to 8-bit instead.
+    CodecProfiles: [
+      {
+        Type: 'Video',
+        Codec: 'h264',
+        Conditions: [
+          { Condition: 'LessThanEqual', Property: 'VideoBitDepth', Value: '8', IsRequired: false },
+          { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
+        ],
+      },
+    ],
     ResponseProfiles: [],
   }
 }
