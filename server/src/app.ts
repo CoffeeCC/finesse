@@ -12,7 +12,7 @@ import { openLists } from './lists.ts'
 import { registerSmartCollections } from './smartCollections.ts'
 import { Parental, registerParental } from './parental.ts'
 import { registerQueues } from './queues.ts'
-import { registerGameSaves } from './gameSaves.ts'
+import { openSaves, registerGameSaves } from './gameSaves.ts'
 import { registerParties } from './parties.ts'
 import { registerMomentCollections } from './momentCollections.ts'
 import { Access } from './access.ts'
@@ -159,7 +159,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   access.ratingAllows = (userId, raw) => parental.allows(userId, raw)
   registerSmartCollections(router, { auth, db: lists })
   registerQueues(router, { auth, settings, db: lists, access })
-  registerGameSaves(router, { auth, db: lists })
+  registerGameSaves(router, { auth, db: openSaves(join(p.configDir, 'saves.db'), lists) })
   registerParties(router, { auth, settings, access })
   registerMomentCollections(router, { auth, settings, db: lists, access, momentFor: moments.momentFor })
   deps.browserStream = registerStreaming(router, { settings, auth })
@@ -233,7 +233,9 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
     const isPreview = path.startsWith('/previews/')
     if (isApi || isPreview) {
       res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Emby-Token, X-Emby-Authorization, X-Finesse-Setup-Code')
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Emby-Token, X-Emby-Authorization, X-Finesse-Setup-Code, If-Match, If-None-Match')
+      // Headers the app reads from another origin (the TV app runs from file://).
+      res.setHeader('Access-Control-Expose-Headers', 'ETag, X-Saved-At')
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
       if (req.method === 'OPTIONS') {
         res.writeHead(204)

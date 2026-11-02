@@ -1,35 +1,44 @@
-// Which copy of an in-game save the retro player starts from (src/lib/saveSync.ts): this
-// browser's or the Finesse server's.
+// What the retro player does with a game's save as it starts (src/lib/saveSync.ts): this
+// browser's copy against the Finesse server's, by fingerprints only (no clocks).
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { pickSave, saveFingerprint } from '../../src/lib/saveSync.ts'
+import { planSync, precondition, refusal, saveFingerprint } from '../../src/lib/saveSync.ts'
 
-const A = { hash: 'a', at: 1000 }
-const B = { hash: 'b', at: 2000 }
-
-test('one side only: that one', () => {
-  assert.equal(pickSave(null, null, null), 'none')
-  // Saves from before Finesse kept them, or a server that lost its own: go up.
-  assert.equal(pickSave(A, null, null), 'local')
+test('one side only', () => {
+  assert.equal(planSync(null, null, null), 'none')
   // A new device, or this browser's data was cleared: come down.
-  assert.equal(pickSave(null, B, null), 'server')
+  assert.equal(planSync(null, 'b', null), 'server')
+  assert.equal(planSync(null, 'b', 'a'), 'server')
+  // Nothing on the server: goes up (and only into an empty slot: see precondition).
+  assert.equal(planSync('a', null, null), 'upload')
 })
 
 test('the same save on both sides: nothing to do', () => {
-  assert.equal(pickSave(A, { hash: 'a', at: 5 }, null), 'same')
+  assert.equal(planSync('a', 'a', null), 'same')
 })
 
-test('the side that moved since the last sync wins', () => {
+test('the side that moved since the last sync wins, without asking a clock', () => {
   // Played on another device: the server moved, this browser didn't.
-  assert.equal(pickSave({ hash: 'a', at: 9999 }, { hash: 'b', at: 1 }, 'a'), 'server')
+  assert.equal(planSync('a', 'b', 'a'), 'server')
   // Played here while the server couldn't be reached.
-  assert.equal(pickSave({ hash: 'b', at: 1 }, { hash: 'a', at: 9999 }, 'a'), 'local')
+  assert.equal(planSync('b', 'a', 'a'), 'upload')
 })
 
-test('both moved, or never synced: the one written last', () => {
-  assert.equal(pickSave(A, B, 'z'), 'server')
-  assert.equal(pickSave(B, A, null), 'local')
+test('both moved, or never synced here: ask, never pick one silently', () => {
+  assert.equal(planSync('a', 'b', 'z'), 'conflict')
+  assert.equal(planSync('a', 'b', null), 'conflict')
+})
+
+test('uploads name the server copy they replace; none means "only if there isn’t one"', () => {
+  assert.deepEqual(precondition('1-2-3'), { 'If-Match': '"1-2-3"' })
+  assert.deepEqual(precondition(null), { 'If-None-Match': '*' })
+})
+
+test('a refused save is explained, not retried as if offline', () => {
+  assert.match(refusal(401, 'Sign in first'), /sign-in.*stays on this device/i)
+  assert.equal(refusal(413, 'That’s too big to send here (the most is 8 MB)'), 'That’s too big to send here (the most is 8 MB). It stays on this device.')
+  assert.equal(refusal(400, undefined), 'Finesse wouldn’t take this save. It stays on this device.')
 })
 
 test('fingerprints tell saves apart, and the same bytes always match', () => {
