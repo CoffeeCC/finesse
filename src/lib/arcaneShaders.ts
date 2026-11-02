@@ -14,7 +14,7 @@ float light=smoothstep(.38,.78,cloud*.65+tendril*.5);vec3 col=mix(vec3(.012,.025
 col=mix(col,vec3(.37,.18,.56),smoothstep(.52,.8,tendril)*.55);
 float thread=pow(max(0.,1.-abs(cloud-.55)*12.),6.);col+=vec3(.18,.55,.78)*thread*(.35+energy*.3);
 float edge=pow(1.-max(0.,dot(normalize(vN),normalize(vV))),2.);col+=vec3(.10,.24,.38)*edge;
-gl_FragColor=vec4(col*(1.8+energy*.5),.83+edge*.13);}`
+gl_FragColor=vec4(col*(2.3+energy*.6),.83+edge*.13);}`
 
 export const starVertex = `uniform float time;varying float brightness;
 void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=2.8;brightness=.45+.3*sin(time*.7+position.y*15.+position.x*9.);}`

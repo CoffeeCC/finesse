@@ -143,12 +143,12 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           const sparkle = new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending, uniforms: { time: { value: 0 } }, vertexShader: starVertex, fragmentShader: starFragment })
           const stars = new T.Points(geo, sparkle)
           stars.position.y = 1.38; gltf.scene.add(stars)
-          const blueLight = new T.PointLight(0x69baff, 7, 7, 1.5); blueLight.position.y = 1.45; gltf.scene.add(blueLight)
+          const blueLight = new T.PointLight(0x69baff, 11, 9.5, 1.5); blueLight.position.y = 1.45; gltf.scene.add(blueLight)
           const glow = new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending,
             uniforms: { strength: { value: 1 } },
             vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-            fragmentShader: 'varying vec2 vUv;uniform float strength;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r),2.5)*.24*strength;gl_FragColor=vec4(.15,.48,1.,a);}' })
-          const halo = new T.Mesh(new T.PlaneGeometry(3.4, 3.4), glow); halo.position.y = 1.38; gltf.scene.add(halo)
+            fragmentShader: 'varying vec2 vUv;uniform float strength;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r),2.5)*.36*strength;gl_FragColor=vec4(.15,.48,1.,a);}' })
+          const halo = new T.Mesh(new T.PlaneGeometry(3.8, 3.8), glow); halo.position.y = 1.38; gltf.scene.add(halo)
           orbs.push({ material, sparkle, stars, lamp: blueLight, halo, glow })
         }
         objects.push({ root, selector, lid, cards, clasp, packets, open: 0, lidStart: selector === '.action-codex-art' ? lid?.rotation.z ?? 0 : lid?.rotation.x ?? 0, cardStart: cards?.position.y ?? 0 })
@@ -305,7 +305,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           // Cool, slow breathing belongs to the orb; never copy the candle's flutter.
           const breath = still ? 1 : 1 + Math.sin(time * .7) * .045
           const glowStrength = (.24 + light * .76) * breath * (1 + orb.material.uniforms.energy.value * .4)
-          orb.lamp.intensity = 7 * glowStrength
+          orb.lamp.intensity = 11 * glowStrength
           orb.glow.uniforms.strength.value = glowStrength
           orb.halo.quaternion.copy(camera.quaternion)
           orb.stars.rotation.y = still ? 0 : time * .045
