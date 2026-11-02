@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { streamingApi, type StreamApp } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 import { pushBackHandler } from '../lib/back'
 import { finesseRoot } from '../lib/finesseServer'
+import { exitFullscreen } from '../lib/fullscreen'
+import FullscreenButton from './FullscreenButton'
 import { giveControllerToGame } from '../lib/gamepad'
 
 type Phase = 'ticket' | 'signing-in' | 'starting' | 'launching' | 'playing' | 'ended' | 'quitting' | 'error'
@@ -44,7 +46,7 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = prev
-      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+      void exitFullscreen()
     }
   }, [])
 
@@ -123,11 +125,7 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
     frame.current?.focus()
   }
 
-  const fullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen()
-    else void box.current?.requestFullscreen().catch(() => {})
-    frame.current?.focus()
-  }
+  const focusGame = useCallback(() => frame.current?.focus(), [])
   const busy = phase !== 'playing' && phase !== 'error'
 
   return createPortal(
@@ -199,11 +197,8 @@ export default function GameStreamOverlay({ app, onClose }: { app: StreamApp; on
             </button>
           </>
         )}
-        <button type="button" onClick={fullscreen} className="rounded-full bg-white/5 p-1.5 text-white ring-1 ring-white/15 hover:bg-white/15" aria-label="Full screen" title="Full screen">
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-          </svg>
-        </button>
+        {/* Full screen, sideways on a phone; on iPhone, how to get it (Add to Home Screen). */}
+        <FullscreenButton target={box} refocus={focusGame} className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-white ring-1 ring-white/15 hover:bg-white/15" />
         <button
           type="button"
           onClick={onClose}
