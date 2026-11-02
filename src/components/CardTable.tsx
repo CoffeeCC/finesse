@@ -13,12 +13,13 @@ import ArcaneCoin from './ArcaneCoin'
 import codexStill from '../assets/card-table/story-codex-v1-still.webp'
 import drawStill from '../assets/card-table/draw-deck-v1-still.webp'
 import './arcane-actions.css'
+import { playArcaneSound } from '../lib/sound'
 const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
 
 type Phase = 'idle' | 'shuffling' | 'waiting' | 'dealing'
 const SHUFFLE_MS = 1150
-const FLIGHT_MS = 740
-const STAGGER_MS = 110
+const FLIGHT_MS = 860
+const STAGGER_MS = 135
 
 function rememberedHand() {
   try {
@@ -128,6 +129,7 @@ export default function CardTable() {
   const busy = phase !== 'idle' || hand.isFetching || views.isFetching
   const boardRef = useRef<HTMLElement>(null)
   const stockRef = useRef<HTMLButtonElement>(null)
+  const userDeal = useRef(false)
 
   useEffect(() => {
     if (!deck) return
@@ -155,6 +157,13 @@ export default function CardTable() {
     }
   }, [phase, motion.reduced, loading, hand.isFetching, views.isFetching, error, cards.length])
 
+  useEffect(() => {
+    if (phase === 'idle') { userDeal.current = false; return }
+    if (phase !== 'dealing' || motion.reduced || !userDeal.current) return
+    const timers = cards.map((_, index) => window.setTimeout(() => playArcaneSound('card-land'), index * STAGGER_MS + FLIGHT_MS * .88))
+    return () => timers.forEach(window.clearTimeout)
+  }, [phase, motion.reduced, cards.length])
+
   // Navigation sees stationary, non-overlapping buttons. Only their artwork
   // flies. Measure the stock so every card starts at the real deck on any size.
   useLayoutEffect(() => {
@@ -166,6 +175,8 @@ export default function CardTable() {
         const target = card.getBoundingClientRect()
         card.style.setProperty('--deal-x', `${stock.left + stock.width / 2 - target.left - target.width / 2}px`)
         card.style.setProperty('--deal-y', `${stock.top + stock.height / 2 - target.top - target.height / 2}px`)
+        card.style.setProperty('--deal-scale', String(Math.min(.8, Math.max(.25, stock.width / Math.max(1, target.width) * .72))))
+        card.style.setProperty('--deal-arc', `${Math.min(110, Math.max(45, Math.abs(stock.left - target.left) * .16))}px`)
       })
     }
     measure()
@@ -177,6 +188,7 @@ export default function CardTable() {
 
   const dealAgain = () => {
     if (busy || !deck) return
+    userDeal.current = true
     setOutgoingCards(cards)
     select(2)
     setPhase(motion.reduced ? 'waiting' : 'shuffling')
@@ -184,6 +196,7 @@ export default function CardTable() {
   }
   const changeDeck = (id: string) => {
     if (busy || deck?.Id === id) return
+    userDeal.current = true
     setOutgoingCards(cards)
     select(2)
     setPhase(motion.reduced ? 'waiting' : 'shuffling')
@@ -198,7 +211,7 @@ export default function CardTable() {
   const codexContent = <><span className="action-art action-codex-art" aria-hidden="true"><img src={codexStill} alt="" /></span><span className="action-label">Open title</span><small className="action-hint">{busy ? 'Preparing your cards' : pick && !error ? 'Read this story' : 'Choose a story first'}</small></>
 
   return (
-    <div className={`card-table-page tabletop-edition ${motion.reduced ? 'no-table-motion' : ''}`}>
+    <div className={`card-table-page tabletop-edition ${motion.reduced ? 'no-table-motion' : ''}`} style={{ '--flight-duration': `${FLIGHT_MS}ms` } as CSSProperties}>
       <header className="table-intro">
         <div><p className="table-kicker">THE CELESTIAL TABLE</p><h1>A hand of stories.</h1></div>
         <div className="table-tools">

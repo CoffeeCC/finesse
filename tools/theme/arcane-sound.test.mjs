@@ -32,7 +32,7 @@ test('theme sounds obey mute, zero volume, hidden tabs and active unmuted media'
 })
 test('every object sound is bounded and quiet; muted previews do not suppress it', () => {
   const f = fixture({}, [{ paused: false, muted: true, currentTime: 1 }])
-  for (const kind of ['orb', 'deck', 'cards', 'flame', 'coin-flip', 'coin-land']) {
+  for (const kind of ['orb', 'deck', 'cards', 'card-land', 'flame', 'coin-flip', 'coin-land']) {
     const before = f.starts.length; f.api.playArcaneSound(kind); assert.ok(f.starts.length > before)
   }
   assert.equal(f.contexts(), 1); assert.equal(f.starts.length, f.stops.length)

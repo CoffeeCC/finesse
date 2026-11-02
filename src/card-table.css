@@ -247,8 +247,8 @@ html[data-theme="card-table"] [data-poster-card] .tilt { border: 4px solid #9f80
 .phase-shuffling .card-flight { animation: collect-card 330ms var(--collect-delay) cubic-bezier(.5,0,.8,.5) both; }
 .phase-shuffling .card-turn { animation: turn-card-back 230ms var(--collect-delay) both; }
 .phase-waiting .movie-hand { visibility: hidden; }
-.phase-dealing .card-flight { animation: draw-card 740ms var(--deal-delay) cubic-bezier(.2,.7,.25,1) both; }
-.phase-dealing .card-turn { animation: reveal-card 740ms var(--deal-delay) cubic-bezier(.3,0,.25,1) both; }
+.phase-dealing .card-flight { animation: draw-card var(--flight-duration,860ms) var(--deal-delay) cubic-bezier(.22,.6,.25,1) both; }
+.phase-dealing .card-turn { animation: reveal-card var(--flight-duration,860ms) var(--deal-delay) cubic-bezier(.3,0,.25,1) both; }
 .phase-dealing .hand-card, .phase-shuffling .hand-card { pointer-events: none; }
 .phase-dealing .playing-card, .phase-shuffling .playing-card { box-shadow: 1px 3px 4px #0006; }
 @keyframes shuffle-left {
@@ -266,17 +266,18 @@ html[data-theme="card-table"] [data-poster-card] .tilt { border: 4px solid #9f80
 @keyframes collect-card {
   0% { opacity: 1; transform: translate(0,0) scale(1); }
   88% { opacity: 1; }
-  100% { opacity: 0; transform: translate(var(--deal-x),var(--deal-y)) scale(.76) rotate(5deg); }
+  100% { opacity: 0; transform: translate(var(--deal-x),var(--deal-y)) scale(var(--deal-scale,.6)) rotate(5deg); }
 }
 @keyframes turn-card-back { to { transform: rotateY(180deg); } }
 @keyframes draw-card {
-  0% { opacity: 0; transform: translate(var(--deal-x),var(--deal-y)) scale(.76) rotate(5deg); }
-  12% { opacity: 1; }
-  56% { transform: translate(calc(var(--deal-x) * .28),calc(var(--deal-y) * .28 - 18px)) scale(.96) rotate(-3deg); }
-  87% { transform: translate(0,2px) scale(1) rotate(0deg); }
+  0% { opacity: 0; transform: translate(var(--deal-x),var(--deal-y)) scale(var(--deal-scale,.6)) rotate(5deg); }
+  8% { opacity: 1; transform: translate(var(--deal-x),calc(var(--deal-y) - 18px)) scale(var(--deal-scale,.6)) rotate(3deg); }
+  42% { opacity: 1; transform: translate(calc(var(--deal-x) * .55),calc(var(--deal-y) * .55 - var(--deal-arc,70px))) scale(.86) rotate(-6deg); }
+  78% { transform: translate(-2px,-7px) scale(1.015) rotate(-1deg); }
+  91% { transform: translate(0,2px) scale(.995) rotate(.3deg); }
   100% { opacity: 1; transform: translate(0,0) scale(1); }
 }
-@keyframes reveal-card { 0%,22% { transform: rotateY(180deg); } 75%,100% { transform: rotateY(0deg); } }
+@keyframes reveal-card { 0%,26% { transform: rotateY(180deg); } 76%,100% { transform: rotateY(0deg); } }
 
 @media (min-width: 1560px) { .table-stage { height: 700px; } }
 @media (max-width: 1400px) { .mat-heading h2 { font-size: calc(var(--vw, 1vw) * 2.8); } }

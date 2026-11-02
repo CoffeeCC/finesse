@@ -1,5 +1,12 @@
 /* Shared theme surfaces. Media, video and subtitle colors remain their source colors. */
 .arcane-media-frame { display: none; }
+html[data-theme=card-table] [data-theme-surface=detail] .finesse-play-primary{min-height:48px;background:linear-gradient(120deg,#9d7b42,#d1b578 48%,#a6874b);color:#17212a;border:1px solid #ead49b;border-radius:8px 5px;box-shadow:inset 0 1px #fff1bc88,inset 0 -2px #5b4527,0 3px 0 #071119,0 6px 12px #0005;text-shadow:0 1px #fce2a744}
+html[data-theme=card-table] [data-theme-surface=detail] .finesse-play-secondary{min-height:48px;background:linear-gradient(120deg,#2b3b44,#172732);color:#e4d8ba;border-color:#af965e66;box-shadow:inset 0 1px #d7c99822,0 3px 6px #0005}
+html[data-theme=card-table] [data-theme-surface=detail] .finesse-action-token{background:radial-gradient(ellipse at 35% 20%,#52636a,#25343d 60%,#18252e);border-color:#b89c6577;color:#eeddb4;box-shadow:inset 0 1px #ecdcac33,inset 0 0 0 3px #0d1d2666,0 3px 6px #0005;backdrop-filter:none}
+html[data-theme=card-table] [data-theme-surface=detail] [aria-pressed=true]>.finesse-action-token{background:radial-gradient(ellipse at 35% 20%,#71613e,#3e3e31 60%,#252b2a);border-color:#dbc087;color:#ffedb5}
+html[data-theme=card-table] [data-theme-surface=detail] .finesse-episode-row{border-bottom:1px solid #b19a5b24;border-radius:6px;background:linear-gradient(100deg,#25363b33,transparent)}
+html[data-theme=card-table] [data-theme-surface=detail] .finesse-episode-row:hover{background-color:#d0b7760d}
+html[data-theme=card-table] [data-theme-surface=detail] .finesse-play-primary:hover{filter:brightness(1.1)}
 html[data-theme="card-table"] {
   --arcane-bronze: #ab8350;
   --arcane-border: #b391594a;

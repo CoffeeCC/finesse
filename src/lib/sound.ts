@@ -89,7 +89,7 @@ export function playSelect() {
 let installed = false
 
 /** Original, restrained object sounds; same context, volume and media guard as Finesse. */
-export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'flame' | 'coin-flip' | 'coin-land') {
+export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land') {
   const prefs = getPrefs(), vol = clamp(prefs.uiSoundsVolume ?? .6, 0, 1)
   if (!prefs.uiSounds || vol <= 0 || mediaIsPlaying() || document.hidden) return
   const ac = audioCtx(); if (!ac) return
@@ -123,6 +123,8 @@ export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'flame' | 'coin
   } else if (kind === 'cards') {
     for (const delay of [0, .075, .15]) rustle(delay, .11, 1900 + delay * 2000, .065)
     tone(320, .09, .018, .19, 210)
+  } else if (kind === 'card-land') {
+    rustle(0, .07, 1450, .024); tone(210, .055, .008, .01, 155)
   } else if (kind === 'flame') {
     rustle(0, .23, 620, .04); tone(118, .15, .012, .025, 140)
   } else if (kind === 'coin-flip') {

@@ -15,7 +15,7 @@ export function createLiveCards(T: typeof import('three'), scene: THREE.Scene, c
   const stockMaterial = new T.MeshStandardMaterial({ color: 0x141a23, roughness: .65, metalness: .12 })
   const frameMaterial = new T.MeshStandardMaterial({ map: frameTexture, color: 0xd9bd90, alphaTest: .14, metalness: .82, roughness: .32,
     bumpMap: frameTexture, bumpScale: .009, envMapIntensity: .7, transparent: false })
-  type Card = { root: THREE.Group; src: string; material?: THREE.MeshBasicMaterial; texture?: THREE.Texture; cancelled: boolean }
+  type Card = { root: THREE.Group; src: string; material?: THREE.MeshBasicMaterial; texture?: THREE.Texture; cancelled: boolean; elevation?: number }
   const cards = new Map<HTMLElement, Card>(), loader = new T.TextureLoader()
   let disposed = false
   const remove = (element: HTMLElement, card: Card) => {
@@ -25,7 +25,7 @@ export function createLiveCards(T: typeof import('three'), scene: THREE.Scene, c
   const hide = () => cards.forEach((card, element) => { card.root.visible = false; element.classList.remove('live-card-ready'); element.closest('.folio-slot')?.classList.remove('live-slot-ready') })
   return {
     hide,
-    update(light: number) {
+    update(light: number, dt: number, still: boolean) {
       if (disposed) return
       const nodes = [...scope.querySelectorAll<HTMLElement>(folio ? '.folio-card-art' : '.playing-card')].slice(0, folio ? 8 : 5), current = new Set(nodes)
       for (const [element, card] of cards) if (!current.has(element) || !element.isConnected) remove(element, card)
@@ -66,7 +66,9 @@ export function createLiveCards(T: typeof import('three'), scene: THREE.Scene, c
           1 - (rect.top - bounds.top + rect.height / 2) / bounds.height * 2)
         // The lower card edge rests on the receiving desk; the hand leans toward the viewer.
         const selected = Boolean(element.closest('.card-selected, .slot-selected, .folio-inspect-card'))
-        const elevation = worldHeight * Math.SQRT1_2 / 2 + (folio ? .12 : .025) + (selected ? .85 * light : nodes.indexOf(element) * .012)
+        const targetLift = selected ? (folio ? .26 : .48) * light : nodes.indexOf(element) * .012
+        card.elevation = still || card.elevation === undefined ? targetLift : card.elevation + (targetLift - card.elevation) * (1 - Math.exp(-dt * 12))
+        const elevation = worldHeight * Math.SQRT1_2 / 2 + (folio ? .12 : .025) + card.elevation
         card.root.position.set(center.x, elevation, center.z + elevation)
         card.root.quaternion.copy(camera.quaternion); card.root.rotateZ(-Math.atan2(matrix.b, matrix.a))
         card.root.scale.set(worldWidth, worldHeight / 1.5, worldWidth)

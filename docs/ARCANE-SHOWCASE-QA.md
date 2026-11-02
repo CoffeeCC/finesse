@@ -31,7 +31,7 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 ## Automated checks
 
 - Web build and TV build passed locally on Windows.
-- Theme tests: 15/15 passed (clock boundaries, eligibility/relight, deadline/cancellation, flicker range/continuity/motion-off and object-sound mute/volume/media/deduplication policy).
+- Theme tests: 17/17 passed (clock boundaries, eligibility/relight, deadline/cancellation, flicker range/continuity/motion-off, bounded scene settings/storage failure and object-sound mute/volume/media/deduplication policy).
 - Server type-check passed. Tour script syntax and git whitespace checks passed.
 - Production output contains no development-lab controls or accelerated candle query handling. TV output contains no Arcane scene/models/art.
 - Full server tests were attempted on Windows and reported existing path/config/backup-related failures; the stalled run was stopped. No server source changed in this theme work. Do not report the local full server suite as passing. Linux CI must be checked for the pushed commit separately.
@@ -55,6 +55,17 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 - Live desktop and 320-pixel phone lighting inspected after the NAS service returned from reboot; no browser shader errors reported. Temporary viewport override reset. Local screenshots remain outside the repository. Phone viewport checks do not certify physical phones.
 - Matching quiet-desk fallback and atomic canvas reveal remove the old-mat crossfade on refresh. Both older celestial plates remain tracked for a possible future alternate finish; no selector is claimed.
 - Latest local web/TV builds, 15 theme tests, server type-check and tour syntax passed. Windows full-server test limitations above remain unchanged. GitHub CI must be checked for the new pushed head.
+
+## Finishing pass — 2 November 2026
+
+- Broadened point-shadow filtering, reduced full-black shadow contribution and added restrained warm bounce. It remains a real-time approximation, not area-light ray tracing. Fine original procedural grain supplements live leather/metal roughness/bump where UVs permit; Blender-authored normals remain intact. Selected-card extra elevation eases instead of snapping.
+- Draw motion uses the actual stock scale and measured distance to set its lift/arc, with overlapping 135ms card stagger, 860ms flight, reveal and landing settle. Quiet per-card landing sounds only follow deliberate deals/deck changes and clear on phase exit; initial loading does not schedule them. Actual desktop and phone deals completed. A genuine approximately four-second UI capture was saved locally, not bundled with user posters in the repository.
+- Folio tool ribbon, dividers, inspection buttons and pagination have coordinated material depth; collection page content settles from its binding. Title play/secondary actions and existing action tokens use matching materials, with ledger-like episode rows. Shared default-theme button behavior is unchanged; styling is scoped to Arcane title surfaces.
+- Real-server collection leaf 2 and selected Andor inspection exercised on desktop. On a 320px viewport, selected 86 EIGHTY-SIX, opened its title and returned to the same selected collection card. Phone inspector actions measured 115 by 70px (wrapped labels), with no horizontal overflow. Home also remained within phone width with one shared canvas.
+- New Scene brightness/Light strength sliders respond to keyboard endpoints, persist their 140%/50% test values after reload, and reset to 100%/100%. With Live 3D off both controls disable and Home uses zero canvases. Still-art motion-off dealing completed. Live 3D and animations were restored, and lighting values reset after testing.
+- Small orb emitters now scale down their light power/range to prevent excessive inspection-page glare. Earlier showcase checkpoint c3ff1bd passed GitHub CI (run 41405291167); the finishing-pass head needs its own check.
+- Found and corrected the title poster extending above its frame opening. The sleeve now has a fixed 2:3 aspect and the same 12%/8% poster inset as the card-frame artwork; measured in the live desktop layout and visually inspected.
+- Local web/TV builds, 17 theme tests, server type-check and tour syntax pass. Full Windows server suite was attempted again and reproduced the previously documented config/backup failures and stall; stopped. No server source changed.
 
 ## Remaining release review
 

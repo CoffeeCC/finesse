@@ -86,6 +86,12 @@ The original ornate, warmly illuminated desktop and phone plates (`celestial-tab
 
 ## Progress log
 
+### Finishing pass — 2 November 2026
+
+Authorized after the showcase review: soften candle shadows and approximate warm bounce; add fine live material grain; ease selected-card elevation; refine measured draw arcs, stock scale, stagger and landing sound; polish folio/inspection depth and action hierarchy; expose per-browser scene brightness/light strength with reset and motion-off/still behavior. Preserve the shared renderer, native controls, real collection queries and existing idle/deadline guards. Verify desktop/phone, actual deals, collection/title/Back, lighting settings persistence/reset, reduced motion and fallback before pushing the existing draft. This pass does not replace the outstanding hardware/accessibility/endurance release review.
+
+Implemented and exercised in the local preview: shared shadow/bounce/material refinement, eased selection, measured staggered draw/landing, coordinated folio/title controls and lighting sliders. Real desktop/320px browsing/dealing, phone title/Back, persisted slider endpoints/reset and live-off/motion-off checks passed. Corrected a title poster extending beyond its frame opening during visual review. A genuine short deal capture is stored outside the repository. Local web/TV builds, 17 theme tests, server type-check and tour syntax pass; the repeated Windows full-server limitations remain documented in QA. Check the new GitHub head before release review.
+
 - Existing baseline: discovery table, Blender orb/deck boxes, optional theme settings, author guide, styled shared surfaces. This is **not** a finished showcase.
 - Implemented: actual paginated collection folio; desktop inspector/phone Sheet; saved-story folio; title inspection composition; shared scene and live card relief; Blender candle/holder/wax/book sources; orb/box animations; slow candle and safe moonlight/wake integration; native fallbacks; development-only verification lab.
 - Visual review corrected card backing/stacking, book edge protrusion, narrow layouts and context-loss/resize recovery. The new scene was inspected at 320, 390, 768 and desktop widths. Search/filter/page/title/Back and saved add/remove round trips were exercised against the real server.

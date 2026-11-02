@@ -148,7 +148,7 @@ function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: bool
       : 0
   // Missing episodes (known to Jellyfin, no file) can't play — show, don't link.
   const missing = ep.LocationType === 'Virtual'
-  const rowClass = `group flex gap-3 sm:gap-4 rounded-xl p-2 sm:p-3 transition-colors ${
+  const rowClass = `finesse-episode-row group flex gap-3 sm:gap-4 rounded-xl p-2 sm:p-3 transition-colors ${
     missing ? 'opacity-45' : 'hover:bg-white/5'
   } ${upNext ? 'bg-white/[0.04] ring-1 ring-accent-400/30' : ''}`
   const body = (

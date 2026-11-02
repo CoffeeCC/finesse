@@ -78,4 +78,12 @@ html[data-theme="midnight"] .row-title { color: #e5d3b1; }
 .theme-effects-setting button[aria-checked="true"] { background: #728da633; border-color: #8faac5; }
 .theme-creator-note { margin-top: 16px; padding-top: 20px; border-top: 1px solid #ffffff15; }
 .theme-creator-note h3 { font-size: 16px; font-weight: 600; }
+.theme-scene-settings{margin:8px 0 24px;padding:18px 0;border-top:1px solid #ffffff15;display:grid;gap:16px}
+.theme-scene-settings legend{padding-right:12px;font-size:14px;font-weight:600}
+.theme-scene-settings>p,.theme-scene-settings>small{font-size:12px;line-height:1.7;color:#b8b4aa;max-width:60ch}
+.theme-scene-settings>label{display:grid;grid-template-columns:1fr auto;gap:8px 16px;font-size:13px;max-width:480px}
+.theme-scene-settings output{color:#d7c49d;font-variant-numeric:tabular-nums}
+.theme-scene-settings input{grid-column:1/-1;width:100%;min-height:44px;accent-color:#b8a578;cursor:pointer}
+.theme-scene-settings>button{justify-self:start;min-height:44px;padding:8px 14px;border:1px solid #b8a57866;border-radius:8px;font-size:12px}
+.theme-scene-settings:disabled{opacity:.55}.theme-scene-settings input:focus-visible{outline:2px solid #b7dce9;outline-offset:3px;border-radius:8px}
 .theme-creator-note a { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; color: #d7c49d; font-size: 13px; text-decoration: underline; text-underline-offset: 4px; }

@@ -12,6 +12,8 @@ import { createLiveCards } from '../lib/arcaneLiveCards'
 import cardFrameURL from '../assets/card-table/celestial-frame-v1.webp'
 import { candleLight } from '../lib/candleLight'
 import { createDeskMaterial } from '../lib/arcaneDeskMaterial'
+import { getArcaneScene } from '../lib/arcaneScene'
+import { createPropGrain } from '../lib/arcanePropFinish'
 import './arcane-lighting.css'
 
 /** One light space for the candle, orb, boxes, folio and receiving desk. Native UI remains above it. */
@@ -53,7 +55,11 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       const flameLight = new T.PointLight(0xffb55b, 16, 20, 1.45)
       const candleAmber = new T.Color(0xffb55b), candleGold = new T.Color(0xffc273)
       flameLight.castShadow = innerWidth >= 600; flameLight.shadow.mapSize.set(1024, 1024)
-      flameLight.shadow.bias = -.00015; flameLight.shadow.normalBias = .008; flameLight.shadow.radius = 3; scene.add(flameLight)
+      flameLight.shadow.bias = -.00015; flameLight.shadow.normalBias = .008; flameLight.shadow.radius = 9
+      flameLight.shadow.intensity = .68; flameLight.shadow.camera.near = .1; flameLight.shadow.camera.far = 32; scene.add(flameLight)
+      // Restrained unshadowed bounce keeps the holder's cast shadow from becoming a black cutout.
+      // This approximates warm desk bounce; it is not path-traced global illumination.
+      const warmBounce = new T.PointLight(0xffb66c, 1.6, 5, 2); scene.add(warmBounce)
       const ray = new T.Raycaster(), plane = new T.Plane(new T.Vector3(0, 1, 0), 0)
       const ground = (x: number, y: number) => {
         ray.setFromCamera(new T.Vector2(x, y), camera)
@@ -61,6 +67,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       }
       const texLoader = new T.TextureLoader(), gltfLoader = new GLTFLoader()
       const disposal = new Set<InstanceType<typeof T.Texture>>()
+      const propGrain = createPropGrain(T); disposal.add(propGrain)
       release = () => { dispose(scene); disposal.forEach((t) => t.dispose()); env.dispose(); renderer.dispose(); renderer.domElement.remove() }
       const desk = await texLoader.loadAsync(deskURL.default)
       if (cancelled) { desk.dispose(); renderer.dispose(); renderer.domElement.remove(); env.dispose(); return }
@@ -75,6 +82,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       const liveCards = createLiveCards(T, scene, camera, board, frameTexture, ground, scope as HTMLElement, folio)
       const objects: { root: InstanceType<typeof T.Group>; selector: string; lid?: InstanceType<typeof T.Object3D>; cards?: InstanceType<typeof T.Object3D>; clasp?: InstanceType<typeof T.Object3D>; packets?: { node: InstanceType<typeof T.Object3D>; position: InstanceType<typeof T.Vector3>; rotation: InstanceType<typeof T.Euler> }[]; open: number; lidStart: number; cardStart: number }[] = []
       const orbs: { material: InstanceType<typeof T.ShaderMaterial>; sparkle: InstanceType<typeof T.ShaderMaterial>; stars: InstanceType<typeof T.Points>; lamp: InstanceType<typeof T.PointLight>; halo: InstanceType<typeof T.Mesh>; glow: InstanceType<typeof T.ShaderMaterial> }[] = []
+      const emitterScale = new T.Vector3()
       const folioLeaves: InstanceType<typeof T.Object3D>[] = []
       const load = async (url: string, selector: string) => {
         const gltf = await gltfLoader.loadAsync(url)
@@ -115,6 +123,14 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
               }
             }
             for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+              const finish = m as MeshStandardMaterial
+              if (finish.isMeshStandardMaterial && mesh.geometry.getAttribute('uv')) {
+                const leather = /leather/i.test(finish.name), metal = finish.metalness > .5
+                if ((leather || metal) && !finish.roughnessMap) {
+                  finish.roughnessMap = propGrain; finish.roughness = Math.max(finish.roughness, metal ? .32 : .55)
+                  if (!finish.normalMap && !finish.bumpMap) { finish.bumpMap = propGrain; finish.bumpScale = leather ? .003 : .0008 }
+                }
+              }
               for (const value of Object.values(m)) if ((value as Texture)?.isTexture) disposal.add(value as Texture)
             }
             if (o.name === 'CrystalShell') {
@@ -278,6 +294,8 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
         const target = state.phase === 'moonlight' ? 0 : state.phase === 'guttering' ? Math.max(0, 1 - state.transition / 4500) : state.phase === 'relighting' ? Math.min(1, state.transition / 1600) : 1
         light += (target - light) * Math.min(1, dt * 3)
         const flicker = candleLight(time, still)
+        const sceneSettings = getArcaneScene()
+        renderer.toneMappingExposure = 1.15 * sceneSettings.brightness
         const candleControl = scope.querySelector<HTMLElement>('.candle-object')
         const engagedCandle = Boolean(candleControl?.matches(':hover, :focus-visible'))
         const nextTend = candleControl?.dataset.candleTend ?? '0'
@@ -285,7 +303,8 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
         candleHover = still ? 0 : candleHover + ((engagedCandle ? 1 : 0) - candleHover) * Math.min(1, dt * 5)
         const tendAge = time - tendAt
         const pulse = !still && tendAge < 2 ? Math.sin(Math.min(1, tendAge / .25) * Math.PI / 2) * Math.exp(-Math.max(0, tendAge - .25) * 2.5) : 0
-        flameLight.intensity = 16 * light * flicker.intensity * (1 + candleHover * .65 + pulse * .28)
+        flameLight.intensity = 16 * light * flicker.intensity * (1 + candleHover * .65 + pulse * .28) * sceneSettings.lights
+        warmBounce.intensity = 1.6 * light * sceneSettings.lights
         flameLight.distance = 20 + candleHover * 6 + pulse * 3
         flameLight.color.copy(candleAmber).lerp(candleGold, flicker.warmth * .2)
         ambient.intensity = .18 + light * .30; moon.intensity = .75 - light * .45
@@ -305,7 +324,11 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           // Cool, slow breathing belongs to the orb; never copy the candle's flutter.
           const breath = still ? 1 : 1 + Math.sin(time * .7) * .045
           const glowStrength = (.24 + light * .76) * breath * (1 + orb.material.uniforms.energy.value * .4)
-          orb.lamp.intensity = 11 * glowStrength
+          // Smaller folio props need proportionally less power; otherwise the tiny orb
+          // bleaches the nearby inspection page while the Home composition looks correct.
+          const emitterSize = Math.min(1, orb.lamp.getWorldScale(emitterScale).x / .4)
+          orb.lamp.intensity = 11 * glowStrength * sceneSettings.lights * emitterSize * emitterSize
+          orb.lamp.distance = 9.5 * emitterSize
           orb.glow.uniforms.strength.value = glowStrength
           orb.halo.quaternion.copy(camera.quaternion)
           orb.stars.rotation.y = still ? 0 : time * .045
@@ -334,6 +357,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
             flameLight.position.copy(tip); flameLight.position.y += (.42 + candleHover * .1 + pulse * .06) * candleModel.scale.y
             flameLight.position.x += (flicker.x + candleHover * .02 + pulse * .03) * candleModel.scale.x * light
             flameLight.position.z += flicker.z * candleModel.scale.z * light
+            warmBounce.position.copy(flameLight.position)
             ember.position.copy(tip); ember.scale.setScalar(candleModel.scale.y)
             smoke.position.copy(tip); smoke.position.y += .5 * candleModel.scale.y
             smoke.scale.setScalar(candleModel.scale.y); smoke.quaternion.copy(camera.quaternion)
@@ -397,7 +421,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
             }
           }
         }
-        liveCards?.update(light)
+        liveCards?.update(light, dt, still)
         renderer.render(scene, camera)
       }
       const sync = () => { if (frame) cancelAnimationFrame(frame); frame = 0; last = 0; if (!cancelled && visible && !document.hidden && !graphicsLost) frame = requestAnimationFrame(draw) }

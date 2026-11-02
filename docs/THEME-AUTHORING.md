@@ -179,6 +179,12 @@ extra libraries. The older standalone orb/box renderers must not run beside it.
    desk chain. Keep material-map UV transforms synchronized with the base texture crop.
    Such relief does not create a new silhouette or separate cast shadow. Document that
    distinction, and keep poster colors and text readable when tuning the scene lights.
+   Arcane's per-browser brightness/light controls live in arcaneScene.ts. Read settings
+   in the existing renderer rather than recreating the scene on every slider change.
+   Bound values, support blocked storage/reset, and disable live-only controls with 3D off.
+   When refitting a small emissive prop, scale its light power/range appropriately;
+   a small inspection orb should not bleach a whole page. Warm bounce is an explicit
+   lighting approximation, not a claim of global illumination.
 5. Import optional rendering code on demand. Cap resolution and frame rate, pause
    offscreen and in hidden tabs, and dispose geometry, materials, environments,
    observers and animation callbacks on unmount. Handle context loss gracefully.
