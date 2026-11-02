@@ -50,16 +50,46 @@ export function realPads<P extends PadLike>(pads: ArrayLike<P | null | undefined
   return out.sort((a, b) => score(b) - score(a) || a.index - b.index)
 }
 
-/** The controller to use: the one this device chose before if it's here, else the best one. */
-export function choosePad<P extends PadLike>(pads: ArrayLike<P | null | undefined>, remembered: string | null): P | null {
-  const real = realPads(pads)
-  return (remembered ? real.find((p) => p.id === remembered) : undefined) ?? real[0] ?? null
+/**
+ * Which controller someone picked for this session: its name and its slot. Two identical
+ * controllers have the same name, so the slot tells them apart while they stay connected; the
+ * device remembers only the name (slots change between sessions).
+ */
+export interface PadChoice {
+  id: string
+  index: number
 }
 
-/** Ask which one? Only with more than one real controller and none chosen before among them. */
-export function needsPick(pads: ArrayLike<PadLike | null | undefined>, remembered: string | null): boolean {
+/** One controller, uniquely (a React key, a picker row). */
+export const padKey = (p: { id: string; index: number }) => `${p.index}:${p.id}`
+
+const isChoice = (p: PadLike, c: PadChoice | null | undefined) => Boolean(c && p.id === c.id && p.index === c.index)
+
+/** The controller to use: the one picked this session if it's still here, else one this device chose before, else the best one. */
+export function choosePad<P extends PadLike>(pads: ArrayLike<P | null | undefined>, remembered: string | null, session?: PadChoice | null): P | null {
   const real = realPads(pads)
-  return real.length > 1 && !real.some((p) => p.id === remembered)
+  return real.find((p) => isChoice(p, session)) ?? (remembered ? real.find((p) => p.id === remembered) : undefined) ?? real[0] ?? null
+}
+
+/**
+ * Ask which one? With more than one real controller, unless one was picked this session or
+ * exactly one matches the name this device remembers (two of the same kind: ask).
+ */
+export function needsPick(pads: ArrayLike<PadLike | null | undefined>, remembered: string | null, session?: PadChoice | null): boolean {
+  const real = realPads(pads)
+  if (real.length < 2 || real.some((p) => isChoice(p, session))) return false
+  return real.filter((p) => p.id === remembered).length !== 1
+}
+
+/** Names for a list of controllers, numbered where two would read the same: "Xbox Wireless Controller (1)", "(2)", by slot. */
+export function padNames(pads: { id: string; index: number }[]): string[] {
+  const names = pads.map((p) => padName(p.id))
+  return names.map((n, i) => {
+    const same = pads.map((p, j) => ({ p, j })).filter(({ j }) => names[j] === n)
+    if (same.length < 2) return n
+    const order = same.sort((a, b) => a.p.index - b.p.index).findIndex(({ j }) => j === i)
+    return `${n} (${order + 1})`
+  })
 }
 
 /** A name a person recognises: "Xbox Wireless Controller", not "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)". */

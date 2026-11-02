@@ -138,16 +138,16 @@ export default function PlayGamePage() {
     })()
   }, [rom, core])
 
-  const pick = (id: string) => {
-    choosePad.current?.(id)
+  const pick = (key: string) => {
+    choosePad.current?.(key)
     setPicking(false)
   }
   // The picker: a button pressed on a controller chooses it (that's the one in your hands).
   useEffect(() => {
     if (!picking) return
     const t = window.setInterval(() => {
-      const id = pressedPad()
-      if (id) pick(id)
+      const key = pressedPad()
+      if (key) pick(key)
     }, 100)
     return () => window.clearInterval(t)
   }, [picking])
@@ -200,7 +200,7 @@ export default function PlayGamePage() {
             <rect x="2.5" y="7" width="19" height="10" rx="5" />
             <path strokeLinecap="round" d="M7 10.5v3M5.5 12h3M16 11h.01M18 13h.01" />
           </svg>
-          <span className="truncate">{pads.pads.find((p) => p.id === pads.chosen)?.name ?? 'Controller'}</span>
+          <span className="truncate">{pads.pads.find((p) => p.key === pads.chosen)?.name ?? 'Controller'}</span>
         </button>
       )}
       {picking && pads && pads.pads.length > 0 && (
@@ -211,14 +211,14 @@ export default function PlayGamePage() {
             <div className="mt-4 flex flex-col gap-2">
               {pads.pads.map((p) => (
                 <button
-                  key={p.id}
-                  onClick={() => pick(p.id)}
+                  key={p.key}
+                  onClick={() => pick(p.key)}
                   className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-left text-[14px] font-medium ring-1 transition-colors ${
-                    p.id === pads.chosen ? 'bg-white/10 text-white ring-accent-400/60' : 'bg-white/[0.04] text-ink-200 ring-white/10 hover:bg-white/10'
+                    p.key === pads.chosen ? 'bg-white/10 text-white ring-accent-400/60' : 'bg-white/[0.04] text-ink-200 ring-white/10 hover:bg-white/10'
                   }`}
                 >
                   <span className="truncate">{p.name}</span>
-                  {p.id === pads.chosen && <span className="shrink-0 text-[12px] text-accent-300">Playing</span>}
+                  {p.key === pads.chosen && <span className="shrink-0 text-[12px] text-accent-300">Playing</span>}
                 </button>
               ))}
             </div>

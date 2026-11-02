@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { choosePad, isRealPad, needsPick, padName, realPads, type PadLike } from '../../src/lib/padPick.ts'
+import { choosePad, isRealPad, needsPick, padKey, padName, padNames, realPads, type PadLike } from '../../src/lib/padPick.ts'
 
 const pad = (index: number, id: string, mapping = '', buttons = 0, axes = 0): PadLike => ({ index, id, mapping, buttons: new Array(buttons).fill(0), axes: new Array(axes).fill(0) })
 
@@ -65,4 +65,20 @@ test('names read like a controller, not a USB descriptor', () => {
   assert.equal(padName(xboxFirefox.id), 'Xbox Wireless Controller')
   assert.equal(padName('Pro Controller'), 'Pro Controller')
   assert.equal(padName('(STANDARD GAMEPAD Vendor: 1234 Product: 5678)'), 'Controller')
+})
+
+test('two identical controllers: picked by slot for the session, asked again next time, told apart by name', () => {
+  const one = pad(0, xbox.id, 'standard', 17, 4)
+  const two = pad(1, xbox.id, 'standard', 17, 4)
+  // The device remembers the name only: with two of that name, it can't know which is in your hands.
+  assert.equal(needsPick([one, two], xbox.id), true)
+  // Picked the second one this session: it plays, even though the first has the same name.
+  assert.equal(choosePad([one, two], xbox.id, { id: xbox.id, index: 1 }), two)
+  assert.equal(needsPick([one, two], xbox.id, { id: xbox.id, index: 1 }), false)
+  // The picked slot gone: the remembered name, then the best.
+  assert.equal(choosePad([one], xbox.id, { id: xbox.id, index: 1 }), one)
+  // Distinct rows and keys.
+  assert.deepEqual(padNames([two, one]), ['Xbox Wireless Controller (2)', 'Xbox Wireless Controller (1)'])
+  assert.deepEqual(padNames([one, dualsense]), ['Xbox Wireless Controller', 'DualSense Wireless Controller'])
+  assert.notEqual(padKey(one), padKey(two))
 })
