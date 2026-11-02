@@ -1,5 +1,6 @@
 // lists.db: what people keep in Finesse itself (not in Jellyfin): smart collections, shared
-// queues and Moments collections. One SQLite file next to moments.db, backed up with it.
+// queues, Moments collections and the retro player's game saves. One SQLite file next to
+// moments.db, backed up with it.
 //
 // The schema has a version (PRAGMA user_version). Each step below runs once, in order, on
 // whatever file is there: a new install runs them all, an existing one only the new ones.
@@ -79,6 +80,17 @@ const STEPS: string[] = [
      from_name TEXT NOT NULL DEFAULT '',
      saved_at INTEGER NOT NULL,
      PRIMARY KEY (collection, key)
+   );`,
+  // 4: the retro player's in-game saves (gameSaves.ts)
+  `CREATE TABLE IF NOT EXISTS game_saves (
+     owner TEXT NOT NULL,
+     rom INTEGER NOT NULL,
+     core TEXT NOT NULL,
+     data BLOB NOT NULL,
+     hash TEXT NOT NULL,
+     size INTEGER NOT NULL,
+     saved_at INTEGER NOT NULL,
+     PRIMARY KEY (owner, rom, core)
    );`,
 ]
 

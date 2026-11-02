@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useGame } from '../api/queries'
 import { biosUrl, EJS_NIGHTLY, ejsCore, isBeta, needsThreads, primeGamesAuth, rommContentUrl } from '../api/romm'
 import { CONTENT_BASE } from '../lib/contentOrigin'
+import { keepSaves, type Ejs, type SaveStatus } from '../lib/retroSaves'
 
 // Plays a RomM title with EmulatorJS (client-side WASM). The ROM and the
 // console's firmware (BIOS) stream from RomM through Finesse. The emulator
@@ -10,6 +11,7 @@ import { CONTENT_BASE } from '../lib/contentOrigin'
 // version RomM tested), else from the EmulatorJS CDN. Exit does a hard
 // navigation back to /games — EmulatorJS doesn't tear down cleanly (audio and
 // gamepad loops linger), so a full reload is the reliable way to stop it.
+// In-game saves go to the Finesse server (lib/retroSaves), and Exit waits for the last one.
 
 const EJS_CDN = 'https://cdn.emulatorjs.org/stable/data/'
 const EJS_LOCAL = `${CONTENT_BASE}games/assets/emulatorjs/data/`
@@ -25,7 +27,14 @@ async function emulatorData(): Promise<string> {
   return EJS_CDN
 }
 
-function exitToGames() {
+// The game's save, flushed before Exit reloads the page (set once the emulator is up).
+let flushSave: (() => Promise<void>) | null = null
+let exiting = false
+
+async function exitToGames() {
+  if (exiting) return
+  exiting = true
+  await flushSave?.().catch(() => {})
   window.location.href = `${CONTENT_BASE}games`
 }
 
@@ -34,6 +43,7 @@ export default function PlayGamePage() {
   const { data: rom, isLoading } = useGame(romId)
   const started = useRef(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState<{ status: SaveStatus; at: number } | null>(null)
 
   const core = rom ? ejsCore(rom.platform_slug) : null
 
@@ -43,7 +53,7 @@ export default function PlayGamePage() {
       if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack' ||
           (e as KeyboardEvent & { keyCode?: number }).keyCode === 461) {
         e.preventDefault()
-        exitToGames()
+        void exitToGames()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -84,6 +94,15 @@ export default function PlayGamePage() {
       w.EJS_startOnLoaded = true
       w.EJS_backgroundColor = '#0b0d12'
       w.EJS_onLoadError = () => setError('Could not load this game. Its format may be unsupported.')
+      w.EJS_ready = () => {
+        const emu = w.EJS_emulator as Ejs | undefined
+        if (!emu || typeof emu.on !== 'function') return
+        const saves = keepSaves(emu, rom.id, core, (status) =>
+          // "Couldn't reach" once, not on every retry; "Saved" every time one lands.
+          setSaved((prev) => (status === 'offline' && prev?.status === 'offline' ? prev : { status, at: Date.now() })),
+        )
+        flushSave = saves.flush
+      }
       const s = document.createElement('script')
       s.src = `${data}loader.js`
       s.async = true
@@ -92,10 +111,34 @@ export default function PlayGamePage() {
     })()
   }, [rom, core])
 
+  // The note fades after a moment.
+  useEffect(() => {
+    if (!saved) return
+    const t = window.setTimeout(() => setSaved((s) => (s === saved ? { ...s, at: 0 } : s)), saved.status === 'saved' ? 2500 : 6000)
+    return () => window.clearTimeout(t)
+  }, [saved])
+
   return (
     <div className="fixed inset-0 bg-ink-950 z-50">
+      {saved && (
+        <div
+          role="status"
+          className={`pointer-events-none absolute top-3.5 left-1/2 z-[60] -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-[12px] font-medium text-white ring-1 ring-white/15 transition-opacity duration-500 ${saved.at ? 'opacity-100' : 'opacity-0'}`}
+        >
+          {saved.status === 'saved' ? (
+            <>
+              <svg className="h-3.5 w-3.5 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m5 12.5 4.5 4.5L19 7.5" />
+              </svg>
+              Saved
+            </>
+          ) : (
+            'Couldn’t reach Finesse. Your save is kept on this device and goes up when it can.'
+          )}
+        </div>
+      )}
       <button
-        onClick={exitToGames}
+        onClick={() => void exitToGames()}
         className="absolute top-3 left-3 z-[60] inline-flex items-center gap-2 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur px-3 py-2 text-sm font-medium text-white transition-colors"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -107,7 +150,7 @@ export default function PlayGamePage() {
       {error ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-ink-200">{error}</p>
-          <button onClick={exitToGames} className="rounded-lg bg-accent-fill hover:brightness-110 px-4 py-2 text-sm font-semibold text-white transition-colors">
+          <button onClick={() => void exitToGames()} className="rounded-lg bg-accent-fill hover:brightness-110 px-4 py-2 text-sm font-semibold text-white transition-colors">
             Back to Games
           </button>
         </div>
