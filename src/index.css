@@ -58,6 +58,14 @@ html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, texta
   outline-offset: 2px;
 }
 
+/* Cards ring their art (.tilt) on :focus-visible (MediaCard, the games grid). A game
+   controller moves focus from script, and once the page has been tapped or clicked
+   Chrome no longer counts that as :focus-visible, so under the D-pad the ring showed
+   for nothing: plain :focus draws it too. The TV sheet outlines .tilt itself. */
+html[data-nav-mode="spatial"]:not(.tv) .group:focus .tilt {
+  box-shadow: 0 0 0 3px var(--color-accent-400), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
+}
+
 /* The ring's corners: 8px for a control that has none of its own; never over a
    control's own shape (pills, circles, rounded inputs keep theirs: those carry a
    rounded-* class, which the :not() leaves alone). The dark band between the

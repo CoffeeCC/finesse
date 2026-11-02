@@ -55,7 +55,9 @@ function GameCard({ rom }: { rom: RommRom }) {
   const inner = (
     <div
       ref={cardRef}
-      className={`relative aspect-[3/4] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 transition-all ${
+      // tilt + the focus ring, like the other cards: with a controller or remote the focused game
+      // must stand out (the link itself draws no outline: cards ring their art, not art + title).
+      className={`tilt sheen relative aspect-[3/4] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-focus-visible:ring-2 group-focus-visible:ring-accent-400 ${
         playable ? 'group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60' : ''
       }`}
     >
@@ -78,7 +80,7 @@ function GameCard({ rom }: { rom: RommRom }) {
         </div>
       )}
       {playable ? (
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity flex items-center justify-center">
           <div className="h-12 w-12 rounded-full bg-white/90 flex items-center justify-center">
             <svg className="h-6 w-6 text-ink-950 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
@@ -94,9 +96,9 @@ function GameCard({ rom }: { rom: RommRom }) {
   )
 
   return (
-    <Link to={`/games/game/${rom.id}`} viewTransition className="group block outline-none">
+    <Link to={`/games/game/${rom.id}`} viewTransition className="own-focus group block outline-none">
       {inner}
-      <p className="mt-2 px-0.5 text-sm font-medium text-ink-200 truncate group-hover:text-white transition-colors">
+      <p className="mt-2 px-0.5 text-sm font-medium text-ink-200 truncate group-hover:text-white group-focus-visible:text-white transition-colors">
         {title}
       </p>
     </Link>
@@ -208,7 +210,8 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
               </svg>
             </button>
-            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+            {/* Room around the cards: a scroller clips what pokes out, and the focus ring and the hover lift do. */}
+            <div className="-mx-2 -mt-2 flex gap-4 overflow-x-auto no-scrollbar px-2 pt-2 pb-2">
               {pg.slice(0, SHELF_CAP).map((rom) => (
                 <div key={rom.id} className="w-36 shrink-0">
                   <GameCard rom={rom} />
