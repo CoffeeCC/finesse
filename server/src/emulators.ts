@@ -137,7 +137,8 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       consoles: ['ngc', 'gamecube', 'gc', 'wii'],
       program: ['dolphin*.appimage', 'dolphin*/dolphin-emu'],
       needs: [],
-      saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii` },
+      // GC: memory cards (a folder per region); Wii: the NAND, with every game's saves. Save states too, like PCSX2's.
+      saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii`, StateSaves: `${H}/.local/share/dolphin-emu/StateSaves` },
       links: [],
       args: { game: '-b -e "$GAME"', none: '' },
       controller: 'dolphin',
@@ -154,9 +155,10 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       ],
       saves: { savedata: `${H}/.config/rpcs3/dev_hdd0/home/00000001/savedata` },
       links: [{ what: 'keys', match: ['*.rap'], into: `${H}/.config/rpcs3/dev_hdd0/home/00000001/exdata` }],
-      args: { game: '--no-gui "$GAME"', none: '' },
+      args: { game: '--no-gui --fullscreen "$GAME"', none: '' },
       controller: 'rpcs3',
-      before: `[ -e ${H}/.config/rpcs3/dev_flash/vsh/module/vsh.self ] || { pup=$(ls /finesse/firmware/rpcs3/[Pp][Ss]3[Uu][Pp][Dd][Aa][Tt].[Pp][Uu][Pp] 2>/dev/null | head -n1); [ -z "$pup" ] || "$BIN" --installfw "$pup" || true; }`,
+      // Headless: the windowed installer asks "Install firmware?" and waits for a click.
+      before: `[ -e ${H}/.config/rpcs3/dev_flash/vsh/module/vsh.self ] || { pup=$(ls /finesse/firmware/rpcs3/[Pp][Ss]3[Uu][Pp][Dd][Aa][Tt].[Pp][Uu][Pp] 2>/dev/null | head -n1); [ -z "$pup" ] || "$BIN" --headless --installfw "$pup" || true; }`,
     },
     {
       id: 'cemu',

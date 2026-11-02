@@ -231,6 +231,9 @@ const CEMU_VPAD: [number, number][] = [
   [21, 47], [22, 41], [23, 46], [24, 40], // right stick
 ]
 
+/** Cemu's settings for a first start from Finesse: fullscreen, no update checks or one-time prompts (the rest are Cemu's defaults). */
+export const CEMU_SETTINGS = ['<?xml version="1.0" encoding="UTF-8"?>', '<content>', '\t<check_update>false</check_update>', '\t<gp_download>true</gp_download>', '\t<vk_warning>true</vk_warning>', '\t<fullscreen>true</fullscreen>', '</content>', ''].join('\n')
+
 export function cemuController(p: VirtualPad): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -255,7 +258,9 @@ export function cemuController(p: VirtualPad): string {
 
 const cemuControllerShell = (H: string, p: VirtualPad) => {
   const f = `${H}/.config/Cemu/controllerProfiles/controller0.xml`
-  return `f=${sq(f)}; if [ ! -s "$f" ] || grep -q -E '<api>Keyboard</api>|${otherGuids(p, (q) => q.guid).join('|')}' "$f" || ! grep -q '<controller>' "$f"; then mkdir -p "$(dirname "$f")"; printf '%s' ${sq(cemuController(p))} > "$f"; fi`
+  // Without a settings.xml Cemu opens its "first time" assistant instead of the game.
+  const settings = `${H}/.config/Cemu/settings.xml`
+  return `[ -e ${sq(settings)} ] || { mkdir -p ${sq(`${H}/.config/Cemu`)}; printf '%s' ${sq(CEMU_SETTINGS)} > ${sq(settings)}; }\nf=${sq(f)}; if [ ! -s "$f" ] || grep -q -E '<api>Keyboard</api>|${otherGuids(p, (q) => q.guid).join('|')}' "$f" || ! grep -q '<controller>' "$f"; then mkdir -p "$(dirname "$f")"; printf '%s' ${sq(cemuController(p))} > "$f"; fi`
 }
 
 // ---------- PCSX2 (PS2) ----------
@@ -267,7 +272,10 @@ export const pcsx2Pad1 = () => PCSX2_PAD1
 const pcsx2Controller = (H: string) => {
   // Rewritten while Cross is unbound, on the keyboard (PCSX2's first-start default), or on the old "A" name.
   const f = `${H}/.config/PCSX2/inis/PCSX2.ini`
-  return `ini=${sq(f)}; c=$(iniget "$ini" Pad1 Cross); case "$c" in ""|Keyboard/*|SDL-0/A) mkdir -p "$(dirname "$ini")"; if [ -f "$ini" ]; then awk '/^\\[Pad1\\]/{s=1;next} /^\\[/{s=0} !s' "$ini" > "$ini.tmp" && mv "$ini.tmp" "$ini"; fi; printf '%s\\n' ${PCSX2_PAD1.map(sq).join(' ')} >> "$ini";; esac`
+  // A fresh PCSX2.ini needs its settings version (or PCSX2 asks to reset everything), no setup wizard,
+  // and a BIOS picked from the linked ones; none of it replaces what's there.
+  const base = `${pairs([['SettingsVersion', '1'], ['SetupWizardIncomplete', 'false'], ['ConfirmShutdown', 'false']])} | iniset ${sq(f)} UI ' = ' keep; bios=$(d=${sq(`${H}/.config/PCSX2/bios`)}; { ls "$d" | grep -i -E '^scph.*\\.bin$'; ls "$d" | grep -i -E '\\.(bin|rom0)$'; } 2>/dev/null | head -n1 || true); [ -z "$bios" ] || printf 'BIOS\\t%s\\n' "$bios" | iniset ${sq(f)} Filenames ' = ' keep`
+  return `${base}\nini=${sq(f)}; c=$(iniget "$ini" Pad1 Cross); case "$c" in ""|Keyboard/*|SDL-0/A) mkdir -p "$(dirname "$ini")"; if [ -f "$ini" ]; then awk '/^\\[Pad1\\]/{s=1;next} /^\\[/{s=0} !s' "$ini" > "$ini.tmp" && mv "$ini.tmp" "$ini"; fi; printf '%s\\n' ${PCSX2_PAD1.map(sq).join(' ')} >> "$ini";; esac`
 }
 
 // ---------- The launch script's side ----------

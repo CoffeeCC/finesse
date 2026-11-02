@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
 import { emulatorCatalog, launchScript } from '../src/emulators.ts'
-import { cemuController, controllerShell, DOLPHIN_SETTINGS, dolphinGCPad, dolphinWiimote, edenControls, edenGuid, INI_HELPERS, padFor, rpcs3Input, ryujinxId, ryujinxInput, SELKIES_PAD, WOLF_PAD, type ControllerId, type VirtualPad } from '../src/emupads.ts'
+import { CEMU_SETTINGS, cemuController, controllerShell, DOLPHIN_SETTINGS, dolphinGCPad, dolphinWiimote, edenControls, edenGuid, INI_HELPERS, padFor, rpcs3Input, ryujinxId, ryujinxInput, SELKIES_PAD, WOLF_PAD, type ControllerId, type VirtualPad } from '../src/emupads.ts'
 import { tmp } from './helpers.ts'
 
 /** SDL's CRC-16 of a name (the GUID's bytes 2-3, little-endian). */
@@ -200,6 +200,10 @@ describe('the mapping shell', () => {
     const c = join(H, '.config/Cemu/controllerProfiles/controller0.xml')
     map('cemu', H, SELKIES_PAD)
     assert.equal(read(c), cemuController(SELKIES_PAD))
+    assert.equal(read(join(H, '.config/Cemu/settings.xml')), CEMU_SETTINGS, 'no first-start assistant')
+    writeFileSync(join(H, '.config/Cemu/settings.xml'), '<content><fullscreen>false</fullscreen></content>')
+    map('cemu', H, SELKIES_PAD)
+    assert.match(read(join(H, '.config/Cemu/settings.xml')), /false/, 'Cemu’s own settings are kept')
     writeFileSync(c, '<emulated_controller><type>Wii U GamePad</type><controller><api>Keyboard</api><uuid>keyboard</uuid></controller></emulated_controller>')
     map('cemu', H, WOLF_PAD)
     assert.equal(read(c), cemuController(WOLF_PAD))
@@ -220,6 +224,16 @@ describe('the mapping shell', () => {
     assert.doesNotMatch(t, /Keyboard\/X/)
     assert.match(t, /\[Pad2\]\nType = None/)
     assert.match(t, /SetupWizardIncomplete = false/)
+    assert.match(t, /^SettingsVersion = 1$/m)
+    // A fresh home: the settings version (or PCSX2 offers to reset everything), no wizard, a BIOS by name.
+    const F = tmp('emupad-pcsx2-fresh-')
+    mkdirSync(join(F, '.config/PCSX2/bios'), { recursive: true })
+    for (const b of ['PS2 Bios 30004R V6 Pal.bin', 'rom1.bin', 'scph39001.bin', 'scph39001.NVM']) writeFileSync(join(F, '.config/PCSX2/bios', b), '')
+    map('pcsx2', F, WOLF_PAD)
+    const fresh = read(join(F, '.config/PCSX2/inis/PCSX2.ini'))
+    assert.match(fresh, /^\[UI\]\nSettingsVersion = 1\nSetupWizardIncomplete = false\nConfirmShutdown = false$/m)
+    assert.match(fresh, /^BIOS = scph39001\.bin$/m)
+    assert.match(fresh, /^Cross = SDL-0\/FaceSouth$/m)
     map('pcsx2', P, SELKIES_PAD)
     assert.equal(read(ini), t, 'idempotent')
   })
