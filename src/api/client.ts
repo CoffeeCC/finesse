@@ -918,7 +918,7 @@ function buildDeviceProfile() {
         Codec: 'h264',
         Conditions: [
           { Condition: 'LessThanEqual', Property: 'VideoBitDepth', Value: '8', IsRequired: false },
-          { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
+          { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline|progressive high|constrained high', IsRequired: false },
         ],
       },
     ],
