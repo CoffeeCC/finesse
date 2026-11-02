@@ -177,8 +177,12 @@ export function adoptEncoder(docker: Docker, jf: JellyfinContainer, ffmpeg: stri
         // The Mounts form: a folder with a ":" in its path works too.
         mounts: [{ Type: m.Type === 'volume' && m.Name ? 'volume' : 'bind', Source: from, Target: m.Destination, ReadOnly: true }],
         user,
+        // No graphics card, ever: Jellyfin's image asks Nvidia's runtime for every card
+        // (NVIDIA_VISIBLE_DEVICES=all), and where that runtime is Docker's default one dead
+        // card stopped every clip. "void" and plain runc keep the cards out; clips use the processor.
+        env: ['NVIDIA_VISIBLE_DEVICES=void'],
         // The lowest CPU share Docker allows: anyone watching always comes first.
-        host: { CpuShares: 2, ...(groups.length ? { GroupAdd: groups } : {}) },
+        host: { CpuShares: 2, Runtime: 'runc', DeviceRequests: [], Devices: [], ...(groups.length ? { GroupAdd: groups } : {}) },
         file: inside,
         timeoutMs: 25 * 60000,
         service: 'clip',
