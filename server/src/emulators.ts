@@ -13,6 +13,7 @@
 
 import { accessSync, chmodSync, chownSync, constants, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { controllerShell, INI_HELPERS, padFor, type ControllerId } from './emupads.ts'
 import { EMULATOR_IMAGE } from './stack/catalog.ts'
 
 export type EmulatorId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'switch' | 'esde'
@@ -72,15 +73,9 @@ interface Emulator {
   args: { game: string; none: string }
   /** Shell run before the emulator (inside the session). */
   before?: string
-  /** Maps the first controller (Selkies' or Wolf's virtual pad; the touch controller too) unless the player mapped one themselves. */
-  controller?: string
+  /** Maps the first controller (Selkies' or Wolf's virtual pad; the touch controller too) unless the player mapped one themselves (emupads.ts). */
+  controller?: ControllerId
 }
-
-// PCSX2 Player 1 on the first SDL controller. Games on Whales' mapping, with PCSX2 2.x's names for the face
-// buttons (FaceSouth…): its old A/B/X/Y are "invalid bindings" now, which left Cross, Circle, Square and Triangle dead.
-const PCSX2_PAD1 = ['[Pad1]', 'Type = DualShock2', 'Up = SDL-0/DPadUp', 'Right = SDL-0/DPadRight', 'Down = SDL-0/DPadDown', 'Left = SDL-0/DPadLeft', 'Triangle = SDL-0/FaceNorth', 'Circle = SDL-0/FaceEast', 'Cross = SDL-0/FaceSouth', 'Square = SDL-0/FaceWest', 'Select = SDL-0/Back', 'Start = SDL-0/Start', 'L1 = SDL-0/LeftShoulder', 'L2 = SDL-0/+LeftTrigger', 'R1 = SDL-0/RightShoulder', 'R2 = SDL-0/+RightTrigger', 'L3 = SDL-0/LeftStick', 'R3 = SDL-0/RightStick', 'LUp = SDL-0/-LeftY', 'LRight = SDL-0/+LeftX', 'LDown = SDL-0/+LeftY', 'LLeft = SDL-0/-LeftX', 'RUp = SDL-0/-RightY', 'RRight = SDL-0/+RightX', 'RDown = SDL-0/+RightY', 'RLeft = SDL-0/-RightX', 'Analog = SDL-0/Guide', 'LargeMotor = SDL-0/LargeMotor', 'SmallMotor = SDL-0/SmallMotor']
-const pcsx2Controller = (H: string) =>
-  `ini=${H}/.config/PCSX2/inis/PCSX2.ini; if ! grep -q -E '= *(SDL-[0-9]+/FaceSouth|Keyboard/|XInput)' "$ini" 2>/dev/null || grep -q -E '^Cross = SDL-0/A$' "$ini"; then mkdir -p "$(dirname "$ini")"; if [ -f "$ini" ]; then awk '/^\\[Pad1\\]/{s=1;next} /^\\[/{s=0} !s' "$ini" > "$ini.tmp" && mv "$ini.tmp" "$ini"; fi; printf '%s\\n' ${PCSX2_PAD1.map((l) => `'${l}'`).join(' ')} >> "$ini"; fi`
 
 /** The app's home folder: Wolf's apps (Games on Whales) use /home/retro; browser play (Selkies) uses /config. */
 export const WOLF_HOME = '/home/retro'
@@ -94,9 +89,11 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
       { what: 'keys', label: 'title.keys', match: ['title.keys'], required: false, why: 'Some games and updates need title.keys.' },
       { what: 'firmware', label: 'Switch firmware', match: ['*.nca', '*.zip'], required: true, why: 'Install it once in Ryujinx: Tools → Install Firmware → from /finesse/firmware/switch.' },
     ],
-    saves: { save: `${H}/.config/Ryujinx/bis/user/save` },
+    // The system saves hold the save index and the user account: without them, saves made in one place aren't found in another.
+    saves: { save: `${H}/.config/Ryujinx/bis/user/save`, system: `${H}/.config/Ryujinx/bis/system/save` },
     links: [{ what: 'keys', match: ['*.keys'], into: `${H}/.config/Ryujinx/system` }],
     args: { game: '--fullscreen "$GAME"', none: '' },
+    controller: 'ryujinx',
   },
   eden: {
     name: 'Eden',
@@ -106,12 +103,14 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
       { what: 'keys', label: 'title.keys', match: ['title.keys'], required: false, why: 'Some games and updates need title.keys.' },
       { what: 'firmware', label: 'Switch firmware (.nca files)', match: ['*.nca'], required: true, why: 'Eden reads the firmware’s .nca files; unzip the firmware into the switch folder.' },
     ],
-    saves: { save: `${H}/.local/share/eden/nand/user/save` },
+    // nand/system/save holds the user account: saves live under its id, so it travels with them.
+    saves: { save: `${H}/.local/share/eden/nand/user/save`, system: `${H}/.local/share/eden/nand/system/save` },
     links: [
       { what: 'keys', match: ['*.keys'], into: `${H}/.local/share/eden/keys` },
       { what: 'firmware', match: ['*.nca'], into: `${H}/.local/share/eden/nand/system/Contents/registered`, copy: true },
     ],
     args: { game: '-f -g "$GAME"', none: '' },
+    controller: 'eden',
   },
 })
 
@@ -129,7 +128,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       saves: { memcards: `${H}/.config/PCSX2/memcards`, sstates: `${H}/.config/PCSX2/sstates` },
       links: [{ what: 'firmware', match: ['*'], into: `${H}/.config/PCSX2/bios` }],
       args: { game: '-fullscreen -nogui -- "$GAME"', none: '-bigpicture -fullscreen' },
-      controller: pcsx2Controller(H),
+      controller: 'pcsx2',
     },
     {
       id: 'dolphin',
@@ -141,6 +140,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii` },
       links: [],
       args: { game: '-b -e "$GAME"', none: '' },
+      controller: 'dolphin',
     },
     {
       id: 'rpcs3',
@@ -155,6 +155,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       saves: { savedata: `${H}/.config/rpcs3/dev_hdd0/home/00000001/savedata` },
       links: [{ what: 'keys', match: ['*.rap'], into: `${H}/.config/rpcs3/dev_hdd0/home/00000001/exdata` }],
       args: { game: '--no-gui "$GAME"', none: '' },
+      controller: 'rpcs3',
       before: `[ -e ${H}/.config/rpcs3/dev_flash/vsh/module/vsh.self ] || { pup=$(ls /finesse/firmware/rpcs3/[Pp][Ss]3[Uu][Pp][Dd][Aa][Tt].[Pp][Uu][Pp] 2>/dev/null | head -n1); [ -z "$pup" ] || "$BIN" --installfw "$pup" || true; }`,
     },
     {
@@ -173,6 +174,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
         { what: 'firmware', match: ['otp.bin', 'seeprom.bin'], into: `${H}/.local/share/Cemu` },
       ],
       args: { game: '-f -g "$GAME"', none: '' },
+      controller: 'cemu',
     },
     { id: 'switch', title: `${sw.name} (Switch)`, consoles: ['switch'], ...sw },
     {
@@ -302,7 +304,16 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
     // Wolf: Games on Whales' helpers start the app in Sway. Browser play: the desktop is already there.
     // Browser play keeps its own log (Finesse shows it to administrators when a game won't start).
     ...(opts.browser
-      ? [`exec >>${H}/finesse-play.log 2>&1`, 'echo "--- $(date)"', 'gow_log() { echo "$*"; }', 'launcher() { exec "$@"; }']
+      ? [
+          `exec >>${H}/finesse-play.log 2>&1`,
+          'echo "--- $(date)"',
+          'gow_log() { echo "$*"; }',
+          'launcher() { exec "$@"; }',
+          // Selkies' pads reach apps only through its LD_PRELOAD (an interposer and a stand-in udev).
+          // AppImages built with sharun (Eden, Dolphin) drop LD_PRELOAD unless told to keep it, and
+          // SDL then never saw a controller. SDL scans /dev/input itself rather than asking udev.
+          'export SHARUN_ALLOW_LD_PRELOAD=1 SDL_JOYSTICK_DISABLE_UDEV=1',
+        ]
       : ['source /opt/gow/bash-lib/utils.sh', 'source /opt/gow/launch-comp.sh']),
     'shopt -s nullglob nocaseglob',
     // Files from a read-only folder, linked by name into where the emulator looks.
@@ -317,10 +328,13 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
     // ES-DE finds emulators in ~/Applications, and shares their links and saves.
     lines.push(`mkdir -p ${H}/Applications`, `for f in /finesse/emulators/*; do ln -sfn "$f" ${H}/Applications/; done`)
     for (const o of all) if (o.id !== 'esde') lines.push(...linkLines(o))
+    // ES-DE starts the emulators itself: each gets its first-pad mapping now.
+    lines.push(...INI_HELPERS)
+    for (const o of all) if (o.controller) lines.push(controllerShell(o.controller, H, padFor(opts.browser)))
     lines.push(`printf '#!/bin/bash\\nexec /Applications/esde.AppImage --appimage-extract-and-run --no-update-check\\n' > /tmp/finesse-run.sh`)
   } else {
     lines.push(...linkLines(e))
-    if (e.controller) lines.push(e.controller)
+    if (e.controller) lines.push(...INI_HELPERS, controllerShell(e.controller, H, padFor(opts.browser)))
     lines.push(
       `BIN=$(find_emu ${e.program.map(q).join(' ')})`,
       `[ -n "$BIN" ] || { gow_log ${q(`${e.name} isn’t in the emulators folder`)}; exit 1; }`,
@@ -336,6 +350,12 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
 /** Docker makes the save folders' parents as root; the app's user needs to add folders beside them. Stays on the home folder's own disk (-xdev), so mounted folders are left alone. */
 export const ownHome = (home: string, user: string) => `find ${home} -xdev -type d -user root -exec chown ${user}:${user} {} + 2>/dev/null || true`
 
+/** A saves folder Docker had to make (a new profile's, before Finesse could) is root's; the emulator couldn't write its saves there. Only that folder itself, only when it's root's. */
+export const ownSaves = (e: Emulator, user: string) => {
+  const dirs = Object.values(e.saves)
+  return dirs.length ? `for d in ${dirs.map(q).join(' ')}; do [ -d "$d" ] && [ "$(stat -c %u "$d")" = 0 ] && chown ${user}:${user} "$d"; done; true` : 'true'
+}
+
 /**
  * Nvidia's Vulkan driver, where emulators' AppImages look for it. They bundle their own Vulkan
  * loader and only read /usr/share/vulkan/icd.d; without the file there they fall back to
@@ -344,8 +364,9 @@ export const ownHome = (home: string, user: string) => `find ${home} -xdev -type
 export const NVIDIA_ICD = `if [ -e /dev/nvidiactl ] && [ ! -f /usr/share/vulkan/icd.d/nvidia_icd.json ]; then mkdir -p /usr/share/vulkan/icd.d; f=$(ls /etc/vulkan/icd.d/nvidia_icd*.json /usr/share/vulkan/icd.d/nvidia*.json 2>/dev/null | head -n1); if [ -n "$f" ]; then cp "$f" /usr/share/vulkan/icd.d/nvidia_icd.json; else printf '%s' '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' > /usr/share/vulkan/icd.d/nvidia_icd.json; fi; fi`
 
 /** Runs as root before the app's user takes over: the home folder's ownership, Nvidia's Vulkan driver file, and ES-DE's /ROMs, made from RomM's folders. */
-function rootPrep(e: Emulator): string {
-  const own = `${ownHome(WOLF_HOME, '"${UNAME:-retro}"')}\n${NVIDIA_ICD}`
+function rootPrep(e: Emulator, all: Emulator[]): string {
+  const user = '"${UNAME:-retro}"'
+  const own = [ownHome(WOLF_HOME, user), ...(e.id === 'esde' ? all : [e]).map((o) => ownSaves(o, user)), NVIDIA_ICD].join('\n')
   if (e.id !== 'esde') return own
   const map = Object.entries(ESDE_NAMES)
     .map(([k, v]) => `${k}) n=${v};;`)
@@ -398,7 +419,7 @@ export function wolfApp(id: EmulatorId, ctx: AppContext): WolfApp {
     'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*',
     `FINESSE_LAUNCH=${launchScript(e, all)}`,
     ...(ctx.game ? [`FINESSE_GAME=${ctx.game}`] : []),
-    `FINESSE_PREP=${rootPrep(e)}`,
+    `FINESSE_PREP=${rootPrep(e, all)}`,
   ]
   const create = {
     HostConfig: { IpcMode: 'host', Privileged: false, CapAdd: ['NET_RAW', 'MKNOD', 'NET_ADMIN'], DeviceCgroupRules: ['c 13:* rmw', 'c 244:* rmw'] },
