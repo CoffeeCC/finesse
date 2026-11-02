@@ -89,7 +89,7 @@ export function playSelect() {
 let installed = false
 
 /** Original, restrained object sounds; same context, volume and media guard as Finesse. */
-export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'coin-flip' | 'coin-land') {
+export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'flame' | 'coin-flip' | 'coin-land') {
   const prefs = getPrefs(), vol = clamp(prefs.uiSoundsVolume ?? .6, 0, 1)
   if (!prefs.uiSounds || vol <= 0 || mediaIsPlaying() || document.hidden) return
   const ac = audioCtx(); if (!ac) return
@@ -123,6 +123,8 @@ export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'coin-flip' | '
   } else if (kind === 'cards') {
     for (const delay of [0, .075, .15]) rustle(delay, .11, 1900 + delay * 2000, .065)
     tone(320, .09, .018, .19, 210)
+  } else if (kind === 'flame') {
+    rustle(0, .23, 620, .04); tone(118, .15, .012, .025, 140)
   } else if (kind === 'coin-flip') {
     tone(1760, .2, .04); tone(3820, .15, .012, .015); rustle(.01, .2, 2300, .025)
   } else {
@@ -146,7 +148,8 @@ export function initUiSounds() {
       if (document.documentElement.dataset.theme === 'card-table') {
         if (document.documentElement.dataset.arcaneSleep === 'true') return
         const kind = el.matches('.search-object, .arcane-search-trinket') ? 'orb'
-          : el.matches('.deck-box-object') ? 'deck'
+          : el.matches('.candle-object') ? 'flame'
+          : el.matches('.deck-box-object, .story-action') ? 'deck'
           : el.matches('.draw-pile, .deal-action, .hand-card, .playing-card, .folio-slot') || el.closest('.folio-pagination') ? 'cards' : null
         if (kind) { playArcaneSound(kind); return }
       }

@@ -31,7 +31,7 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 ## Automated checks
 
 - Web build and TV build passed locally on Windows.
-- Theme tests: 13/13 passed (clock boundaries, eligibility/relight, deadline/cancellation and object-sound mute/volume/media/deduplication policy).
+- Theme tests: 15/15 passed (clock boundaries, eligibility/relight, deadline/cancellation, flicker range/continuity/motion-off and object-sound mute/volume/media/deduplication policy).
 - Server type-check passed. Tour script syntax and git whitespace checks passed.
 - Production output contains no development-lab controls or accelerated candle query handling. TV output contains no Arcane scene/models/art.
 - Full server tests were attempted on Windows and reported existing path/config/backup-related failures; the stalled run was stopped. No server source changed in this theme work. Do not report the local full server suite as passing. Linux CI must be checked for the pushed commit separately.
@@ -44,6 +44,17 @@ Local Vite web app proxied to the user's Finesse test server, with the existing 
 - Found/fixed: moving native prop anchors through late CSS could leave live models at their old positions. The scene now checks relative anchor layout at a low rate and refits resting models. It also adapts pixel ratio/shadows when resized between phone and desktop.
 - Original synthesized action sounds use the existing interface-sound preference and volume; no loops or downloaded recordings. Automated guards verify silence for muted UI/zero volume/hidden tabs/unmuted active media, bounded sound lifetimes and no double coin confirmation. Physical speaker calibration is not claimed.
 - Regenerated the original coin GLB, editable Blender scene and both fallback faces. Local web/TV builds and type-check passed. The repeated Windows full-server run again reported the same existing configuration/backup failures and stalled; stopped with no server source changes.
+
+## Physical actions and shared-light follow-up — 2 November 2026
+
+- Added original Blender codex/draw-stack GLBs, matching stills, packed editable sources and a combined material study. The codex cover/clasp respond to hover/focus; draw packets follow the existing shuffle state. One native Open title link and one Deal again button replace duplicate flat actions. Existing requests/deadlines/cancellation remain in use.
+- Exercised keyboard codex activation to title and Back, a new deal with disabled book recovery, still artwork and Animations off. At 320 pixels both native action targets measured 100 by approximately 124 pixels, with no horizontal overflow. One shared scene canvas remains; the new props do not add renderers.
+- Replaced regular sine flicker with smooth bounded noise driving flame lean, actual warm light and source position coherently. The darker room, broader warm falloff and larger/brighter hover/focus flame were inspected in the real-server preview. Tend the candle activation does not reset its clock. Candle holder remains stationary.
+- Stronger orb core/halo and a separate cool-blue point light create a visible blue desk pool, distinct from candle amber and flutter. Slow orb breathing and candle pulses stop under motion-off. Moonlight dims the orb instead of leaving a bright HUD.
+- The desk chain receives selective metallic/roughness and bump relief, synchronized with the receiving plane's UV crop. It is still painted surface relief, not an independently modeled chain or separate casting geometry. Poster faces/text and 3D-off artwork remain documented lighting boundaries.
+- Live desktop and 320-pixel phone lighting inspected after the NAS service returned from reboot; no browser shader errors reported. Temporary viewport override reset. Local screenshots remain outside the repository. Phone viewport checks do not certify physical phones.
+- Matching quiet-desk fallback and atomic canvas reveal remove the old-mat crossfade on refresh. Both older celestial plates remain tracked for a possible future alternate finish; no selector is claimed.
+- Latest local web/TV builds, 15 theme tests, server type-check and tour syntax passed. Windows full-server test limitations above remain unchanged. GitHub CI must be checked for the new pushed head.
 
 ## Remaining release review
 

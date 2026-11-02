@@ -460,7 +460,7 @@ await scene('themes', async () => {
   await page.goto(`${APP}/`)
   await page.locator('.hand-card').first().waitFor({ timeout: 20000 })
   await d.caption('A different way to browse', 'Your libraries become decks. Pick a card, or deal another hand to discover something else.')
-  await d.click(page.getByRole('button', { name: /^Shuffle .* and deal another hand$/ }), { after: 3000 })
+  await d.click(page.getByRole('button', { name: /^Deal again from / }), { after: 3000 })
   await d.click(page.getByRole('button', { name: 'Flip the celestial coin', exact: true }), { after: 1700 })
   await d.click(page.getByRole('link', { name: /^Browse full deck/ }), { after: 1500 })
   await d.caption('The collector’s folio', 'Open your collection, choose a card and inspect its story. Search and filters find what you want; each leaf stays yours when you return.')

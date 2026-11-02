@@ -10,6 +10,9 @@ import { withHandDeadline } from '../lib/tableDeal'
 import { reducedMotion } from '../lib/settings'
 import ArcaneLighting from './ArcaneLighting'
 import ArcaneCoin from './ArcaneCoin'
+import codexStill from '../assets/card-table/story-codex-v1-still.webp'
+import drawStill from '../assets/card-table/draw-deck-v1-still.webp'
+import './arcane-actions.css'
 const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
 
 type Phase = 'idle' | 'shuffling' | 'waiting' | 'dealing'
@@ -156,7 +159,8 @@ export default function CardTable() {
   // flies. Measure the stock so every card starts at the real deck on any size.
   useLayoutEffect(() => {
     const measure = () => {
-      const stock = stockRef.current?.getBoundingClientRect()
+      if (boardRef.current) boardRef.current.style.backgroundSize = boardRef.current.getBoundingClientRect().width < 760 ? 'cover' : '100% 100%'
+      const stock = (stockRef.current?.querySelector('.action-deck-art') ?? stockRef.current)?.getBoundingClientRect()
       if (!stock) return
       boardRef.current?.querySelectorAll<HTMLElement>('.hand-card').forEach((card) => {
         const target = card.getBoundingClientRect()
@@ -191,6 +195,7 @@ export default function CardTable() {
     : phase === 'waiting' || loading ? 'Preparing your cards…'
     : phase === 'dealing' ? `Dealing ${cards.length} ${cards.length === 1 ? 'title' : 'titles'}…`
     : cards.length ? `${cards.length} ${cards.length === 1 ? 'card' : 'cards'} in your hand. Choose your next story.` : 'Your table is ready for its first title.'
+  const codexContent = <><span className="action-art action-codex-art" aria-hidden="true"><img src={codexStill} alt="" /></span><span className="action-label">Open title</span><small className="action-hint">{busy ? 'Preparing your cards' : pick && !error ? 'Read this story' : 'Choose a story first'}</small></>
 
   return (
     <div className={`card-table-page tabletop-edition ${motion.reduced ? 'no-table-motion' : ''}`}>
@@ -215,15 +220,15 @@ export default function CardTable() {
           <h2 id="hand-heading">{pick && !busy ? pick.Name : <>{deck?.Name ?? 'Your library'}<em>On the table.</em></>}</h2>
           {pick && !busy && <p className="selected-card-meta">{[pick.ProductionYear, pick.Type === 'Series' ? 'Series' : 'Movie'].filter(Boolean).join(' · ')}</p>}
         </div>
-        {pick && !busy && !error && <Link className="mat-pick-link table-open-title" to={`/item/${pick.Id}`}>Open title <span aria-hidden>↗</span></Link>}
+        {pick && !busy && !error ? <Link className="mat-pick-link table-open-title physical-action story-action" aria-label={`Open title: ${pick.Name}`} to={`/item/${pick.Id}`}>{codexContent}</Link>
+          : <button type="button" disabled className="mat-pick-link table-open-title physical-action story-action" aria-label={busy ? 'Preparing the next story' : 'Choose a story before opening its title'}>{codexContent}</button>}
 
         <div className="draw-station">
-          <button ref={stockRef} type="button" className="draw-pile" aria-label={`Shuffle ${deck?.Name ?? 'library'} and deal another hand`} disabled={busy || !deck} onClick={dealAgain}>
-            {[0,1,2,3,4].map((layer) => <span key={layer} className="stock-card" style={{ '--layer': layer } as CSSProperties} aria-hidden />)}
+          <button ref={stockRef} type="button" className="draw-pile physical-action deck-action" aria-label={busy ? 'Dealing your next hand' : `Deal again from ${deck?.Name ?? 'your library'}`} aria-busy={busy} disabled={busy || !deck} onClick={dealAgain}>
+            <span className="action-art action-deck-art" aria-hidden="true"><img src={drawStill} alt="" /></span>
+            <span className="action-label">{busy ? 'Dealing…' : 'Deal again'}</span><small className="action-hint">{busy ? 'Preparing your cards' : 'Draw a new hand'}</small>
           </button>
-          <p className="stock-label">{deck?.Name ?? 'THE LIBRARY'}</p>
         </div>
-        <button type="button" className="deal-action" onClick={dealAgain} disabled={busy || !deck}>{busy ? 'Dealing…' : 'Deal again'} <span aria-hidden>↻</span></button>
 
         {error ? (
           <div className="table-message" role="alert"><h3>We couldn’t deal this hand.</h3><p>{hand.error?.name === 'TimeoutError' ? 'The library took too long to answer. Try again in a moment.' : 'Check your server connection, then try again.'}</p><button type="button" className="table-primary" onClick={() => { setPhase('waiting'); void views.refetch(); if (deck) void hand.refetch() }}>Try again</button></div>
@@ -247,7 +252,7 @@ export default function CardTable() {
           <p className="table-kicker">IN YOUR HAND / {pick.Type === 'Series' ? 'SERIES' : 'FILM'}{pick.ProductionYear ? ` · ${pick.ProductionYear}` : ''}{pick.RunTimeTicks ? ` · ${formatRuntime(pick.RunTimeTicks)}` : ''}</p>
           <h3>{pick.Name}</h3><p className="pick-overview">{pick.Overview || 'Some stories are better discovered. Open this title to find out more.'}</p>
         </div>
-        {busy ? <button type="button" className="table-primary" disabled>Dealing…</button> : <Link className="table-primary" to={`/item/${pick.Id}`}>Inspect this card <span aria-hidden>↗</span></Link>}
+        {busy ? <span className="table-story-link" aria-disabled="true">Dealing…</span> : <Link className="table-story-link" to={`/item/${pick.Id}`}>More about this title <span aria-hidden>↗</span></Link>}
       </section>}
 
       <TableReservations />

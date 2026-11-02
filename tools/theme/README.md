@@ -36,7 +36,11 @@ Original image-generation prompts for the table/frame/card back are stored besid
 
 For disposable edge states, run node tools/theme/fixture.mjs. Start a separate Vite instance pointing FINESSE_SERVER=http://127.0.0.1:38212. The fixture binds only to loopback and supplies a fake passwordless Theme Fixture profile, not real media services. Select Arcane Table in Settings → Themes. Edit theme-fixture-state.json and reload to choose single, empty, no-libraries, slow (3 seconds), error (503), or hang. The one-card state has a long name and no art. Do not induce these outages on a real service.
 
-npm run theme:test runs thirteen deadline/cancellation, candle-clock and sound-policy tests. See docs/THEMES.md and docs/THEME-AUTHORING.md for current behavior, authoring and manual verification requirements.
+npm run theme:test runs fifteen deadline/cancellation, candle-clock, flicker-continuity and sound-policy tests. See docs/THEMES.md and docs/THEME-AUTHORING.md for current behavior, authoring and manual verification requirements.
+
+`create-action-props.py` builds the original story codex and draw deck, exports runtime GLBs and matching WebP stills, and saves packed editable scenes. The leather grain is an original baked procedural normal map. Named CodexCoverPivot/CodexClaspPivot and PacketA/PacketB/TopCard drive runtime interactions. Runtime inlays reuse the shared celestial back texture. `render-action-study.py` creates a packed Blender material/lighting study with the new props and existing candle/orb/coin; its output is not a recording of the application.
+
+The quiet desk chain material in `src/lib/arcaneDeskMaterial.ts` traces the approved artwork, deriving selective metal/roughness and bump relief. It does not generate a separate chain mesh. Keep these maps synchronized with the desk UV crop. The older celestial desktop/phone plates are deliberately retained for a possible alternate finish, not used as a loading placeholder.
 
 ## Local scene verification
 

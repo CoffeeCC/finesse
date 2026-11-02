@@ -1,5 +1,22 @@
-.arcane-lighting{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity 1.2s}.arcane-lighting canvas{display:block;width:100%;height:100%}.arcane-lighting.lighting-ready{opacity:1}
+.arcane-lighting{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0}.arcane-lighting canvas{display:block;width:100%;height:100%}.arcane-lighting.lighting-ready{opacity:1}
 .candle-anchor{position:absolute;top:4%;right:25%;width:90px;height:180px;z-index:2;pointer-events:none}.candle-anchor>img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(3px 10px 6px #0008)}
+.candle-model-anchor{display:block;position:absolute;inset:0;pointer-events:none}
+.celestial-table .candle-object{z-index:10;pointer-events:auto;border:0;background:none;border-radius:18px;padding:0;color:#e8d3a5}
+.candle-object:focus-visible{outline:2px solid #c7dedf;outline-offset:4px}
+.candle-label{position:absolute;left:50%;bottom:-12px;transform:translateX(-50%);font-family:var(--font-display);font-size:18px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .2s}
+.candle-object:hover .candle-label,.candle-object:focus-visible .candle-label{opacity:1}
+.candle-object:hover .candle-fallback-flame{filter:brightness(1.12)}
+.candle-object:hover .candle-fallback-flame,.candle-object:focus-visible .candle-fallback-flame{animation:candleHoverBreath 2.6s ease-in-out infinite alternate}
+@keyframes candleHoverBreath{from{transform:scale(1.12,1.4) rotate(3deg);filter:brightness(1.25)}to{transform:scale(1.18,1.48) rotate(5deg);filter:brightness(1.35)}}
+@media(prefers-reduced-motion:reduce){.candle-object:hover .candle-fallback-flame,.candle-object:focus-visible .candle-fallback-flame{animation:none;transform:none;filter:none}}
+html[data-motion=reduce] .candle-object .candle-fallback-flame,.no-table-motion .candle-object .candle-fallback-flame,html[data-arcane-sleep=true] .candle-object .candle-fallback-flame{animation:none;transform:none;filter:none}
+html[data-arcane-sleep=true] .candle-label{visibility:hidden}
+@media(prefers-reduced-motion:reduce){.candle-label{transition:none}}
+html[data-motion=reduce] .candle-label,.no-table-motion .candle-label{transition:none}
+.candle-object .flame-tended{animation:candleBreath 3s ease-in-out infinite alternate,candleTend 1.6s ease-out 1}
+@keyframes candleTend{0%,100%{transform:scale(1) rotate(0);filter:brightness(1)}20%{transform:scale(1.05,1.13) rotate(6deg);filter:brightness(1.18)}}
+@media(prefers-reduced-motion:reduce){.candle-object .flame-tended{animation:none}}
+html[data-motion=reduce] .candle-object .flame-tended,.no-table-motion .candle-object .flame-tended{animation:none}
 .candle-fallback-flame{position:absolute;width:8px;height:22px;top:11%;left:49%;border-radius:70% 30% 50% 50%;background:radial-gradient(ellipse at 50% 70%,#fffbd6,#ffd46e 30%,#ff9d2c77 70%,transparent);box-shadow:0 0 14px 4px #ffc05b55;transform-origin:center bottom;animation:candleBreath 3s ease-in-out infinite alternate}
 .candle-fallback-art{position:absolute;left:0;top:50%;width:100%;aspect-ratio:4/5;transform:translateY(-50%)}.candle-fallback-art>img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(3px 10px 6px #0008)}
 .candle-wax-sprite{position:absolute;inset:0;transition:transform 1s linear;pointer-events:none}.candle-wax-sprite>img{width:100%;height:100%;object-fit:contain}
@@ -14,7 +31,7 @@ html[data-arcane-sleep=true] .vt-nav,html[data-arcane-sleep=true] .vt-tabs,html[
 html[data-arcane-sleep=true] .celestial-table .object-label,html[data-arcane-sleep=true] .celestial-table .mat-heading,html[data-arcane-sleep=true] .celestial-table .mat-pick-link,html[data-arcane-sleep=true] .celestial-table .deal-action,html[data-arcane-sleep=true] .celestial-table .hand-pager,html[data-arcane-sleep=true] .celestial-table .mat-bottomline,html[data-arcane-sleep=true] .celestial-table .stock-label,html[data-arcane-sleep=true] .folio-inspect-actions,html[data-arcane-sleep=true] .folio-pagination{opacity:0;pointer-events:none}
 html[data-arcane-sleep=true] .celestial-table .playing-card,html[data-arcane-sleep=true] .folio-card-art{filter:brightness(.25) saturate(.65);transition:filter 3s}
 html[data-arcane-sleep=true] .celestial-table .movie-hand{animation:moonlitDrift 80s ease-in-out infinite alternate}
-@keyframes candleBreath{to{transform:scale(.94,1.07) rotate(3deg);opacity:.85}}
+@keyframes candleBreath{0%,100%{transform:scale(1) rotate(0);filter:brightness(1)}13%{transform:scale(.97,1.04) rotate(2deg);filter:brightness(.96)}31%{transform:scale(1.02,.97) rotate(-1deg);filter:brightness(1.04)}49%{transform:scale(.96,1.06) rotate(3deg);filter:brightness(.94)}68%{transform:scale(1.02,1.01) rotate(-2deg);filter:brightness(1.05)}83%{transform:scale(.99,.98) rotate(1deg);filter:brightness(.98)}}
 @keyframes moonlitDrift{to{transform:translate(8px,-5px)}}
 @media(max-width:600px){.celestial-table .candle-anchor{right:6%;top:27%;width:64px;height:115px}.celestial-table.table-stage .mat-heading{max-width:58%}}
 @media(prefers-reduced-motion:reduce){.candle-fallback-flame,html[data-arcane-sleep=true] .celestial-table .movie-hand{animation:none}.arcane-lighting,.arcane-moon-veil{transition:none}}

@@ -32,7 +32,7 @@ test('theme sounds obey mute, zero volume, hidden tabs and active unmuted media'
 })
 test('every object sound is bounded and quiet; muted previews do not suppress it', () => {
   const f = fixture({}, [{ paused: false, muted: true, currentTime: 1 }])
-  for (const kind of ['orb', 'deck', 'cards', 'coin-flip', 'coin-land']) {
+  for (const kind of ['orb', 'deck', 'cards', 'flame', 'coin-flip', 'coin-land']) {
     const before = f.starts.length; f.api.playArcaneSound(kind); assert.ok(f.starts.length > before)
   }
   assert.equal(f.contexts(), 1); assert.equal(f.starts.length, f.stops.length)
@@ -45,7 +45,7 @@ test('coin-owned sounds are not doubled by the global click confirmation', () =>
 })
 test('a deck click sounds once even when its request immediately disables the button', () => {
   const f = fixture(); f.api.initUiSounds()
-  const button = { disabled: false, getAttribute: () => null, matches: (selector) => selector === '.deck-box-object' }
+  const button = { disabled: false, getAttribute: () => null, matches: (selector) => selector.split(',').map((s) => s.trim()).includes('.deck-box-object') }
   const event = { target: { closest: () => button } }
   f.listeners.click(event); const starts = f.starts.length; assert.ok(starts > 0)
   button.disabled = true; f.listeners.click(event); assert.equal(f.starts.length, starts)
