@@ -59,7 +59,7 @@ export default function Marquee() {
     let timer = 0
     let lastInput = performance.now(), lastTick = lastInput, savedAt = lastInput
     const atTable = () => arcane && Boolean(document.querySelector('[data-arcane-scene]'))
-    const isBusy = () => blocked() || Boolean(document.querySelector('[role="dialog"], [role="menu"], [aria-busy="true"], [data-arcane-scene="detail"] iframe')) ||
+    const isBusy = () => blocked() || Boolean(document.querySelector('[role="dialog"], [role="menu"], [aria-busy="true"], [data-arcane-scene] iframe')) ||
       Boolean(document.activeElement?.matches('input, textarea, select, [contenteditable="true"]'))
     const arm = () => {
       window.clearTimeout(timer)

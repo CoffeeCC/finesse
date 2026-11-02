@@ -364,7 +364,7 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
   )
 }
 
-export default function ItemPage() {
+export default function ItemPage({ projection = false }: { projection?: boolean }) {
   const arcane = useTheme() === 'card-table' && !__WEBOS__
   const { itemId } = useParams()
   const { data: item, isLoading, isError, error, refetch, isFetching } = useItem(itemId)
@@ -421,13 +421,13 @@ export default function ItemPage() {
   // Skipped on the TV build: video decode + the page UI fight for the TV SoC.
   useEffect(() => {
     stopPreview()
-    if (!previewKind || __WEBOS__) return
+    if (!previewKind || __WEBOS__ || projection) return
     const t = setTimeout(() => {
       setPreviewAuto(true)
       setPreviewOn(true)
     }, 6000)
     return () => clearTimeout(t)
-  }, [previewKind, itemId, stopPreview])
+  }, [previewKind, itemId, stopPreview, projection])
 
   if (!item) {
     // Loading, or it failed / isn't there: then say so, with Back and Try again.
@@ -599,7 +599,7 @@ export default function ItemPage() {
             hero instead of hiding under it. z-10 keeps its menus (Cast to…)
             above the sections below — the depth transform makes it a stacking context. */}
         <div className={`vt-detail-head depth-front relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end ${arcane ? 'arcane-detail-inspection' : ''}`}>
-          {arcane && ArcaneDetailEnvironment && <Suspense fallback={null}><ArcaneDetailEnvironment /></Suspense>}
+          {arcane && !projection && ArcaneDetailEnvironment && <Suspense fallback={null}><ArcaneDetailEnvironment /></Suspense>}
           {poster && (
             <div className="arcane-poster-wrap hidden md:block w-52 shrink-0">
             <img

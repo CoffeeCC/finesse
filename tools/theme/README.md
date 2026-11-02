@@ -2,10 +2,21 @@
 
 Arcane Table includes generated raster table/card artwork and original Blender orb/deck models. Blender is not required to run or build Finesse. Runtime artwork is WebP; model files are self-contained GLB.
 
-Edit the three sources in tools/theme/scenes, or regenerate them with Blender 5.2:
+Edit the original sources in tools/theme/scenes, or regenerate them with Blender 5.2:
 
     blender --background --python tools/theme/create-scrying-orb.py
     blender --background --python tools/theme/create-deck-trinkets.py
+
+Correspondence props and the distinct navigation instrument set:
+
+    blender --background --python tools/theme/create-correspondence-props.py
+    blender --background --python tools/theme/create-navigation-trinkets.py
+
+These two generators share blender_prop_tools.py. Each writes editable scenes,
+self-contained GLBs and matching transparent WebP stills. See
+docs/ARCANE-OBJECT-REGISTER.md for exclusive function identities and which live
+animations are implemented versus still planned. Generating a model is not proof
+that its interaction or live lighting has been integrated.
 
 The expanded showcase adds candle/holder/wax sprites and a collection folio:
 

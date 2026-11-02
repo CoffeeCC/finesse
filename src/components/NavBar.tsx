@@ -5,7 +5,7 @@ import { useQueuesOn } from '../api/queues'
 import { useMomentCollectionsOn } from '../api/momentCollections'
 import { useMyLimits } from '../api/parental'
 import { useFinesse } from '../lib/finesseServer'
-import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useFriends, useViews } from '../api/queries'
@@ -23,6 +23,7 @@ import { beginServerUpdate, useServerUpdate } from '../lib/appUpdate'
 import { SparkIcon, UpdatePill, shortVersion } from './Update'
 
 const NAV_COLLECTIONS = new Set(['movies', 'tvshows'])
+const ArcaneNavArt = __WEBOS__ ? null : lazy(() => import('./ArcaneNavArt'))
 
 export const ANIME_HREF = '/browse?title=Anime&tags=anime&includeItemTypes=Movie,Series&sortBy=SortName'
 export const COLLECTIONS_HREF = '/browse?title=Collections&includeItemTypes=BoxSet&sortBy=SortName'
@@ -95,7 +96,9 @@ export default function NavBar() {
 
   // Close the account menu on navigation and on Escape / remote Back.
   const { pathname, search } = useLocation()
-  const tableHome = useTheme() === 'card-table' && (pathname === '/' || pathname.startsWith('/library/') || pathname.startsWith('/item/') || pathname === '/mylist')
+  const arcane = useTheme() === 'card-table' && !!ArcaneNavArt
+  const tableHome = arcane && (pathname === '/' || pathname.startsWith('/library/') || pathname.startsWith('/item/') || pathname === '/mylist')
+  const navArt = (kind: string) => arcane && ArcaneNavArt ? <Suspense fallback={null}><ArcaneNavArt kind={kind} /></Suspense> : null
   useEffect(() => setMenuOpen(false), [pathname])
   useEffect(() => {
     if (!menuOpen) return
@@ -185,18 +188,18 @@ export default function NavBar() {
           </Link>
         )}
 
-        {!tableHome && <nav ref={navRef} aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
+        {!tableHome && <nav ref={navRef} aria-label="Main" className={`${lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'} ${arcane ? 'arcane-main-nav' : ''}`}>
           <NavLink to="/" end aria-current={pathname === '/dashboard' ? 'page' : undefined} className={({ isActive }) => linkClass({ isActive: isActive || pathname === '/dashboard' })}>
-            Home
+            {navArt('home')}<span>Home</span>
           </NavLink>
           {barLibraries.map((lib) => (
             <NavLink key={lib.Id} to={`/library/${lib.Id}`} className={linkClass}>
-              {lib.Name}
+              {navArt(lib.CollectionType ?? 'library')}<span>{lib.Name}</span>
             </NavLink>
           ))}
           {spaces.map((d) => (
             <NavLink key={d.to} to={d.to} className={() => linkClass({ isActive: d.match(pathname, search) })}>
-              {d.label}
+              {navArt(d.to)}<span>{d.label}</span>
             </NavLink>
           ))}
           <ActionMenu
@@ -213,7 +216,7 @@ export default function NavBar() {
                   }`
             }
           >
-            More
+            {navArt('more')}<span>More</span>
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
             </svg>

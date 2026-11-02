@@ -16,7 +16,7 @@ float thread=pow(max(0.,1.-abs(cloud-.55)*12.),6.);col+=vec3(.18,.55,.78)*thread
 float edge=pow(1.-max(0.,dot(normalize(vN),normalize(vV))),2.);col+=vec3(.10,.24,.38)*edge;
 gl_FragColor=vec4(col*(2.3+energy*.6),.83+edge*.13);}`
 
-export const starVertex = `uniform float time;varying float brightness;
-void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=2.8;brightness=.45+.3*sin(time*.7+position.y*15.+position.x*9.);}`
+export const starVertex = `uniform float time;uniform float energy;varying float brightness;
+void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_PointSize=2.8+energy*1.2;brightness=(.45+.3*sin(time*.7+position.y*15.+position.x*9.))*(1.+energy*.5);}`
 export const starFragment = `varying float brightness;
 void main(){float r=length(gl_PointCoord-.5);float a=smoothstep(.5,.05,r);gl_FragColor=vec4(.65,.83,1.,a*brightness);}`

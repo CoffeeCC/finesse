@@ -143,7 +143,7 @@ function RequestPageInner() {
   })
 
   return (
-    <div className="pb-16">
+    <div className="request-page pb-16">
       <div className="px-4 sm:px-6 lg:px-12 py-6">
         <h1 className="page-title mb-1">Request</h1>
         <p className="text-sm text-ink-400 mb-4">
@@ -209,7 +209,7 @@ function RequestPageInner() {
             return (
               <div
                 key={keyOf(r)}
-                className="flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
+                className="request-dossier flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
               >
                 {r.kind === 'movie' && r.tmdbId ? (
                   <Link to={movieHref(r.tmdbId)} state={movieState(r)} aria-label={`${r.title}: details`} className="shrink-0 rounded-lg outline-none ring-accent-400 transition hover:brightness-110 focus-visible:ring-2">
@@ -258,7 +258,8 @@ function RequestPageInner() {
                       <button
                         onClick={() => request(r)}
                         disabled={state === 'adding'}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-accent-fill hover:brightness-110 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors"
+                        aria-busy={state === 'adding'}
+                        className="request-seal-action inline-flex items-center gap-1.5 rounded-full bg-accent-fill hover:brightness-110 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors"
                       >
                         {state === 'adding' ? (
                           'Adding…'
@@ -348,7 +349,7 @@ function DiscoverRows({ movies, loading, failed, stateOf, onRequest }: { movies?
 function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemState; onRequest: () => void }) {
   const [broken, setBroken] = useState(false)
   return (
-    <div className="w-32 shrink-0 sm:w-36">
+    <div className="request-discovery-card w-32 shrink-0 sm:w-36">
       <Link
         to={movieHref(m.tmdbId!)}
         state={movieState(m)}
@@ -384,7 +385,8 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
           <button
             onClick={onRequest}
             disabled={state === 'adding'}
-            className="w-full rounded-full bg-accent-fill px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+            aria-busy={state === 'adding'}
+            className="request-seal-action w-full rounded-full bg-accent-fill px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
           >
             {state === 'adding' ? 'Adding…' : 'Request'}
           </button>
@@ -451,7 +453,8 @@ function ArtistAlbums({ artist }: { artist: ArrResult }) {
                 onClick={() => void ask(a)}
                 disabled={busy !== null}
                 aria-label={`Request ${a.title}`}
-                className="shrink-0 rounded-full bg-accent-fill px-3 py-1 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
+                aria-busy={busy === a.foreignAlbumId}
+                className="request-seal-action shrink-0 rounded-full bg-accent-fill px-3 py-1 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
               >
                 {busy === a.foreignAlbumId ? 'Requesting…' : 'Request'}
               </button>

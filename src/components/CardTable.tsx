@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useViews } from '../api/queries'
 import { getItems, getSession, posterUrl } from '../api/client'
-import { formatRuntime, type JfItem } from '../api/types'
+import { type JfItem } from '../api/types'
 import TableReservations from './TableReservations'
 import TableNavigation from './TableNavigation'
 import { withHandDeadline } from '../lib/tableDeal'
@@ -13,6 +13,8 @@ import ArcaneCoin from './ArcaneCoin'
 import codexStill from '../assets/card-table/story-codex-v1-still.webp'
 import drawStill from '../assets/card-table/draw-deck-v1-still.webp'
 import './arcane-actions.css'
+import './arcane-viewport.css'
+import ArcaneDeskDrawer from './ArcaneDeskDrawer'
 import { playArcaneSound } from '../lib/sound'
 const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
 
@@ -71,7 +73,7 @@ function MovieCard({ item, index, count, selected, selectedIndex, busy, onSelect
         '--mobile-order': distance + 2,
         '--mobile-angle': `${distance * 9}deg`,
       } as CSSProperties}
-      aria-label={`Select ${item.Name}`}
+      aria-label={`Summon ${item.Name}`}
       aria-pressed={selected}
       data-autofocus={selected || undefined}
       disabled={busy}
@@ -95,6 +97,7 @@ function MovieCard({ item, index, count, selected, selectedIndex, busy, onSelect
 }
 
 export default function CardTable() {
+  const navigate = useNavigate(), location = useLocation()
   const views = useViews()
   const decks = (views.data?.Items ?? []).filter((view) => view.CollectionType === 'movies' || view.CollectionType === 'tvshows')
   const [remembered] = useState(rememberedHand)
@@ -208,24 +211,22 @@ export default function CardTable() {
     : phase === 'waiting' || loading ? 'Preparing your cards…'
     : phase === 'dealing' ? `Dealing ${cards.length} ${cards.length === 1 ? 'title' : 'titles'}…`
     : cards.length ? `${cards.length} ${cards.length === 1 ? 'card' : 'cards'} in your hand. Choose your next story.` : 'Your table is ready for its first title.'
-  const codexContent = <><span className="action-art action-codex-art" aria-hidden="true"><img src={codexStill} alt="" /></span><span className="action-label">Open title</span><small className="action-hint">{busy ? 'Preparing your cards' : pick && !error ? 'Read this story' : 'Choose a story first'}</small></>
+  const codexContent = <><span className="action-art action-codex-art" aria-hidden="true"><img src={codexStill} alt="" /></span><span className="action-label">Saved stories</span><small className="action-hint">Your personal codex</small></>
+  const summon = (item: JfItem, index: number) => {
+    select(index)
+    navigate(`/item/${item.Id}`, { state: { arcaneTableOrigin: { pathname: location.pathname, search: location.search, hash: '' }, arcaneCard: item.Id } })
+  }
 
   return (
-    <div className={`card-table-page tabletop-edition ${motion.reduced ? 'no-table-motion' : ''}`} style={{ '--flight-duration': `${FLIGHT_MS}ms` } as CSSProperties}>
-      <header className="table-intro">
-        <div><p className="table-kicker">THE CELESTIAL TABLE</p><h1>A hand of stories.</h1></div>
-        <div className="table-tools">
-          <Link to="/dashboard">Full Finesse Home ↗</Link>
-          <button type="button" aria-pressed={!motion.reduced} disabled={motion.systemReduced} onClick={motion.toggle} title={motion.systemReduced ? 'Following your Reduce motion setting' : 'Turn shuffle and draw animations on or off'}>{motion.reduced ? 'Animations off' : 'Animations on'}</button>
-          <Link to="/settings#settings-themes">Themes ↗</Link>
-        </div>
-      </header>
+    <div className={`card-table-page tabletop-edition arcane-viewport ${motion.reduced ? 'no-table-motion' : ''}`} style={{ '--flight-duration': `${FLIGHT_MS}ms` } as CSSProperties}>
 
 
       <div className="table-scene-wrap">
       <section ref={boardRef} data-arcane-scene="table" className={`table-stage celestial-table phase-${phase}`} data-deck-kind={deck?.CollectionType} aria-labelledby="hand-heading" aria-busy={busy} data-phase={phase}>
         <ArcaneLighting />
+        <p className="desk-inscription" aria-hidden="true">Finesse.</p>
         <ArcaneCoin />
+        <ArcaneDeskDrawer motion={!motion.reduced} />
         <TableNavigation decks={decks} selected={deck?.Id} busy={busy} reduced={motion.reduced} onChoose={changeDeck} />
 
         <div key={pick?.Id ?? deck?.Id} className="mat-heading">
@@ -233,8 +234,7 @@ export default function CardTable() {
           <h2 id="hand-heading">{pick && !busy ? pick.Name : <>{deck?.Name ?? 'Your library'}<em>On the table.</em></>}</h2>
           {pick && !busy && <p className="selected-card-meta">{[pick.ProductionYear, pick.Type === 'Series' ? 'Series' : 'Movie'].filter(Boolean).join(' · ')}</p>}
         </div>
-        {pick && !busy && !error ? <Link className="mat-pick-link table-open-title physical-action story-action" aria-label={`Open title: ${pick.Name}`} to={`/item/${pick.Id}`}>{codexContent}</Link>
-          : <button type="button" disabled className="mat-pick-link table-open-title physical-action story-action" aria-label={busy ? 'Preparing the next story' : 'Choose a story before opening its title'}>{codexContent}</button>}
+        <Link className="mat-pick-link table-open-title physical-action story-action" aria-label="Open your saved stories" to="/mylist">{codexContent}</Link>
 
         <div className="draw-station">
           <button ref={stockRef} type="button" className="draw-pile physical-action deck-action" aria-label={busy ? 'Dealing your next hand' : `Deal again from ${deck?.Name ?? 'your library'}`} aria-busy={busy} disabled={busy || !deck} onClick={dealAgain}>
@@ -249,27 +249,15 @@ export default function CardTable() {
           <div className="table-message"><h3>{deck ? 'An empty deck. For now.' : 'Your first deck starts here.'}</h3><p>{deck ? 'Add titles to this library, or choose another deck.' : 'Once your server has movies or shows, you can deal a hand here.'}</p><Link className="table-primary" to="/libraries">Explore libraries</Link></div>
         ) : (
           <div key={phase === 'shuffling' ? 'outgoing' : `${deck?.Id}-${deal}`} className="movie-hand" role="group" aria-label="Your hand of titles">
-            {tableCards.map((item, index) => <MovieCard key={item.Id} item={item} index={index} count={tableCards.length} selected={pick?.Id === item.Id} selectedIndex={Math.max(0, tableCards.findIndex(card => card.Id === pick?.Id))} busy={busy} onSelect={() => select(index)} />)}
+            {tableCards.map((item, index) => <MovieCard key={item.Id} item={item} index={index} count={tableCards.length} selected={pick?.Id === item.Id} selectedIndex={Math.max(0, tableCards.findIndex(card => card.Id === pick?.Id))} busy={busy} onSelect={() => summon(item, index)} />)}
           </div>
         )}
 
         {cards.length > 1 && <div className="hand-pager" aria-label="Browse cards"><button type="button" disabled={busy} onClick={() => select((cards.indexOf(pick!) - 1 + cards.length) % cards.length)} aria-label="Previous card">‹</button><span>{Math.max(0, cards.indexOf(pick!)) + 1} / {cards.length}</span><button type="button" disabled={busy} onClick={() => select((cards.indexOf(pick!) + 1) % cards.length)} aria-label="Next card">›</button></div>}
-        <div className="mat-bottomline">{deck && <Link to={`/library/${deck.Id}`}>Browse full deck ↗</Link>}</div>
+        <TableReservations />
+        <div className="desk-status" role="status" aria-live="polite">{status}</div>
       </section>
-      <div className="table-deal-status" role="status" aria-live="polite"><span className={busy ? 'status-dot busy' : 'status-dot'} aria-hidden />{status}</div>
       </div>
-
-      {pick && !error && <section className={`table-pick ${busy ? 'pick-busy' : ''}`} aria-label="Selected title">
-        <div className="pick-number" aria-hidden>{String(cards.indexOf(pick) + 1).padStart(2, '0')}</div>
-        <div className="pick-copy">
-          <p className="table-kicker">IN YOUR HAND / {pick.Type === 'Series' ? 'SERIES' : 'FILM'}{pick.ProductionYear ? ` · ${pick.ProductionYear}` : ''}{pick.RunTimeTicks ? ` · ${formatRuntime(pick.RunTimeTicks)}` : ''}</p>
-          <h3>{pick.Name}</h3><p className="pick-overview">{pick.Overview || 'Some stories are better discovered. Open this title to find out more.'}</p>
-        </div>
-        {busy ? <span className="table-story-link" aria-disabled="true">Dealing…</span> : <Link className="table-story-link" to={`/item/${pick.Id}`}>More about this title <span aria-hidden>↗</span></Link>}
-      </section>}
-
-      <TableReservations />
-      <footer className="club-footer"><Link to="/libraries">All libraries, music & games ↗</Link><Link to="/mylist">Your saved picks ↗</Link><Link to="/dashboard">Full Finesse Home ↗</Link></footer>
       {ThemeLab && new URLSearchParams(location.search).get('theme-lab') === '1' && <Suspense fallback={null}><ThemeLab /></Suspense>}
     </div>
   )

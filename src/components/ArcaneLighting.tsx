@@ -14,15 +14,19 @@ import { candleLight } from '../lib/candleLight'
 import { createDeskMaterial } from '../lib/arcaneDeskMaterial'
 import { getArcaneScene } from '../lib/arcaneScene'
 import { createPropGrain } from '../lib/arcanePropFinish'
+import { Sheet } from './Sheet'
+import ArcaneLightControls from './ArcaneLightControls'
+import { stepTrinketMotion } from '../lib/trinketMotion'
 import './arcane-lighting.css'
 
 /** One light space for the candle, orb, boxes, folio and receiving desk. Native UI remains above it. */
-export default function ArcaneLighting({ folio = false, staticOnly = false }: { folio?: boolean; staticOnly?: boolean }) {
+export default function ArcaneLighting({ folio = false, staticOnly = false, workspace = false }: { folio?: boolean; staticOnly?: boolean; workspace?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const effects = useThemeEffects()
   const candle = useCandle()
   const [ready, setReady] = useState(false)
   const [tend, setTend] = useState(0)
+  const [lightingOpen, setLightingOpen] = useState(false)
   useEffect(() => {
     const element = host.current, board = element?.parentElement
     if (!element || !board || !effects || staticOnly || __WEBOS__) return
@@ -36,7 +40,11 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       import('../assets/card-table/celestial-back-v1.webp'),
       import('../assets/card-table/celestial-coin-v1.glb?url'),
       import('../assets/card-table/story-codex-v1.glb?url'), import('../assets/card-table/draw-deck-v1.glb?url'),
-    ]).then(async ([T, { GLTFLoader }, { RoomEnvironment }, candleURL, orbURL, movieURL, showURL, folioURL, deskURL, folioArtURL, backURL, coinURL, codexURL, drawURL]) => {
+      workspace ? import('../assets/card-table/scribe-desk-v1.webp') : Promise.resolve(null),
+      workspace ? import('../assets/card-table/dispatch-seal-v1.glb?url') : Promise.resolve(null),
+      workspace ? import('../assets/card-table/linked-rings-v1.glb?url') : Promise.resolve(null),
+      workspace ? import('../assets/card-table/memory-vessel-v1.glb?url') : Promise.resolve(null),
+    ]).then(async ([T, { GLTFLoader }, { RoomEnvironment }, candleURL, orbURL, movieURL, showURL, folioURL, deskURL, folioArtURL, backURL, coinURL, codexURL, drawURL, scribeURL, dispatchURL, ringsURL, memoryURL]) => {
       if (cancelled) return
       let renderer: InstanceType<typeof T.WebGLRenderer>
       try { renderer = new T.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' }) } catch { return }
@@ -69,19 +77,19 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       const disposal = new Set<InstanceType<typeof T.Texture>>()
       const propGrain = createPropGrain(T); disposal.add(propGrain)
       release = () => { dispose(scene); disposal.forEach((t) => t.dispose()); env.dispose(); renderer.dispose(); renderer.domElement.remove() }
-      const desk = await texLoader.loadAsync(deskURL.default)
+      const desk = await texLoader.loadAsync(scribeURL?.default ?? deskURL.default)
       if (cancelled) { desk.dispose(); renderer.dispose(); renderer.domElement.remove(); env.dispose(); return }
       desk.colorSpace = T.SRGBColorSpace; disposal.add(desk)
-      const backTexture = await texLoader.loadAsync(backURL.default); backTexture.colorSpace = T.SRGBColorSpace; disposal.add(backTexture)
-      const frameTexture = await texLoader.loadAsync(cardFrameURL); frameTexture.colorSpace = T.SRGBColorSpace; disposal.add(frameTexture)
+      const backTexture = workspace ? new T.Texture() : await texLoader.loadAsync(backURL.default); backTexture.colorSpace = T.SRGBColorSpace; disposal.add(backTexture)
+      const frameTexture = workspace ? new T.Texture() : await texLoader.loadAsync(cardFrameURL); frameTexture.colorSpace = T.SRGBColorSpace; disposal.add(frameTexture)
       if (cancelled) { disposal.forEach((t) => t.dispose()); env.dispose(); renderer.dispose(); renderer.domElement.remove(); return }
-      const deskSurface = createDeskMaterial(T, desk)
+      const deskSurface = workspace ? { material: new T.MeshStandardMaterial({ map: desk, roughness: .85, metalness: .08 }), maps: [] } : createDeskMaterial(T, desk)
       deskSurface.maps.forEach((map) => disposal.add(map))
       const deskMesh = new T.Mesh(new T.PlaneGeometry(1, 1), deskSurface.material)
       deskMesh.rotation.x = -Math.PI / 2; deskMesh.receiveShadow = true; scene.add(deskMesh)
-      const liveCards = createLiveCards(T, scene, camera, board, frameTexture, ground, scope as HTMLElement, folio)
-      const objects: { root: InstanceType<typeof T.Group>; selector: string; lid?: InstanceType<typeof T.Object3D>; cards?: InstanceType<typeof T.Object3D>; clasp?: InstanceType<typeof T.Object3D>; packets?: { node: InstanceType<typeof T.Object3D>; position: InstanceType<typeof T.Vector3>; rotation: InstanceType<typeof T.Euler> }[]; open: number; lidStart: number; cardStart: number }[] = []
-      const orbs: { material: InstanceType<typeof T.ShaderMaterial>; sparkle: InstanceType<typeof T.ShaderMaterial>; stars: InstanceType<typeof T.Points>; lamp: InstanceType<typeof T.PointLight>; halo: InstanceType<typeof T.Mesh>; glow: InstanceType<typeof T.ShaderMaterial> }[] = []
+      const liveCards = workspace ? null : createLiveCards(T, scene, camera, board, frameTexture, ground, scope as HTMLElement, folio)
+      const objects: { root: InstanceType<typeof T.Group>; selector: string; lid?: InstanceType<typeof T.Object3D>; cards?: InstanceType<typeof T.Object3D>; clasp?: InstanceType<typeof T.Object3D>; packets?: { node: InstanceType<typeof T.Object3D>; position: InstanceType<typeof T.Vector3>; rotation: InstanceType<typeof T.Euler> }[]; open: number; lidStart: number; cardStart: number; cardYaw: number }[] = []
+      const orbs: { selector: string; material: InstanceType<typeof T.ShaderMaterial>; sparkle: InstanceType<typeof T.ShaderMaterial>; stars: InstanceType<typeof T.Points>; lamp: InstanceType<typeof T.PointLight>; halo: InstanceType<typeof T.Mesh>; glow: InstanceType<typeof T.ShaderMaterial> }[] = []
       const emitterScale = new T.Vector3()
       const folioLeaves: InstanceType<typeof T.Object3D>[] = []
       const load = async (url: string, selector: string) => {
@@ -140,12 +148,12 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
             }
           }
         })
-        const lid = root.getObjectByName('LidPivot') ?? root.getObjectByName('CodexCoverPivot'), cards = root.getObjectByName('CardLift')
+        const lid = root.getObjectByName('LidPivot') ?? root.getObjectByName('CodexCoverPivot'), cards = root.getObjectByName('CardLift') ?? (selector.includes('groups') ? root.getObjectByName('RingAssembly') : undefined)
         const clasp = root.getObjectByName('CodexClaspPivot')
         const packets = selector === '.action-deck-art' ? ['PacketA', 'PacketB', 'TopCard'].flatMap((name) => {
           const node = root.getObjectByName(name); return node ? [{ node, position: node.position.clone(), rotation: node.rotation.clone() }] : []
         }) : undefined
-        if (selector.includes('orb')) {
+        if (selector.includes('orb') || selector.includes('memory')) {
           const material = new T.ShaderMaterial({ transparent: true, depthWrite: false,
             uniforms: { time: { value: 0 }, energy: { value: .2 } },
             vertexShader: orbVertex, fragmentShader: orbFragment })
@@ -156,7 +164,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
             points.set([Math.cos(i * 2.399) * r, y, Math.sin(i * 2.399) * r], i * 3)
           }
           const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.BufferAttribute(points, 3))
-          const sparkle = new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending, uniforms: { time: { value: 0 } }, vertexShader: starVertex, fragmentShader: starFragment })
+          const sparkle = new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending, uniforms: { time: { value: 0 }, energy: { value: 0 } }, vertexShader: starVertex, fragmentShader: starFragment })
           const stars = new T.Points(geo, sparkle)
           stars.position.y = 1.38; gltf.scene.add(stars)
           const blueLight = new T.PointLight(0x69baff, 11, 9.5, 1.5); blueLight.position.y = 1.45; gltf.scene.add(blueLight)
@@ -165,9 +173,9 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
             vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
             fragmentShader: 'varying vec2 vUv;uniform float strength;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r),2.5)*.36*strength;gl_FragColor=vec4(.15,.48,1.,a);}' })
           const halo = new T.Mesh(new T.PlaneGeometry(3.8, 3.8), glow); halo.position.y = 1.38; gltf.scene.add(halo)
-          orbs.push({ material, sparkle, stars, lamp: blueLight, halo, glow })
+          orbs.push({ selector, material, sparkle, stars, lamp: blueLight, halo, glow })
         }
-        objects.push({ root, selector, lid, cards, clasp, packets, open: 0, lidStart: selector === '.action-codex-art' ? lid?.rotation.z ?? 0 : lid?.rotation.x ?? 0, cardStart: cards?.position.y ?? 0 })
+        objects.push({ root, selector, lid, cards, clasp, packets, open: 0, lidStart: selector === '.action-codex-art' ? lid?.rotation.z ?? 0 : lid?.rotation.x ?? 0, cardStart: cards?.position.y ?? 0, cardYaw: cards?.rotation.y ?? 0 })
         return root
       }
       function dispose(root: InstanceType<typeof T.Object3D>) {
@@ -189,7 +197,11 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           waxBead.scale.y = 1.6; o.add(waxBead)
         }
       })]
-      if (folio) {
+      if (workspace && dispatchURL && ringsURL && memoryURL) {
+        pending.push(load(dispatchURL.default, '.dispatch-trinket-art').then(() => {}))
+        pending.push(load(ringsURL.default, '.groups-trinket-art').then(() => {}))
+        pending.push(load(memoryURL.default, '.memory-trinket-art').then(() => {}))
+      } else if (folio) {
         pending.push(load(folioURL.default, '.folio-spread, .arcane-detail-inspection').then(() => {}))
         pending.push(load(orbURL.default, '.folio-orb-art').then(() => {}))
       }
@@ -229,7 +241,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       let lastLeaf = '', leafTurn = -10
       let moonSince = -10, previousPhase = ''
       let layoutAt = 0, layoutStamp = ''
-      let candleHover = 0, lastTend = '0', tendAt = -10
+      let candleHover = 0, lastTend = '0', tendAt = -10, inspectionApproach = 0
       const place = () => {
         if (graphicsLost || cancelled) return
         const bounds = board.getBoundingClientRect()
@@ -275,9 +287,15 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
         frame = 0
         if (cancelled || document.hidden || !visible || graphicsLost) { last = 0; return }
         frame = requestAnimationFrame(draw)
+        // The cabinet owns the foreground canvas while open; retain the last desk frame.
+        if (board.dataset.deskCompartment === 'open') { last = 0; return }
         const still = systemMotion.matches || document.documentElement.dataset.motion === 'reduce' || board.closest('.no-table-motion') !== null
         if (last && now - last < (still ? 100 : innerWidth < 600 ? 50 : 33)) return
         const dt = last ? Math.min(.1, (now - last) / 1000) : 0; last = now; time += dt
+        const approachTarget = board.dataset.scrying === 'true' && !still ? 1 : 0
+        inspectionApproach = still ? 0 : inspectionApproach + (approachTarget - inspectionApproach) * Math.min(1, dt * 6)
+        const zoom = 1 + inspectionApproach * .08
+        if (Math.abs(camera.zoom - zoom) > .0001) { camera.zoom = zoom; camera.updateProjectionMatrix() }
         // Late fonts/theme CSS can move an anchor without resizing the board.
         // Refit resting props at a low rate so visual art stays on its hit target.
         if (now - layoutAt > 400 && !scope.querySelector('.arcane-coin[aria-busy="true"]')) {
@@ -319,8 +337,11 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
         dust.visible = !still; if (!still) dust.rotation.y = time * .003
         for (const orb of orbs) {
           orb.material.uniforms.time.value = still ? 0 : time; orb.sparkle.uniforms.time.value = still ? 0 : time
-          const engaged = scope.querySelector('.search-object, .arcane-search-trinket')?.matches(':hover, :focus-visible')
+          const engaged = orb.selector === '.orb-projection-source' ? board.dataset.scrying === 'true' : scope.querySelector(orb.selector)?.closest('a,button')?.matches(':hover, :focus-visible')
           orb.material.uniforms.energy.value += ((engaged && !still ? .9 : .2) - orb.material.uniforms.energy.value) * Math.min(1, dt * 3)
+          const memory = orb.selector.includes('memory')
+          const response = still ? 0 : Math.max(0, (orb.material.uniforms.energy.value - .2) / .7)
+          orb.sparkle.uniforms.energy.value = memory ? response : 0
           // Cool, slow breathing belongs to the orb; never copy the candle's flutter.
           const breath = still ? 1 : 1 + Math.sin(time * .7) * .045
           const glowStrength = (.24 + light * .76) * breath * (1 + orb.material.uniforms.energy.value * .4)
@@ -331,7 +352,8 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
           orb.lamp.distance = 9.5 * emitterSize
           orb.glow.uniforms.strength.value = glowStrength
           orb.halo.quaternion.copy(camera.quaternion)
-          orb.stars.rotation.y = still ? 0 : time * .045
+          orb.stars.rotation.y = still ? 0 : time * .045 + (memory ? response * .75 : 0)
+          orb.stars.scale.setScalar(memory ? 1 - response * .12 : 1)
         }
         const leaf = scope.querySelector('.folio-spread')?.getAttribute('data-leaf') ?? '-'
         if (leaf !== lastLeaf) { if (lastLeaf) leafTurn = time; lastLeaf = leaf }
@@ -393,16 +415,37 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
             o.root.rotation.z = settle
             o.root.position.y = (o.root.userData.restY ?? 0) + (airborne ? Math.sin(Math.PI * t) * 1.3 : 0)
           }
-          if (o.lid || o.packets) {
+          if (o.lid || o.packets || o.cards) {
             const control = scope.querySelector(o.selector)?.closest('a,button')
             const engaged = o.selector === '.action-codex-art' && control?.hasAttribute('disabled') ? false
               : control?.matches(':hover, :focus-visible') || control?.getAttribute('aria-pressed') === 'true' && control?.hasAttribute('disabled')
             o.open = still ? 0 : o.open + ((engaged ? 1 : 0) - o.open) * Math.min(1, dt * 7)
+            const trinket = /dispatch|groups|memory/.test(o.selector)
+            if (trinket) {
+              const spring = stepTrinketMotion(o.root.userData.trinketSpring ?? { value: 0, velocity: 0 }, Boolean(engaged) && light > .5, dt, still)
+              o.root.userData.trinketSpring = spring; o.open = spring.value
+            }
             if (o.lid && o.selector === '.action-codex-art') {
               o.lid.rotation.z = o.lidStart + o.open * .18
               if (o.clasp) o.clasp.rotation.z = -Math.min(1, o.open * 2) * .65
             } else if (o.lid) o.lid.rotation.x = o.lidStart - o.open * 1.12
             if (o.cards) o.cards.position.y = o.cardStart + o.open * .14
+            if (o.cards && o.selector.includes('groups')) o.cards.rotation.y = o.cardYaw + o.open * .12
+            if (o.cards && trinket) {
+              const rest = o.cards.userData.trinketRest ??= { x: o.cards.position.x, z: o.cards.position.z, rx: o.cards.rotation.x, rz: o.cards.rotation.z }
+              if (o.selector.includes('dispatch')) {
+                o.cards.position.y = o.cardStart + o.open * .36
+                o.cards.position.x = rest.x + o.open * .075
+                o.cards.rotation.z = rest.rz - o.open * .13
+              } else if (o.selector.includes('groups')) {
+                o.cards.position.y = o.cardStart + o.open * .065
+                o.cards.rotation.x = rest.rx + o.open * .19
+                o.cards.rotation.y = o.cardYaw + o.open * .22
+              } else {
+                o.cards.position.y = o.cardStart + o.open * .075
+                o.cards.rotation.y = o.cardYaw + o.open * .42
+              }
+            }
             if (o.packets) {
               const phase = board.dataset.phase ?? 'idle'
               if (o.root.userData.packetPhase !== phase) { o.root.userData.packetPhase = phase; o.root.userData.packetTime = time }
@@ -429,7 +472,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       const resize = new ResizeObserver(place); resize.observe(board)
       document.addEventListener('visibilitychange', sync)
       const lost = (e: Event) => {
-        e.preventDefault(); graphicsLost = true; liveCards.hide(); setReady(false); board.classList.remove('shared-scene-ready')
+        e.preventDefault(); graphicsLost = true; liveCards?.hide(); setReady(false); board.classList.remove('shared-scene-ready')
         scope.querySelectorAll('.shared-model-ready').forEach((e) => e.classList.remove('shared-model-ready'))
         visible = false; sync()
       }
@@ -447,14 +490,15 @@ export default function ArcaneLighting({ folio = false, staticOnly = false }: { 
       place(); setReady(true); board.classList.add('shared-scene-ready'); sync()
     }).catch(() => { release?.(); setReady(false) })
     return () => { cancelled = true; release?.(); setReady(false) }
-  }, [effects, folio, staticOnly])
+  }, [effects, folio, staticOnly, workspace])
   const quick = import.meta.env.DEV && new URLSearchParams(location.search).get('candle-test') === '1'
   const waxHeight = candle.phase === 'relighting' && !reducedMotion() ? .28 + .72 * Math.min(1, candle.transition / 1600) : 1 - Math.min(1, candle.burned / (quick ? 14000 : CANDLE_BURN_MS)) * .72
   const flameStrength = candle.phase === 'moonlight' ? 0 : candle.phase === 'guttering' ? Math.max(0, 1 - candle.transition / 4500) : candle.phase === 'relighting' ? Math.min(1, candle.transition / 1600) : 1
   const candleArt = <span className="candle-model-anchor" aria-hidden="true"><span className="candle-fallback-art"><img src={candleHolder} alt="" /><span className="candle-wax-sprite" style={{ transform: `scaleY(${waxHeight})`, transformOrigin: `50% ${CANDLE_WAX_BASE_Y * 100}%` }}><img src={candleWax} alt="" /></span><span key={tend} className={`candle-fallback-flame ${tend ? 'flame-tended' : ''}`} style={{ left: `calc(${CANDLE_WICK_X * 100}% - 4px)`, top: `calc(${(CANDLE_WAX_BASE_Y + (CANDLE_WICK_Y - CANDLE_WAX_BASE_Y) * waxHeight) * 100}% - 20px)`, opacity: flameStrength }} /></span></span>
   return <>
     {folio ? <div className="candle-anchor" aria-hidden="true">{candleArt}</div>
-      : <button type="button" className="candle-anchor candle-object" data-candle-tend={tend} aria-label="Tend the candle" onClick={() => setTend((value) => value + 1)}>{candleArt}<span className="candle-label">Tend flame</span></button>}
+      : <button type="button" className="candle-anchor candle-object" data-candle-tend={tend} aria-label="Tend the candle" aria-haspopup="dialog" aria-expanded={lightingOpen} onClick={() => { setTend((value) => value + 1); setLightingOpen(true) }}>{candleArt}<span className="candle-label">Adjust lighting</span></button>}
+    {lightingOpen && <Sheet title="By candlelight" onClose={() => setLightingOpen(false)} className="arcane-candle-dialog"><p className="arcane-candle-note">Set the atmosphere at your table. Your candle keeps its slow burn.</p><ArcaneLightControls /></Sheet>}
     <div ref={host} className={`arcane-lighting ${ready ? 'lighting-ready' : ''}`} aria-hidden="true" />
     <div className={`arcane-moon-veil phase-${candle.phase}`} aria-hidden="true" />
   </>

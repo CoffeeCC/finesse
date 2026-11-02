@@ -8,18 +8,18 @@ export default function TableReservations() {
   const items = resume.data?.Items.slice(0, 3) ?? []
   if (!items.length) return null
   return (
-    <section className="table-reservations" aria-labelledby="reservations-heading">
-      <div className="reservation-heading"><p className="table-kicker">YOUR ADVENTURE CONTINUES</p><h2 id="reservations-heading">Pick up your journey.</h2></div>
-      <div className="reservation-list">
+    <section className="desk-continuations" aria-labelledby="reservations-heading">
+      <h2 id="reservations-heading">Continue your journey</h2>
+      <div className="desk-resume-hand">
         {items.map((item) => {
           const title = item.Type === 'Episode' ? item.SeriesName ?? item.Name : item.Name
           const art = posterUrl(item)
           const percent = item.RunTimeTicks && item.UserData?.PlaybackPositionTicks
             ? Math.max(0, Math.min(100, item.UserData.PlaybackPositionTicks / item.RunTimeTicks * 100)) : 0
           return (
-            <Link key={item.Id} className="reservation-ticket" to={`/play/${item.Id}`} aria-label={`Resume ${title}${item.Type === 'Episode' ? `, ${item.Name}` : ''}`}>
-              <span className="reservation-art">{art ? <img src={art} alt="" loading="lazy" /> : <i aria-hidden>F</i>}</span>
-              <span className="reservation-copy"><small>IN PROGRESS</small><strong>{title}</strong><span>{item.Type === 'Episode' ? item.Name : 'Continue watching'} <b aria-hidden>↗</b></span><span className="reservation-progress" aria-label={`${Math.round(percent)} percent watched`}><span style={{ width: `${percent}%` }} /></span></span>
+            <Link key={item.Id} className="desk-resume-card" to={`/play/${item.Id}`} aria-label={`Resume ${title}${item.Type === 'Episode' ? `, ${item.Name}` : ''}`}>
+              <span className="resume-playing-card"><span className="card-art">{art ? <img src={art} alt="" loading="lazy" /> : <i aria-hidden>F</i>}</span></span>
+              <strong>{title}</strong><span className="resume-progress" aria-label={`${Math.round(percent)} percent watched`}><span style={{ width: `${percent}%` }} /></span>
             </Link>
           )
         })}

@@ -235,6 +235,23 @@ gamepad test. Prefer simpler scene rendering on constrained devices.
 
 ## Review and handoff
 
+For a complete scene theme, create a function/object register before adding more controls.
+Arcane's example is docs/ARCANE-OBJECT-REGISTER.md: unrelated functions get distinct
+objects; the same destination keeps its identity across views. Do not use a generic
+book or coin as a fallback for unknown functions. The navigation registry is
+src/lib/arcaneTrinkets.ts; its identity check rejects duplicate asset assignments.
+New props have original Blender sources, GLB runtime geometry and matching stills.
+The current compartment uses a temporary live scene while open, with native links
+above it and stills as fallback. It releases the scene when closing finishes;
+the background table retains its last rendered frame to limit simultaneous work.
+
+Keep a compartment mounted through its closing animation so keyboard focus and
+Back remain valid. Animate about real hinges or along drawer runners. Reversal
+should retain the current pose; use reduced-motion settings to provide the same
+actions without requiring movement. ArcaneDeskDrawer.tsx demonstrates a reversible
+timeline and delayed unmount, but its CSS-perspective lid remains a prototype for
+the planned Blender desk/interior.
+
 Run npm run theme:test, npm run build and npm run build:webos. Before pushing,
 AGENTS.md additionally requires server:typecheck and server:test. Add a tour scene
 under tools/tour for a new feature. Record which checks actually ran and any errors.
