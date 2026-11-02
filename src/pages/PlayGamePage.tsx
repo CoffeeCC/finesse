@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useGame } from '../api/queries'
 import { biosUrl, EJS_NIGHTLY, ejsCore, isBeta, needsThreads, primeGamesAuth, rommContentUrl } from '../api/romm'
 import { CONTENT_BASE } from '../lib/contentOrigin'
+import { bindPads, pressedPad, type PadState } from '../lib/retroPads'
 import { keepSaves, type Ejs, type SaveStatus } from '../lib/retroSaves'
 
 // Plays a RomM title with EmulatorJS (client-side WASM). The ROM and the
@@ -12,6 +13,7 @@ import { keepSaves, type Ejs, type SaveStatus } from '../lib/retroSaves'
 // navigation back to /games — EmulatorJS doesn't tear down cleanly (audio and
 // gamepad loops linger), so a full reload is the reliable way to stop it.
 // In-game saves go to the Finesse server (lib/retroSaves), and Exit waits for the last one.
+// Player 1 is the real controller this device chose (lib/retroPads), never a microphone.
 
 const EJS_CDN = 'https://cdn.emulatorjs.org/stable/data/'
 const EJS_LOCAL = `${CONTENT_BASE}games/assets/emulatorjs/data/`
@@ -44,6 +46,10 @@ export default function PlayGamePage() {
   const started = useRef(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState<{ status: SaveStatus; at: number } | null>(null)
+  const [pads, setPads] = useState<PadState | null>(null)
+  const [picking, setPicking] = useState(false)
+  const choosePad = useRef<((id: string) => void) | null>(null)
+  const asked = useRef(false)
 
   const core = rom ? ejsCore(rom.platform_slug) : null
 
@@ -102,6 +108,14 @@ export default function PlayGamePage() {
           setSaved((prev) => (status === 'offline' && prev?.status === 'offline' ? prev : { status, at: Date.now() })),
         )
         flushSave = saves.flush
+        choosePad.current = bindPads(emu as unknown as Parameters<typeof bindPads>[0], (st) => {
+          setPads(st)
+          // Two controllers and no choice yet: ask once (the Controller button asks again).
+          if (st.ask && !asked.current) {
+            asked.current = true
+            setPicking(true)
+          }
+        }).choose
       }
       const s = document.createElement('script')
       s.src = `${data}loader.js`
@@ -110,6 +124,20 @@ export default function PlayGamePage() {
       document.body.appendChild(s)
     })()
   }, [rom, core])
+
+  const pick = (id: string) => {
+    choosePad.current?.(id)
+    setPicking(false)
+  }
+  // The picker: a button pressed on a controller chooses it (that's the one in your hands).
+  useEffect(() => {
+    if (!picking) return
+    const t = window.setInterval(() => {
+      const id = pressedPad()
+      if (id) pick(id)
+    }, 100)
+    return () => window.clearInterval(t)
+  }, [picking])
 
   // The note fades after a moment.
   useEffect(() => {
@@ -146,6 +174,42 @@ export default function PlayGamePage() {
         </svg>
         Exit
       </button>
+
+      {pads && pads.pads.length > 1 && !picking && (
+        <button
+          onClick={() => setPicking(true)}
+          className="absolute top-3 right-3 z-[60] inline-flex max-w-[45vw] items-center gap-2 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur px-3 py-2 text-sm font-medium text-white transition-colors"
+          title="Choose the controller you play with"
+        >
+          <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+            <rect x="2.5" y="7" width="19" height="10" rx="5" />
+            <path strokeLinecap="round" d="M7 10.5v3M5.5 12h3M16 11h.01M18 13h.01" />
+          </svg>
+          <span className="truncate">{pads.pads.find((p) => p.id === pads.chosen)?.name ?? 'Controller'}</span>
+        </button>
+      )}
+      {picking && pads && pads.pads.length > 0 && (
+        <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" onClick={() => setPicking(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Choose your controller" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+            <p className="text-[15px] font-semibold text-white">Which controller are you playing with?</p>
+            <p className="mt-1 text-[13px] text-ink-300">Press any button on it, or tap its name. This device remembers it.</p>
+            <div className="mt-4 flex flex-col gap-2">
+              {pads.pads.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => pick(p.id)}
+                  className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-left text-[14px] font-medium ring-1 transition-colors ${
+                    p.id === pads.chosen ? 'bg-white/10 text-white ring-accent-400/60' : 'bg-white/[0.04] text-ink-200 ring-white/10 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="truncate">{p.name}</span>
+                  {p.id === pads.chosen && <span className="shrink-0 text-[12px] text-accent-300">Playing</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {error ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
