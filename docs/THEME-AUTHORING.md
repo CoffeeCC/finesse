@@ -146,12 +146,14 @@ shared markup. Keep theme-only components null for other theme IDs.
 The showcase is a hybrid, not an entirely 3D app. Generated desk/book/frame textures
 complement Blender geometry. ArcaneLighting.tsx owns the receiving desk, candle,
 orb, boxes, book and enhanced resting cards in one light space. Study that component,
-src/lib/arcaneLiveCards.ts, src/lib/arcaneShaders.ts and the three Blender generators
-under tools/theme. The draw pile remains raster artwork. Phone folios/title details
+src/lib/arcaneLiveCards.ts, src/lib/arcaneShaders.ts and the Blender generators
+under tools/theme. The Home story codex and draw pile are also modeled, with matching stills. Phone folios/title details
 use simpler compositions. THEMES.md records exactly what is live and what is baked.
 
 For hinged props, preserve named pivot and content nodes when exporting. The
 deck-box contract uses LidPivot for the lid hinge and CardLift for the card packet.
+The action codex uses CodexCoverPivot/CodexClaspPivot; the draw stack uses
+PacketA/PacketB/TopCard. These are private example asset contracts, not a public theme API.
 Keep animation independent of hover hit targets; keyboard focus must offer the
 same behavior. Open on hover/focus, close on exit/blur, and keep touch activation
 usable without a hover prerequisite. A native selection action must never depend
@@ -172,6 +174,11 @@ extra libraries. The older standalone orb/box renderers must not run beside it.
 4. Choose coherent runtime light directions, environment reflections and exposure.
    A live light in an isolated orb cannot illuminate a separately baked table image.
    Real shadows across all objects require a shared live scene and receiving geometry.
+   Selective material maps can give painted ornaments a metallic response and shallow
+   relief without modeling every link; arcaneDeskMaterial.ts demonstrates this for the
+   desk chain. Keep material-map UV transforms synchronized with the base texture crop.
+   Such relief does not create a new silhouette or separate cast shadow. Document that
+   distinction, and keep poster colors and text readable when tuning the scene lights.
 5. Import optional rendering code on demand. Cap resolution and frame rate, pause
    offscreen and in hidden tabs, and dispose geometry, materials, environments,
    observers and animation callbacks on unmount. Handle context loss gracefully.
