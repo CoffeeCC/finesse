@@ -12,6 +12,24 @@ Correspondence props and the distinct navigation instrument set:
     blender --background --python tools/theme/create-correspondence-props.py
     blender --background --python tools/theme/create-navigation-trinkets.py
 
+Articulated desk/lock and the distinct sliding lighting drawer:
+
+    blender --background --python-exit-code 1 --python tools/theme/create-arcane-desk.py
+
+The generator validates independent animation channels before exporting, writes
+wide/portrait GLBs and matching open desk/drawer stills, and derives native fallback
+surface/hit regions in src/assets/card-table/desk-case-layout.ts. To remeasure packed
+scenes without rendering:
+
+    blender --background --python-exit-code 1 --python tools/theme/desk_layout.py
+
+Packed reference ranges: desk frames 1–76; lower drawer frames 77–122. The browser
+drives the named pivots with deskSequence.ts, using reversible 1800ms/1200ms
+timelines and independent eased cameras. GLBs contain geometry/pivots, not a browser
+recording or an animation player. Hardware sound cues are normalized crossing events,
+and active voices fade/cancel on direction changes. Fallback art is derived from the
+same original scenes; mobile contact shadows are a bounded approximation.
+
 These two generators share blender_prop_tools.py. Each writes editable scenes,
 self-contained GLBs and matching transparent WebP stills. See
 docs/ARCANE-OBJECT-REGISTER.md for exclusive function identities and which live

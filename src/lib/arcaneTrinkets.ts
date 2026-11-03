@@ -17,9 +17,11 @@ import activity from '../assets/card-table/chronicle-hourglass-v1-still.webp'
 import settings from '../assets/card-table/artificer-armillary-v1-still.webp'
 import remote from '../assets/card-table/command-wand-v1-still.webp'
 import desk from '../assets/card-table/desk-key-v1-still.webp'
+import lightingReset from '../assets/card-table/lighting-tuning-fork-v1-still.webp'
+import lightingDrawerPull from '../assets/card-table/drawer-pull-v1-still.webp'
 
 /** A function owns its object identity. Never fall back to another function's prop. */
-export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk } as const
+export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull } as const
 export type ArcaneTrinket = keyof typeof arcaneTrinkets
 export function destinationTrinket(destination: string): ArcaneTrinket | null {
   if (destination === '/' || destination === '/dashboard') return 'home'

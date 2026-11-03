@@ -1,6 +1,6 @@
 # Making a theme for Finesse
 
-Author guide — 1 November 2026. Applies to the optional-theme branch based on
+Author guide — updated 3 November 2026. Applies to the optional-theme branch based on
 Finesse 3.2.6, not an already-released public theme API.
 
 ## What you can make today
@@ -249,8 +249,21 @@ Keep a compartment mounted through its closing animation so keyboard focus and
 Back remain valid. Animate about real hinges or along drawer runners. Reversal
 should retain the current pose; use reduced-motion settings to provide the same
 actions without requiring movement. ArcaneDeskDrawer.tsx demonstrates a reversible
-timeline and delayed unmount, but its CSS-perspective lid remains a prototype for
-the planned Blender desk/interior.
+timeline and delayed unmount. It now drives a modeled Blender desk/key/lock/hinge,
+with a separate runner/camera sequence for the candle's lighting drawer. The editable
+reference scenes, generated artwork and source-derived fallback layout data live
+under tools/theme and src/assets/card-table. Reference clips explain the geometry;
+deskSequence.ts controls reversible browser timing, readiness and sound crossings.
+Do not replay a finished transition when a renderer announces readiness again.
+
+Use one active light space for an interaction, with bounded mobile quality and a
+functional artwork fallback. The current foreground mechanism temporarily retains
+the background table's last frame; disposal removes its models, textures and WebGL
+context on close. This is a practical preview architecture, not evidence that every
+Finesse page has already been ported. Native controls must remain anchored to the
+physical surface at every viewport. Derive fallback bounds from the authored camera
+rather than estimating a separate phone layout. Hardware sound APIs return a cancel
+callback so reversal/unmount cannot leave pending voices behind.
 
 Run npm run theme:test, npm run build and npm run build:webos. Before pushing,
 AGENTS.md additionally requires server:typecheck and server:test. Add a tour scene

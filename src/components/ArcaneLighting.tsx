@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { Mesh, MeshStandardMaterial, Points, Texture } from 'three'
 import { getCandle, useCandle } from '../lib/candle'
 import { CANDLE_BURN_MS } from '../lib/candleClock'
@@ -18,6 +18,7 @@ import { Sheet } from './Sheet'
 import ArcaneLightControls from './ArcaneLightControls'
 import { stepTrinketMotion } from '../lib/trinketMotion'
 import './arcane-lighting.css'
+const LightingDrawer = __WEBOS__ ? null : lazy(() => import('./ArcaneDeskDrawer'))
 
 /** One light space for the candle, orb, boxes, folio and receiving desk. Native UI remains above it. */
 export default function ArcaneLighting({ folio = false, staticOnly = false, workspace = false }: { folio?: boolean; staticOnly?: boolean; workspace?: boolean }) {
@@ -498,7 +499,9 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
   return <>
     {folio ? <div className="candle-anchor" aria-hidden="true">{candleArt}</div>
       : <button type="button" className="candle-anchor candle-object" data-candle-tend={tend} aria-label="Tend the candle" aria-haspopup="dialog" aria-expanded={lightingOpen} onClick={() => { setTend((value) => value + 1); setLightingOpen(true) }}>{candleArt}<span className="candle-label">Adjust lighting</span></button>}
-    {lightingOpen && <Sheet title="By candlelight" onClose={() => setLightingOpen(false)} className="arcane-candle-dialog"><p className="arcane-candle-note">Set the atmosphere at your table. Your candle keeps its slow burn.</p><ArcaneLightControls /></Sheet>}
+    {lightingOpen && (LightingDrawer && !workspace && !folio
+      ? <Suspense fallback={null}><LightingDrawer mode="lighting" motion={!reducedMotion() && !host.current?.closest('.no-table-motion')} onClosed={() => setLightingOpen(false)} /></Suspense>
+      : <Sheet title="By candlelight" onClose={() => setLightingOpen(false)} className="arcane-candle-dialog"><p className="arcane-candle-note">Set the atmosphere at your table. Your candle keeps its slow burn.</p><ArcaneLightControls /></Sheet>)}
     <div ref={host} className={`arcane-lighting ${ready ? 'lighting-ready' : ''}`} aria-hidden="true" />
     <div className={`arcane-moon-veil phase-${candle.phase}`} aria-hidden="true" />
   </>
