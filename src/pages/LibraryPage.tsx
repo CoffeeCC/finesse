@@ -22,7 +22,9 @@ import { formatRuntime } from '../api/types'
 import type { JfItem } from '../api/types'
 import { peerOf } from '../lib/peers'
 import { useTheme } from '../lib/theme'
+import { useArcaneWorkspace } from '../lib/arcaneSceneLayout'
 const ArcaneFolio = __WEBOS__ ? null : lazy(() => import('../components/ArcaneFolio'))
+const CollectionOpening = __WEBOS__ ? null : lazy(() => import('../components/ArcaneCollectionOpening'))
 
 const TEXT_BLOCK = 56
 const ROW_GAP = 8
@@ -92,11 +94,14 @@ export default function LibraryPage() {
   const sharedViews = useQuery({ queryKey: ['friend', friend, 'views'], queryFn: () => api.getViews(friend!), enabled: Boolean(friend), staleTime: 5 * 60_000 })
   const views = friend ? sharedViews.data : ownViews.data
   const view = views?.Items.find((v) => v.Id === viewId)
+  useArcaneWorkspace(theme === 'card-table' && Boolean(ArcaneFolio) && (!view || /^(movies|tvshows)$/.test(view.CollectionType ?? '')))
+  const opening = CollectionOpening ? <Suspense fallback={null}><CollectionOpening /></Suspense> : null
   if (theme === 'card-table' && ArcaneFolio && (friend ? sharedViews.isLoading : ownViews.isLoading)) {
-    return <p className="p-12 text-ink-300" role="status">Opening your collection…</p>
+    return opening
   }
+  if (theme === 'card-table' && CollectionOpening && !view) return <Suspense fallback={null}><CollectionOpening error="This collection couldn’t open. Check the server connection, then try again." onRetry={() => void (friend ? sharedViews.refetch() : ownViews.refetch())} /></Suspense>
   if (theme === 'card-table' && ArcaneFolio && view && /^(movies|tvshows)$/.test(view.CollectionType ?? '')) {
-    return <Suspense fallback={<p className="p-12 text-ink-300" role="status">Opening your collection…</p>}><ArcaneFolio key={view.Id} view={view} decks={(views?.Items ?? []).filter((v) => /^(movies|tvshows)$/.test(v.CollectionType ?? ''))} /></Suspense>
+    return <Suspense fallback={opening}><ArcaneFolio key={view.Id} view={view} decks={(views?.Items ?? []).filter((v) => /^(movies|tvshows)$/.test(v.CollectionType ?? ''))} /></Suspense>
   }
   return <StandardLibraryPage />
 }

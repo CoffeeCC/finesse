@@ -34,7 +34,7 @@ function mediaIsPlaying(): boolean {
   return false
 }
 
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
+const clamp = (n: number, lo: number, hi: number) => Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo
 
 function blip(freq: number, dur: number, peak: number, type: OscillatorType = 'sine') {
   const p = getPrefs()
@@ -90,7 +90,7 @@ export function playSelect() {
 let installed = false
 
 /** Original, restrained object sounds; same context, volume and media guard as Finesse. */
-export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land' | 'tuning-fork' | DeskSound) {
+export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land' | 'tuning-fork' | 'quill' | 'vials' | 'lantern' | 'sextant' | 'eraser' | 'courier-horn' | 'escapement' | 'shears-open' | 'shears-cut' | DeskSound) {
   const prefs = getPrefs(), vol = clamp(prefs.uiSoundsVolume ?? .6, 0, 1)
   if (!prefs.uiSounds || vol <= 0 || mediaIsPlaying() || document.hidden) return
   const ac = audioCtx(); if (!ac) return
@@ -119,7 +119,25 @@ export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | '
     source.start(t); source.stop(t + duration)
     voices.push({source,gain})
   }
-  if (kind === 'tuning-fork') {
+  if (kind === 'courier-horn') {
+    tone(220,.24,.014,0,247);tone(440,.18,.005,.03,494);rustle(.01,.18,460,.018)
+  } else if (kind === 'escapement') {
+    rustle(0,.04,2400,.020);tone(1200,.075,.010,0,880);rustle(.07,.04,1800,.012)
+  } else if (kind === 'shears-open') {
+    rustle(0,.15,1900,.026);tone(1600,.09,.008,.015,1200)
+  } else if (kind === 'shears-cut') {
+    rustle(0,.07,2300,.030);tone(680,.07,.012,0,430);rustle(.04,.07,1200,.017)
+  } else if (kind === 'eraser') {
+    rustle(0,.20,1050,.025);rustle(.10,.16,800,.012)
+  } else if (kind === 'quill') {
+    rustle(0,.13,2300,.022);rustle(.11,.08,1700,.012);tone(320,.08,.006,.03,280)
+  } else if (kind === 'vials') {
+    tone(1640,.22,.018);tone(2460,.16,.008,.045);rustle(.01,.06,2100,.012)
+  } else if (kind === 'lantern') {
+    tone(650,.14,.014,0,590);rustle(.03,.18,740,.023);tone(1310,.16,.006,.04)
+  } else if (kind === 'sextant') {
+    rustle(0,.10,1650,.020);tone(1900,.09,.009,.02,1460);tone(830,.08,.007,.08)
+  } else if (kind === 'tuning-fork') {
     tone(440,.42,.035);tone(880,.28,.008,.015);rustle(0,.06,1800,.015)
   } else if (kind === 'key-lift') {
     rustle(0,.08,2400,.018);tone(1900,.12,.009,.015,1670)
@@ -180,7 +198,8 @@ export function initUiSounds() {
       if (!el || (el as HTMLButtonElement).disabled || el.getAttribute('data-ui-sound') === 'handled') return
       if (document.documentElement.dataset.theme === 'card-table') {
         if (document.documentElement.dataset.arcaneSleep === 'true') return
-        const kind = el.matches('.search-object, .arcane-search-trinket') ? 'orb'
+        const collectionTool=el.getAttribute('data-collection-tool')
+        const kind = collectionTool==='query'?'quill':collectionTool==='genres'?'vials':collectionTool==='watch'?'lantern':collectionTool==='sort'?'sextant':collectionTool==='erase'?'eraser':el.matches('.search-object, .arcane-search-trinket') ? 'orb'
           : el.matches('.candle-object') ? 'flame'
           : el.matches('.deck-box-object, .story-action') ? 'deck'
           : el.matches('.draw-pile, .deal-action, .hand-card, .playing-card, .folio-slot') || el.closest('.folio-pagination') ? 'cards' : null

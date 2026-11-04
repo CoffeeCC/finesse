@@ -19,9 +19,17 @@ import remote from '../assets/card-table/command-wand-v1-still.webp'
 import desk from '../assets/card-table/desk-key-v1-still.webp'
 import lightingReset from '../assets/card-table/lighting-tuning-fork-v1-still.webp'
 import lightingDrawerPull from '../assets/card-table/drawer-pull-v1-still.webp'
+import collectionQuery from '../assets/card-table/collection-quill-v1-still.webp'
+import collectionGenres from '../assets/card-table/genre-vials-v1-still.webp'
+import collectionWatch from '../assets/card-table/watch-lantern-v1-still.webp'
+import collectionSort from '../assets/card-table/sort-sextant-v1-still.webp'
+import collectionErase from '../assets/card-table/collection-eraser-v1-still.webp'
+import dispatchPause from '../assets/card-table/dispatch-escapement-v1-still.webp'
+import dispatchRetry from '../assets/card-table/dispatch-courier-horn-v1-still.webp'
+import dispatchCancel from '../assets/card-table/dispatch-shears-v1-still.webp'
 
 /** A function owns its object identity. Never fall back to another function's prop. */
-export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull } as const
+export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull, collectionQuery, collectionGenres, collectionWatch, collectionSort, collectionErase, dispatchPause, dispatchRetry, dispatchCancel } as const
 export type ArcaneTrinket = keyof typeof arcaneTrinkets
 export function destinationTrinket(destination: string): ArcaneTrinket | null {
   if (destination === '/' || destination === '/dashboard') return 'home'

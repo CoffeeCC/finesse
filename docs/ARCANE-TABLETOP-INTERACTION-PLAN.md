@@ -93,7 +93,7 @@ Acceptance is full-route/full-state coverage: scroll every page to its end, open
 
 ## Current checkpoint — physical mechanisms
 
-The active full-app goal incorporates this plan, the object register and route inventory through [ARCANE-GOAL-CONTRACT.md](ARCANE-GOAL-CONTRACT.md). The latest published checkpoint is 6f6fb60; the physical desk/drawer work below is newer review work until committed and pushed.
+The active full-app goal incorporates this plan, the object register and route inventory through [ARCANE-GOAL-CONTRACT.md](ARCANE-GOAL-CONTRACT.md). The latest published checkpoint is 05c8e5d (keyed physical desk and lighting drawer; GitHub CI passed). The collection workspace described in the object register is newer local review work until committed and pushed.
 
 Home fills the viewport without ordinary navigation or below-mat sections. Card activation opens routed orb details and restores the originating hand/focus on return. Other routes and many detail actions still expose conventional controls; the full theme remains incomplete.
 

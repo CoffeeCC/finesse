@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import { useTheme } from '../lib/theme'
+import { useArcaneWorkspace } from '../lib/arcaneSceneLayout'
 import { useWatchlistItems } from '../api/queries'
 import MediaCard from '../components/MediaCard'
 import ThemePageBanner from '../components/ThemePageBanner'
@@ -8,12 +9,14 @@ import DownloadsSection from '../components/DownloadsSection'
 import { CardSkeleton } from '../components/Skeletons'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 const ArcaneSavedFolio = __WEBOS__ ? null : lazy(() => import('../components/ArcaneSavedFolio'))
+const ArcaneOpening = __WEBOS__ ? null : lazy(() => import('../components/ArcaneCollectionOpening'))
 
 /** My List: the server-synced watchlist, plus what you've asked the server to
  *  download (so a request isn't a fire-and-forget into another page). */
 export default function MyListPage() {
   const theme = useTheme()
-  if (theme === 'card-table' && ArcaneSavedFolio) return <Suspense fallback={<p className="p-12" role="status">Opening your folio…</p>}><ArcaneSavedFolio /></Suspense>
+  useArcaneWorkspace(theme === 'card-table' && Boolean(ArcaneSavedFolio))
+  if (theme === 'card-table' && ArcaneSavedFolio) return <Suspense fallback={ArcaneOpening && <Suspense fallback={null}><ArcaneOpening title="Saved stories" /></Suspense>}><ArcaneSavedFolio /></Suspense>
   return <StandardMyListPage />
 }
 

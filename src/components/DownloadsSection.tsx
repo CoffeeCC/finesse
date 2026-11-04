@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArrQueue } from '../api/queries'
 import { arrQueueRemove, arrQueueRetry, type ArrQueueItem, type DownloadVia } from '../api/arr'
 import { sabItemPause, sabItemResume } from '../api/sab'
 import ArrThumb from './ArrThumb'
 import { useToast } from './Toast'
+const DispatchRow = __WEBOS__ ? null : lazy(() => import('./ArcaneDispatchRow'))
 
 /** Says plainly how this is being fetched, right by the status. */
 const VIA: Record<Exclude<DownloadVia, null>, { label: string; hint: string; cls: string }> = {
@@ -23,12 +24,14 @@ function ViaChip({ via }: { via: DownloadVia }) {
   )
 }
 
-function Row({ d }: { d: ArrQueueItem }) {
+function Row({ d, physical = false }: { d: ArrQueueItem; physical?: boolean }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   // Cancel is two-tap: first tap arms, second within 4s confirms.
   const [armed, setArmed] = useState(false)
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (armTimer.current) clearTimeout(armTimer.current) }, [])
 
   const refresh = () => {
     // SAB/arr state takes a beat to settle; refetch shortly after acting.
@@ -51,10 +54,11 @@ function Row({ d }: { d: ArrQueueItem }) {
   const cancel = async () => {
     if (!armed) {
       setArmed(true)
-      setTimeout(() => setArmed(false), 4000)
+      armTimer.current = setTimeout(() => { setArmed(false); armTimer.current = null }, 4000)
       return
     }
     setArmed(false)
+    if (armTimer.current) { clearTimeout(armTimer.current); armTimer.current = null }
     setBusy(true)
     try {
       await arrQueueRemove(d)
@@ -81,6 +85,7 @@ function Row({ d }: { d: ArrQueueItem }) {
   }
 
   const attention = d.status === 'Needs attention'
+  if (physical && DispatchRow) return <Suspense fallback={<p role="status">Opening this dispatch…</p>}><DispatchRow d={d} busy={busy} armed={armed} onRetry={retry} onPause={togglePause} onCancel={cancel} via={d.via ? VIA[d.via] : undefined} /></Suspense>
 
   return (
     <div className={`rounded-xl border p-2.5 ${attention ? 'bg-amber-500/5 border-amber-500/30' : 'bg-ink-900/60 border-white/5'}`}>
@@ -158,11 +163,15 @@ function Row({ d }: { d: ArrQueueItem }) {
 
 /** Live "what's downloading" list from the Radarr/Sonarr/Lidarr queues, with
  *  pause/resume/cancel controls. Renders nothing when the queue is empty. */
-export default function DownloadsSection({ limit, title = 'Downloading now' }: { limit?: number; title?: string }) {
-  const { data, isError } = useArrQueue()
+export default function DownloadsSection({ limit, title = 'Downloading now', physical = false }: { limit?: number; title?: string; physical?: boolean }) {
+  const { data, isError, isLoading } = useArrQueue()
+  if (physical && isLoading) return <p role="status">Reading your dispatches…</p>
+  if (physical && isError) return <p role="alert">The dispatch list couldn’t be read. Check the connection, then open the ledger again.</p>
+  if (physical && !data?.length) return <p>No dispatches are in transit.</p>
   if (isError || !data || data.length === 0) return null
 
   const items = limit ? data.slice(0, limit) : data
+  if (physical) return <section className="arcane-dispatch-ledger" aria-label={title}><header><h3 className="sr-only">{title}</h3><p>{data.length} in progress</p></header>{items.map(d => <Row key={d.key} d={d} physical />)}</section>
 
   return (
     <section className="mb-8">

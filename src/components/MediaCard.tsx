@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { arcaneProjectionDepth, arcaneRouteOrigin } from '../lib/arcaneRouteOrigin'
 import { backdropUrl, episodeThumbUrl, getItem, imageUrl, posterUrl, trickplayTileUrl } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { useClipManifest } from '../api/queries'
@@ -62,6 +63,8 @@ export default function MediaCard({
 
   const tiltRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const location = useLocation(), origin = arcaneRouteOrigin(location.state)
+  const titleState = origin ? { arcaneTableOrigin: origin, arcaneProjectionDepth: arcaneProjectionDepth(location.state) + 1 } : undefined
 
   // Hover-preview: mouse over a poster and a short muted clip of the real title
   // plays over it (Netflix-style). Clips are pre-generated per resolution under
@@ -160,9 +163,10 @@ export default function MediaCard({
   return (
     <Link
       to={`/item/${linkId}`}
+      state={titleState}
       // The poster morphs into the detail page (lib/motion); Back reverses it.
       onClick={(e) =>
-        morphNavigate(() => navigate(`/item/${linkId}`), { from: tiltRef.current, name: posterMorphName(), event: e })
+        morphNavigate(() => navigate(`/item/${linkId}`, { state: titleState }), { from: tiltRef.current, name: posterMorphName(), event: e })
       }
       className="group block shrink-0 snap-start outline-none"
       data-poster-card={/^(Movie|Series|Season|Episode)$/.test(item.Type) || undefined}

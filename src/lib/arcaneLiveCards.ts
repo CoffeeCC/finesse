@@ -2,9 +2,9 @@ import type * as THREE from 'three'
 
 /** Camera-facing card stock and relief artwork share the table's light/shadows.
  * HTML buttons still own layout, focus, selection and dealing. A failed texture
- * leaves the original HTML card visible. Only the resting hand is enhanced. */
+ * leaves the original HTML card visible. The resting hand and collection leaves are enhanced. */
 export function createLiveCards(T: typeof import('three'), scene: THREE.Scene, camera: THREE.OrthographicCamera,
-  board: HTMLElement, frameTexture: THREE.Texture, ground: (x: number, y: number) => THREE.Vector3, scope: HTMLElement = board, folio = false) {
+  board: HTMLElement, frameTexture: THREE.Texture, ground: (x: number, y: number) => THREE.Vector3, scope: HTMLElement = board, folio = false, surfaceHeight: () => number = () => 0) {
   const shape = new T.Shape(), x = -.44, y = -.65, w = .88, h = 1.32, r = .065
   shape.moveTo(x + r, y); shape.lineTo(x + w - r, y); shape.quadraticCurveTo(x + w, y, x + w, y + r)
   shape.lineTo(x + w, y + h - r); shape.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
@@ -29,8 +29,9 @@ export function createLiveCards(T: typeof import('three'), scene: THREE.Scene, c
       if (disposed) return
       const nodes = [...scope.querySelectorAll<HTMLElement>(folio ? '.folio-card-art' : '.playing-card')].slice(0, folio ? 8 : 5), current = new Set(nodes)
       for (const [element, card] of cards) if (!current.has(element) || !element.isConnected) remove(element, card)
-      if (folio ? innerWidth < 760 || !scope.querySelector('.folio-spread.shared-model-ready') : board.dataset.phase !== 'idle') { hide(); return }
+      if (folio ? !scope.querySelector('.folio-spread.shared-model-ready') : board.dataset.phase !== 'idle') { hide(); return }
       const bounds = board.getBoundingClientRect()
+      const bookFloor = folio ? surfaceHeight() : 0
       for (const element of nodes) {
         const img = element.querySelector<HTMLImageElement>(folio ? 'img' : '.card-art img'), src = img?.currentSrc || img?.src
         const rect = element.getBoundingClientRect(), css = getComputedStyle(element)
@@ -68,7 +69,7 @@ export function createLiveCards(T: typeof import('three'), scene: THREE.Scene, c
         const selected = Boolean(element.closest('.card-selected, .slot-selected, .folio-inspect-card'))
         const targetLift = selected ? (folio ? .26 : .48) * light : nodes.indexOf(element) * .012
         card.elevation = still || card.elevation === undefined ? targetLift : card.elevation + (targetLift - card.elevation) * (1 - Math.exp(-dt * 12))
-        const elevation = worldHeight * Math.SQRT1_2 / 2 + (folio ? .12 : .025) + card.elevation
+        const elevation = worldHeight * Math.SQRT1_2 / 2 + (folio ? bookFloor + .05 : .025) + card.elevation
         card.root.position.set(center.x, elevation, center.z + elevation)
         card.root.quaternion.copy(camera.quaternion); card.root.rotateZ(-Math.atan2(matrix.b, matrix.a))
         card.root.scale.set(worldWidth, worldHeight / 1.5, worldWidth)

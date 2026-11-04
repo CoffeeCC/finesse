@@ -39,6 +39,8 @@ import { initGamepad } from './lib/gamepad'
 import ControllerHint from './components/ControllerHint'
 import ThemeWorkspace from './components/ThemeWorkspace'
 import { useTheme } from './lib/theme'
+import { arcaneRouteOrigin } from './lib/arcaneRouteOrigin'
+import { ArcaneSceneLayout, useArcaneSceneLayout } from './lib/arcaneSceneLayout'
 import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
 import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
@@ -70,13 +72,17 @@ const MomentsPage = lazyPage(() => import('./pages/MomentsPage'))
 const OrbProjection = __WEBOS__ ? null : lazyPage(() => import('./components/ArcaneOrbProjection'))
 
 export default function App() {
+  return <ArcaneSceneLayout><AppContent /></ArcaneSceneLayout>
+}
+function AppContent() {
   const { session } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const arcane = useTheme() === 'card-table' && !__WEBOS__
   const orbOpen = arcane && /^\/item\/[^/]+$/.test(location.pathname)
-  const sceneLocation = orbOpen ? { pathname: '/', search: '', hash: '' } : location
-  const tableScreen = arcane && (sceneLocation.pathname === '/' || sceneLocation.pathname === '/dashboard')
+  const sceneLocation = orbOpen ? arcaneRouteOrigin(location.state) ?? { pathname: '/', search: '', hash: '' } : location
+  const immersive = useArcaneSceneLayout()
+  const tableScreen = arcane && (immersive || orbOpen || sceneLocation.pathname === '/' || sceneLocation.pathname === '/dashboard')
   useSpatialNavigation()
   useRouteMemory()
   // Be a cast target for other devices ("Play on…"), and keep watch state live.

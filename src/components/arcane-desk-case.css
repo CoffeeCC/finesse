@@ -1,3 +1,6 @@
+/* Shared physical case styles must also load on direct collection entry. */
+.desk-atlas-object{position:absolute;right:5%;top:42%;z-index:9;width:90px;min-height:100px;display:flex;flex-direction:column;align-items:center;background:none;border:0;color:#e6d2a8;font-family:var(--font-display);font-size:20px}.desk-atlas-object>img{width:90px;height:76px;object-fit:contain;filter:drop-shadow(3px 6px 4px #0008)}
+.desk-drawer-shade{position:absolute;inset:0;z-index:35;display:flex}.desk-drawer h2{font-family:var(--font-display)}.drawer-latch{display:flex;flex-direction:column;align-items:center;min-width:70px;min-height:70px;background:none;border:0}.desk-drawer nav a{display:flex;flex-direction:column;align-items:center;text-align:center;font-family:var(--font-display);text-decoration:none}.desk-drawer nav img{object-fit:contain;filter:drop-shadow(2px 5px 3px #0009)}
 .desk-drawer-shade{padding:0;align-items:stretch;background:radial-gradient(ellipse at 55% 35%,#302119,#0b080b 75%);perspective:1400px}
 .desk-drawer{position:relative;inset:auto;width:100%;height:100%;max-height:none!important;padding:0!important;border:0;border-radius:0;background:none;box-shadow:none;overflow:hidden;transform-style:flat}
 .desk-motion-clock{position:absolute;visibility:hidden;pointer-events:none;width:0;height:0}

@@ -65,7 +65,9 @@ Original image-generation prompts for the table/frame/card back are stored besid
 
 For disposable edge states, run node tools/theme/fixture.mjs. Start a separate Vite instance pointing FINESSE_SERVER=http://127.0.0.1:38212. The fixture binds only to loopback and supplies a fake passwordless Theme Fixture profile, not real media services. Select Arcane Table in Settings → Themes. Edit theme-fixture-state.json and reload to choose single, empty, no-libraries, slow (3 seconds), error (503), or hang. The one-card state has a long name and no art. Do not induce these outages on a real service.
 
-npm run theme:test runs seventeen deadline/cancellation, candle-clock, flicker-continuity, bounded/storable scene-setting and sound-policy tests. See docs/THEMES.md and docs/THEME-AUTHORING.md for current behavior, authoring and manual verification requirements.
+npm run theme:test runs the current deadline/cancellation, candle-clock, flicker-continuity, bounded/storable scene-setting, route-origin, mechanism and sound-policy checks. See docs/THEMES.md and docs/THEME-AUTHORING.md for current behavior, authoring and manual verification requirements.
+
+`create-collection-tools.py` creates five original collection instruments: ink quill, genre vials, watch lantern, sorting sextant and mineral eraser. It exports matching transparent stills, articulated GLBs and editable packed Blender scenes. Run with `--python-exit-code 1`; pass asset names after `--` to render only selected tools. Named QuillPivot, VialStopperPivot0/1/2, LanternHandlePivot, SextantArmPivot and EraserHandlePivot drive bounded runtime hover/focus motion. The portrait journal plate and its exact prompt are recorded in `collection-journal-prompts.txt`; it is a purpose-made single leaf rather than a squeezed desktop spread.
 
 `create-action-props.py` builds the original story codex and draw deck, exports runtime GLBs and matching WebP stills, and saves packed editable scenes. The leather grain is an original baked procedural normal map. Named CodexCoverPivot/CodexClaspPivot and PacketA/PacketB/TopCard drive runtime interactions. Runtime inlays reuse the shared celestial back texture. `render-action-study.py` creates a packed Blender material/lighting study with the new props and existing candle/orb/coin; its output is not a recording of the application.
 
@@ -81,3 +83,10 @@ Resize after graphics loss and confirm native artwork/actions remain usable. Nor
 production timing is 45 visible minutes and a two-minute idle guard. Lab UI and
 accelerated query handling are compiled out of production. Leave normal timing and
 no lab enabled for a user preview.
+
+
+`create-portrait-folio.py` packs the original portrait journal plate into a leather/gilt/binding model with PortraitLeafPivot and a matching blue underleaf. Reference hinge samples assert that the writing surface clears its support. The browser uses folioMotion.ts for mirrored, bounded opening/turn motion, with reduced-motion stillness.
+
+`create-dispatch-tools.py` exports original escapement, shears and courier-horn models, transparent stills and packed editable scenes. Run Blender with `--background --python-exit-code 1 --python tools/theme/create-dispatch-tools.py`. Named EscapementLeverPivot, ShearLeftPivot, ShearRightPivot and CourierHornPivot animate in the existing folio renderer. No per-row canvas is added. Runtime clipping follows the scrollable writing area; stale loads must never hide a replacement owner's fallback.
+
+The loopback-only fixture supports mode `dispatch` in theme-fixture-state.json. It provides one long no-art saved title and a disposable in-memory Radarr/SAB queue; pause/resume/delete/search actions never contact external services. `/__fixture/events` is local proof, and POST `/__fixture/reset` resets only this test queue. Restore the state file after testing. Actual UI event evidence belongs outside public assets; do not include account headers, private library images or browser storage.

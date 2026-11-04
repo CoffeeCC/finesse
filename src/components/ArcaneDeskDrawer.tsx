@@ -6,6 +6,7 @@ import { pushBackHandler } from '../lib/back'
 import { arcaneTrinkets, destinationTrinket } from '../lib/arcaneTrinkets'
 import { DESK_SEQUENCE_MS, DRAWER_SEQUENCE_MS, deskPose, drawerPose, deskSoundCrossings, drawerSoundCrossings, partialCloseCue, partialOpenCue, resumePreparedMechanism, type DeskSound } from '../lib/deskSequence'
 import { playArcaneSound } from '../lib/sound'
+import { reducedMotion } from '../lib/settings'
 import wideInterior from '../assets/card-table/arcane-desk-wide-v1-open.webp'
 import portraitInterior from '../assets/card-table/arcane-desk-portrait-v1-open.webp'
 import wideDrawer from '../assets/card-table/arcane-desk-wide-v1-drawer.webp'
@@ -17,7 +18,13 @@ import { DESK_CASE_LAYOUT } from '../assets/card-table/desk-case-layout'
 import './arcane-desk-case.css'
 const Instruments = lazy(() => import('./ArcaneDeskInstruments'))
 
-export default function ArcaneDeskDrawer({ motion = true, mode = 'desk', onClosed }: { motion?: boolean; mode?: 'desk' | 'lighting'; onClosed?: () => void }) {
+export default function ArcaneDeskDrawer({ motion: allowMotion = true, mode = 'desk', onClosed, blocked = false }: { motion?: boolean; mode?: 'desk' | 'lighting'; onClosed?: () => void; blocked?: boolean }) {
+  const [reduce, setReduce] = useState(reducedMotion)
+  const motion = allowMotion && !reduce
+  useEffect(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)'), update = () => setReduce(reducedMotion())
+    media.addListener(update); return () => media.removeListener(update)
+  }, [])
   const lighting = mode === 'lighting', duration = lighting ? DRAWER_SEQUENCE_MS : DESK_SEQUENCE_MS
   const [open, setOpen] = useState(lighting), [present, setPresent] = useState(lighting), ref = useRef<HTMLDivElement>(null)
   const animations = useRef<Animation[]>([]), requested = useRef(open)
@@ -64,7 +71,7 @@ export default function ArcaneDeskDrawer({ motion = true, mode = 'desk', onClose
   },[effects,lighting])
   useOverlayFocus(present, ref)
   useEffect(() => {
-    const board = ref.current?.closest<HTMLElement>('.celestial-table')
+    const board = ref.current?.closest<HTMLElement>('[data-arcane-orb-host]')
     if (!present || !board) return
     board.dataset.deskCompartment = 'open'
     return () => { delete board.dataset.deskCompartment }
@@ -130,7 +137,7 @@ export default function ArcaneDeskDrawer({ motion = true, mode = 'desk', onClose
   const tools = [{ to: '/libraries', label: 'All libraries' }, { to: '/mylist', label: 'Saved stories' }, ...destinations,
     { to: '/settings', label: 'Settings & account' }, { to: '/remote', label: 'Remote control' }]
   return <>
-    {!lighting && <button type="button" className="desk-atlas-object" data-ui-sound="handled" aria-label="Open the desk compartment" aria-haspopup="dialog" aria-expanded={present} onClick={show}><img src={arcaneTrinkets.desk} alt="" /><span>Unlock the desk</span></button>}
+    {!lighting && <button type="button" inert={blocked} className="desk-atlas-object" data-ui-sound="handled" aria-label="Open the desk compartment" aria-haspopup="dialog" aria-expanded={present} onClick={show}><img src={arcaneTrinkets.desk} alt="" /><span>Unlock the desk</span></button>}
     {present && <div className="desk-drawer-shade" onClick={close}><div ref={ref} className={`desk-drawer ${lighting ? 'desk-lighting-drawer' : ''}`} data-desk-mode={mode} role="dialog" aria-modal="true" aria-label={lighting ? 'By candlelight' : 'Inside the arcane desk'} onClick={(event) => event.stopPropagation()}>
       <span className="desk-motion-clock" aria-hidden="true" />
       <picture className="desk-case-fallback" aria-hidden="true"><source media="(max-aspect-ratio:17/20)" srcSet={lighting ? portraitDrawer : portraitInterior} /><img src={lighting ? wideDrawer : wideInterior} alt="" /></picture>

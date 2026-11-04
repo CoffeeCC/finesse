@@ -222,7 +222,7 @@ export default function CardTable() {
 
 
       <div className="table-scene-wrap">
-      <section ref={boardRef} data-arcane-scene="table" className={`table-stage celestial-table phase-${phase}`} data-deck-kind={deck?.CollectionType} aria-labelledby="hand-heading" aria-busy={busy} data-phase={phase}>
+      <section ref={boardRef} data-arcane-orb-host data-arcane-scene="table" className={`table-stage celestial-table phase-${phase}`} data-deck-kind={deck?.CollectionType} aria-labelledby="hand-heading" aria-busy={busy} data-phase={phase}>
         <ArcaneLighting />
         <p className="desk-inscription" aria-hidden="true">Finesse.</p>
         <ArcaneCoin />

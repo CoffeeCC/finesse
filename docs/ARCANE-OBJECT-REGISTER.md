@@ -70,3 +70,30 @@ Browser evidence in this checkpoint: live desk and distinct lighting drawer at 3
 Final real UI frames/timestamps and silent clips are outside the repository in outputs/arcane-mechanisms: desk-open-phone-final (95 frames), drawer-open-phone-final (80 frames), desk-opening-phone.mp4, drawer-opening-phone.mp4, desk-wide-final.png and lighting-drawer-phone-final.png. The clips are silent visual evidence; synthesized sounds have automated mute/volume/media, bounded voice and reversal cancellation checks, but these are not recordings or an independent listening review. The initial failed cold capture and intermediate v2 remain as diagnostic evidence.
 
 Physical controller, foldable hardware, real mobile GPU performance, screen-reader and all-route audits remain outstanding. No full-theme completion is claimed.
+
+## Collection workspace — current local review work after 05c8e5d
+
+The published keyed-desk checkpoint is 05c8e5d; its GitHub CI passed. The newer collection work below has not yet been published. Movie/show libraries now register a full-viewport workspace, retain their server pagination/query/genre/watch/sort models, and summon title details in one activation. The originating collection survives behind the orb; filters and leaf return with it. Related-title links retain that origin and a bounded return depth. Capture the opener before making its background inert: this fixes the browser clearing focus to body before the dialog could remember the card.
+
+Five new exclusive collection instruments extend the desk identities:
+
+| Function | Original object | Current response |
+| --- | --- | --- |
+| Search within this collection | Silver ink quill and inkwell | Quill inclination and a dry nib sound |
+| Genre filters | Three tincture vials in a walnut rack | Stoppers lift with a restrained glass sound |
+| Watched/in-progress/favorite filtering | Moon-heart lantern | Handle movement and a quiet metal/breath cue |
+| Collection ordering | Graduated brass sextant | Index arm sweeps with a ratchet cue |
+| Clear collection filters | Mineral eraser in an engraved cradle | Handle response and a soft brushing cue |
+
+All five have original editable Blender scenes, GLBs and matching transparent stills. Index pages use native writing/radio/checkbox semantics, replacing the former dropdown menu components. Page corners turn the collection; an input in the binding preserves direct leaf access. The 390px composition fits all six cards and five instruments, with a purpose-made generated single-leaf portrait journal. The original portrait plate is packed into an articulated Blender journal. Both narrow and wide books and card frames now share live candle/orb lighting with their instruments; matching native art remains the fallback. Real mobile GPU performance is not established.
+
+Saved-story requests moved into the folio's dispatch ledger rather than remaining below the mat. Pause/resume uses a brass escapement, retry uses a courier horn, and two-step cancellation uses forged shears. These three exclusive identities bring the registry to 29. Their editable Blender scenes, GLBs and stills share the collection light space; scroll clipping and removal release their models. This does not complete the broader acquisition redesign. The library hub, global search, secondary routes, detail action controls, entry/admin/player and other overlays still require full migration. The scene-layout registration is viewport ownership, not a completed persistent scene coordinator.
+
+
+## Collection and dispatch verification — 4 November 2026
+
+A one-card, deliberately long-title/no-art library and an isolated disposable download queue were driven through the actual browser. Pause/resume preserved action focus; retry removed the failed queue entry with blocklisting before issuing MoviesSearch; cancellation required its second activation and expired safely after four seconds. Confirmed cancellation removed the disposable entry without blocklisting and returned focus to the book after the row disappeared. No real download queue was changed. Event evidence is retained outside the public repository in outputs/arcane-mechanisms/dispatch-events-*.json.
+
+The 320px real library shows six live-lit cards without horizontal overflow. Portrait hinge geometry now rises above the book instead of intersecting it, with a matching blue underleaf. Long missing-art labels are clipped within their card and remain fully available through the accessible name. Fresh keyboard summon/return restores the saved card's focus. Cold title reload follows replacement loading hosts rather than leaving an invisible portal attached to a disconnected book. These are browser checks, not physical-device/controller/screen-reader certification.
+
+Final local checks for this collection checkpoint: 33 theme checks, web/TV builds, server type-check and tour/fixture syntax checks pass. TV contains no collection/dispatch model assets or Three renderer. Windows full server tests were rerun and reproduced music, path/config and backup failures, then stalled and were stopped; the local server suite is not a pass. The reduced-motion/3D-off saved ledger was driven at 1440px with zero canvases; Escape returned focus to Dispatches. Live objects and normal motion were restored.

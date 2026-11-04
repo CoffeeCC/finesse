@@ -1,17 +1,22 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getItems, posterUrl } from '../api/client'
 import { useGenres } from '../api/queries'
-import { formatRuntime, type JfItem } from '../api/types'
-import { MultiSelectMenu, SelectMenu } from './Menu'
+import { type JfItem } from '../api/types'
+import ArcaneDeskDrawer from './ArcaneDeskDrawer'
+import { arcaneTrinkets } from '../lib/arcaneTrinkets'
+import { useArcaneWorkspace } from '../lib/arcaneSceneLayout'
+import { useOverlayFocus } from '../lib/overlayFocus'
+import { pushBackHandler } from '../lib/back'
 import ArcaneLighting from './ArcaneLighting'
 import ArcaneSearchTrinket from './ArcaneSearchTrinket'
-import { Sheet } from './Sheet'
 import { withHandDeadline } from '../lib/tableDeal'
 import { blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import { peerOf } from '../lib/peers'
 import './arcane-folio.css'
+import './arcane-collection-world.css'
+import './arcane-dispatch-ledger.css'
 
 const SORTS = [
   { value: 'SortName', label: 'Title A–Z' }, { value: 'DateCreated,SortName', label: 'Recently added' },
@@ -36,24 +41,27 @@ function CardArt({ item, large = false }: { item: JfItem; large?: boolean }) {
 }
 
 /** Deliberate collection browsing: actual server pagination, a bound folio and a persistent inspector. */
-export default function ArcaneFolio({ view, decks, saved = false, savedItems }: {
-  view: JfItem; decks: JfItem[]; saved?: boolean; savedItems?: JfItem[]
+export default function ArcaneFolio({ view, decks, saved = false, savedItems, requests }: {
+  view: JfItem; decks: JfItem[]; saved?: boolean; savedItems?: JfItem[]; requests?: ReactNode
 }) {
-  const [params, setParams] = useSearchParams()
+  const [params, setParams] = useSearchParams(), location = useLocation()
   const query = params.get('q') ?? '', genre = params.get('g') ?? ''
   const watch = WATCH.some((option) => option.value === params.get('w')) ? params.get('w')! : ''
   const sort = SORTS.some((s) => s.value === params.get('s')) ? params.get('s')! : 'SortName'
   const [input, setInput] = useState(query), selectedId = params.get('card') ?? ''
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const closeInspection = useCallback(() => setMobileOpen(false), [])
-  useEffect(() => {
-    const media = matchMedia('(min-width:760px)'), resize = () => { if (media.matches) closeInspection() }
-    media.addListener(resize); return () => media.removeListener(resize)
-  }, [closeInspection])
+  useArcaneWorkspace()
+  const [previewId, setPreviewId] = useState('')
+  const [tool, setTool] = useState<'query' | 'genres' | 'watch' | 'sort' | 'requests' | null>(null)
+  const indexRef = useRef<HTMLDivElement>(null), toolOpener = useRef<HTMLElement | null>(null)
+  const worldRef = useRef<HTMLDivElement>(null), focusNewLeaf = useRef(false)
+  useOverlayFocus(Boolean(tool), indexRef, toolOpener)
+  useEffect(() => { if (tool) return pushBackHandler(() => { setTool(null); return true }) }, [tool])
+  useEffect(() => setTool(null), [view.Id])
   const { data: genres } = useGenres(saved ? undefined : view.Id)
   const requestedLeaf = Number(params.get('leaf'))
   const leaf = Number.isSafeInteger(requestedLeaf) && requestedLeaf > 0 && requestedLeaf < 1_000_000 ? requestedLeaf : 1
-  const goToLeaf = (value: number) => {
+  const goToLeaf = (value: number, moveFocus = false) => {
+    focusNewLeaf.current = moveFocus
     setParams((previous) => { const next = new URLSearchParams(previous); next.set('leaf', String(value)); next.delete('card'); return next }, { replace: true })
   }
   const update = (key: string, value: string) => {
@@ -79,58 +87,69 @@ export default function ArcaneFolio({ view, decks, saved = false, savedItems }: 
     : books.data?.Items ?? []
   const total = saved ? allItems.length : books.data?.TotalRecordCount ?? 0
   const visible = saved ? allItems.slice((leaf - 1) * PAGE, leaf * PAGE) : allItems
-  const pick = visible.find((i) => i.Id === selectedId) ?? visible[0]
+  const pick = visible.find((i) => i.Id === previewId) ?? visible.find((i) => i.Id === selectedId) ?? visible[0]
   const leaves = Math.max(1, Math.ceil(total / 6))
   useEffect(() => {
     if ((saved || books.data) && leaf > leaves) goToLeaf(leaves)
   }, [total, saved, books.data, leaf])
-  const select = (item: JfItem) => {
-    setParams((previous) => { const next = new URLSearchParams(previous); next.set('card', item.Id); return next }, { replace: true })
-    if (innerWidth < 760) setMobileOpen(true)
-  }
+  const originState = { arcaneTableOrigin: { pathname: location.pathname, search: location.search, hash: '' } }
   const [leafInput, setLeafInput] = useState(String(leaf))
   useEffect(() => setLeafInput(String(leaf)), [leaf])
   const jump = () => {
     const value = Number(leafInput)
-    if (Number.isSafeInteger(value) && value >= 1 && value <= leaves) goToLeaf(value)
+    if (Number.isSafeInteger(value) && value >= 1 && value <= leaves) goToLeaf(value, true)
     else setLeafInput(String(leaf))
   }
   const loading = !saved && books.isLoading
-  const inspection = pick ? <div key={pick.Id} className="folio-inspection"><div className="folio-inspect-card"><CardArt key={pick.Id} item={pick} large /></div><p className="folio-inspect-meta">{[pick.ProductionYear, pick.OfficialRating, pick.RunTimeTicks ? formatRuntime(pick.RunTimeTicks) : null].filter(Boolean).join(' · ')}</p><h2>{pick.Name}</h2><p className="folio-inspect-summary">{pick.Overview || 'Some stories are better discovered. Open this title to find out more.'}</p>
-    <div className="folio-inspect-actions"><Link className="folio-primary" onClick={() => select(pick)} to={`/item/${pick.Id}`}>Open story <span aria-hidden="true">↗</span></Link><Link className="folio-secondary" onClick={() => select(pick)} to={pick.Type === 'Series' ? `/item/${pick.Id}` : `/play/${pick.Id}`}>{pick.Type === 'Series' ? 'Explore episodes' : pick.UserData?.PlaybackPositionTicks ? 'Resume' : 'Play'}</Link></div>
-  </div> : <div className="folio-inspection-empty" aria-hidden="true">✦<p>A story is waiting.</p></div>
-  return <div className="arcane-folio-page" data-arcane-scene="folio">
-    <div className="folio-scene" aria-hidden="true"><span className="folio-model-anchor" /><ArcaneLighting folio /></div>
-    <ArcaneSearchTrinket />
-    <header className="folio-heading"><div><p className="folio-eyebrow">{peerOf(view.Id) ? 'A SHARED COLLECTION' : 'THE CELESTIAL COLLECTION'}</p><h1>{saved ? 'Your story folio.' : 'Every card, a story.'}</h1><p>{peerOf(view.Id) ? 'Shared by another Finesse server. Your progress stays yours.' : 'A collection to get lost in. A story to take with you.'}</p></div><Link to="/">← Return to the table</Link></header>
-    <nav className="folio-dividers" aria-label="Collection dividers">
-      {decks.map((deck) => <Link key={deck.Id} to={`/library/${deck.Id}`} aria-current={!saved && deck.Id === view.Id ? 'page' : undefined}><span aria-hidden="true">{deck.CollectionType === 'tvshows' ? '☽' : '✦'}</span>{deck.Name}</Link>)}
-      <Link to="/mylist" aria-current={saved ? 'page' : undefined}><span aria-hidden="true">◇</span>Saved stories</Link>
-      <Link to="/libraries">All collections ↗</Link>
-    </nav>
+  useEffect(() => {
+    if (!loading && focusNewLeaf.current) {
+      focusNewLeaf.current = false
+      worldRef.current?.querySelector<HTMLElement>('.folio-slot')?.focus({ preventScroll: true })
+    }
+  }, [loading, leaf])
+  const titles = { query: 'Write a title.', genres: 'The genre index.', watch: 'Stories and their marks.', sort: 'Order the collection.', requests: 'Your dispatches.' }
+  const openTool = (next: NonNullable<typeof tool>, opener: HTMLElement) => { toolOpener.current = opener; setTool(next) }
+  const genreNames = genres?.Items.map((g) => g.Name) ?? []
+  return <div ref={worldRef} className="arcane-folio-page arcane-collection-world" data-arcane-orb-host data-arcane-scene="folio">
+    <ArcaneLighting folio interactive={!tool} />
+    <header className="collection-world-heading" inert={Boolean(tool)}>
+      <Link className="collection-home-stone" to="/" aria-label="Return to the table"><img src={arcaneTrinkets.home} alt="" /><span>Return to table</span></Link>
+      <div><p>{peerOf(view.Id) ? 'A SHARED COLLECTION' : 'THE COLLECTOR’S FOLIO'}</p><h1>{saved ? 'Saved stories' : view.Name}</h1></div>
+      <Link className="collection-archive-object" to="/libraries" aria-label={`All libraries, ${decks.length} movie and show collections`}><img src={arcaneTrinkets.library} alt="" /><span>Libraries</span></Link>
+    </header>
+    <div className="collection-global-tools" inert={Boolean(tool)}><ArcaneSearchTrinket /></div>
+    <ArcaneDeskDrawer blocked={Boolean(tool)} />
     <div className="folio-binding">
-      <div className="folio-tool-ribbon"><label className="folio-search"><span aria-hidden="true">⌕</span><input aria-label={`Search ${saved ? 'saved stories' : view.Name}`} placeholder="Find a story in this collection…" value={input} onChange={(e) => setInput(e.target.value)} /></label>
-        {!saved && <><MultiSelectMenu label="Genre" values={new Set(genre.split('|').filter(Boolean))} options={genres?.Items.map((g) => g.Name) ?? []} onChange={(values) => update('g', [...values].join('|'))} />
-          <SelectMenu label="Watch state" value={watch} options={WATCH} onChange={(v) => update('w', v)} />
-          <SelectMenu label="Sort by" value={sort} options={SORTS} onChange={(v) => update('s', v)} /></>}
-      </div>
-      <div className="folio-spread" data-leaf={leaf}>
-        <section className="folio-collection" aria-label={`${view.Name} card collection`} aria-busy={loading}>
-          <div className="folio-leaf-heading"><span>{saved ? 'SAVED STORIES' : view.Name.toUpperCase()}</span><span role="status">{loading ? 'Opening collection…' : books.isError ? 'Collection unavailable' : `${total.toLocaleString()} ${total === 1 ? 'story' : 'stories'}`}</span></div>
-          {books.isError ? <div className="folio-message" role="alert"><h2>This collection couldn’t open.</h2><p>Check the server connection, then try again.</p><button onClick={() => void books.refetch()}>Try again</button></div>
-            : !loading && !total ? <div className="folio-message"><span aria-hidden="true">✧</span><h2>{query || genre || watch ? 'No stories on this leaf.' : saved ? 'Your collection begins with a story.' : 'An unwritten collection.'}</h2><p>{query || genre || watch ? 'Try another title or clear your filters.' : saved ? 'Save a movie or show with My List and its card will appear here.' : 'Add movies or shows to this library to fill its pages.'}</p>{query || genre || watch ? <button onClick={() => { setInput(''); setParams({}) }}>Clear filters</button> : <Link to="/">Return to the table</Link>}</div>
-              : <div key={`${view.Id}-${leaf}`} className="folio-slots">{loading ? Array.from({ length: 6 }, (_, i) => <div className="folio-card-skeleton" key={i} />) : visible.map((item, i) => <button className={`folio-slot ${pick?.Id === item.Id ? 'slot-selected' : ''}`} key={item.Id} onClick={() => select(item)} aria-label={`Inspect ${item.Name}`} aria-pressed={pick?.Id === item.Id} style={{ '--slot-angle': `${[ -1.2, .7, -.4, .5, -.7, 1 ][i]}deg` } as React.CSSProperties}>
+      <div className="folio-spread" data-leaf={`${leaf}-${tool ?? 'cards'}`}>
+        <section hidden={Boolean(tool)} className="folio-collection" aria-label={`${view.Name} card collection`} aria-busy={loading}>
+          <div className="folio-leaf-heading"><span>{query ? `“${query}”` : saved ? 'YOUR SAVED STORIES' : view.Name.toUpperCase()}</span><span role="status">{loading ? 'Opening collection…' : books.isError ? 'Collection unavailable' : `${total.toLocaleString()} ${total === 1 ? 'story' : 'stories'}`}</span></div>
+          {books.isError ? <div className="folio-message" role="alert"><h2>This collection couldn’t open.</h2><p>Check the server connection, then turn this leaf again.</p><button className="collection-ink-action" onClick={() => void books.refetch()}>Turn the leaf again</button></div>
+            : !loading && !total ? <div className="folio-message"><h2>{query || genre || watch ? 'No stories on this leaf.' : saved ? 'Your collection begins with a story.' : 'An unwritten collection.'}</h2><p>{query || genre || watch ? 'Try another title or clear your marks in the index.' : saved ? 'Save a movie or show with My List and its card will appear here.' : 'Add movies or shows to this library to fill its pages.'}</p><p>Use the instruments on your desk to begin another search.</p></div>
+              : <div key={`${view.Id}-${leaf}`} className="folio-slots">{loading ? Array.from({ length: PAGE }, (_, i) => <div className="folio-card-skeleton" key={i} />) : visible.map((item, i) => <Link className={`folio-slot ${pick?.Id === item.Id ? 'slot-selected' : ''}`} key={item.Id} to={`/item/${item.Id}`} state={originState} onFocus={() => setPreviewId(item.Id)} onPointerEnter={() => setPreviewId(item.Id)} aria-label={`Summon ${item.Name}`} style={{ '--slot-angle': `${[-1.2,.7,-.4,.5,-.7,1][i]}deg` } as React.CSSProperties}>
                 <CardArt item={item} /><span className="folio-slot-title">{item.Name}</span><span className="folio-slot-year">{item.ProductionYear ?? 'Unknown year'}</span>
-              </button>)}{!loading && Array.from({ length: Math.max(0, PAGE - visible.length) }, (_, i) => <div className="folio-empty-pocket" aria-hidden="true" key={`empty-${i}`}><span>✧</span></div>)}</div>}
+              </Link>)}{!loading && Array.from({ length: Math.max(0, PAGE - visible.length) }, (_, i) => <div className="folio-empty-pocket" aria-hidden="true" key={`empty-${i}`}><span>✧</span></div>)}</div>}
         </section>
-        <section className="folio-inspector" aria-label="Selected story">
-          <p className="folio-eyebrow">A CLOSER LOOK</p>
-          {inspection}
-        </section>
+        {tool && <div ref={indexRef} className="collection-index-page" role="dialog" aria-modal="true" aria-label={titles[tool]}>
+          <button type="button" className="collection-page-return" aria-label="Return to collection cards" onClick={() => setTool(null)}><span aria-hidden="true" />Return to cards</button>
+          <h2>{titles[tool]}</h2>
+          <div className="collection-index-writing">
+            {tool === 'query' && <label className="collection-query-writing">Search {saved ? 'saved stories' : view.Name}<input data-autofocus aria-label={`Search ${saved ? 'saved stories' : view.Name}`} placeholder="Write a story’s name…" value={input} onChange={(e) => setInput(e.target.value)} /><small>{loading ? 'Reading the index…' : books.isError ? 'The server couldn’t read this index. Return to the cards to try again.' : `${total} stories match your writing.`}</small></label>}
+            {tool === 'genres' && <fieldset><legend>Choose any genres. Unmarked means all.</legend>{!genreNames.length && <p>No genre entries are available for this collection.</p>}{genreNames.map((name) => <label key={name}><input type="checkbox" checked={genre.split('|').includes(name)} onChange={() => { const values = new Set(genre.split('|').filter(Boolean)); if (values.has(name)) values.delete(name); else values.add(name); update('g',[...values].join('|')) }} /><span>{name}</span></label>)}</fieldset>}
+            {tool === 'watch' && <fieldset><legend>Choose the marks to follow.</legend>{WATCH.map((option) => <label key={option.value}><input type="radio" name="collection-watch-state" checked={watch === option.value} onChange={() => update('w', option.value)} /><span>{option.label}</span></label>)}</fieldset>}
+            {tool === 'sort' && <fieldset><legend>Choose how the stories are ordered.</legend>{SORTS.map((option) => <label key={option.value}><input type="radio" name="collection-sort-order" checked={sort === option.value} onChange={() => update('s', option.value)} /><span>{option.label}</span></label>)}</fieldset>}
+            {tool === 'requests' && <>{requests}<Link className="collection-dispatch-destination" to="/request" aria-label="Open requests and downloads"><img src={arcaneTrinkets.requests} alt="" /><span>Dispatch desk</span></Link></>}
+          </div>
+        </div>}
       </div>
-      <footer className="folio-pagination"><button aria-label="Previous collection leaf" disabled={leaf <= 1 || loading} onClick={() => goToLeaf(leaf - 1)}>←</button><label>Leaf <input aria-label="Collection leaf" inputMode="numeric" value={leafInput} onChange={(e) => setLeafInput(e.target.value)} onBlur={jump} onKeyDown={(e) => { if (e.key === 'Enter') { jump(); e.currentTarget.blur() } }} /> / {loading ? '…' : String(leaves).padStart(2, '0')}</label><button aria-label="Next collection leaf" disabled={leaf >= leaves || loading} onClick={() => goToLeaf(leaf + 1)}>→</button></footer>
+      <footer className="folio-pagination" inert={Boolean(tool)}><button className="collection-page-corner previous" aria-label="Previous collection leaf" disabled={leaf <= 1 || loading} onClick={() => goToLeaf(leaf - 1, true)}><span aria-hidden="true" />Previous leaf</button><label>Leaf <input aria-label="Collection leaf" inputMode="numeric" value={leafInput} onChange={(e) => setLeafInput(e.target.value)} onBlur={jump} onKeyDown={(e) => { if (e.key === 'Enter') { jump(); e.currentTarget.blur() } }} /> / {loading ? '…' : String(leaves).padStart(2, '0')}</label><button className="collection-page-corner next" aria-label="Next collection leaf" disabled={leaf >= leaves || loading} onClick={() => goToLeaf(leaf + 1, true)}><span aria-hidden="true" />Next leaf</button></footer>
     </div>
-    <footer className="folio-bottom-note"><span>✦</span> Collected stories. Endless possibilities.<Link to="/settings#settings-themes">Your theme ↗</Link></footer>
-    {mobileOpen && pick && <Sheet title={pick.Name} onClose={closeInspection} className="arcane-inspection-dialog"><div className="folio-modal-inspection">{inspection}</div></Sheet>}
+    <nav className="collection-instruments" aria-label="Collection instruments" inert={Boolean(tool)}>
+      <button type="button" data-collection-tool="query" aria-haspopup="dialog" aria-expanded={tool === 'query'} aria-label="Write a collection search" onClick={(e) => openTool('query',e.currentTarget)}><span className="collection-query-art"><img src={arcaneTrinkets.collectionQuery} alt="" /></span><span>Find a story<small>{query || 'The ink quill'}</small></span></button>
+      {!saved && <><button type="button" data-collection-tool="genres" aria-haspopup="dialog" aria-expanded={tool === 'genres'} aria-label="Open the genre index" onClick={(e) => openTool('genres',e.currentTarget)}><span className="collection-genres-art"><img src={arcaneTrinkets.collectionGenres} alt="" /></span><span>Genres<small>{genre ? `${genre.split('|').length} marked` : 'Every tincture'}</small></span></button>
+      <button type="button" data-collection-tool="watch" aria-haspopup="dialog" aria-expanded={tool === 'watch'} aria-label="Choose watched status" onClick={(e) => openTool('watch',e.currentTarget)}><span className="collection-watch-art"><img src={arcaneTrinkets.collectionWatch} alt="" /></span><span>Watch marks<small>{WATCH.find((x) => x.value === watch)?.label}</small></span></button>
+      <button type="button" data-collection-tool="sort" aria-haspopup="dialog" aria-expanded={tool === 'sort'} aria-label="Order the collection" onClick={(e) => openTool('sort',e.currentTarget)}><span className="collection-sort-art"><img src={arcaneTrinkets.collectionSort} alt="" /></span><span>Order<small>{SORTS.find((x) => x.value === sort)?.label}</small></span></button></>}
+      <button type="button" data-collection-tool="erase" aria-label="Clear collection filters" disabled={!query && !genre && !watch && sort === 'SortName'} onClick={() => { setInput(''); setParams({}); requestAnimationFrame(() => worldRef.current?.querySelector<HTMLElement>('[data-collection-tool="query"]')?.focus({ preventScroll: true })) }}><span className="collection-erase-art"><img src={arcaneTrinkets.collectionErase} alt="" /></span><span>Erase marks<small>Clear the index</small></span></button>
+      {requests && <button type="button" aria-label="Open your request ledger" onClick={(e) => openTool('requests',e.currentTarget)}><span><img src={arcaneTrinkets.requests} alt="" /></span><span>Dispatches<small>Your requests</small></span></button>}
+    </nav>
   </div>
 }

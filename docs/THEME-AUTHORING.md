@@ -1,6 +1,6 @@
 # Making a theme for Finesse
 
-Author guide — updated 3 November 2026. Applies to the optional-theme branch based on
+Author guide — updated 4 November 2026. Applies to the optional-theme branch based on
 Finesse 3.2.6, not an already-released public theme API.
 
 ## What you can make today
@@ -289,3 +289,14 @@ using validated theme manifests and assets. That requires an importer, stable
 semantic tokens and layout presets, which do not exist yet. The companion design
 proposal describes that system without promising that arbitrary CSS/JavaScript
 can be safely imported into an authenticated media app.
+
+## Physical collection workspaces (current source preview)
+
+ArcaneFolio now registers viewport ownership with useArcaneWorkspace. The provider owns a set of mounted workspace tokens so overlapping route and inner-folio lifetimes do not restore the ordinary navigation prematurely. Loading and errors must register too; never depend on CSS loaded only by Home. The shared sizing rules live in arcaneSceneLayout.css and physical desk styles live with ArcaneDeskDrawer. Ordinary themes and unsupported surfaces retain their own composition. This is an internal source contract, not a stable theme-pack API.
+
+Collection quill, genre vials, watch lantern, sorting sextant and eraser each own an original asset and articulated response. Their tools open writable pages in the bound book; native inputs retain keyboard and assistive semantics. Queries, filtering, ordering and page/leaf state remain in the URL. A routed title supplies arcaneTableOrigin; arcaneRouteOrigin validates supported background surfaces, and related titles retain a bounded projection depth. Capture the active card before shielding its background with inert, then restore it after the background becomes active. A plain direct title reload must still have a usable mat and a path Home.
+
+The portrait journal uses an original generated single-leaf plate; its exact built-in generation prompt is in tools/theme/collection-journal-prompts.txt. It is not a squeezed desktop spread. The portrait plate is packed into an original articulated Blender journal with a matching underleaf; desktop and mobile books/card frames use the shared live scene, while native art provides the 3D-off/context-loss fallback. Do not describe real-device performance as verified. Saved dispatch actions use three unique models (escapement, courier horn and shears), clipped to the writable page in the same renderer. Keep their native mutation handlers and two-step cancellation; preserve focus through busy states, replaced tools and row removal. Many other app surfaces remain unfinished physical migrations. Keep the full-app plan and object register honest about those gaps.
+
+
+Portal hosts can change during a cold lazy route, Suspense or a workspace replacement. Observe the connected host throughout the apparition lifetime, not only until the first match. Do not assume the first loading book remains mounted. Reference folio motion and its geometry invariant live in folioMotion.ts and the corresponding theme test; the left and right bindings must lift the writing plane above the book.

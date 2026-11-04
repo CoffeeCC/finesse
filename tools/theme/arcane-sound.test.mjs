@@ -25,14 +25,14 @@ function fixture(prefs = {}, media = [], hidden = false) {
   return { api: module.exports, starts, stops, gains, listeners, cancellations, contexts: () => contexts }
 }
 test('theme sounds obey mute, zero volume, hidden tabs and active unmuted media', () => {
-  for (const f of [fixture({ uiSounds: false }), fixture({ uiSoundsVolume: 0 }), fixture({}, [], true),
+  for (const f of [fixture({ uiSounds: false }), fixture({ uiSoundsVolume: 0 }), fixture({ uiSoundsVolume: NaN }), fixture({ uiSoundsVolume: Infinity }), fixture({}, [], true),
     fixture({}, [{ paused: false, muted: false, currentTime: 1 }])]) {
     f.api.playArcaneSound('coin-land'); assert.equal(f.contexts(), 0); assert.equal(f.starts.length, 0)
   }
 })
 test('every object sound is bounded and quiet; muted previews do not suppress it', () => {
   const f = fixture({}, [{ paused: false, muted: true, currentTime: 1 }])
-  for (const kind of ['orb', 'deck', 'cards', 'card-land', 'flame', 'coin-flip', 'coin-land', 'key-lift', 'key-insert', 'key-turn', 'lock-release', 'lock-latch', 'desk-open', 'desk-close', 'drawer-open', 'drawer-close', 'tuning-fork']) {
+  for (const kind of ['orb', 'deck', 'cards', 'card-land', 'flame', 'coin-flip', 'coin-land', 'key-lift', 'key-insert', 'key-turn', 'lock-release', 'lock-latch', 'desk-open', 'desk-close', 'drawer-open', 'drawer-close', 'tuning-fork', 'quill', 'vials', 'lantern', 'sextant', 'eraser', 'courier-horn', 'escapement', 'shears-open', 'shears-cut']) {
     const before = f.starts.length; f.api.playArcaneSound(kind); assert.ok(f.starts.length > before)
   }
   assert.equal(f.contexts(), 1); assert.equal(f.starts.length, f.stops.length)
@@ -47,6 +47,14 @@ test('coin-owned sounds are not doubled by the global click confirmation', () =>
   const f = fixture(); f.api.initUiSounds()
   f.listeners.click({ target: { closest: () => ({ disabled: false, getAttribute: () => 'handled' }) } })
   assert.equal(f.contexts(), 0)
+})
+test('collection instruments use their object sound instead of the generic select note', () => {
+  for (const tool of ['query','genres','watch','sort','erase']) {
+    const f=fixture();f.api.initUiSounds()
+    const button={disabled:false,getAttribute:(name)=>name==='data-collection-tool'?tool:null,matches:()=>false}
+    f.listeners.click({target:{closest:()=>button}})
+    assert.equal(f.contexts(),1);assert.ok(f.starts.length>=2,tool)
+  }
 })
 test('a deck click sounds once even when its request immediately disables the button', () => {
   const f = fixture(); f.api.initUiSounds()
