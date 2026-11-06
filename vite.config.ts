@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -16,6 +17,13 @@ function versionFile(): Plugin {
       this.emitFile({ type: 'asset', fileName: 'version.json', source: body() })
     },
     configureServer(server) {
+      // Router links use /finesse without the slash. Keep a hard refresh of
+      // Home usable in development too (Vite otherwise returns its base hint).
+      server.middlewares.use((req, res, next) => {
+        if (req.url !== '/finesse') return next()
+        res.writeHead(302, { Location: '/finesse/' })
+        res.end()
+      })
       server.middlewares.use('/finesse/version.json', (_req, res) => {
         res.setHeader('Content-Type', 'application/json')
         res.setHeader('Cache-Control', 'no-store')
@@ -127,6 +135,12 @@ export default defineConfig(({ mode }) => {
     // :10000 with Jellyfin). The webOS build runs off file:// so it needs a
     // relative base and inlines everything into one chunk (no dynamic imports).
     base: isWebos ? './' : '/finesse/',
+    resolve: isWebos ? {
+      alias: [
+        { find: './ScryingOrb', replacement: fileURLToPath(new URL('./src/components/ScryingOrbStill.tsx', import.meta.url)) },
+        { find: './DeckTrinket', replacement: fileURLToPath(new URL('./src/components/DeckTrinketStill.tsx', import.meta.url)) },
+      ],
+    } : undefined,
     define: {
       __WEBOS__: JSON.stringify(isWebos),
       __APP_VERSION__: JSON.stringify(pkg.version),

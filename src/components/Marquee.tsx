@@ -4,6 +4,9 @@ import { useLocation } from 'react-router-dom'
 import { backdropUrl, logoUrl } from '../api/client'
 import { useMarqueeItems } from '../api/queries'
 import { getPrefs } from '../lib/settings'
+import { useTheme } from '../lib/theme'
+import { getCandle, saveCandle, setCandle } from '../lib/candle'
+import { CANDLE_IDLE_MS, stepCandle, wakeCandle } from '../lib/candleClock'
 
 // Idle "marquee" screensaver: after a stretch of no input, the whole screen
 // becomes drifting library art — backdrops with title logos + taglines, slow
@@ -14,7 +17,7 @@ const IDLE_MS = 120_000 // 2 minutes
 const SLIDE_MS = 9_000
 const INPUT_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'scroll'] as const
 /** Inputs that would act on the page underneath (Back, Enter, a tap): the one that wakes the screen is used up. */
-const ACTING_EVENTS = ['keydown', 'pointerdown', 'mousedown', 'touchstart'] as const
+const ACTING_EVENTS = ['keydown', 'pointerdown', 'mousedown', 'touchstart', 'click'] as const
 /** …along with the rest of that same press (its keyup, click, the tap's synthesized click). */
 const FOLLOW_EVENTS = ['keyup', 'pointerup', 'mouseup', 'touchend', 'click'] as const
 const FOLLOW_MS = 600
@@ -29,11 +32,20 @@ function blocked(): boolean {
 }
 
 export default function Marquee() {
+  const theme = useTheme()
   const [active, setActive] = useState(false)
   const activeRef = useRef(false)
   activeRef.current = active
 
-  const { data: items = [] } = useMarqueeItems(active)
+  const { data: items = [] } = useMarqueeItems(active && (theme !== 'card-table' || getCandle().phase !== 'moonlight'))
+
+  useEffect(() => {
+    if (!active || theme !== 'card-table' || getCandle().phase !== 'moonlight') return
+    const surfaces = [...document.querySelectorAll<HTMLElement>('main, .vt-nav, .vt-tabs')]
+    const before = surfaces.map((surface) => surface.inert)
+    surfaces.forEach((surface) => { surface.inert = true })
+    return () => surfaces.forEach((surface, i) => { surface.inert = before[i] })
+  }, [active, theme])
 
   // Navigation without input — e.g. a title cast to this TV — wakes the screen.
   const { pathname } = useLocation()
@@ -43,46 +55,91 @@ export default function Marquee() {
 
   // One idle timer; any input re-arms it and dismisses an active screensaver.
   useEffect(() => {
-    if (!getPrefs().screensaver) return
+    const arcane = theme === 'card-table' && !__WEBOS__
     let timer = 0
+    let lastInput = performance.now(), lastTick = lastInput, savedAt = lastInput
+    const atTable = () => arcane && Boolean(document.querySelector('[data-arcane-scene]'))
+    const isBusy = () => blocked() || Boolean(document.querySelector('[role="dialog"], [role="menu"], [aria-busy="true"], [data-arcane-scene] iframe')) ||
+      Boolean(document.activeElement?.matches('input, textarea, select, [contenteditable="true"]'))
     const arm = () => {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
-        if (!blocked()) setActive(true)
+        if (getPrefs().screensaver && !atTable() && !isBusy()) setActive(true)
       }, IDLE_MS)
     }
     const onInput = () => {
-      if (activeRef.current) setActive(false)
+      lastInput = performance.now()
+      if (activeRef.current) { activeRef.current = false; setActive(false) }
+      if (arcane) setCandle(wakeCandle(getCandle()))
       arm()
     }
+    const onVisibility = () => {
+      lastTick = performance.now()
+      if (document.hidden) saveCandle()
+      else onInput() // Returning to the app is activity, not an overdue idle timeout.
+    }
+    const tick = window.setInterval(() => {
+      const now = performance.now(), delta = now - lastTick
+      lastTick = now
+      if (!getPrefs().screensaver) {
+        if (activeRef.current) { activeRef.current = false; setActive(false) }
+        if (arcane) setCandle(wakeCandle(getCandle()))
+      }
+      if (atTable() && !document.hidden) {
+        if (getCandle().phase === 'moonlight' && isBusy()) {
+          setCandle(wakeCandle(getCandle())); activeRef.current = false; setActive(false)
+        }
+        const eligible = getPrefs().screensaver && now - lastInput >= CANDLE_IDLE_MS && !isBusy()
+        // Accelerated testing is a local developer tool, never read in production.
+        const quick = import.meta.env.DEV && new URLSearchParams(location.search).get('candle-test') === '1'
+        const idle = quick ? now - lastInput >= 8000 && getPrefs().screensaver && !isBusy() : eligible
+        const next = stepCandle(getCandle(), delta, idle, quick ? 14_000 : undefined)
+        setCandle(next)
+        if (next.phase === 'moonlight' && !activeRef.current) { activeRef.current = true; setActive(true) }
+      }
+      if (now - savedAt > 5000) { saveCandle(); savedAt = now }
+    }, 500)
     // Waking the screen is all the first press does: it never reaches the page
     // (Escape used to wake it AND go back a page). Captured on window, so it runs
     // before the app's own handlers.
     let swallowUntil = 0
+    let swallowClick = false
     const consume = (e: Event) => {
       e.preventDefault()
       e.stopImmediatePropagation()
     }
     const onActing = (e: Event) => {
-      if (!activeRef.current) return
+      if (!activeRef.current) {
+        // A distinct new press is an intended action, not a synthetic tail of
+        // the waking press. Do not swallow its click just because it was quick.
+        if (e.type === 'pointerdown' || e.type === 'keydown') swallowUntil = 0
+        return
+      }
       consume(e)
+      swallowClick = e.type !== 'keydown' || ['Enter', ' ', 'Spacebar'].includes((e as KeyboardEvent).key)
       swallowUntil = performance.now() + FOLLOW_MS
       onInput()
     }
     const onFollow = (e: Event) => {
+      if (e.type === 'click' && !swallowClick) return
       if (performance.now() < swallowUntil) consume(e)
     }
     INPUT_EVENTS.forEach((e) => window.addEventListener(e, onInput, { passive: true }))
     ACTING_EVENTS.forEach((e) => window.addEventListener(e, onActing, { capture: true, passive: false }))
     FOLLOW_EVENTS.forEach((e) => window.addEventListener(e, onFollow, { capture: true, passive: false }))
+    document.addEventListener('visibilitychange', onVisibility)
     arm()
     return () => {
       INPUT_EVENTS.forEach((e) => window.removeEventListener(e, onInput))
       ACTING_EVENTS.forEach((e) => window.removeEventListener(e, onActing, { capture: true }))
       FOLLOW_EVENTS.forEach((e) => window.removeEventListener(e, onFollow, { capture: true }))
+      document.removeEventListener('visibilitychange', onVisibility)
       window.clearTimeout(timer)
+      window.clearInterval(tick)
+      saveCandle()
+      setCandle(wakeCandle(getCandle()))
     }
-  }, [])
+  }, [theme, pathname])
 
   // Advance slides + tick the clock only while showing.
   useEffect(() => {
@@ -96,6 +153,7 @@ export default function Marquee() {
     }
   }, [active, items.length])
 
+  if (theme === 'card-table' && getCandle().phase === 'moonlight') return null
   if (!active || items.length === 0) return null
   const item = items[idx % items.length]
   const backdrop = backdropUrl(item, 1920)

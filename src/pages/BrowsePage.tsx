@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import * as api from '../api/client'
 import MediaCard from '../components/MediaCard'
+import ThemePageBanner from '../components/ThemePageBanner'
 import { CardSkeleton } from '../components/Skeletons'
 
 // A "see all" hub: every row on the home page can deep-link here with its
@@ -31,7 +32,8 @@ export default function BrowsePage() {
   })
 
   return (
-    <div className="px-4 sm:px-6 lg:px-12 py-8">
+    <div data-theme-surface="catalog" className="px-4 sm:px-6 lg:px-12 py-8">
+      <ThemePageBanner label="Explore the archive" />
       <div className="flex items-baseline gap-3 mb-6">
         <h1 className="page-title">{title}</h1>
         {data && <span className="text-sm text-ink-400">{data.TotalRecordCount} items</span>}
