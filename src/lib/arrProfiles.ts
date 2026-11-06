@@ -82,3 +82,14 @@ export function pickArrConfig(kind: ArrKindName, profiles: ArrProfile[], roots: 
   if (!profile) return { ok: false, problem: `${app} has no quality profiles. Add one in ${app} (Settings → Profiles), then request again.` }
   return { ok: true, profile, root, saved: false }
 }
+
+/**
+ * Sonarr's profile for anime, if it has one ("Anime", "Anime 1080p"…; one without "Dub" first).
+ * Anime is mostly released in Japanese with subtitles, so a profile that scores English audio
+ * (a common setup) turns every anime release down and the request sits on "searching".
+ */
+export function animeProfile(profiles: ArrProfile[]): ArrProfile | undefined {
+  const anime = profiles.filter((p) => /\banime\b/i.test(p.name))
+  return anime.find((p) => /^\s*anime\s*$/i.test(p.name)) ?? anime.find((p) => !/\bdub/i.test(p.name)) ?? anime[0]
+}
+
