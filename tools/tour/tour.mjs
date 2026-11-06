@@ -472,7 +472,7 @@ await scene('themes', async () => {
   await d.caption('Inside the collector’s desk', 'The key turns, the bolt releases and the lid opens to reveal your tools. The candle has its own sliding drawer.')
   await d.click(page.getByRole('button', { name: 'Close the desk compartment', exact: true }), { after: 2000 })
   await page.goto(`${APP}/libraries`)
-  await d.click(page.locator('[data-theme-surface="libraries"]').getByRole('link', { name: 'Movies', exact: true }), { after: 1600 })
+  await d.click(page.getByRole('link', { name: 'Open Movies movie library', exact: true }), { after: 1600 })
   await d.caption('The collection stays on the desk', 'A bound folio holds your cards. Each instrument opens an index page; your filters and leaf remain when you return from a title.')
   await d.click(page.getByRole('button', { name: 'Order the collection', exact: true }), { after: 800 })
   await d.click(page.getByRole('radio', { name: 'Recently added', exact: true }), { after: 800 })

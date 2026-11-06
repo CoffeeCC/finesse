@@ -6,6 +6,9 @@ import { useSecondaryDestinations } from '../components/NavBar'
 import { DiceIcon, useSurprise } from '../lib/surprise'
 import { useTheme } from '../lib/theme'
 import ThemePageBanner from '../components/ThemePageBanner'
+import { lazy, Suspense } from 'react'
+import { useArcaneWorkspace } from '../lib/arcaneSceneLayout'
+const ArcaneVault=__WEBOS__?null:lazy(()=>import('../components/ArcaneLibraryVault'))
 
 // The phone's Library tab: every place to browse, one tap away (on desktop and
 // TV these live in the navbar and its More menu).
@@ -40,6 +43,12 @@ function TileArt({ viewId, music }: { viewId: string; music: boolean }) {
 }
 
 export default function LibrariesPage() {
+  const arcane=useTheme()==='card-table'&&Boolean(ArcaneVault)
+  useArcaneWorkspace(arcane)
+  if(arcane&&ArcaneVault)return <Suspense fallback={null}><ArcaneVault /></Suspense>
+  return <StandardLibrariesPage />
+}
+function StandardLibrariesPage() {
   const theme = useTheme()
   const { data: views } = useViews()
   const { surprise, busy } = useSurprise()

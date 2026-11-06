@@ -300,3 +300,6 @@ The portrait journal uses an original generated single-leaf plate; its exact bui
 
 
 Portal hosts can change during a cold lazy route, Suspense or a workspace replacement. Observe the connected host throughout the apparition lifetime, not only until the first match. Do not assume the first loading book remains mounted. Reference folio motion and its geometry invariant live in folioMotion.ts and the corresponding theme test; the left and right bindings must lift the writing plane above the book.
+
+
+The library vault is another internal workspace: native links inside physical deck boxes open actual collections. A destination can repeat its registered identity across scenes, but an unrelated action needs an exclusive object (the fortune-lots bowl is Surprise, never the games die or coin). Keep asynchronous reading on its owner: cancel pending library queries on unmount, show an actionable empty/error result, and retain native focus while busy. The validated orb origin now accepts /libraries and preserves its shelf query. This remains source-preview behavior, not a stable public theme-pack API.

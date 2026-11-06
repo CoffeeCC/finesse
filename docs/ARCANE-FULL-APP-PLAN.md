@@ -47,3 +47,9 @@ Do not infer complete collection/acquisition coverage: the libraries hub remains
 
 
 4 November local collection checkpoint: 29 exclusive trinket identities; original wide/portrait lit folios, five articulated index instruments and three physical dispatch actions. Browser-driven disposable queue evidence covers pause/resume/retry/confirmation expiry/cancel and focus restoration; no production queue was modified. Cold projection-host replacement, portrait hinge direction and long fallback-card labels were corrected. This remains progress toward the full inventory, not completion.
+
+
+The collection/dispatch checkpoint fc31aad is now published with passing GitHub CI. Current local vault work replaces the old libraries hub tiles with real deck-box links, a dedicated fortune-lots bowl and shared-lit physical navigation; see the object register for evidence and remaining checks. Home hand-source selection, full acquisition/search/detail surfaces and every remaining route family stay in scope.
+
+
+Next binding Home step: separate browsing from hand configuration. Movie/show deck boxes must open their actual collections; do not remove library selection from the discovery hand. Add an exclusive dealer’s tally/abacus object for hand-source configuration, with original Blender geometry, articulated beads and a restrained wooden/bead cue. Its writable selection stays on the mat/in the opened desk, uses native selection semantics and supports many libraries without overflowing Home. Do not reuse the game die, fortune bowl, sorting sextant or library-entrance boxes for this unrelated function. Verify selected-hand persistence, navigation and no-library/many-library/error/Back/focus behavior before claiming completion. Continue acquisition/global search/title actions and the remaining full-app inventory afterward.

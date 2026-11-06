@@ -1,7 +1,7 @@
 // Local UI-only fixture. No media services, accounts, or production data change.
 import http from 'node:http'
 import { readFileSync } from 'node:fs'
-const stateFile = new URL('./theme-fixture-state.json', import.meta.url)
+const stateFile = process.env.THEME_FIXTURE_STATE || new URL('./theme-fixture-state.json', import.meta.url)
 const user = { Id: 'theme-fixture', Name: 'Theme Fixture', HasPassword: false, Policy: { IsAdministrator: false } }
 const fixtureTitle = { Id: 'fixture-title', Name: 'An exceptionally long film title that still needs to be readable on a small screen', Type: 'Movie', Overview: 'A deliberately plain fixture without poster art, used to test a one-card library and long labels.', ProductionYear: 2026, RunTimeTicks: 54_000_000_000 }
 const initialDispatch = () => ({ id: 101, movieId: 10, movie: { id: 10, title: 'Fixture Courier', images: [] }, title: 'fixture-release', size: 1000, sizeleft: 300, status: 'downloading', trackedDownloadState: 'importFailed', protocol: 'usenet', downloadId: 'fixture-nzo', statusMessages: [{ title: 'Fixture import problem', messages: ['This is disposable fixture data.'] }] })
@@ -37,7 +37,11 @@ http.createServer((req, res) => {
   if (path.endsWith('/api/finesse')) return send({ name: 'finesse', version: '3.2.5', mode: 'adopt', instanceId: 'theme-fixture', setup: { state: 'ready', needsCode: false }, features: {}, jellyfin: { path: '/jellyfin' } })
   if (path.endsWith('/Users/Public')) return send([user])
   if (path.endsWith('/Users/AuthenticateByName')) return send({ AccessToken: 'fixture-only-not-a-real-credential', User: user })
-  if (path.endsWith('/Views')) return send({ Items: mode === 'no-libraries' ? [] : [{ Id: 'fixture-movies', Name: 'A very long library name for a quiet evening at home', CollectionType: 'movies' }], TotalRecordCount: mode === 'no-libraries' ? 0 : 1 })
+  if (path.endsWith('/Views')) {
+    if(mode==='views-error')return send({message:'Intentional fixture outage'},503)
+    const items=mode==='no-libraries'?[]:mode==='vault-shelves'?Array.from({length:9},(_,i)=>({Id:`fixture-${i}`,Name:`Shelf story library ${i+1}`,CollectionType:i%2?'tvshows':'movies'})):[{ Id: 'fixture-movies', Name: 'A very long library name for a quiet evening at home', CollectionType: 'movies' }]
+    return send({Items:items,TotalRecordCount:items.length})
+  }
   if (path.endsWith('/Items') && !path.endsWith('/Resume')) {
     if (mode === 'hang') return // Intentionally never answer: exercise the UI's deal deadline.
     if (mode === 'error') return send({ message: 'Intentional fixture outage' }, 503)

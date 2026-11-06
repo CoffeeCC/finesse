@@ -13,7 +13,7 @@ import { deskPose, drawerPose } from '../lib/deskSequence'
 import { createBaizeMaps, createContactShadow } from '../lib/arcaneBaize'
 
 const models = {
-  library: () => import('../assets/card-table/archive-chest-v1.glb?url'),
+  library: () => import('../assets/card-table/archive-chest-v2.glb?url'),
   mylist: () => import('../assets/card-table/story-codex-v1.glb?url'),
   anime: () => import('../assets/card-table/fox-mask-v1.glb?url'),
   music: () => import('../assets/card-table/silver-lyre-v1.glb?url'),

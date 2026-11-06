@@ -11,7 +11,7 @@ test('routed scrying retains a collection leaf and its query without accepting u
   assert.equal(result.pathname, '/library/f-peer-abc')
   assert.equal(result.search, '?q=moon&g=Drama&leaf=7&s=SortName')
   assert.equal(result.hash, '')
-  for (const pathname of ['/', '/dashboard', '/mylist']) assert.equal(origin({ arcaneTableOrigin: { pathname } }).pathname, pathname)
+  for (const pathname of ['/', '/dashboard', '/mylist', '/libraries']) assert.equal(origin({ arcaneTableOrigin: { pathname } }).pathname, pathname)
   for (const pathname of ['/item/title', '/play/title', '/settings', '/library/', '//outside', 'https://example.com', '/library/a/../../settings']) {
     assert.equal(origin({ arcaneTableOrigin: { pathname } }), null)
   }

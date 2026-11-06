@@ -23,7 +23,7 @@ import './arcane-lighting.css'
 const LightingDrawer = __WEBOS__ ? null : lazy(() => import('./ArcaneDeskDrawer'))
 
 /** One light space for the candle, orb, boxes, folio and receiving desk. Native UI remains above it. */
-export default function ArcaneLighting({ folio = false, staticOnly = false, workspace = false, interactive = true }: { folio?: boolean; staticOnly?: boolean; workspace?: boolean; interactive?: boolean }) {
+export default function ArcaneLighting({ folio = false, staticOnly = false, workspace = false, interactive = true, vault = false, sceneRevision = '' }: { folio?: boolean; staticOnly?: boolean; workspace?: boolean; interactive?: boolean; vault?: boolean; sceneRevision?: string }) {
   const host = useRef<HTMLDivElement>(null)
   const effects = useThemeEffects()
   const candle = useCandle()
@@ -180,7 +180,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
             }
           }
         })
-        const lid = root.getObjectByName('LidPivot') ?? root.getObjectByName('CodexCoverPivot'), cards = root.getObjectByName('CardLift') ?? (selector.includes('groups') ? root.getObjectByName('RingAssembly') : undefined)
+        const lid = root.getObjectByName('LidPivot') ?? root.getObjectByName('ChestLid') ?? root.getObjectByName('CodexCoverPivot'), cards = root.getObjectByName('CardLift') ?? (selector.includes('groups') ? root.getObjectByName('RingAssembly') : undefined)
         const clasp = root.getObjectByName('CodexClaspPivot')
         const packets = selector === '.action-deck-art' ? ['PacketA', 'PacketB', 'TopCard'].flatMap((name) => {
           const node = root.getObjectByName(name); return node ? [{ node, position: node.position.clone(), rotation: node.rotation.clone() }] : []
@@ -208,6 +208,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
           orbs.push({ selector, material, sparkle, stars, lamp: blueLight, halo, glow })
         }
         const mechanismNames = selector.includes('.dispatch-retry-art') ? ['CourierHornPivot'] : selector.includes('.dispatch-pause-art') ? ['EscapementLeverPivot'] : selector.includes('.dispatch-cancel-art') ? ['ShearLeftPivot','ShearRightPivot'] : selector === '.collection-query-art' ? ['QuillPivot'] : selector === '.collection-genres-art' ? ['VialStopperPivot0','VialStopperPivot1','VialStopperPivot2'] : selector === '.collection-watch-art' ? ['LanternHandlePivot'] : selector === '.collection-sort-art' ? ['SextantArmPivot'] : selector === '.collection-erase-art' ? ['EraserHandlePivot'] : []
+        if(selector==='.fortune-lots-art')for(let i=0;i<7;i++)mechanismNames.push(`LotPivot${i}`)
         const mechanisms = mechanismNames.flatMap(name => { const node=root.getObjectByName(name);return node?[{node,position:node.position.clone(),rotation:node.rotation.clone()}]:[] })
         objects.push({ root, selector, lid, cards, clasp, packets, mechanisms, open: 0, lidStart: selector === '.action-codex-art' ? lid?.rotation.z ?? 0 : lid?.rotation.x ?? 0, cardStart: cards?.position.y ?? 0, cardYaw: cards?.rotation.y ?? 0 })
         return root
@@ -235,6 +236,16 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
         pending.push(load(dispatchURL.default, '.dispatch-trinket-art').then(() => {}))
         pending.push(load(ringsURL.default, '.groups-trinket-art').then(() => {}))
         pending.push(load(memoryURL.default, '.memory-trinket-art').then(() => {}))
+      } else if(vault){
+        pending.push(load(orbURL.default,'.folio-orb-art').then(()=>{}))
+        pending.push(import('../assets/card-table/archive-chest-v2.glb?url').then(url=>load(url.default,'.vault-archive-art')).then(()=>{}))
+        pending.push(import('../assets/card-table/fortune-lots-v1.glb?url').then(url=>load(url.default,'.fortune-lots-art')).then(()=>{}))
+        pending.push(load(codexURL.default,'.action-codex-art').then(()=>{}))
+        pending.push(import('../assets/card-table/dispatch-seal-v1.glb?url').then(url=>load(url.default,'.dispatch-trinket-art')).then(()=>{}))
+        for(const anchor of board.querySelectorAll<HTMLElement>('[data-vault-deck]')){
+          const index=anchor.dataset.vaultDeck
+          pending.push(load(anchor.dataset.deckKind==='tvshows'?showURL.default:movieURL.default,`[data-vault-deck="${index}"]`).then(()=>{}))
+        }
       } else if (folio) {
         pending.push((portraitFolio ? import('../assets/card-table/collection-folio-portrait-v2.glb?url').then(url=>load(url.default,'.folio-spread, .arcane-detail-inspection',true)) : load(folioURL.default, '.folio-spread, .arcane-detail-inspection')).then(() => {}))
         pending.push(load(orbURL.default, '.folio-orb-art').then(() => {}))
@@ -303,6 +314,8 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
           if (o.selector.includes('deck-box-object')) {
             o.root.rotation.y = (parseFloat(getComputedStyle(anchor!).getPropertyValue('--object-angle')) || 0) * Math.PI / 180
           }
+          if(anchor?.hasAttribute('data-vault-deck'))o.root.rotation.y=(parseFloat(getComputedStyle(anchor.closest('.vault-deck')!).getPropertyValue('--vault-angle'))||0)*Math.PI/180
+          if(o.selector==='.fortune-lots-art')o.root.rotation.y=.12
           if (o.selector === '.action-codex-art') o.root.rotation.y = -.12
           if (o.selector === '.action-deck-art') o.root.rotation.y = .10
           o.root.scale.setScalar(1); o.root.position.set(0, 0, 0); o.root.updateMatrixWorld(true)
@@ -475,7 +488,12 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
             const spring=stepTrinketMotion(o.root.userData.toolSpring??{value:0,velocity:0},engaged,dt,still);o.root.userData.toolSpring=spring
             o.mechanisms.forEach((part,index)=>{
               part.node.position.copy(part.position);part.node.rotation.copy(part.rotation)
-              if(o.selector.includes('.dispatch-retry-art')){part.node.rotation.y+=spring.value*.12;part.node.position.y+=spring.value*.035}
+              if(o.selector==='.fortune-lots-art'){
+                const active=control?.getAttribute('aria-busy')==='true'
+                part.node.position.y+=still?0:spring.value*(.06+index*.007)+(active ? .12+Math.sin(time*8+index)*.035 : 0)
+                part.node.rotation.y+=still?0:spring.value*.18+(active?Math.sin(time*6+index)*.18:0)
+              }
+              else if(o.selector.includes('.dispatch-retry-art')){part.node.rotation.y+=spring.value*.12;part.node.position.y+=spring.value*.035}
               else if(o.selector.includes('.dispatch-pause-art'))part.node.rotation.y+=(control?.dataset.paused==='true' ? .50 : 0)+spring.value*.20
               else if(o.selector.includes('.dispatch-cancel-art'))part.node.rotation.y+=(index?-1:1)*spring.value*.18
               else if(o.selector.includes('query')){part.node.rotation.z+=spring.value*.11;part.node.rotation.x+=spring.value*.045}
@@ -498,7 +516,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
             if (o.lid && o.selector === '.action-codex-art') {
               o.lid.rotation.z = o.lidStart + o.open * .18
               if (o.clasp) o.clasp.rotation.z = -Math.min(1, o.open * 2) * .65
-            } else if (o.lid) o.lid.rotation.x = o.lidStart - o.open * 1.12
+            } else if (o.lid) o.lid.rotation.x = o.lidStart - (o.selector === '.vault-archive-art' ? 1.05 : o.open * 1.12)
             if (o.cards) o.cards.position.y = o.cardStart + o.open * .14
             if (o.cards && o.selector.includes('groups')) o.cards.rotation.y = o.cardYaw + o.open * .12
             if (o.cards && trinket) {
@@ -567,7 +585,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
       sync()
     }).catch(() => { release?.(); setReady(false) })
     return () => { cancelled = true; release?.(); setReady(false) }
-  }, [effects, folio, staticOnly, workspace, portraitFolio])
+  }, [effects, folio, staticOnly, workspace, portraitFolio, vault, sceneRevision])
   const quick = import.meta.env.DEV && new URLSearchParams(location.search).get('candle-test') === '1'
   const waxHeight = candle.phase === 'relighting' && !reducedMotion() ? .28 + .72 * Math.min(1, candle.transition / 1600) : 1 - Math.min(1, candle.burned / (quick ? 14000 : CANDLE_BURN_MS)) * .72
   const flameStrength = candle.phase === 'moonlight' ? 0 : candle.phase === 'guttering' ? Math.max(0, 1 - candle.transition / 4500) : candle.phase === 'relighting' ? Math.min(1, candle.transition / 1600) : 1

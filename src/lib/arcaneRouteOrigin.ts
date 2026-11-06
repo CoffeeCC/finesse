@@ -8,7 +8,7 @@ export function arcaneRouteOrigin(state: unknown): ArcaneRouteOrigin | null {
   if (!state || typeof state !== 'object' || !('arcaneTableOrigin' in state)) return null
   const origin = state.arcaneTableOrigin
   if (!origin || typeof origin !== 'object' || !('pathname' in origin) || typeof origin.pathname !== 'string') return null
-  if (!/^(?:\/|\/dashboard|\/mylist|\/library\/[\w-]+)$/.test(origin.pathname)) return null
+  if (!/^(?:\/|\/dashboard|\/mylist|\/libraries|\/library\/[\w-]+)$/.test(origin.pathname)) return null
   const search = 'search' in origin && typeof origin.search === 'string' && origin.search.startsWith('?') ? origin.search : ''
   return { pathname: origin.pathname, search, hash: '' }
 }

@@ -2,7 +2,7 @@ import home from '../assets/card-table/home-waystone-v1-still.webp'
 import search from '../assets/card-table/scrying-orb-still-v1.webp'
 import movies from '../assets/card-table/deck-movies-still-v1.webp'
 import shows from '../assets/card-table/deck-shows-still-v1.webp'
-import library from '../assets/card-table/archive-chest-v1-still.webp'
+import library from '../assets/card-table/archive-chest-v2-still.webp'
 import mylist from '../assets/card-table/story-codex-v1-still.webp'
 import anime from '../assets/card-table/fox-mask-v1-still.webp'
 import music from '../assets/card-table/silver-lyre-v1-still.webp'
@@ -27,9 +27,10 @@ import collectionErase from '../assets/card-table/collection-eraser-v1-still.web
 import dispatchPause from '../assets/card-table/dispatch-escapement-v1-still.webp'
 import dispatchRetry from '../assets/card-table/dispatch-courier-horn-v1-still.webp'
 import dispatchCancel from '../assets/card-table/dispatch-shears-v1-still.webp'
+import surprise from '../assets/card-table/fortune-lots-v1-still.webp'
 
 /** A function owns its object identity. Never fall back to another function's prop. */
-export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull, collectionQuery, collectionGenres, collectionWatch, collectionSort, collectionErase, dispatchPause, dispatchRetry, dispatchCancel } as const
+export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull, collectionQuery, collectionGenres, collectionWatch, collectionSort, collectionErase, dispatchPause, dispatchRetry, dispatchCancel, surprise } as const
 export type ArcaneTrinket = keyof typeof arcaneTrinkets
 export function destinationTrinket(destination: string): ArcaneTrinket | null {
   if (destination === '/' || destination === '/dashboard') return 'home'

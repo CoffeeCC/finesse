@@ -90,7 +90,7 @@ export function playSelect() {
 let installed = false
 
 /** Original, restrained object sounds; same context, volume and media guard as Finesse. */
-export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land' | 'tuning-fork' | 'quill' | 'vials' | 'lantern' | 'sextant' | 'eraser' | 'courier-horn' | 'escapement' | 'shears-open' | 'shears-cut' | DeskSound) {
+export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land' | 'tuning-fork' | 'quill' | 'vials' | 'lantern' | 'sextant' | 'eraser' | 'courier-horn' | 'escapement' | 'shears-open' | 'shears-cut' | 'lots' | DeskSound) {
   const prefs = getPrefs(), vol = clamp(prefs.uiSoundsVolume ?? .6, 0, 1)
   if (!prefs.uiSounds || vol <= 0 || mediaIsPlaying() || document.hidden) return
   const ac = audioCtx(); if (!ac) return
@@ -119,7 +119,9 @@ export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | '
     source.start(t); source.stop(t + duration)
     voices.push({source,gain})
   }
-  if (kind === 'courier-horn') {
+  if(kind==='lots'){
+    for(let i=0;i<5;i++){rustle(i*.045,.045,1800-i*120,.015);tone(880+i*73,.075,.006,i*.045,650+i*38)}
+  } else if (kind === 'courier-horn') {
     tone(220,.24,.014,0,247);tone(440,.18,.005,.03,494);rustle(.01,.18,460,.018)
   } else if (kind === 'escapement') {
     rustle(0,.04,2400,.020);tone(1200,.075,.010,0,880);rustle(.07,.04,1800,.012)
@@ -201,7 +203,7 @@ export function initUiSounds() {
         const collectionTool=el.getAttribute('data-collection-tool')
         const kind = collectionTool==='query'?'quill':collectionTool==='genres'?'vials':collectionTool==='watch'?'lantern':collectionTool==='sort'?'sextant':collectionTool==='erase'?'eraser':el.matches('.search-object, .arcane-search-trinket') ? 'orb'
           : el.matches('.candle-object') ? 'flame'
-          : el.matches('.deck-box-object, .story-action') ? 'deck'
+          : el.matches('.deck-box-object, .story-action, .vault-deck, .vault-codex') ? 'deck'
           : el.matches('.draw-pile, .deal-action, .hand-card, .playing-card, .folio-slot') || el.closest('.folio-pagination') ? 'cards' : null
         if (kind) { playArcaneSound(kind); return }
       }
