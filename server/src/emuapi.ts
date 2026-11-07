@@ -81,6 +81,19 @@ export function withConsoles(s: Settings, add: InstallId[], remove: InstallId[],
 /** Makes the firmware and keys folders each emulator reads (so there's a place to drop files), when Finesse can see them. */
 export function makeFolders(e: EmulatorSettings, owner: { uid: number; gid: number }) {
   const cat = emulatorCatalog(e.switchEmulator)
+  const own = (dir: string) => {
+    try {
+      mkdirSync(dir, { recursive: true })
+      try {
+        chownSync(dir, owner.uid, owner.gid)
+      } catch {
+        chmodSync(dir, 0o777)
+      }
+    } catch {
+      /* Finesse can't see it; the status says so */
+    }
+  }
+  if (e.paths.saves) own(e.paths.saves)
   for (const id of e.apps)
     for (const what of ['firmware', 'keys'] as const) {
       if (!cat[id].needs.some((n) => n.what === what)) continue

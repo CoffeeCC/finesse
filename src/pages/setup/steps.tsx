@@ -1,6 +1,7 @@
 // The wizard's steps. Each gets the draft and an updater; `stepBlocker`
 // says what (if anything) still stops the person moving on.
 
+import { CONSOLES } from '../../lib/consoles'
 import { useEffect, useState, type ReactNode } from 'react'
 import { setupApi, type SetupInfo, type SystemItem, type Verdict } from '../../api/setup'
 import { indexerKey, isBuiltInSite, kept, newServer, vpnDoc, type Draft } from './draft'
@@ -248,7 +249,7 @@ export function LibrariesStep({ d, set }: StepProps) {
       {!d.native && (
       <>
       <ChoiceCard multi selected={d.libraries.games} onClick={() => toggle('games')} icon={<Icon name="games" />} title="Games">
-        Retro games you play right in the browser: NES, SNES, Game Boy, Genesis, PlayStation and more. Managed by RomM. You add the games yourself.
+        Games you play right in the browser or with Moonlight: NES, SNES, Game Boy, Genesis and PlayStation, plus PS2, GameCube, Wii, PS3, Wii U and Switch with the consoles below. Managed by RomM. You add the games yourself.
       </ChoiceCard>
       {d.libraries.games && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
@@ -269,6 +270,7 @@ export function LibrariesStep({ d, set }: StepProps) {
           </div>
         </div>
       )}
+      {d.libraries.games && <ConsolePicker d={d} set={set} />}
       </>
       )}
     </div>
@@ -852,6 +854,48 @@ export function StartStep({ path, setPath }: { path: 'new' | 'existing'; setPath
         Already run Jellyfin (and maybe Sonarr, Radarr, Lidarr, Prowlarr, SABnzbd or qBittorrent)? Finesse finds them, reads their keys
         itself and connects. Nothing of yours changes.
       </ChoiceCard>
+    </div>
+  )
+}
+
+/** Games: the consoles whose emulators Finesse downloads and sets up (all ticked to start). */
+function ConsolePicker({ d, set }: Pick<StepProps, 'd' | 'set'>) {
+  const total = CONSOLES.filter((c) => d.consoles.includes(c.id)).reduce((n, c) => n + c.mb, 0)
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 space-y-3" data-testid="console-picker">
+      <div>
+        <p className="text-sm font-semibold text-ink-100">Consoles</p>
+        <p className="text-sm text-ink-300">
+          Finesse downloads an emulator for each console you keep ticked and sets it up: controller, full screen, saves. Play in the browser or with Moonlight.
+        </p>
+      </div>
+      <ul className="space-y-2">
+        {CONSOLES.map((c) => {
+          const on = d.consoles.includes(c.id)
+          return (
+            <li key={c.id}>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-2 hover:bg-white/[0.04]">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 accent-[var(--accent-500,#6d5ae6)]"
+                  checked={on}
+                  onChange={() => set((x) => void (x.consoles = on ? x.consoles.filter((i) => i !== c.id) : [...x.consoles, c.id]))}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm text-ink-100">
+                    {c.title} <span className="text-ink-400">· {c.emulator}, {c.mb} MB</span>
+                  </span>
+                  <span className="block text-[13px] leading-snug text-ink-400">{c.yours ? `You add: ${c.yours}` : 'Nothing else to add.'}</span>
+                </span>
+              </label>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="text-[13px] text-ink-400">
+        {d.consoles.length ? `About ${total} MB, downloaded in the background — setup doesn’t wait for it. ` : 'No consoles: you can add them later in Settings → Server → Game streaming. '}
+        Settings shows each console’s progress, and the folder to put your files in.
+      </p>
     </div>
   )
 }

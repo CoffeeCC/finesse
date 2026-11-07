@@ -109,7 +109,7 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
     needs: [
       { what: 'keys', label: 'prod.keys', match: ['prod.keys'], required: true, why: 'Switch games don’t start without your console’s prod.keys.' },
       { what: 'keys', label: 'title.keys', match: ['title.keys'], required: false, why: 'Some games and updates need title.keys.' },
-      { what: 'firmware', label: 'Switch firmware (.nca files)', match: ['*.nca'], required: true, why: 'Eden reads the firmware’s .nca files; unzip the firmware into the switch folder.' },
+      { what: 'firmware', label: 'Switch firmware (.nca files)', match: ['*.nca'], required: true, why: 'Copy your Switch’s firmware here, unzipped (Eden reads its .nca files).' },
     ],
     // nand/system/save holds the user account: saves live under its id, so it travels with them.
     saves: { save: `${H}/.local/share/eden/nand/user/save`, system: `${H}/.local/share/eden/nand/system/save` },
@@ -132,7 +132,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       name: 'PCSX2',
       consoles: ['ps2'],
       program: ['pcsx2*.appimage'],
-      needs: [{ what: 'firmware', label: 'PS2 BIOS', match: ['*.bin', '*.rom0'], required: true, why: 'PS2 games don’t start without a BIOS dumped from your console.' }],
+      needs: [{ what: 'firmware', label: 'PS2 BIOS', match: ['*.bin', '*.rom0'], required: true, why: 'PS2 games need the BIOS, a file copied from your own PS2.' }],
       saves: { memcards: `${H}/.config/PCSX2/memcards`, sstates: `${H}/.config/PCSX2/sstates` },
       links: [{ what: 'firmware', match: ['*'], into: `${H}/.config/PCSX2/bios` }],
       args: { game: '-fullscreen -nogui -- "$GAME"', none: '-bigpicture -fullscreen' },
@@ -175,7 +175,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       consoles: ['wiiu'],
       program: ['cemu*.appimage'],
       needs: [
-        { what: 'keys', label: 'keys.txt', match: ['keys.txt'], required: true, why: 'Encrypted disc images (.wud, .wux) need your keys.txt. Decrypted games play without it.' },
+        { what: 'keys', label: 'keys.txt', match: ['keys.txt'], required: false, why: 'Encrypted disc images (.wud, .wux) need your keys.txt. Decrypted games play without it.' },
         { what: 'firmware', label: 'Online files (otp.bin, seeprom.bin)', match: ['otp.bin', 'seeprom.bin'], required: false, why: 'Only for online play.' },
       ],
       saves: { save: `${H}/.local/share/Cemu/mlc01/usr/save` },
