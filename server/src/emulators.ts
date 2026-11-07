@@ -14,6 +14,7 @@
 import { accessSync, chmodSync, chownSync, constants, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { controllerShell, INI_HELPERS, padFor, type ControllerId } from './emupads.ts'
+import { INSTALL_IDS, type InstallId } from './emucatalog.ts'
 import { EMULATOR_IMAGE } from './stack/catalog.ts'
 
 export type EmulatorId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'switch' | 'esde'
@@ -43,6 +44,10 @@ export interface EmulatorSettings {
   folders?: Partial<Record<EmulatorId, { firmware?: string; keys?: string }>>
   /** Wolf profiles to add the apps to (ids). Leave out for every profile. */
   profiles?: string[]
+  /** Emulators Finesse downloads for you (emucatalog.ts). A program in your own emulators folder wins over Finesse's copy. */
+  install?: InstallId[]
+  /** Where Finesse keeps the downloaded ones, as Docker sees it (Finesse sets this). */
+  managedDir?: string
 }
 
 interface Need {
@@ -76,6 +81,9 @@ interface Emulator {
   /** Maps the first controller (Selkies' or Wolf's virtual pad; the touch controller too) unless the player mapped one themselves (emupads.ts). */
   controller?: ControllerId
 }
+
+/** Where Finesse's downloaded emulators are inside an app. */
+export const MANAGED = '/finesse/emulators-finesse'
 
 /** The app's home folder: Wolf's apps (Games on Whales) use /home/retro; browser play (Selkies) uses /config. */
 export const WOLF_HOME = '/home/retro'
@@ -218,7 +226,11 @@ export function validateEmulators(v: unknown, at = 'emulators'): Problem[] {
     if (typeof x !== 'string' || !HOST_PATH.test(x)) p.push({ path: where, message: 'Use a full folder path on the server, like /mnt/tank/games/bios (no : , quotes or ..)' })
   }
   if (!isObj(v)) return [{ path: at, message: 'Must be an object' }]
-  known(v, at, ['apps', 'switchEmulator', 'paths', 'folders', 'profiles'])
+  known(v, at, ['apps', 'switchEmulator', 'paths', 'folders', 'profiles', 'install', 'managedDir'])
+  if (v.install !== undefined && (!Array.isArray(v.install) || !v.install.every((x) => INSTALL_IDS.includes(x as InstallId))))
+    p.push({ path: `${at}.install`, message: `A list of emulators for Finesse to download: ${INSTALL_IDS.join(', ')}` })
+  path(v.managedDir, `${at}.managedDir`)
+  const installs = Array.isArray(v.install) ? (v.install as string[]) : []
   if (!Array.isArray(v.apps) || !v.apps.every((a) => EMULATOR_IDS.includes(a as EmulatorId))) p.push({ path: `${at}.apps`, message: `A list of apps: ${EMULATOR_IDS.join(', ')}` })
   if (v.switchEmulator !== undefined && v.switchEmulator !== 'ryujinx' && v.switchEmulator !== 'eden') p.push({ path: `${at}.switchEmulator`, message: 'The Switch emulator is ryujinx or eden' })
   if (!isObj(v.paths)) p.push({ path: `${at}.paths`, message: 'Say where the folders are: roms, emulators, firmware, keys and saves' })
@@ -228,7 +240,9 @@ export function validateEmulators(v: unknown, at = 'emulators'): Problem[] {
     const apps = Array.isArray(v.apps) ? v.apps : []
     if (apps.length && !v.paths.roms) p.push({ path: `${at}.paths.roms`, message: 'Say where RomM’s library is (the folder with roms inside)' })
     if (apps.length && !v.paths.saves) p.push({ path: `${at}.paths.saves`, message: 'Say where saves go (a folder Wolf’s apps can write to)' })
-    if (apps.some((a) => a !== 'esde') && !v.paths.emulators) p.push({ path: `${at}.paths.emulators`, message: 'Say where the emulators’ AppImages are' })
+    // Each app needs its program: in your emulators folder, or one Finesse downloads.
+    const covered = (a: unknown) => a === 'esde' || (a === 'switch' ? v.switchEmulator !== 'ryujinx' && installs.includes('eden') : installs.includes(a as string))
+    if (!apps.every(covered) && !v.paths.emulators) p.push({ path: `${at}.paths.emulators`, message: 'Say where the emulators’ AppImages are' })
   }
   if (v.folders !== undefined) {
     known(v.folders, `${at}.folders`, EMULATOR_IDS)
@@ -322,13 +336,14 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
     'link() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] && ln -sfn "$f" "$dst/"; done; done; return 0; }',
     // Copied once (and again only when the file changes), for files the emulator opens read-write.
     'copyin() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] || continue; t="$dst/$(basename "$f")"; [ -L "$t" ] && rm -f "$t"; [ -f "$t" ] && [ "$(stat -c %s "$t")" = "$(stat -c %s "$f")" ] || cp -f "$f" "$t"; done; done; return 0; }',
-    'find_emu() { for p in "$@"; do for f in /finesse/emulators/$p; do [ -f "$f" ] && { echo "$f"; return 0; }; done; done; return 0; }',
+    // Your own emulators folder first, then the ones Finesse downloaded.
+    `find_emu() { for d in /finesse/emulators ${MANAGED}; do for p in "$@"; do for f in "$d"/$p; do [ -f "$f" ] && { echo "$f"; return 0; }; done; done; done; return 0; }`,
     // AppImages without their executable bit (a NAS share) run from a copy.
     'runnable() { if [ -x "$1" ]; then echo "$1"; else cp "$1" "/tmp/$(basename "$1")" && chmod +x "/tmp/$(basename "$1")" && echo "/tmp/$(basename "$1")"; fi; }',
   ]
   if (e.id === 'esde') {
     // ES-DE finds emulators in ~/Applications, and shares their links and saves.
-    lines.push(`mkdir -p ${H}/Applications`, `for f in /finesse/emulators/*; do ln -sfn "$f" ${H}/Applications/; done`)
+    lines.push(`mkdir -p ${H}/Applications`, `for f in ${MANAGED}/*.AppImage /finesse/emulators/*; do ln -sfn "$f" ${H}/Applications/; done`)
     for (const o of all) if (o.id !== 'esde') lines.push(...linkLines(o))
     // ES-DE starts the emulators itself: each gets its first-pad mapping now.
     lines.push(...INI_HELPERS)
@@ -398,6 +413,7 @@ export function appMounts(id: EmulatorId, s: EmulatorSettings, profile: string, 
   const mounts: string[] = []
   if (s.paths.roms) mounts.push(`${s.paths.roms}:/finesse/roms:ro`)
   if (s.paths.emulators) mounts.push(`${s.paths.emulators}:/finesse/emulators:ro`)
+  if (s.managedDir && s.install?.length) mounts.push(`${s.managedDir}:${MANAGED}:ro`)
   const users = id === 'esde' ? all.filter((o) => o.id !== 'esde') : [e]
   for (const o of users) {
     for (const what of ['firmware', 'keys'] as const) {
@@ -493,7 +509,8 @@ function findProgram(dir: string | undefined, patterns: string[]): { path: strin
   return null
 }
 
-export function readiness(s: EmulatorSettings): EmulatorReadiness[] {
+/** `managedLocal`: Finesse's own downloads folder, as Finesse sees it (its programs count too). */
+export function readiness(s: EmulatorSettings, managedLocal?: string): EmulatorReadiness[] {
   const cat = emulatorCatalog(s.switchEmulator)
   const unseen = (dir: string | undefined, what: string): ReadyItem => ({
     label: what,
@@ -519,16 +536,16 @@ export function readiness(s: EmulatorSettings): EmulatorReadiness[] {
     const e = cat[id]
     const items: ReadyItem[] = [...common]
     if (id !== 'esde') {
-      const prog = findProgram(s.paths.emulators, e.program)
-      if (prog === undefined) items.push(unseen(s.paths.emulators, 'Emulators'))
-      else
-        items.push(
-          prog
-            ? { label: e.name, state: 'ok', required: true, detail: prog.exec ? 'Found in the emulators folder.' : 'Found. It isn’t marked executable, so it starts from a copy (a bit slower). chmod +x fixes that.' }
-            : { label: e.name, state: 'missing', required: true, detail: `Put the ${e.name} AppImage in the emulators folder (its name starts with “${e.program[0]!.split('*')[0]}”).` },
-        )
+      const own = s.paths.emulators ? findProgram(s.paths.emulators, e.program) : null
+      const managed = !own && managedLocal && s.install?.length ? findProgram(managedLocal, e.program) : null
+      const wanted = s.install?.includes((id === 'switch' ? 'eden' : id) as InstallId) && !(id === 'switch' && s.switchEmulator === 'ryujinx')
+      if (own) items.push({ label: e.name, state: 'ok', required: true, detail: own.exec ? 'Found in the emulators folder.' : 'Found. It isn’t marked executable, so it starts from a copy (a bit slower). chmod +x fixes that.' })
+      else if (managed) items.push({ label: e.name, state: 'ok', required: true, detail: 'Downloaded and checked by Finesse.' })
+      else if (wanted) items.push({ label: e.name, state: 'missing', required: true, detail: `Finesse is getting ${e.name}.` })
+      else if (own === undefined) items.push(unseen(s.paths.emulators, 'Emulators'))
+      else items.push({ label: e.name, state: 'missing', required: true, detail: s.paths.emulators ? `Put the ${e.name} AppImage in the emulators folder (its name starts with “${e.program[0]!.split('*')[0]}”).` : `Add ${e.name} and Finesse downloads it.` })
     } else {
-      const missing = s.apps.filter((a) => a !== 'esde' && findProgram(s.paths.emulators, cat[a].program) === null)
+      const missing = s.apps.filter((a) => a !== 'esde' && !findProgram(s.paths.emulators, cat[a].program) && !(managedLocal && findProgram(managedLocal, cat[a].program)))
       items.push({ label: 'Emulators', state: 'ok', required: false, detail: missing.length ? `ES-DE uses the same emulators. Missing: ${missing.map((a) => cat[a].name).join(', ')}.` : 'ES-DE uses the emulators above, and any other AppImage in the emulators folder (RetroArch for older consoles).' })
     }
     for (const n of e.needs) {

@@ -540,6 +540,25 @@
             "type": "string",
             "pattern": "^[\\w.@-]{1,64}$"
           }
+        },
+        "install": {
+          "type": "array",
+          "description": "Emulators for Finesse to download, pinned to versions it was tested with and checked by sha256 before they run: pcsx2 (PS2), dolphin (GameCube/Wii, a community build: Dolphin offers Linux only as a Flatpak), rpcs3 (PS3), cemu (Wii U), eden (Switch). On a server Finesse set up, each also adds its console and the folders for its firmware, keys and saves. Downloads run in the background; one that fails never stops setup. A program in paths.emulators wins over Finesse's copy.",
+          "items": {
+            "enum": [
+              "pcsx2",
+              "dolphin",
+              "rpcs3",
+              "cemu",
+              "eden"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "managedDir": {
+          "type": "string",
+          "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^:,\\n\\r\"'`$\\\\]{0,4095}$",
+          "description": "Set by Finesse: where it keeps the emulators it downloads, as Docker sees it."
         }
       }
     }
