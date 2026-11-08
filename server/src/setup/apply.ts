@@ -14,7 +14,7 @@ import { CATALOG, containerName, orderServices, wolfRunDir, wolfSocket, type Gam
 import { syncEmulators, wolfCall, wolfProblem } from '../streaming.ts'
 import { wolfFolderProblem } from '../stack/wolf.ts'
 import { dockerOf, Orchestrator } from '../stack/orchestrator.ts'
-import { applyConsoles, downloadsFor } from '../emuapi.ts'
+import { downloadsFor, setupConsoles } from '../emuapi.ts'
 import type { StackHost } from '../stack/host.ts'
 import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe, type SeedHost } from '../stack/seed.ts'
 import { clearFinishedTcLog } from '../stack/games.ts'
@@ -572,19 +572,19 @@ export class SetupRunner {
         const publicUrl = doc.publicUrl?.replace(/\/+$/, '') || remoteUrl
         if (publicUrl) x.publicUrl = publicUrl
         if (doc.email) x.email = doc.email
-        if (doc.emulators) x.emulators = doc.emulators
         x.setup.state = 'ready'
         x.setup.completedAt = new Date().toISOString()
         x.setup.lastDoc = structuredClone(doc)   // for "Change downloads or away-from-home access" later
         delete x.setup.lastError
       })
+      // The document's emulators (the wizard's: only the consoles, applied onto what Settings has).
       // Consoles Finesse downloads emulators for: their apps and folders now, the downloads in the
       // background (a slow or failed download never holds setup up; Settings shows how it's going).
-      const install = doc.emulators?.install ?? []
-      if (install.length) {
+      if (doc.emulators) {
         const downloads = downloadsFor(this.settings.paths.configDir)
-        await applyConsoles(this.settings, orch instanceof Orchestrator ? orch.docker : null, downloads, install, [], { uid: ctx.puid, gid: ctx.pgid }).catch((e) => this.status.warnings.push(`Emulators: ${(e as Error).message}`))
-        void downloads.ensure(install)
+        await setupConsoles(this.settings, orch instanceof Orchestrator ? orch.docker : null, downloads, doc.emulators, { uid: ctx.puid, gid: ctx.pgid })
+          .then((ids) => void downloads.ensure(ids))
+          .catch((e) => this.status.warnings.push(`Emulators: ${(e as Error).message}`))
       }
       // Emulators in the document: into Wolf now, if game streaming is on.
       const socket = this.settings.get().streaming?.socket

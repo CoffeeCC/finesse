@@ -199,9 +199,41 @@ export function registerConsoles(router: Router, deps: { settings: SettingsStore
 export async function applyConsoles(settings: SettingsStore, docker: Docker | null, downloads: EmulatorDownloads, add: InstallId[], remove: InstallId[], owner: { uid: number; gid: number }): Promise<EmulatorSettings> {
   const managed = await hostPathOf(docker, downloads.dir)
   const next = withConsoles(settings.get(), add, remove, managed)
-  settings.update((x) => void (x.emulators = next))
+  settings.update((x) => {
+    x.emulators = next
+    // The setup document a re-run starts from keeps the same consoles as Settings → Consoles.
+    const last = x.setup?.lastDoc as { emulators?: EmulatorSettings } | undefined
+    if (last?.emulators) last.emulators.install = next.install ?? []
+  })
   makeFolders(next, owner)
   return next
+}
+
+/** The setup wizard's `emulators`: only the consoles to download (`install`), nothing of its own. */
+export const installOnly = (e: EmulatorSettings) =>
+  !e.apps?.length && !Object.values(e.paths ?? {}).some(Boolean) && !e.folders && !e.profiles && !e.switchEmulator && !e.managedDir
+
+/**
+ * Setup's consoles. The wizard's document (only `install`) is applied onto the current settings:
+ * consoles added or removed since, nothing else (folders, profiles, ES-DE and the Switch
+ * emulator stay as Settings has them). A full `emulators` (the CLI's) replaces the settings.
+ * Returns the consoles to download.
+ */
+export async function setupConsoles(settings: SettingsStore, docker: Docker | null, downloads: EmulatorDownloads, doc: EmulatorSettings, owner: { uid: number; gid: number }): Promise<InstallId[]> {
+  const want = INSTALL_IDS.filter((id) => doc.install?.includes(id))
+  if (!installOnly(doc)) {
+    settings.update((x) => void (x.emulators = structuredClone(doc)))
+    if (want.length) await applyConsoles(settings, docker, downloads, want, [], owner)
+    return want
+  }
+  const have = settings.get().emulators?.install ?? []
+  const add = want.filter((id) => !have.includes(id))
+  const remove = have.filter((id) => !want.includes(id))
+  if (add.length || remove.length) {
+    for (const id of remove) downloads.remove(id)
+    await applyConsoles(settings, docker, downloads, add, remove, owner)
+  }
+  return want
 }
 
 const instances = new Map<string, EmulatorDownloads>()
