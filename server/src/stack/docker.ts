@@ -303,7 +303,7 @@ export class Docker {
     let n = 0
     for (const c of list) {
       if (c.Labels?.[LABEL_ROLE] !== 'helper' || c.Labels['finesse.instance'] !== this.instance) continue
-      await this.remove(c.Id, { force: true }).then(() => n++, () => {})
+      await this.remove(c.Id, { force: true, volumes: true }).then(() => n++, () => {})
     }
     return n
   }
@@ -318,7 +318,7 @@ export class Docker {
       const output = await this.logs(id, 100).catch(() => '')
       return { code: waited?.StatusCode ?? -1, output }
     } finally {
-      await this.remove(id, { force: true }).catch(() => {})
+      await this.remove(id, { force: true, volumes: true }).catch(() => {})
     }
   }
 
