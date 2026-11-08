@@ -9,6 +9,7 @@
 // play's stream), so Finesse lets go there: B would have meant Back, leaving the game.
 
 import { useSyncExternalStore } from 'react'
+import { isRealPad } from './padPick'
 import { toggleQuickMenu } from './quickMenu'
 import { focusIntoModal, jumpRow } from './spatialNav'
 import { nextTabIndex } from './tabStep'
@@ -159,6 +160,26 @@ export function remoteKey(k: RemoteKey) {
   }
 }
 
+// ---- The controller this device plays with (the retro player's picker sets it) ----
+const PAD_KEY = 'finesse.controller'
+
+/** The controller this device chose last time (its name, as the browser reports it). */
+export function rememberedPad(): string | null {
+  try {
+    return localStorage.getItem(PAD_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function rememberPad(id: string): void {
+  try {
+    localStorage.setItem(PAD_KEY, id)
+  } catch {
+    /* private mode: chosen for now only */
+  }
+}
+
 let started = false
 // While a game streams in the page (its own frame reads the controller), the app leaves it alone:
 // B would otherwise close the stream, and the sticks would scroll the page under it.
@@ -178,7 +199,9 @@ const POLL_MS = 16
 const held = new Map<string, { since: number; last: number }>()
 
 function poll() {
-  const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((p): p is Gamepad => Boolean(p && p.connected)) : []
+  // Only real controllers: a USB microphone or headset shows up as a "gamepad" too, and its
+  // dial or mute button used to steer the app (a stuck axis held Right forever).
+  const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter((p): p is Gamepad => Boolean(p && p.connected && isRealPad(p))) : []
   if (!pads.length) {
     held.clear()
     window.clearInterval(timer)
@@ -230,6 +253,7 @@ export function initGamepad(): void {
     if (!timer) timer = window.setInterval(poll, POLL_MS)
   }
   window.addEventListener('gamepadconnected', ((e: GamepadEvent) => {
+    if (!isRealPad(e.gamepad)) return
     current = { kind: padKind(e.gamepad.id), at: Date.now() }
     emit()
     run()

@@ -116,15 +116,26 @@ export function readBody(req: IncomingMessage, limit = 1 << 20, timeoutMs = 3000
     }, timeoutMs)
     timer.unref?.()
     req.on('close', () => clearTimeout(timer))
-    req.on('data', (c: Buffer) => {
+    // Too big: answer 413 instead of cutting the connection (the sender sees why). The rest of
+    // the body is read and thrown away so the answer can get through, but only for a while.
+    const tooBig = () => {
+      clearTimeout(timer)
+      const mb = limit >= 1 << 20 ? `${Math.floor(limit / (1 << 20))} MB` : `${Math.ceil(limit / 1024)} KB`
+      reject(new ApiError(413, `That’s too big to send here (the most is ${mb})`))
+      chunks.length = 0
+      req.removeListener('data', onData)
+      req.resume()
+      const cut = setTimeout(() => req.destroy(), 10000)
+      cut.unref?.()
+      req.on('end', () => clearTimeout(cut))
+    }
+    const onData = (c: Buffer) => {
       size += c.length
-      if (size > limit) {
-        reject(new ApiError(413, 'Request body too large'))
-        req.destroy()
-        return
-      }
+      if (size > limit) return tooBig()
       chunks.push(c)
-    })
+    }
+    if (Number(req.headers['content-length']) > limit) return tooBig()
+    req.on('data', onData)
     req.on('end', () => resolve(Buffer.concat(chunks)))
     req.on('error', reject)
   })

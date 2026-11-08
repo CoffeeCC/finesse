@@ -117,6 +117,28 @@ test('back up everything, lose it, restore it', async () => {
   assert.equal(existsSync(holdFile(w.configDir)), false, 'the hold is lifted afterwards')
 })
 
+test('game saves (saves.db) are backed up and come back, apart from lists.db', async () => {
+  const w = world()
+  sqlite(join(w.configDir, 'saves.db'), ['robin: Pokémon Emerald, 8 badges'])
+  sqlite(join(w.configDir, 'lists.db'), ['a smart collection'])
+  const file = await w.maint.backupNow('manual', ['settings'])
+  sqlite(join(w.configDir, 'saves.db'), [])
+  await restoreBackup(join(w.paths.backups, file.name), { configDir: w.configDir, root: w.root, uid: process.getuid!(), gid: process.getgid!(), apps: null })
+  assert.deepEqual(rowsOf(join(w.configDir, 'saves.db')), ['robin: Pokémon Emerald, 8 badges'])
+  assert.deepEqual(rowsOf(join(w.configDir, 'lists.db')), ['a smart collection'])
+})
+
+test('a saves.db that can\'t be copied leaves the rest of the backup intact', async () => {
+  const w = world()
+  sqlite(join(w.configDir, 'lists.db'), ['a smart collection'])
+  writeFileSync(join(w.configDir, 'saves.db'), 'not a database')
+  const file = await w.maint.backupNow('manual', ['settings'])
+  assert.match(w.maint.health.backups.error ?? '', /saves/)
+  sqlite(join(w.configDir, 'lists.db'), [])
+  await restoreBackup(join(w.paths.backups, file.name), { configDir: w.configDir, root: w.root, uid: process.getuid!(), gid: process.getgid!(), apps: null })
+  assert.deepEqual(rowsOf(join(w.configDir, 'lists.db')), ['a smart collection'])
+})
+
 test('apps held by a restore are left alone, but not forever', () => {
   const dir = tmp()
   writeFileSync(holdFile(dir), JSON.stringify({ apps: ['jellyfin', 'sonarr'], until: Date.now() + 60000 }))

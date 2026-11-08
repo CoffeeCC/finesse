@@ -80,6 +80,10 @@ const STEPS: string[] = [
      saved_at INTEGER NOT NULL,
      PRIMARY KEY (collection, key)
    );`,
+  // 4: was the retro player's in-game saves. They live in saves.db now (gameSaves.ts), which
+  // moves any rows a file at this version has and drops the table. The step stays so the
+  // numbering never shifts under an existing file.
+  `SELECT 1;`,
 ]
 
 export const LISTS_VERSION = STEPS.length
