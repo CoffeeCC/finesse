@@ -72,6 +72,12 @@ interface Emulator {
   needs: Need[]
   /** Save folders inside the app's home, under <saves>/<profile>/<id>/<key>. */
   saves: Record<string, string>
+  /**
+   * Save folders the emulator already keeps data in before Finesse saved them (homes from before):
+   * mounted at a staging path, with the home's copy moved in once, and the home path linked to it
+   * (stageSaves), so nothing there is hidden or lost.
+   */
+  staged?: string[]
   /** Links made at start: the files from /finesse/<what>/<id> matching `match`, into `into`. `copy` when the emulator writes to them (Eden opens its firmware read-write): copied once instead. */
   links: { what: 'firmware' | 'keys'; match: string[]; into: string; copy?: true }[]
   /** Arguments with a game ($GAME) and without one. */
@@ -99,6 +105,7 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
     ],
     // The system saves hold the save index and the user account: without them, saves made in one place aren't found in another.
     saves: { save: `${H}/.config/Ryujinx/bis/user/save`, system: `${H}/.config/Ryujinx/bis/system/save` },
+    staged: ['system'],
     links: [{ what: 'keys', match: ['*.keys'], into: `${H}/.config/Ryujinx/system` }],
     args: { game: '--fullscreen "$GAME"', none: '' },
     controller: 'ryujinx',
@@ -113,6 +120,7 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
     ],
     // nand/system/save holds the user account: saves live under its id, so it travels with them.
     saves: { save: `${H}/.local/share/eden/nand/user/save`, system: `${H}/.local/share/eden/nand/system/save` },
+    staged: ['system'],
     links: [
       { what: 'keys', match: ['*.keys'], into: `${H}/.local/share/eden/keys` },
       { what: 'firmware', match: ['*.nca'], into: `${H}/.local/share/eden/nand/system/Contents/registered`, copy: true },
@@ -147,6 +155,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       needs: [],
       // GC: memory cards (a folder per region); Wii: the NAND, with every game's saves. Save states too, like PCSX2's.
       saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii`, StateSaves: `${H}/.local/share/dolphin-emu/StateSaves` },
+      staged: ['StateSaves'],
       links: [],
       args: { game: '-b -e "$GAME"', none: '' },
       controller: 'dolphin',
@@ -382,12 +391,38 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
   return lines.join('\n')
 }
 
+/** Where staged save folders are mounted inside an app. */
+export const STAGE = '/finesse/saves'
+export const stagePath = (id: EmulatorId, key: string, root = STAGE) => `${root}/${id}/${key}`
+
+/**
+ * Root's half of a staged save folder (see Emulator.staged), at each start:
+ * - the home path already links to the staging folder: nothing to do;
+ * - the staging folder is empty and the home's isn't (a home from before): the home's copy is
+ *   copied in, ownership kept, and only once that worked the home's is replaced by the link;
+ * - both have data (saves made elsewhere since): the home's is kept beside it, renamed
+ *   <name>.finesse-kept-<time>, never deleted;
+ * - nothing in the home: just the link.
+ * A copy that fails leaves the home as it was (and the emulator uses it, as before).
+ */
+export const stageSaves = (e: Emulator, stageRoot = STAGE): string => {
+  const keys = (e.staged ?? []).filter((k) => e.saves[k])
+  if (!keys.length) return 'true'
+  const fn =
+    'stage_saves() { local st=$1 h=$2; [ -d "$st" ] || return 0; [ -L "$h" ] && [ "$(readlink "$h")" = "$st" ] && return 0; ' +
+    'if [ -d "$h" ] && [ ! -L "$h" ] && [ -z "$(ls -A "$h")" ]; then rmdir "$h"; ' +
+    'elif [ -d "$h" ] && [ ! -L "$h" ] && [ -z "$(ls -A "$st")" ]; then cp -a "$h/." "$st/" || { echo "Finesse: couldn’t copy $h into its saves folder; using it where it is" >&2; return 0; }; rm -rf "$h"; ' +
+    'elif [ -e "$h" ] || [ -L "$h" ]; then mv "$h" "$h.finesse-kept-$(date +%s)"; fi; ' +
+    'mkdir -p "$(dirname "$h")"; ln -s "$st" "$h"; }'
+  return [fn, ...keys.map((k) => `stage_saves ${q(stagePath(e.id, k, stageRoot))} ${q(e.saves[k]!)}`)].join('\n')
+}
+
 /** Docker makes the save folders' parents as root; the app's user needs to add folders beside them. Stays on the home folder's own disk (-xdev), so mounted folders are left alone. */
 export const ownHome = (home: string, user: string) => `find ${home} -xdev -type d -user root -exec chown ${user}:${user} {} + 2>/dev/null || true`
 
 /** A saves folder Docker had to make (a new profile's, before Finesse could) is root's; the emulator couldn't write its saves there. Only that folder itself, only when it's root's. */
-export const ownSaves = (e: Emulator, user: string) => {
-  const dirs = Object.values(e.saves)
+export const ownSaves = (e: Emulator, user: string, stageRoot = STAGE) => {
+  const dirs = Object.entries(e.saves).map(([k, inside]) => (e.staged?.includes(k) ? stagePath(e.id, k, stageRoot) : inside))
   return dirs.length ? `for d in ${dirs.map(q).join(' ')}; do [ -d "$d" ] && [ "$(stat -c %u "$d")" = 0 ] && chown ${user}:${user} "$d"; done; true` : 'true'
 }
 
@@ -401,7 +436,8 @@ export const NVIDIA_ICD = `if [ -e /dev/nvidiactl ] && [ ! -f /usr/share/vulkan/
 /** Runs as root before the app's user takes over: the home folder's ownership, Nvidia's Vulkan driver file, and ES-DE's /ROMs, made from RomM's folders. */
 function rootPrep(e: Emulator, all: Emulator[]): string {
   const user = '"${UNAME:-retro}"'
-  const own = [ownHome(WOLF_HOME, user), ...(e.id === 'esde' ? all : [e]).map((o) => ownSaves(o, user)), NVIDIA_ICD].join('\n')
+  const users = e.id === 'esde' ? all : [e]
+  const own = [...users.map((o) => stageSaves(o)), ownHome(WOLF_HOME, user), ...users.map((o) => ownSaves(o, user)), NVIDIA_ICD].join('\n')
   if (e.id !== 'esde') return own
   const map = Object.entries(ESDE_NAMES)
     .map(([k, v]) => `${k}) n=${v};;`)
@@ -438,7 +474,7 @@ export function appMounts(id: EmulatorId, s: EmulatorSettings, profile: string, 
       const dir = folderFor(s, o.id, what)
       if (dir && (o.needs.some((n) => n.what === what) || o.links.some((l) => l.what === what))) mounts.push(`${dir}:/finesse/${what}/${o.id}:ro`)
     }
-    if (s.paths.saves) for (const [k, inside] of Object.entries(o.saves)) mounts.push(`${savesDir(s, profile, o.id, k)}:${inside}:rw`)
+    if (s.paths.saves) for (const [k, inside] of Object.entries(o.saves)) mounts.push(`${savesDir(s, profile, o.id, k)}:${o.staged?.includes(k) ? stagePath(o.id, k) : inside}:rw`)
   }
   return mounts
 }

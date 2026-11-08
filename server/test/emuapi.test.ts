@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { SettingsStore } from '../src/config.ts'
@@ -12,7 +12,7 @@ import { applyConsoles, consoleNotes, consoleViews, folderLabel, hostPathOf, mak
 import { COMMUNITY_BUILD, withoutFolder } from '../../src/lib/consoleText.ts'
 import { EMULATOR_PINS } from '../src/emucatalog.ts'
 import { EmulatorDownloads } from '../src/emudownload.ts'
-import { emulatorCatalog, esdeLinks, type EmulatorSettings } from '../src/emulators.ts'
+import { appMounts, emulatorCatalog, esdeLinks, stageSaves, wolfApp, type EmulatorSettings } from '../src/emulators.ts'
 import { tmp } from './helpers.ts'
 
 export function store(dir = tmp('emuapi-')) {
@@ -201,4 +201,45 @@ test('ES-DE: your own emulator is the one in ~/Applications; Finesse’s copy on
   const there = readdirSync(join(H, 'Applications')).sort()
   assert.deepEqual(there, ['Cemu-2.6-x86_64.AppImage', 'PCSX2-v2.0.AppImage', 'esde.AppImage'])
   assert.equal(readlinkSync(join(H, 'Applications', 'PCSX2-v2.0.AppImage')), join(own, 'PCSX2-v2.0.AppImage'))
+})
+
+test('system saves on an upgrade: the home’s data moves into the saves folder once, never hidden or lost', () => {
+  const dir = tmp('emuapi-stage-')
+  const H = join(dir, 'home')
+  const stage = join(dir, 'stage')
+  const eden = emulatorCatalog('eden', H).switch
+  const st = join(stage, 'switch', 'system')
+  const home = join(H, '.local/share/eden/nand/system/save')
+  const run = () => execFileSync('bash', ['-e', '-c', stageSaves(eden, stage)], { stdio: 'pipe' })
+  // A home from before (browser play's volume): the user profile lives in nand/system/save.
+  mkdirSync(join(home, '8000000000000010/su/avators'), { recursive: true })
+  writeFileSync(join(home, '8000000000000010/su/avators/profiles.dat'), 'the player’s account')
+  mkdirSync(st, { recursive: true }) // the empty folder Docker mounts there
+  // The mount points at the staging folder, not over the home's data.
+  assert.ok(appMounts('switch', { apps: ['switch'], switchEmulator: 'eden', paths: { roms: '/r', saves: '/s' } }, 'user', H).includes('/s/user/switch/system:/finesse/saves/switch/system:rw'))
+  run()
+  assert.equal(readlinkSync(home), st)
+  assert.equal(readFileSync(join(home, '8000000000000010/su/avators/profiles.dat'), 'utf8'), 'the player’s account', 'still there, through the link')
+  assert.equal(readFileSync(join(st, '8000000000000010/su/avators/profiles.dat'), 'utf8'), 'the player’s account')
+  assert.equal(statSync(join(st, '8000000000000010')).uid, statSync(join(dir)).uid, 'ownership kept')
+  run()
+  assert.equal(readlinkSync(home), st, 'idempotent')
+  // A fresh home: just the link.
+  const fresh = emulatorCatalog('eden', join(dir, 'fresh')).switch
+  execFileSync('bash', ['-e', '-c', stageSaves(fresh, stage)])
+  assert.equal(readlinkSync(join(dir, 'fresh/.local/share/eden/nand/system/save')), st)
+  // Both have data (saves made elsewhere since): the home's copy is kept beside it.
+  const other = join(dir, 'other')
+  const oh = join(other, '.local/share/eden/nand/system/save')
+  mkdirSync(oh, { recursive: true })
+  writeFileSync(join(oh, 'mine'), 'x')
+  execFileSync('bash', ['-e', '-c', stageSaves(emulatorCatalog('eden', other).switch, stage)])
+  assert.equal(readlinkSync(oh), st)
+  const kept = readdirSync(join(other, '.local/share/eden/nand/system')).find((n) => n.startsWith('save.finesse-kept-'))!
+  assert.equal(readFileSync(join(other, '.local/share/eden/nand/system', kept, 'mine'), 'utf8'), 'x')
+  // Ryujinx's system saves and Dolphin's save states go the same way.
+  assert.deepEqual(emulatorCatalog('ryujinx').switch.staged, ['system'])
+  assert.deepEqual(emulatorCatalog().dolphin.staged, ['StateSaves'])
+  const prep = wolfApp('dolphin', { settings: { apps: ['dolphin'], paths: { roms: '/r', saves: '/s' } }, profile: 'user', base: {} as never })
+  assert.match((prep.runner as { env: string[] }).env.find((x) => x.startsWith('FINESSE_PREP='))!, /stage_saves '\/finesse\/saves\/dolphin\/StateSaves' '\/home\/retro\/\.local\/share\/dolphin-emu\/StateSaves'/)
 })
