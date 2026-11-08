@@ -9,7 +9,7 @@ import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { EMULATOR_PINS, INSTALL_IDS, type PinnedEmulator } from '../src/emucatalog.ts'
-import { EmulatorDownloads } from '../src/emudownload.ts'
+import { download, EmulatorDownloads, redirectAllowed } from '../src/emudownload.ts'
 import { consoleViews, withConsoles } from '../src/emuapi.ts'
 import { emulatorCatalog, launchScript, appMounts, validateEmulators } from '../src/emulators.ts'
 import { validateSetup } from '../src/setup/doc.ts'
@@ -193,4 +193,59 @@ test('the setup document takes the consoles to download', () => {
   const doc = (emulators: unknown) => ({ version: 1, admin: { username: 'a', password: 'longenough1' }, libraries: { movies: true, games: true }, emulators })
   assert.deepEqual(validateSetup(doc({ apps: [], paths: {}, install: ['pcsx2', 'dolphin', 'rpcs3', 'cemu', 'eden'] })).problems.filter((p) => p.path.startsWith('emulators')), [])
   assert.ok(validateSetup(doc({ apps: [], paths: {}, install: ['ryujinx'] })).problems.some((p) => p.path === 'emulators.install'))
+})
+
+test('the downloader: stops past the pinned size, redirects only over https to the pins’ hosts, a wrong Content-Range starts over', async () => {
+  const seen: string[] = []
+  const server = createServer((req, res) => {
+    seen.push(`${req.url} ${req.headers.range ?? ''}`)
+    if (req.url === '/big') {
+      res.writeHead(200)
+      // More than the pin says, without a Content-Length to give it away.
+      for (let i = 0; i < 20; i++) res.write(blob.subarray(0, 100_000))
+      return res.end()
+    }
+    if (req.url === '/to-http') return res.writeHead(302, { Location: 'http://example.com/x' }).end()
+    if (req.url === '/to-elsewhere') return res.writeHead(302, { Location: 'https://evil.example/x' }).end()
+    if (req.url === '/hop') return res.writeHead(302, { Location: '/file' }).end()
+    if (req.url === '/badrange' && req.headers.range) {
+      // A 206 for some other part (or file): not the rest of ours.
+      res.writeHead(206, { 'Content-Range': `bytes 0-99/${blob.length}` })
+      return res.end(blob.subarray(0, 100))
+    }
+    res.writeHead(200, { 'Content-Length': String(blob.length) })
+    res.end(blob)
+  })
+  const url = await listen(server)
+  try {
+    const dir = tmp('emudl-guard-')
+    const part = join(dir, 'x.part')
+    await assert.rejects(download(`${url}/big`, part, blob.length, () => {}), /bigger than it should be/)
+    assert.ok(!existsSync(part), 'nothing past the pinned size is kept')
+    await assert.rejects(download(`${url}/to-http`, part, blob.length, () => {}), /http:\/\/example\.com/)
+    await assert.rejects(download(`${url}/to-elsewhere`, part, blob.length, () => {}), /evil\.example, which Finesse doesn’t download from/)
+    // A redirect the allow-list takes is followed (here: the fake server itself).
+    await download(`${url}/hop`, part, blob.length, () => {}, { allow: (u) => u.hostname === '127.0.0.1' })
+    assert.deepEqual(readFileSync(part), blob)
+    // Resuming against the wrong Content-Range: the partial file goes, and the whole file comes again.
+    writeFileSync(part, blob.subarray(0, 1000))
+    seen.length = 0
+    await download(`${url}/badrange`, part, blob.length, () => {})
+    assert.deepEqual(seen, ['/badrange bytes=1000-', '/badrange '])
+    assert.deepEqual(readFileSync(part), blob)
+  } finally {
+    await new Promise((r) => server.close(r))
+  }
+  for (const [u, ok] of [
+    ['https://github.com/PCSX2/x', true],
+    ['https://release-assets.githubusercontent.com/a', true],
+    ['https://objects.githubusercontent.com/a', true],
+    ['https://stable.eden-emu.dev/v1/x', true],
+    ['http://github.com/x', false],
+    ['https://githubusercontent.com.evil.example/x', false],
+    ['https://evilgithubusercontent.com/x', false],
+  ] as const)
+    assert.equal(redirectAllowed(new URL(u)), ok, u)
+  // Every pin's own host is on the list (their releases redirect within it).
+  for (const p of EMULATOR_PINS) assert.ok(redirectAllowed(new URL(p.url)), p.id)
 })

@@ -173,15 +173,52 @@ function plain(e: Error, p: PinnedEmulator): string {
   return `The download stopped (${e.message}). Try again; it picks up where it stopped.`
 }
 
-/** Fetches url into `part`, continuing a partial file with a Range request. */
-export async function download(url: string, part: string, size: number, progress: (received: number) => void, timeoutMs = 30 * 60_000): Promise<void> {
+/** Where a pinned download may be sent on to: https only, to the hosts the pins' own redirects use. */
+export const REDIRECT_HOSTS = ['github.com', 'githubusercontent.com', 'stable.eden-emu.dev']
+export const redirectAllowed = (u: URL) =>
+  u.protocol === 'https:' && REDIRECT_HOSTS.some((h) => u.hostname === h || (h === 'githubusercontent.com' && u.hostname.endsWith('.githubusercontent.com')))
+
+/** One request, following redirects by hand: each hop https and to an allowed host. */
+async function get(url: string, headers: Record<string, string>, signal: AbortSignal, allow: (u: URL) => boolean): Promise<Response> {
+  let at = url
+  for (let hop = 0; hop <= 5; hop++) {
+    const res = await fetch(at, { headers, redirect: 'manual', signal })
+    if (![301, 302, 303, 307, 308].includes(res.status)) return res
+    const next = new URL(res.headers.get('location') ?? '', at)
+    await res.body?.cancel()
+    if (!allow(next)) throw new Error(`it was sent on to ${next.protocol === 'https:' ? next.host : `${next.protocol}//${next.host}`}, which Finesse doesn’t download from`)
+    at = next.href
+  }
+  throw new Error('too many redirects')
+}
+
+/**
+ * Fetches url into `part`, continuing a partial file with a Range request. A 206 whose
+ * Content-Range isn't the rest of this file starts over from nothing; a file that grows past its
+ * pinned size stops right there.
+ */
+export async function download(url: string, part: string, size: number, progress: (received: number) => void, opts: { timeoutMs?: number; allow?: (u: URL) => boolean } = {}): Promise<void> {
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? 30 * 60_000)
+  const allow = opts.allow ?? redirectAllowed
   let have = existsSync(part) ? statSync(part).size : 0
   if (have > size) {
     rmSync(part, { force: true })
     have = 0
   }
   if (have === size) return progress(have)
-  const res = await fetch(url, { headers: have ? { Range: `bytes=${have}-` } : {}, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) })
+  let res = await get(url, have ? { Range: `bytes=${have}-` } : {}, signal, allow)
+  if (res.status === 206) {
+    const m = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(res.headers.get('content-range') ?? '')
+    const fits = m && Number(m[1]) === have && Number(m[2]) === size - 1 && (m[3] === '*' || Number(m[3]) === size)
+    if (!fits) {
+      // Not the rest of this file: start again, whole.
+      await res.body?.cancel()
+      rmSync(part, { force: true })
+      have = 0
+      res = await get(url, {}, signal, allow)
+      if (res.status !== 200) throw new Error(`HTTP ${res.status}`)
+    }
+  }
   if (res.status === 200) have = 0
   else if (res.status !== 206) throw new Error(`HTTP ${res.status}`)
   if (!res.body) throw new Error('no answer')
@@ -189,11 +226,17 @@ export async function download(url: string, part: string, size: number, progress
   const count = new Transform({
     transform(chunk: Buffer, _enc, done) {
       have += chunk.length
+      if (have > size) return done(new Error('the file is bigger than it should be'))
       progress(have)
       done(null, chunk)
     },
   })
-  await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), count, createWriteStream(part, { flags: res.status === 206 ? 'a' : 'w' }))
+  try {
+    await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), count, createWriteStream(part, { flags: res.status === 206 ? 'a' : 'w' }))
+  } catch (e) {
+    if (have > size) rmSync(part, { force: true })
+    throw e
+  }
 }
 
 export async function sha256(file: string): Promise<string> {
