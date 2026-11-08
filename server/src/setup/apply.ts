@@ -583,7 +583,10 @@ export class SetupRunner {
       if (doc.emulators) {
         const downloads = downloadsFor(this.settings.paths.configDir)
         await setupConsoles(this.settings, orch instanceof Orchestrator ? orch.docker : null, downloads, doc.emulators, { uid: ctx.puid, gid: ctx.pgid })
-          .then((ids) => void downloads.ensure(ids))
+          .then(({ download, notes }) => {
+            for (const n of notes) this.status.warnings.push(`Emulators: ${n}`)
+            void downloads.ensure(download)
+          })
           .catch((e) => this.status.warnings.push(`Emulators: ${(e as Error).message}`))
       }
       // Emulators in the document: into Wolf now, if game streaming is on.

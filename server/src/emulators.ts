@@ -509,6 +509,12 @@ function findProgram(dir: string | undefined, patterns: string[]): { path: strin
   return null
 }
 
+/** The app's program is in your own emulators folder (as Finesse sees it). */
+export function hasOwnProgram(s: EmulatorSettings, id: EmulatorId): boolean {
+  const e = emulatorCatalog(s.switchEmulator)[id]
+  return Boolean(s.paths.emulators && e.program.length && findProgram(s.paths.emulators, e.program))
+}
+
 /** `managedLocal`: Finesse's own downloads folder, as Finesse sees it (its programs count too). */
 export function readiness(s: EmulatorSettings, managedLocal?: string): EmulatorReadiness[] {
   const cat = emulatorCatalog(s.switchEmulator)

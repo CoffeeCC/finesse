@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { consolesApi, type ConsoleView, type InstallId } from '../../api/setup'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
+import { withoutFolder } from '../../lib/consoleText'
 import { CONSOLES, mb } from '../../lib/consoles'
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
@@ -110,11 +111,11 @@ function ConsoleRow({ c, busy, onChange }: { c: ConsoleView; busy: boolean; onCh
                 </button>
               )}
               {d.state === 'failed' && (
-                <button type="button" className={smallBtn} disabled={busy} onClick={() => onChange({ add: [c.id] })}>
+                <button type="button" className={smallBtn} disabled={busy} onClick={() => onChange(d.installed ? { update: [c.id] } : { add: [c.id] })}>
                   Try again
                 </button>
               )}
-              <button type="button" className={smallBtn} disabled={busy || d.state === 'downloading'} onClick={() => setConfirm(true)}>
+              <button type="button" className={smallBtn} disabled={busy || d.state === 'downloading' || d.state === 'checking'} onClick={() => setConfirm(true)}>
                 Remove
               </button>
             </>
@@ -135,8 +136,8 @@ function ConsoleRow({ c, busy, onChange }: { c: ConsoleView; busy: boolean; onCh
               <span className={n.required ? 'text-amber-100' : 'text-ink-300'}>
                 {n.required ? 'Needs' : 'Optional:'} {what(n.label)}.
               </span>{' '}
-              <span className="text-ink-400">{n.detail.replace(/ ?Put it in \S+\.?$/, '')}</span>
-              {n.folder && n.required && (
+              <span className="text-ink-400">{withoutFolder(n.detail)}</span>
+              {n.folder && (
                 <>
                   <span className="block text-ink-400">Put it in this folder on the server:</span>
                   <Folder path={n.folder} />
@@ -177,9 +178,10 @@ export default function Consoles() {
   const change = async (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => {
     setBusy(true)
     try {
-      await consolesApi.change(body)
+      const r = await consolesApi.change(body)
       await refetch()
-      if (body.add?.length) toast('Added. The download runs in the background.')
+      if (r.notes?.length) toast(r.notes[0]!, 'error')
+      else if (body.add?.length) toast('Added. The download runs in the background.')
       else if (body.remove?.length) toast('Removed')
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -197,6 +199,11 @@ export default function Consoles() {
           Finesse downloads each console’s emulator, checks it, and sets it up with your controller, full screen and saves. You add the files only your own console has; each one says what and where.
         </p>
       </div>
+      {data?.notes?.map((n) => (
+        <p key={n} className="rounded-xl bg-amber-300/10 px-3 py-2 text-[12.5px] leading-relaxed text-amber-100">
+          {n}
+        </p>
+      ))}
       {error ? (
         <p className="text-[13px] text-red-300">{(error as Error).message}</p>
       ) : !data ? (

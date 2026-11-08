@@ -478,8 +478,9 @@ export interface ConsoleView {
 }
 
 export const consolesApi = {
-  list: () => call<{ consoles: ConsoleView[]; folders: EmulatorSettings['paths'] }>('GET', '/api/emulators/consoles'),
-  change: (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => call<{ consoles: ConsoleView[] }>('POST', '/api/emulators/consoles', body, { timeoutMs: 60000 }),
+  /** `notes`: what's wrong for the whole list, in plain words (Finesse can't find its downloads folder on the server…). */
+  list: () => call<{ consoles: ConsoleView[]; folders: EmulatorSettings['paths']; notes?: string[] }>('GET', '/api/emulators/consoles'),
+  change: (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => call<{ consoles: ConsoleView[]; notes?: string[] }>('POST', '/api/emulators/consoles', body, { timeoutMs: 60000 }),
 }
 
 export interface EmulatorReadiness {

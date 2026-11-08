@@ -130,7 +130,11 @@ test('a newer pin is "an update" until asked for; then the old file goes', async
     assert.equal(d.status('pcsx2').state, 'update')
     assert.equal(d.status('pcsx2').installed, '2.0.0')
     assert.equal(srv.seen.length, 0, 'never on its own')
+    // Adding the console again, or a setup re-run, counts the older version as there.
     await d.ensure(['pcsx2'])
+    assert.equal(srv.seen.length, 0, 'not without being asked to update')
+    assert.equal(d.status('pcsx2').state, 'update')
+    await d.ensure(['pcsx2'], { update: true })
     assert.equal(d.status('pcsx2').state, 'ready')
     assert.ok(!existsSync(join(dir, 'pcsx2-v2.0.0-linux-appimage-x64-Qt.AppImage')))
     d.remove('pcsx2')
@@ -163,9 +167,9 @@ test('adding consoles on a server Finesse set up: apps, Eden as the Switch app, 
   const less = withConsoles({ ...(base as object), emulators: e } as never, [], ['pcsx2'], e.managedDir!)
   assert.deepEqual(less.apps, ['switch'])
   // Someone's own folders stay as they are.
-  const own = withConsoles({ mode: 'adopt', emulators: { apps: ['dolphin'], paths: { roms: '/mnt/g', emulators: '/mnt/g/emulators', saves: '/mnt/g/saves' } } } as never, ['cemu'], ['dolphin'], '/c/emulators')
+  const own = withConsoles({ mode: 'adopt', emulators: { apps: ['dolphin', 'pcsx2'], paths: { roms: '/mnt/g', emulators: '/mnt/g/emulators', saves: '/mnt/g/saves' } } } as never, ['cemu'], ['dolphin'], '/c/emulators')
   assert.equal(own.paths.roms, '/mnt/g')
-  assert.deepEqual(own.apps.sort(), ['cemu', 'dolphin'], 'your own Dolphin keeps its console')
+  assert.deepEqual(own.apps.sort(), ['cemu', 'pcsx2'], 'removing goes from the games list, even with your own emulators folder')
 })
 
 test('each console says what it still needs, and where to put it', () => {

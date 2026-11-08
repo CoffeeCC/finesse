@@ -86,9 +86,19 @@ export class EmulatorDownloads {
     return this.pins.map((p) => this.status(p.id))
   }
 
-  /** Downloads these (one at a time) unless they're already here; resolves when all are done or failed. Never throws. */
-  ensure(ids: InstallId[]): Promise<void> {
-    const todo = ids.filter((id) => !this.running.has(id) && this.status(id).state !== 'ready')
+  /**
+   * Downloads these (one at a time) unless they're already here; resolves when all are done or
+   * failed. Never throws. An older version counts as here: only `update` (someone asked) fetches
+   * the newer pin.
+   */
+  ensure(ids: InstallId[], opts: { update?: boolean } = {}): Promise<void> {
+    const todo = ids.filter((id) => {
+      if (this.running.has(id)) return false
+      const st = this.status(id)
+      if (st.state === 'ready') return false
+      if (st.state === 'update' || (st.state === 'failed' && st.installed)) return Boolean(opts.update)
+      return true
+    })
     for (const id of todo) {
       this.failed.delete(id)
       this.running.set(id, { received: 0, state: 'queued' })
@@ -97,9 +107,18 @@ export class EmulatorDownloads {
     return Promise.all(mine).then(() => undefined)
   }
 
+  /** Why it can't be removed right now (it's downloading or being checked), or null. */
+  busy(id: InstallId): string | null {
+    const st = this.running.get(id)?.state
+    if (st === 'downloading') return `${this.pin(id).name} is downloading; try again when it’s done`
+    if (st === 'checking') return `Finesse is checking the ${this.pin(id).name} download; try again in a moment`
+    return null
+  }
+
   /** Deletes an emulator's files (any version, and a partial download). */
   remove(id: InstallId) {
-    if (this.running.get(id)?.state === 'downloading') throw new Error(`${this.pin(id).name} is downloading; try again when it’s done`)
+    const busy = this.busy(id)
+    if (busy) throw new Error(busy)
     this.running.delete(id)
     this.failed.delete(id)
     const m = this.manifest()
