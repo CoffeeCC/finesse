@@ -2,6 +2,7 @@
 // says what (if anything) still stops the person moving on.
 
 import { CONSOLES } from '../../lib/consoles'
+import { COMMUNITY_BUILD } from '../../lib/consoleText'
 import { useEffect, useState, type ReactNode } from 'react'
 import { setupApi, type SetupInfo, type SystemItem, type Verdict } from '../../api/setup'
 import { indexerKey, isBuiltInSite, kept, newServer, vpnDoc, type Draft } from './draft'
@@ -885,6 +886,7 @@ function ConsolePicker({ d, set }: Pick<StepProps, 'd' | 'set'>) {
                   <span className="block text-sm text-ink-100">
                     {c.title} <span className="text-ink-400">· {c.emulator}, {c.mb} MB</span>
                   </span>
+                  {COMMUNITY_BUILD[c.id] && <span className="block text-[13px] leading-snug text-amber-200/90">{`${c.emulator} here is ${COMMUNITY_BUILD[c.id]}.`}</span>}
                   <span className="block text-[13px] leading-snug text-ink-400">{c.yours ? `You add: ${c.yours}` : 'Nothing else to add.'}</span>
                 </span>
               </label>

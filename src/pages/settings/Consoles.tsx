@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { consolesApi, type ConsoleView, type InstallId } from '../../api/setup'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
-import { withoutFolder } from '../../lib/consoleText'
+import { COMMUNITY_BUILD, withoutFolder } from '../../lib/consoleText'
 import { CONSOLES, mb } from '../../lib/consoles'
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
@@ -95,7 +95,7 @@ function ConsoleRow({ c, busy, onChange }: { c: ConsoleView; busy: boolean; onCh
           </p>
           <p className="text-[12.5px] text-ink-400">
             {c.own ? `${c.name}, your own copy` : `${c.name} ${c.version} · ${mb(c.size)}`}
-            {!c.official && !c.own && ' · a community build (Dolphin has no ready-made Linux download of its own)'}
+            {!c.official && !c.own && ` · ${COMMUNITY_BUILD[c.id] ?? 'a community build'}`}
           </p>
         </div>
         <div className="flex shrink-0 gap-2">

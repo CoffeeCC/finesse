@@ -8,7 +8,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { SettingsStore } from '../src/config.ts'
 import { applyConsoles, consoleNotes, consoleViews, folderLabel, hostPathOf, makeFolders, setupConsoles, withConsoles } from '../src/emuapi.ts'
-import { withoutFolder } from '../../src/lib/consoleText.ts'
+import { COMMUNITY_BUILD, withoutFolder } from '../../src/lib/consoleText.ts'
+import { EMULATOR_PINS } from '../src/emucatalog.ts'
 import { EmulatorDownloads } from '../src/emudownload.ts'
 import type { EmulatorSettings } from '../src/emulators.ts'
 import { tmp } from './helpers.ts'
@@ -172,4 +173,9 @@ test('each need names its folder, optional ones too, and the Windows label repla
   } finally {
     delete process.env.FINESSE_DATA_LABEL
   }
+})
+
+test('a community build is labelled wherever it’s offered (setup’s picker and Settings)', () => {
+  for (const p of EMULATOR_PINS) assert.equal(Boolean(COMMUNITY_BUILD[p.id]), !p.official, p.id)
+  assert.match(COMMUNITY_BUILD.dolphin!, /community build \(Dolphin has no official Linux download\)/)
 })
