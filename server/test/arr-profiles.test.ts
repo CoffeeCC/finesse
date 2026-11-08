@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { pickArrConfig, PROFILE_KEY, type ArrKindName, type ArrProfile } from '../../src/lib/arrProfiles.ts'
+import { animeProfile, pickArrConfig, PROFILE_KEY, type ArrKindName, type ArrProfile } from '../../src/lib/arrProfiles.ts'
 import { qualityProfiles } from '../src/setup/doc.ts'
 import { fakeJellyfin, finesse } from './peers.ts'
 
@@ -106,4 +106,13 @@ test('/api/finesse hands the saved choice to the app (names only, nothing secret
       s.close()
     }
   }
+})
+
+test('anime requests go to Sonarr\'s anime profile when there is one', () => {
+  const p = (id: number, name: string): ArrProfile => ({ id, name })
+  assert.equal(animeProfile([p(4, 'HD-1080p'), p(7, 'Anime'), p(8, 'Anime English Dub')])?.id, 7)
+  assert.equal(animeProfile([p(4, 'HD-1080p'), p(8, 'Anime English Dub'), p(9, 'Anime 1080p')])?.id, 9)
+  assert.equal(animeProfile([p(8, 'Anime English Dub')])?.id, 8)
+  assert.equal(animeProfile([p(4, 'HD-1080p'), p(5, 'Animation')]), undefined)
+  assert.equal(animeProfile([]), undefined)
 })

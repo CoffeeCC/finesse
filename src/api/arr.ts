@@ -1,7 +1,7 @@
 import { mediaBrowserAuthHeader, withToken } from './client'
 import { CONTENT_BASE } from '../lib/contentOrigin'
 import { discover, knownFinesse } from '../lib/finesseServer'
-import { pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot, type SavedChoice } from '../lib/arrProfiles'
+import { animeProfile, pickArrConfig, PROFILE_KEY, type ArrProfile, type ArrRoot, type SavedChoice } from '../lib/arrProfiles'
 import { ApiError as SetupApiError, requestDefaultsApi } from './setup'
 import { requestKey } from '../lib/requestState'
 import { failuresByTitle } from '../lib/requestStatus'
@@ -323,6 +323,8 @@ interface ArrConfig {
   rootFolderPath: string
   /** Lidarr only — required on artist adds. */
   metadataProfileId?: number
+  /** Sonarr only: the profile anime requests use, when Sonarr has one. */
+  animeProfileId?: number
 }
 
 // The quality profile + root folder new requests use, from the live *arr config.
@@ -373,6 +375,7 @@ async function resolveConfig(kind: ArrKind): Promise<ArrConfig> {
     const pick = pickArrConfig(kind, profiles, roots, saved)
     if (!pick.ok) throw new ArrError(0, pick.problem)
     const out: ArrConfig = { qualityProfileId: pick.profile.id, rootFolderPath: pick.root.path }
+    if (kind === 'series') out.animeProfileId = animeProfile(profiles)?.id
     if (kind === 'artist') {
       // Lidarr additionally needs a metadata profile: "Albums & EPs" (Finesse adds it on servers it
       // set up; Standard leaves EPs out, so EP-only artists had nothing to download), then
@@ -461,7 +464,8 @@ async function addWith(result: ArrResult, cfg: ArrConfig): Promise<{ id?: number
       // absolute episode numbers ("Show - 38"), which Sonarr only searches
       // for and matches on an anime series (as Overseerr/Jellyseerr do).
       seriesType: isAnime(result.raw) ? 'anime' : result.raw.seriesType,
-      qualityProfileId: cfg.qualityProfileId,
+      // …and goes to Sonarr's anime profile when it has one (see animeProfile).
+      qualityProfileId: isAnime(result.raw) ? cfg.animeProfileId ?? cfg.qualityProfileId : cfg.qualityProfileId,
       rootFolderPath: cfg.rootFolderPath,
       monitored: true,
       seasonFolder: true,

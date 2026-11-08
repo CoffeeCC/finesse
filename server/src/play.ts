@@ -102,7 +102,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
 
   async function remove(s: PlaySession, why: string) {
     sessions.delete(s.id)
-    await docker.remove(s.container, { force: true }).catch((e) => log.warn(`removing ${s.container}: ${(e as Error).message}`))
+    await docker.remove(s.container, { force: true, volumes: true }).catch((e) => log.warn(`removing ${s.container}: ${(e as Error).message}`))
     log.info(`session ${s.id} (${s.title}) removed: ${why}`)
   }
 
@@ -113,7 +113,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
     .then((list) => {
       for (const c of (list ?? []) as { Id: string; Labels?: Record<string, string> }[]) {
         const owner = c.Labels?.['finesse.play.instance']
-        if (owner === instance || owner === undefined) void docker.remove(c.Id, { force: true }).catch(() => {})
+        if (owner === instance || owner === undefined) void docker.remove(c.Id, { force: true, volumes: true }).catch(() => {})
       }
     })
     .catch(() => {})
@@ -184,7 +184,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         ...(render && g.nvidia ? ['PIXELFLUX_WAYLAND=true'] : []),
         `FINESSE_GAME=${spec.game}`,
       ]
-      await docker.remove(s.container, { force: true }).catch(() => {})
+      await docker.remove(s.container, { force: true, volumes: true }).catch(() => {})
       await docker.create(s.container, {
         Image: PLAY_IMAGE,
         Hostname: 'finesse-play',
@@ -232,7 +232,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
       s.error = err instanceof DockerError && err.status === 0 ? 'Finesse can’t reach Docker. Browser play needs Docker’s socket shared with Finesse.' : (err as Error).message
       s.lastActive = Date.now()
       log.warn(`session ${s.id}: ${s.error}`, (err as Error).message)
-      await docker.remove(s.container, { force: true }).catch(() => {})
+      await docker.remove(s.container, { force: true, volumes: true }).catch(() => {})
     }
   }
 

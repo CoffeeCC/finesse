@@ -227,7 +227,7 @@ export async function checkVpn(docker: Docker, vpn: VpnDoc, ctx: { hostRoot: str
   seedGluetunAuth(dir, key)
   const def = CATALOG.gluetun
   const env = def.env({ hostRoot: ctx.hostRoot, hostData: '', puid: 0, pgid: 0, timezone: ctx.timezone, network: ctx.network, exposeJellyfin: false, jellyfinPort: 8096, gpu: false, vpn: vpnConfig(vpn) })
-  await docker.remove(name, { force: true })
+  await docker.remove(name, { force: true, volumes: true })
   try {
     if (!(await docker.imageExists(def.image))) await docker.pull(def.image)
     await docker.create(name, {
@@ -269,7 +269,7 @@ export async function checkVpn(docker: Docker, vpn: VpnDoc, ctx: { hostRoot: str
     log.warn('vpn check failed', e)
     return { ok: false, message: `Couldn’t start the VPN check (${(e as Error).message})` }
   } finally {
-    await docker.remove(name, { force: true }).catch(() => {})
+    await docker.remove(name, { force: true, volumes: true }).catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
 }
