@@ -17,7 +17,7 @@ import type { Duplex } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import type { Auth } from './auth.ts'
 import type { SettingsStore } from './config.ts'
-import { appMounts, emulatorCatalog, emulatorForConsole, launchScript, NVIDIA_ICD, ownHome, type EmulatorId } from './emulators.ts'
+import { appMounts, emulatorCatalog, emulatorForConsole, launchScript, NVIDIA_ICD, ownHome, ownSaves, stageSaves, type EmulatorId } from './emulators.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import { logger } from './log.ts'
@@ -208,7 +208,7 @@ export function registerPlay(router: Router, deps: { settings: SettingsStore; au
         { path: 'defaults/autostart_wayland', data: Buffer.from('bash /finesse-launch.sh\n'), mode: 0o755 },
         { path: 'finesse-launch.sh', data: Buffer.from(`${script}\n`), mode: 0o755 },
         // Runs as root before the desktop starts (LinuxServer's custom init hook).
-        { path: 'custom-cont-init.d/50-finesse-home', data: Buffer.from(`#!/bin/bash\n${ownHome(HOME, 'abc')}\n${NVIDIA_ICD}\n`), mode: 0o755 },
+        { path: 'custom-cont-init.d/50-finesse-home', data: Buffer.from(`#!/bin/bash\n${stageSaves(cat[spec.emulator])}\n${ownHome(HOME, 'abc')}\n${ownSaves(cat[spec.emulator], 'abc')}\n${NVIDIA_ICD}\n`), mode: 0o755 },
       ]))
       await docker.start(s.container)
       const until = Date.now() + 90_000

@@ -148,6 +148,8 @@ export interface SetupDoc {
   libraries?: { movies?: boolean; shows?: boolean; music?: boolean; games?: boolean; samples?: boolean }
   games?: { igdb?: { clientId: string; clientSecret: string }; steamGridDbKey?: string; screenscraper?: { username: string; password: string } }
   downloads?: { usenet?: { servers: UsenetServer[] } | null; torrents?: { vpn?: VpnDoc; adapter?: string } | null; indexers?: Indexer[] }
+  /** Consoles: the emulators Finesse downloads (install), and their folders. */
+  emulators?: EmulatorSettings
   quality?: { preset?: '720p' | '1080p' | '4k' | 'any' }
   remoteAccess?: { method: 'none' | 'tailscale' | 'cloudflare'; tailscale?: { authKey: string; hostname?: string }; cloudflare?: { token: string; publicUrl: string } }
   publicUrl?: string
@@ -451,6 +453,34 @@ export interface EmulatorSettings {
   paths: { roms?: string; emulators?: string; firmware?: string; keys?: string; saves?: string }
   folders?: Partial<Record<EmulatorId, { firmware?: string; keys?: string }>>
   profiles?: string[]
+  /** Emulators Finesse downloads for you. */
+  install?: InstallId[]
+  managedDir?: string
+}
+
+/** The emulators Finesse can download (one per console family). */
+export type InstallId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'eden'
+
+export interface ConsoleView {
+  id: InstallId
+  name: string
+  consoles: string
+  version: string
+  size: number
+  official: boolean
+  source: string
+  license: string
+  added: boolean
+  download: { state: 'missing' | 'queued' | 'downloading' | 'checking' | 'ready' | 'update' | 'failed'; received: number; size: number; error: string | null; installed: string | null }
+  own: boolean
+  ready: boolean
+  needs: { label: string; required: boolean; ok: boolean; detail: string; folder: string | null }[]
+}
+
+export const consolesApi = {
+  /** `notes`: what's wrong for the whole list, in plain words (Finesse can't find its downloads folder on the server…). */
+  list: () => call<{ consoles: ConsoleView[]; folders: EmulatorSettings['paths']; notes?: string[] }>('GET', '/api/emulators/consoles'),
+  change: (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => call<{ consoles: ConsoleView[]; notes?: string[] }>('POST', '/api/emulators/consoles', body, { timeoutMs: 60000 }),
 }
 
 export interface EmulatorReadiness {

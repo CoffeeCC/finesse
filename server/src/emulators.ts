@@ -13,6 +13,8 @@
 
 import { accessSync, chmodSync, chownSync, constants, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { controllerShell, INI_HELPERS, padFor, type ControllerId } from './emupads.ts'
+import { INSTALL_IDS, type InstallId } from './emucatalog.ts'
 import { EMULATOR_IMAGE } from './stack/catalog.ts'
 
 export type EmulatorId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'switch' | 'esde'
@@ -42,6 +44,10 @@ export interface EmulatorSettings {
   folders?: Partial<Record<EmulatorId, { firmware?: string; keys?: string }>>
   /** Wolf profiles to add the apps to (ids). Leave out for every profile. */
   profiles?: string[]
+  /** Emulators Finesse downloads for you (emucatalog.ts). A program in your own emulators folder wins over Finesse's copy. */
+  install?: InstallId[]
+  /** Where Finesse keeps the downloaded ones, as Docker sees it (Finesse sets this). */
+  managedDir?: string
 }
 
 interface Need {
@@ -66,21 +72,24 @@ interface Emulator {
   needs: Need[]
   /** Save folders inside the app's home, under <saves>/<profile>/<id>/<key>. */
   saves: Record<string, string>
+  /**
+   * Save folders the emulator already keeps data in before Finesse saved them (homes from before):
+   * mounted at a staging path, with the home's copy moved in once, and the home path linked to it
+   * (stageSaves), so nothing there is hidden or lost.
+   */
+  staged?: string[]
   /** Links made at start: the files from /finesse/<what>/<id> matching `match`, into `into`. `copy` when the emulator writes to them (Eden opens its firmware read-write): copied once instead. */
   links: { what: 'firmware' | 'keys'; match: string[]; into: string; copy?: true }[]
   /** Arguments with a game ($GAME) and without one. */
   args: { game: string; none: string }
   /** Shell run before the emulator (inside the session). */
   before?: string
-  /** Maps the first controller (Selkies' or Wolf's virtual pad; the touch controller too) unless the player mapped one themselves. */
-  controller?: string
+  /** Maps the first controller (Selkies' or Wolf's virtual pad; the touch controller too) unless the player mapped one themselves (emupads.ts). */
+  controller?: ControllerId
 }
 
-// PCSX2 Player 1 on the first SDL controller. Games on Whales' mapping, with PCSX2 2.x's names for the face
-// buttons (FaceSouth…): its old A/B/X/Y are "invalid bindings" now, which left Cross, Circle, Square and Triangle dead.
-const PCSX2_PAD1 = ['[Pad1]', 'Type = DualShock2', 'Up = SDL-0/DPadUp', 'Right = SDL-0/DPadRight', 'Down = SDL-0/DPadDown', 'Left = SDL-0/DPadLeft', 'Triangle = SDL-0/FaceNorth', 'Circle = SDL-0/FaceEast', 'Cross = SDL-0/FaceSouth', 'Square = SDL-0/FaceWest', 'Select = SDL-0/Back', 'Start = SDL-0/Start', 'L1 = SDL-0/LeftShoulder', 'L2 = SDL-0/+LeftTrigger', 'R1 = SDL-0/RightShoulder', 'R2 = SDL-0/+RightTrigger', 'L3 = SDL-0/LeftStick', 'R3 = SDL-0/RightStick', 'LUp = SDL-0/-LeftY', 'LRight = SDL-0/+LeftX', 'LDown = SDL-0/+LeftY', 'LLeft = SDL-0/-LeftX', 'RUp = SDL-0/-RightY', 'RRight = SDL-0/+RightX', 'RDown = SDL-0/+RightY', 'RLeft = SDL-0/-RightX', 'Analog = SDL-0/Guide', 'LargeMotor = SDL-0/LargeMotor', 'SmallMotor = SDL-0/SmallMotor']
-const pcsx2Controller = (H: string) =>
-  `ini=${H}/.config/PCSX2/inis/PCSX2.ini; if ! grep -q -E '= *(SDL-[0-9]+/FaceSouth|Keyboard/|XInput)' "$ini" 2>/dev/null || grep -q -E '^Cross = SDL-0/A$' "$ini"; then mkdir -p "$(dirname "$ini")"; if [ -f "$ini" ]; then awk '/^\\[Pad1\\]/{s=1;next} /^\\[/{s=0} !s' "$ini" > "$ini.tmp" && mv "$ini.tmp" "$ini"; fi; printf '%s\\n' ${PCSX2_PAD1.map((l) => `'${l}'`).join(' ')} >> "$ini"; fi`
+/** Where Finesse's downloaded emulators are inside an app. */
+export const MANAGED = '/finesse/emulators-finesse'
 
 /** The app's home folder: Wolf's apps (Games on Whales) use /home/retro; browser play (Selkies) uses /config. */
 export const WOLF_HOME = '/home/retro'
@@ -94,9 +103,12 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
       { what: 'keys', label: 'title.keys', match: ['title.keys'], required: false, why: 'Some games and updates need title.keys.' },
       { what: 'firmware', label: 'Switch firmware', match: ['*.nca', '*.zip'], required: true, why: 'Install it once in Ryujinx: Tools → Install Firmware → from /finesse/firmware/switch.' },
     ],
-    saves: { save: `${H}/.config/Ryujinx/bis/user/save` },
+    // The system saves hold the save index and the user account: without them, saves made in one place aren't found in another.
+    saves: { save: `${H}/.config/Ryujinx/bis/user/save`, system: `${H}/.config/Ryujinx/bis/system/save` },
+    staged: ['system'],
     links: [{ what: 'keys', match: ['*.keys'], into: `${H}/.config/Ryujinx/system` }],
     args: { game: '--fullscreen "$GAME"', none: '' },
+    controller: 'ryujinx',
   },
   eden: {
     name: 'Eden',
@@ -104,14 +116,17 @@ const switchEmulators = (H: string): Record<SwitchEmulator, Omit<Emulator, 'id' 
     needs: [
       { what: 'keys', label: 'prod.keys', match: ['prod.keys'], required: true, why: 'Switch games don’t start without your console’s prod.keys.' },
       { what: 'keys', label: 'title.keys', match: ['title.keys'], required: false, why: 'Some games and updates need title.keys.' },
-      { what: 'firmware', label: 'Switch firmware (.nca files)', match: ['*.nca'], required: true, why: 'Eden reads the firmware’s .nca files; unzip the firmware into the switch folder.' },
+      { what: 'firmware', label: 'Switch firmware (.nca files)', match: ['*.nca'], required: true, why: 'Copy your Switch’s firmware here, unzipped (Eden reads its .nca files).' },
     ],
-    saves: { save: `${H}/.local/share/eden/nand/user/save` },
+    // nand/system/save holds the user account: saves live under its id, so it travels with them.
+    saves: { save: `${H}/.local/share/eden/nand/user/save`, system: `${H}/.local/share/eden/nand/system/save` },
+    staged: ['system'],
     links: [
       { what: 'keys', match: ['*.keys'], into: `${H}/.local/share/eden/keys` },
       { what: 'firmware', match: ['*.nca'], into: `${H}/.local/share/eden/nand/system/Contents/registered`, copy: true },
     ],
     args: { game: '-f -g "$GAME"', none: '' },
+    controller: 'eden',
   },
 })
 
@@ -125,11 +140,11 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       name: 'PCSX2',
       consoles: ['ps2'],
       program: ['pcsx2*.appimage'],
-      needs: [{ what: 'firmware', label: 'PS2 BIOS', match: ['*.bin', '*.rom0'], required: true, why: 'PS2 games don’t start without a BIOS dumped from your console.' }],
+      needs: [{ what: 'firmware', label: 'PS2 BIOS', match: ['*.bin', '*.rom0'], required: true, why: 'PS2 games need the BIOS, a file copied from your own PS2.' }],
       saves: { memcards: `${H}/.config/PCSX2/memcards`, sstates: `${H}/.config/PCSX2/sstates` },
       links: [{ what: 'firmware', match: ['*'], into: `${H}/.config/PCSX2/bios` }],
       args: { game: '-fullscreen -nogui -- "$GAME"', none: '-bigpicture -fullscreen' },
-      controller: pcsx2Controller(H),
+      controller: 'pcsx2',
     },
     {
       id: 'dolphin',
@@ -138,9 +153,12 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       consoles: ['ngc', 'gamecube', 'gc', 'wii'],
       program: ['dolphin*.appimage', 'dolphin*/dolphin-emu'],
       needs: [],
-      saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii` },
+      // GC: memory cards (a folder per region); Wii: the NAND, with every game's saves. Save states too, like PCSX2's.
+      saves: { GC: `${H}/.local/share/dolphin-emu/GC`, Wii: `${H}/.local/share/dolphin-emu/Wii`, StateSaves: `${H}/.local/share/dolphin-emu/StateSaves` },
+      staged: ['StateSaves'],
       links: [],
       args: { game: '-b -e "$GAME"', none: '' },
+      controller: 'dolphin',
     },
     {
       id: 'rpcs3',
@@ -154,8 +172,10 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       ],
       saves: { savedata: `${H}/.config/rpcs3/dev_hdd0/home/00000001/savedata` },
       links: [{ what: 'keys', match: ['*.rap'], into: `${H}/.config/rpcs3/dev_hdd0/home/00000001/exdata` }],
-      args: { game: '--no-gui "$GAME"', none: '' },
-      before: `[ -e ${H}/.config/rpcs3/dev_flash/vsh/module/vsh.self ] || { pup=$(ls /finesse/firmware/rpcs3/[Pp][Ss]3[Uu][Pp][Dd][Aa][Tt].[Pp][Uu][Pp] 2>/dev/null | head -n1); [ -z "$pup" ] || "$BIN" --installfw "$pup" || true; }`,
+      args: { game: '--no-gui --fullscreen "$GAME"', none: '' },
+      controller: 'rpcs3',
+      // Headless: the windowed installer asks "Install firmware?" and waits for a click.
+      before: `[ -e ${H}/.config/rpcs3/dev_flash/vsh/module/vsh.self ] || { pup=$(ls /finesse/firmware/rpcs3/[Pp][Ss]3[Uu][Pp][Dd][Aa][Tt].[Pp][Uu][Pp] 2>/dev/null | head -n1); [ -z "$pup" ] || "$BIN" --headless --installfw "$pup" || true; }`,
     },
     {
       id: 'cemu',
@@ -164,7 +184,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
       consoles: ['wiiu'],
       program: ['cemu*.appimage'],
       needs: [
-        { what: 'keys', label: 'keys.txt', match: ['keys.txt'], required: true, why: 'Encrypted disc images (.wud, .wux) need your keys.txt. Decrypted games play without it.' },
+        { what: 'keys', label: 'keys.txt', match: ['keys.txt'], required: false, why: 'Encrypted disc images (.wud, .wux) need your keys.txt. Decrypted games play without it.' },
         { what: 'firmware', label: 'Online files (otp.bin, seeprom.bin)', match: ['otp.bin', 'seeprom.bin'], required: false, why: 'Only for online play.' },
       ],
       saves: { save: `${H}/.local/share/Cemu/mlc01/usr/save` },
@@ -173,6 +193,7 @@ export function emulatorCatalog(switchEmulator: SwitchEmulator = 'ryujinx', H = 
         { what: 'firmware', match: ['otp.bin', 'seeprom.bin'], into: `${H}/.local/share/Cemu` },
       ],
       args: { game: '-f -g "$GAME"', none: '' },
+      controller: 'cemu',
     },
     { id: 'switch', title: `${sw.name} (Switch)`, consoles: ['switch'], ...sw },
     {
@@ -214,7 +235,11 @@ export function validateEmulators(v: unknown, at = 'emulators'): Problem[] {
     if (typeof x !== 'string' || !HOST_PATH.test(x)) p.push({ path: where, message: 'Use a full folder path on the server, like /mnt/tank/games/bios (no : , quotes or ..)' })
   }
   if (!isObj(v)) return [{ path: at, message: 'Must be an object' }]
-  known(v, at, ['apps', 'switchEmulator', 'paths', 'folders', 'profiles'])
+  known(v, at, ['apps', 'switchEmulator', 'paths', 'folders', 'profiles', 'install', 'managedDir'])
+  if (v.install !== undefined && (!Array.isArray(v.install) || !v.install.every((x) => INSTALL_IDS.includes(x as InstallId))))
+    p.push({ path: `${at}.install`, message: `A list of emulators for Finesse to download: ${INSTALL_IDS.join(', ')}` })
+  path(v.managedDir, `${at}.managedDir`)
+  const installs = Array.isArray(v.install) ? (v.install as string[]) : []
   if (!Array.isArray(v.apps) || !v.apps.every((a) => EMULATOR_IDS.includes(a as EmulatorId))) p.push({ path: `${at}.apps`, message: `A list of apps: ${EMULATOR_IDS.join(', ')}` })
   if (v.switchEmulator !== undefined && v.switchEmulator !== 'ryujinx' && v.switchEmulator !== 'eden') p.push({ path: `${at}.switchEmulator`, message: 'The Switch emulator is ryujinx or eden' })
   if (!isObj(v.paths)) p.push({ path: `${at}.paths`, message: 'Say where the folders are: roms, emulators, firmware, keys and saves' })
@@ -224,7 +249,9 @@ export function validateEmulators(v: unknown, at = 'emulators'): Problem[] {
     const apps = Array.isArray(v.apps) ? v.apps : []
     if (apps.length && !v.paths.roms) p.push({ path: `${at}.paths.roms`, message: 'Say where RomM’s library is (the folder with roms inside)' })
     if (apps.length && !v.paths.saves) p.push({ path: `${at}.paths.saves`, message: 'Say where saves go (a folder Wolf’s apps can write to)' })
-    if (apps.some((a) => a !== 'esde') && !v.paths.emulators) p.push({ path: `${at}.paths.emulators`, message: 'Say where the emulators’ AppImages are' })
+    // Each app needs its program: in your emulators folder, or one Finesse downloads.
+    const covered = (a: unknown) => a === 'esde' || (a === 'switch' ? v.switchEmulator !== 'ryujinx' && installs.includes('eden') : installs.includes(a as string))
+    if (!apps.every(covered) && !v.paths.emulators) p.push({ path: `${at}.paths.emulators`, message: 'Say where the emulators’ AppImages are' })
   }
   if (v.folders !== undefined) {
     known(v.folders, `${at}.folders`, EMULATOR_IDS)
@@ -294,6 +321,24 @@ function linkLines(e: Emulator): string[] {
   return e.links.map((l) => `${l.copy ? 'copyin' : 'link'} /finesse/${l.what}/${e.id} ${q(l.into)} ${l.match.map((m) => q(m)).join(' ')}`)
 }
 
+/**
+ * ES-DE finds emulators in ~/Applications. Your own emulators folder is linked there, and Finesse's
+ * copy of an emulator only when you have none of your own (so ES-DE never picks Finesse's over
+ * yours); links to Finesse's copies from before are cleared first. Needs nullglob and nocaseglob.
+ */
+export function esdeLinks(all: Emulator[], H: string, own = '/finesse/emulators', managed = MANAGED): string {
+  const apps = `${H}/Applications`
+  return [
+    `mkdir -p ${q(apps)}`,
+    `for l in ${q(apps)}/*; do [ -L "$l" ] && case "$(readlink "$l")" in ${q(managed)}/*) rm -f "$l";; esac; done`,
+    `for f in ${q(own)}/*; do ln -sfn "$f" ${q(apps)}/; done`,
+    `has_own() { for p in "$@"; do for f in ${q(own)}/$p; do [ -f "$f" ] && return 0; done; done; return 1; }`,
+    ...all
+      .filter((o) => o.program.length)
+      .map((o) => `has_own ${o.program.map(q).join(' ')} || for f in ${o.program.filter((p) => !p.includes('/')).map((p) => `${q(managed)}/${p}`).join(' ')}; do [ -f "$f" ] && ln -sfn "$f" ${q(apps)}/; done`),
+  ].join('\n')
+}
+
 /** The start script: runs as the app's user, inside Wolf's session. */
 export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string; browser?: boolean } = {}): string {
   const H = opts.home ?? WOLF_HOME
@@ -302,25 +347,38 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
     // Wolf: Games on Whales' helpers start the app in Sway. Browser play: the desktop is already there.
     // Browser play keeps its own log (Finesse shows it to administrators when a game won't start).
     ...(opts.browser
-      ? [`exec >>${H}/finesse-play.log 2>&1`, 'echo "--- $(date)"', 'gow_log() { echo "$*"; }', 'launcher() { exec "$@"; }']
+      ? [
+          `exec >>${H}/finesse-play.log 2>&1`,
+          'echo "--- $(date)"',
+          'gow_log() { echo "$*"; }',
+          'launcher() { exec "$@"; }',
+          // Selkies' pads reach apps only through its LD_PRELOAD (an interposer and a stand-in udev).
+          // AppImages built with sharun (Eden, Dolphin) drop LD_PRELOAD unless told to keep it, and
+          // SDL then never saw a controller. SDL scans /dev/input itself rather than asking udev.
+          'export SHARUN_ALLOW_LD_PRELOAD=1 SDL_JOYSTICK_DISABLE_UDEV=1',
+        ]
       : ['source /opt/gow/bash-lib/utils.sh', 'source /opt/gow/launch-comp.sh']),
     'shopt -s nullglob nocaseglob',
     // Files from a read-only folder, linked by name into where the emulator looks.
     'link() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] && ln -sfn "$f" "$dst/"; done; done; return 0; }',
     // Copied once (and again only when the file changes), for files the emulator opens read-write.
     'copyin() { local src=$1 dst=$2; shift 2; [ -d "$src" ] || return 0; mkdir -p "$dst"; for p in "$@"; do for f in "$src"/$p; do [ -f "$f" ] || continue; t="$dst/$(basename "$f")"; [ -L "$t" ] && rm -f "$t"; [ -f "$t" ] && [ "$(stat -c %s "$t")" = "$(stat -c %s "$f")" ] || cp -f "$f" "$t"; done; done; return 0; }',
-    'find_emu() { for p in "$@"; do for f in /finesse/emulators/$p; do [ -f "$f" ] && { echo "$f"; return 0; }; done; done; return 0; }',
+    // Your own emulators folder first, then the ones Finesse downloaded.
+    `find_emu() { for d in /finesse/emulators ${MANAGED}; do for p in "$@"; do for f in "$d"/$p; do [ -f "$f" ] && { echo "$f"; return 0; }; done; done; done; return 0; }`,
     // AppImages without their executable bit (a NAS share) run from a copy.
     'runnable() { if [ -x "$1" ]; then echo "$1"; else cp "$1" "/tmp/$(basename "$1")" && chmod +x "/tmp/$(basename "$1")" && echo "/tmp/$(basename "$1")"; fi; }',
   ]
   if (e.id === 'esde') {
     // ES-DE finds emulators in ~/Applications, and shares their links and saves.
-    lines.push(`mkdir -p ${H}/Applications`, `for f in /finesse/emulators/*; do ln -sfn "$f" ${H}/Applications/; done`)
+    lines.push(esdeLinks(all, H))
     for (const o of all) if (o.id !== 'esde') lines.push(...linkLines(o))
+    // ES-DE starts the emulators itself: each gets its first-pad mapping now.
+    lines.push(...INI_HELPERS)
+    for (const o of all) if (o.controller) lines.push(controllerShell(o.controller, H, padFor(opts.browser)))
     lines.push(`printf '#!/bin/bash\\nexec /Applications/esde.AppImage --appimage-extract-and-run --no-update-check\\n' > /tmp/finesse-run.sh`)
   } else {
     lines.push(...linkLines(e))
-    if (e.controller) lines.push(e.controller)
+    if (e.controller) lines.push(...INI_HELPERS, controllerShell(e.controller, H, padFor(opts.browser)))
     lines.push(
       `BIN=$(find_emu ${e.program.map(q).join(' ')})`,
       `[ -n "$BIN" ] || { gow_log ${q(`${e.name} isn’t in the emulators folder`)}; exit 1; }`,
@@ -333,8 +391,40 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
   return lines.join('\n')
 }
 
+/** Where staged save folders are mounted inside an app. */
+export const STAGE = '/finesse/saves'
+export const stagePath = (id: EmulatorId, key: string, root = STAGE) => `${root}/${id}/${key}`
+
+/**
+ * Root's half of a staged save folder (see Emulator.staged), at each start:
+ * - the home path already links to the staging folder: nothing to do;
+ * - the staging folder is empty and the home's isn't (a home from before): the home's copy is
+ *   copied in, ownership kept, and only once that worked the home's is replaced by the link;
+ * - both have data (saves made elsewhere since): the home's is kept beside it, renamed
+ *   <name>.finesse-kept-<time>, never deleted;
+ * - nothing in the home: just the link.
+ * A copy that fails leaves the home as it was (and the emulator uses it, as before).
+ */
+export const stageSaves = (e: Emulator, stageRoot = STAGE): string => {
+  const keys = (e.staged ?? []).filter((k) => e.saves[k])
+  if (!keys.length) return 'true'
+  const fn =
+    'stage_saves() { local st=$1 h=$2; [ -d "$st" ] || return 0; [ -L "$h" ] && [ "$(readlink "$h")" = "$st" ] && return 0; ' +
+    'if [ -d "$h" ] && [ ! -L "$h" ] && [ -z "$(ls -A "$h")" ]; then rmdir "$h"; ' +
+    'elif [ -d "$h" ] && [ ! -L "$h" ] && [ -z "$(ls -A "$st")" ]; then cp -a "$h/." "$st/" || { echo "Finesse: couldn’t copy $h into its saves folder; using it where it is" >&2; return 0; }; rm -rf "$h"; ' +
+    'elif [ -e "$h" ] || [ -L "$h" ]; then mv "$h" "$h.finesse-kept-$(date +%s)"; fi; ' +
+    'mkdir -p "$(dirname "$h")"; ln -s "$st" "$h"; }'
+  return [fn, ...keys.map((k) => `stage_saves ${q(stagePath(e.id, k, stageRoot))} ${q(e.saves[k]!)}`)].join('\n')
+}
+
 /** Docker makes the save folders' parents as root; the app's user needs to add folders beside them. Stays on the home folder's own disk (-xdev), so mounted folders are left alone. */
 export const ownHome = (home: string, user: string) => `find ${home} -xdev -type d -user root -exec chown ${user}:${user} {} + 2>/dev/null || true`
+
+/** A saves folder Docker had to make (a new profile's, before Finesse could) is root's; the emulator couldn't write its saves there. Only that folder itself, only when it's root's. */
+export const ownSaves = (e: Emulator, user: string, stageRoot = STAGE) => {
+  const dirs = Object.entries(e.saves).map(([k, inside]) => (e.staged?.includes(k) ? stagePath(e.id, k, stageRoot) : inside))
+  return dirs.length ? `for d in ${dirs.map(q).join(' ')}; do [ -d "$d" ] && [ "$(stat -c %u "$d")" = 0 ] && chown ${user}:${user} "$d"; done; true` : 'true'
+}
 
 /**
  * Nvidia's Vulkan driver, where emulators' AppImages look for it. They bundle their own Vulkan
@@ -344,8 +434,10 @@ export const ownHome = (home: string, user: string) => `find ${home} -xdev -type
 export const NVIDIA_ICD = `if [ -e /dev/nvidiactl ] && [ ! -f /usr/share/vulkan/icd.d/nvidia_icd.json ]; then mkdir -p /usr/share/vulkan/icd.d; f=$(ls /etc/vulkan/icd.d/nvidia_icd*.json /usr/share/vulkan/icd.d/nvidia*.json 2>/dev/null | head -n1); if [ -n "$f" ]; then cp "$f" /usr/share/vulkan/icd.d/nvidia_icd.json; else printf '%s' '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' > /usr/share/vulkan/icd.d/nvidia_icd.json; fi; fi`
 
 /** Runs as root before the app's user takes over: the home folder's ownership, Nvidia's Vulkan driver file, and ES-DE's /ROMs, made from RomM's folders. */
-function rootPrep(e: Emulator): string {
-  const own = `${ownHome(WOLF_HOME, '"${UNAME:-retro}"')}\n${NVIDIA_ICD}`
+function rootPrep(e: Emulator, all: Emulator[]): string {
+  const user = '"${UNAME:-retro}"'
+  const users = e.id === 'esde' ? all : [e]
+  const own = [...users.map((o) => stageSaves(o)), ownHome(WOLF_HOME, user), ...users.map((o) => ownSaves(o, user)), NVIDIA_ICD].join('\n')
   if (e.id !== 'esde') return own
   const map = Object.entries(ESDE_NAMES)
     .map(([k, v]) => `${k}) n=${v};;`)
@@ -375,13 +467,14 @@ export function appMounts(id: EmulatorId, s: EmulatorSettings, profile: string, 
   const mounts: string[] = []
   if (s.paths.roms) mounts.push(`${s.paths.roms}:/finesse/roms:ro`)
   if (s.paths.emulators) mounts.push(`${s.paths.emulators}:/finesse/emulators:ro`)
+  if (s.managedDir && s.install?.length) mounts.push(`${s.managedDir}:${MANAGED}:ro`)
   const users = id === 'esde' ? all.filter((o) => o.id !== 'esde') : [e]
   for (const o of users) {
     for (const what of ['firmware', 'keys'] as const) {
       const dir = folderFor(s, o.id, what)
       if (dir && (o.needs.some((n) => n.what === what) || o.links.some((l) => l.what === what))) mounts.push(`${dir}:/finesse/${what}/${o.id}:ro`)
     }
-    if (s.paths.saves) for (const [k, inside] of Object.entries(o.saves)) mounts.push(`${savesDir(s, profile, o.id, k)}:${inside}:rw`)
+    if (s.paths.saves) for (const [k, inside] of Object.entries(o.saves)) mounts.push(`${savesDir(s, profile, o.id, k)}:${o.staged?.includes(k) ? stagePath(o.id, k) : inside}:rw`)
   }
   return mounts
 }
@@ -398,7 +491,7 @@ export function wolfApp(id: EmulatorId, ctx: AppContext): WolfApp {
     'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*',
     `FINESSE_LAUNCH=${launchScript(e, all)}`,
     ...(ctx.game ? [`FINESSE_GAME=${ctx.game}`] : []),
-    `FINESSE_PREP=${rootPrep(e)}`,
+    `FINESSE_PREP=${rootPrep(e, all)}`,
   ]
   const create = {
     HostConfig: { IpcMode: 'host', Privileged: false, CapAdd: ['NET_RAW', 'MKNOD', 'NET_ADMIN'], DeviceCgroupRules: ['c 13:* rmw', 'c 244:* rmw'] },
@@ -470,7 +563,14 @@ function findProgram(dir: string | undefined, patterns: string[]): { path: strin
   return null
 }
 
-export function readiness(s: EmulatorSettings): EmulatorReadiness[] {
+/** The app's program is in your own emulators folder (as Finesse sees it). */
+export function hasOwnProgram(s: EmulatorSettings, id: EmulatorId): boolean {
+  const e = emulatorCatalog(s.switchEmulator)[id]
+  return Boolean(s.paths.emulators && e.program.length && findProgram(s.paths.emulators, e.program))
+}
+
+/** `managedLocal`: Finesse's own downloads folder, as Finesse sees it (its programs count too). */
+export function readiness(s: EmulatorSettings, managedLocal?: string): EmulatorReadiness[] {
   const cat = emulatorCatalog(s.switchEmulator)
   const unseen = (dir: string | undefined, what: string): ReadyItem => ({
     label: what,
@@ -496,16 +596,16 @@ export function readiness(s: EmulatorSettings): EmulatorReadiness[] {
     const e = cat[id]
     const items: ReadyItem[] = [...common]
     if (id !== 'esde') {
-      const prog = findProgram(s.paths.emulators, e.program)
-      if (prog === undefined) items.push(unseen(s.paths.emulators, 'Emulators'))
-      else
-        items.push(
-          prog
-            ? { label: e.name, state: 'ok', required: true, detail: prog.exec ? 'Found in the emulators folder.' : 'Found. It isn’t marked executable, so it starts from a copy (a bit slower). chmod +x fixes that.' }
-            : { label: e.name, state: 'missing', required: true, detail: `Put the ${e.name} AppImage in the emulators folder (its name starts with “${e.program[0]!.split('*')[0]}”).` },
-        )
+      const own = s.paths.emulators ? findProgram(s.paths.emulators, e.program) : null
+      const managed = !own && managedLocal && s.install?.length ? findProgram(managedLocal, e.program) : null
+      const wanted = s.install?.includes((id === 'switch' ? 'eden' : id) as InstallId) && !(id === 'switch' && s.switchEmulator === 'ryujinx')
+      if (own) items.push({ label: e.name, state: 'ok', required: true, detail: own.exec ? 'Found in the emulators folder.' : 'Found. It isn’t marked executable, so it starts from a copy (a bit slower). chmod +x fixes that.' })
+      else if (managed) items.push({ label: e.name, state: 'ok', required: true, detail: 'Downloaded and checked by Finesse.' })
+      else if (wanted) items.push({ label: e.name, state: 'missing', required: true, detail: `Finesse is getting ${e.name}.` })
+      else if (own === undefined) items.push(unseen(s.paths.emulators, 'Emulators'))
+      else items.push({ label: e.name, state: 'missing', required: true, detail: s.paths.emulators ? `Put the ${e.name} AppImage in the emulators folder (its name starts with “${e.program[0]!.split('*')[0]}”).` : `Add ${e.name} and Finesse downloads it.` })
     } else {
-      const missing = s.apps.filter((a) => a !== 'esde' && findProgram(s.paths.emulators, cat[a].program) === null)
+      const missing = s.apps.filter((a) => a !== 'esde' && !findProgram(s.paths.emulators, cat[a].program) && !(managedLocal && findProgram(managedLocal, cat[a].program)))
       items.push({ label: 'Emulators', state: 'ok', required: false, detail: missing.length ? `ES-DE uses the same emulators. Missing: ${missing.map((a) => cat[a].name).join(', ')}.` : 'ES-DE uses the emulators above, and any other AppImage in the emulators folder (RetroArch for older consoles).' })
     }
     for (const n of e.needs) {

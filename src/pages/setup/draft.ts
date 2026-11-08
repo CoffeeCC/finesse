@@ -1,7 +1,8 @@
 // The wizard's working copy of the setup document: friendlier shapes for the
 // forms (strings for numbers, UI-only toggles), converted with toDoc().
 
-import type { Indexer, SetupDoc, UsenetServer, VpnDoc } from '../../api/setup'
+import type { Indexer, InstallId, SetupDoc, UsenetServer, VpnDoc } from '../../api/setup'
+import { CONSOLES } from '../../lib/consoles'
 import { browserLocale } from './presets'
 
 export interface Draft {
@@ -10,6 +11,8 @@ export interface Draft {
   libraries: { movies: boolean; shows: boolean; music: boolean; games: boolean; samples: boolean }
   /** Optional game-artwork accounts (only sent when Games is on). */
   games: { steamGridDbKey: string; igdbClientId: string; igdbClientSecret: string }
+  /** Consoles whose emulators Finesse downloads (only with Games). */
+  consoles: InstallId[]
   usenet: boolean
   torrents: boolean
   /** Windows installs (no Docker): torrents use the VPN app on the PC, named by its network adapter. */
@@ -48,6 +51,7 @@ export function newDraft(): Draft {
     server: { name: 'Finesse', ...loc },
     libraries: { movies: true, shows: true, music: true, games: false, samples: true },
     games: { steamGridDbKey: '', igdbClientId: '', igdbClientSecret: '' },
+    consoles: CONSOLES.map((c) => c.id),
     usenet: false,
     torrents: false,
     native: false,
@@ -117,6 +121,8 @@ export function toDoc(d: Draft): SetupDoc {
     if (clean(g.steamGridDbKey)) games.steamGridDbKey = clean(g.steamGridDbKey)
     if (clean(g.igdbClientId) && clean(g.igdbClientSecret)) games.igdb = { clientId: clean(g.igdbClientId), clientSecret: clean(g.igdbClientSecret) }
     if (Object.keys(games).length) doc.games = games
+    // Finesse adds the consoles' apps and folders itself; the downloads run in the background.
+    if (d.consoles.length) doc.emulators = { apps: [], paths: {}, install: CONSOLES.map((c) => c.id).filter((id) => d.consoles.includes(id)) }
   }
   if (d.usenet || d.torrents) {
     doc.downloads = {
@@ -197,6 +203,7 @@ export function fromDoc(doc: SetupDoc): Draft {
   if (doc.server) d.server = { ...d.server, ...doc.server, name: doc.server.name || 'Finesse' } as Draft['server']
   d.libraries = { ...d.libraries, ...doc.libraries, games: Boolean(doc.libraries?.games), samples: Boolean(doc.libraries?.samples) }
   d.games = { steamGridDbKey: doc.games?.steamGridDbKey ?? '', igdbClientId: doc.games?.igdb?.clientId ?? '', igdbClientSecret: doc.games?.igdb?.clientSecret ?? '' }
+  if (doc.libraries?.games) d.consoles = doc.emulators?.install ?? []
   const dl = doc.downloads
   d.usenet = Boolean(dl?.usenet)
   d.torrents = Boolean(dl?.torrents)

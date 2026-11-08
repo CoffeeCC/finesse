@@ -5,6 +5,7 @@ import { useToast } from '../../components/Toast'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useFinesse } from '../../lib/finesseServer'
 import { Spinner } from '../setup/ui'
+import Consoles from './Consoles'
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
 const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white disabled:opacity-50 transition-colors'
@@ -844,6 +845,18 @@ function ManagedStreaming() {
  *  only on servers connected to a Wolf of their own (WOLF_SOCKET). */
 export function StreamingSettings() {
   const { info } = useFinesse()
-  if (info?.mode === 'bundle') return <ManagedStreaming />
-  return info?.features.streaming ? <StreamingAdmin /> : null
+  const streaming = info?.mode === 'bundle' ? <ManagedStreaming /> : info?.features.streaming ? <StreamingAdmin /> : null
+  // Consoles play in the browser too, so they're here with or without Moonlight (they need Games).
+  const consoles = info?.features.games ? (
+    <div id="settings-consoles" className="space-y-3 scroll-mt-24">
+      {!streaming && <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Game streaming</p>}
+      <Consoles />
+    </div>
+  ) : null
+  return (
+    <>
+      {streaming}
+      {consoles}
+    </>
+  )
 }

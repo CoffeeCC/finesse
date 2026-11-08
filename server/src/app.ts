@@ -16,7 +16,9 @@ import { registerParties } from './parties.ts'
 import { registerMomentCollections } from './momentCollections.ts'
 import { Access } from './access.ts'
 import { join, posix } from 'node:path'
-import { registerStreaming } from './streaming.ts'
+import { registerStreaming, syncEmulators } from './streaming.ts'
+import { downloadsFor, registerConsoles } from './emuapi.ts'
+import { Docker } from './stack/docker.ts'
 import { caPem } from './tls.ts'
 import { savedTailscaleCert } from './tailscale.ts'
 import { playState, registerPlay } from './play.ts'
@@ -199,6 +201,17 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   })
   setInterval(() => uploads.sweep(), 3600e3).unref()
   const play = registerPlay(router, { settings, auth })
+  registerConsoles(router, {
+    settings,
+    auth,
+    docker: new Docker(),
+    downloads: downloadsFor(p.configDir),
+    // Moonlight gets the apps too, when game streaming is on.
+    sync: async (e) => {
+      const socket = settings.get().streaming?.socket
+      if (socket) await syncEmulators(socket, e, { uid: settings.get().stack?.puid ?? 1000, gid: settings.get().stack?.pgid ?? 1000 })
+    },
+  })
   const updater = new WebUpdater(web, releases, VERSION)
   deps.updater = updater
   registerWebUpdate(router, { auth, updater })

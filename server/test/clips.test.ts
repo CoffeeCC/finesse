@@ -205,6 +205,11 @@ test('adopt: ffmpeg runs in a throwaway container from Jellyfin’s image, libra
     assert.deepEqual(body.HostConfig.Binds, [])
     assert.equal(body.HostConfig.NetworkMode, 'none')
     assert.equal(body.HostConfig.CpuShares, 2)
+    // No graphics card: Nvidia's runtime (a NAS's default) would hand it every card from Jellyfin's image's NVIDIA_VISIBLE_DEVICES=all.
+    assert.ok(body.Env.includes('NVIDIA_VISIBLE_DEVICES=void'), body.Env.join(' '))
+    assert.equal(body.HostConfig.Runtime, 'runc')
+    assert.deepEqual(body.HostConfig.DeviceRequests, [])
+    assert.deepEqual(body.HostConfig.Devices, [])
     assert.equal(body.Labels['finesse.managed'], 'true')
     assert.equal(body.Labels['finesse.role'], 'helper')
     assert.match(body.Cmd[2], /nice -n 19 '\/usr\/lib\/jellyfin-ffmpeg\/ffmpeg'/)
