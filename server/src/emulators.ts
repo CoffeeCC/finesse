@@ -312,6 +312,24 @@ function linkLines(e: Emulator): string[] {
   return e.links.map((l) => `${l.copy ? 'copyin' : 'link'} /finesse/${l.what}/${e.id} ${q(l.into)} ${l.match.map((m) => q(m)).join(' ')}`)
 }
 
+/**
+ * ES-DE finds emulators in ~/Applications. Your own emulators folder is linked there, and Finesse's
+ * copy of an emulator only when you have none of your own (so ES-DE never picks Finesse's over
+ * yours); links to Finesse's copies from before are cleared first. Needs nullglob and nocaseglob.
+ */
+export function esdeLinks(all: Emulator[], H: string, own = '/finesse/emulators', managed = MANAGED): string {
+  const apps = `${H}/Applications`
+  return [
+    `mkdir -p ${q(apps)}`,
+    `for l in ${q(apps)}/*; do [ -L "$l" ] && case "$(readlink "$l")" in ${q(managed)}/*) rm -f "$l";; esac; done`,
+    `for f in ${q(own)}/*; do ln -sfn "$f" ${q(apps)}/; done`,
+    `has_own() { for p in "$@"; do for f in ${q(own)}/$p; do [ -f "$f" ] && return 0; done; done; return 1; }`,
+    ...all
+      .filter((o) => o.program.length)
+      .map((o) => `has_own ${o.program.map(q).join(' ')} || for f in ${o.program.filter((p) => !p.includes('/')).map((p) => `${q(managed)}/${p}`).join(' ')}; do [ -f "$f" ] && ln -sfn "$f" ${q(apps)}/; done`),
+  ].join('\n')
+}
+
 /** The start script: runs as the app's user, inside Wolf's session. */
 export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string; browser?: boolean } = {}): string {
   const H = opts.home ?? WOLF_HOME
@@ -343,7 +361,7 @@ export function launchScript(e: Emulator, all: Emulator[], opts: { home?: string
   ]
   if (e.id === 'esde') {
     // ES-DE finds emulators in ~/Applications, and shares their links and saves.
-    lines.push(`mkdir -p ${H}/Applications`, `for f in ${MANAGED}/*.AppImage /finesse/emulators/*; do ln -sfn "$f" ${H}/Applications/; done`)
+    lines.push(esdeLinks(all, H))
     for (const o of all) if (o.id !== 'esde') lines.push(...linkLines(o))
     // ES-DE starts the emulators itself: each gets its first-pad mapping now.
     lines.push(...INI_HELPERS)

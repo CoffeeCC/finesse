@@ -3,7 +3,8 @@
 // emulators folder, folders are made (and owned) only when Finesse made them.
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readlinkSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { SettingsStore } from '../src/config.ts'
@@ -11,7 +12,7 @@ import { applyConsoles, consoleNotes, consoleViews, folderLabel, hostPathOf, mak
 import { COMMUNITY_BUILD, withoutFolder } from '../../src/lib/consoleText.ts'
 import { EMULATOR_PINS } from '../src/emucatalog.ts'
 import { EmulatorDownloads } from '../src/emudownload.ts'
-import type { EmulatorSettings } from '../src/emulators.ts'
+import { emulatorCatalog, esdeLinks, type EmulatorSettings } from '../src/emulators.ts'
 import { tmp } from './helpers.ts'
 
 export function store(dir = tmp('emuapi-')) {
@@ -178,4 +179,26 @@ test('each need names its folder, optional ones too, and the Windows label repla
 test('a community build is labelled wherever it’s offered (setup’s picker and Settings)', () => {
   for (const p of EMULATOR_PINS) assert.equal(Boolean(COMMUNITY_BUILD[p.id]), !p.official, p.id)
   assert.match(COMMUNITY_BUILD.dolphin!, /community build \(Dolphin has no official Linux download\)/)
+})
+
+test('ES-DE: your own emulator is the one in ~/Applications; Finesse’s copy only where you have none', () => {
+  const dir = tmp('emuapi-esde-')
+  const own = join(dir, 'own')
+  const managed = join(dir, 'managed')
+  const H = join(dir, 'home')
+  mkdirSync(own, { recursive: true })
+  mkdirSync(managed, { recursive: true })
+  writeFileSync(join(own, 'PCSX2-v2.0.AppImage'), '')
+  for (const f of ['pcsx2-v2.8.2-linux-appimage-x64-Qt.AppImage', 'Cemu-2.6-x86_64.AppImage']) writeFileSync(join(managed, f), '')
+  const cat = emulatorCatalog('eden')
+  const run = () => execFileSync('bash', ['-e', '-c', `shopt -s nullglob nocaseglob\n${esdeLinks(Object.values(cat), H, own, managed)}`])
+  // From before: a link to Finesse's PCSX2, made when you had none of your own.
+  mkdirSync(join(H, 'Applications'), { recursive: true })
+  symlinkSync(join(managed, 'pcsx2-v2.8.2-linux-appimage-x64-Qt.AppImage'), join(H, 'Applications', 'pcsx2-v2.8.2-linux-appimage-x64-Qt.AppImage'))
+  writeFileSync(join(H, 'Applications', 'esde.AppImage'), '')
+  run()
+  run()
+  const there = readdirSync(join(H, 'Applications')).sort()
+  assert.deepEqual(there, ['Cemu-2.6-x86_64.AppImage', 'PCSX2-v2.0.AppImage', 'esde.AppImage'])
+  assert.equal(readlinkSync(join(H, 'Applications', 'PCSX2-v2.0.AppImage')), join(own, 'PCSX2-v2.0.AppImage'))
 })
