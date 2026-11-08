@@ -38,6 +38,29 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Games that just work, and a few good fixes — v3.2.8 (2026-11-07)
+
+- **Every emulator works with a controller** — Switch (Eden), GameCube and Wii (Dolphin), PS2
+  (PCSX2), PS3 (RPCS3) and Wii U (Cemu), in the browser and with Moonlight. Player 1 is mapped from
+  the start, first starts go straight into the game, and a mapping you made yourself is never
+  overwritten.
+- **GameCube and Wii in the browser.**
+- **Consoles in setup.** Finesse downloads the emulators itself (pinned and checked), ticked by
+  default. Settings → Server → Game streaming → **Consoles** adds or removes them and says plainly
+  what each still needs ("Needs the PS2 BIOS — put it here"), noticing the file when you drop it in.
+- **Saves you can trust.** Every emulator's saves stay on the server, including Switch profiles.
+  Retro games in the browser now keep in-game saves on the server too, per person, so they follow
+  you between devices; if two devices both saved, Finesse asks which to keep.
+- **The right controller.** Microphones and other gadgets that call themselves gamepads are
+  ignored, your pick is remembered, and two identical controllers stay apart.
+- **Games page with a controller:** you can see which game you're on. **Full screen** button on
+  Android when playing in the browser, and a heads-up that a console's first start can take a minute.
+- **Anime requests** use your anime profile in Sonarr, so they don't sit on "Searching" forever.
+- **Videos your TV can't decode** (10-bit and 4:4:4 H.264, common in anime) are converted instead
+  of failing to play.
+- **Tidier server:** throwaway containers no longer leave empty Docker volumes behind, and making
+  preview clips never touches a graphics card.
+
 ## Your graphics card, put to work — v3.2.7 (2026-11-01)
 
 - **Finesse uses your graphics card.** It finds every card, tests that it can really convert
