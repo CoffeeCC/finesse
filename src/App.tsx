@@ -36,6 +36,7 @@ import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
 import { initUiSounds } from './lib/sound'
 import { initGamepad } from './lib/gamepad'
+import { initCardLight } from './lib/cardLight'
 import ControllerHint from './components/ControllerHint'
 import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
@@ -88,6 +89,8 @@ export default function App() {
   useEffect(() => initUiSounds(), [])
   // Game controllers drive the app like a remote (lib/gamepad).
   useEffect(() => initGamepad(), [])
+  // A highlight follows the mouse across cards (lib/cardLight).
+  useEffect(() => initCardLight(), [])
 
   // Remote/keyboard Back everywhere (player included): close the topmost open
   // menu/sheet first, otherwise step back — see lib/back.ts for the webOS

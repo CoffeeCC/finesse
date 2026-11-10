@@ -12,6 +12,7 @@ import { IS_TV } from '../../lib/device'
 import { RestartIcon } from '../ActionButton'
 import WatchlistButton from '../WatchlistButton'
 import CastMenu from '../CastMenu'
+import LiquidLight from '../LiquidLight'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
 import { useInView } from '../../lib/inView'
 import { episodeChip } from '../../lib/episodes'
@@ -133,7 +134,13 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
         {logoOk ? (
           <img className="os-logo" src={entry.logo!} alt={entry.title} />
         ) : logoOk === false ? (
-          <h1 className={`os-title ${entry.title.length > 14 ? 'long' : ''}`}>{entry.title}</h1>
+          <h1 className={`os-title ${entry.title.length > 14 ? 'long' : ''}`} aria-label={entry.title}>
+            {entry.title.split(' ').map((word, i) => (
+              <span key={i} aria-hidden className="os-w" style={{ '--i': i } as CSSProperties}>
+                <span>{word}</span>
+              </span>
+            ))}
+          </h1>
         ) : null}
       </div>
       <div className="os-chips mt-5 sm:mt-6 flex flex-nowrap gap-2 overflow-hidden">
@@ -419,9 +426,8 @@ export default function NowStage() {
             onError={() => setClip(null)}
           />
         )}
-        <div className="os-orb a" />
-        <div className="os-orb b" />
         <div className="os-scrim" />
+        <LiquidLight tint={entry.tint} />
         <div className="os-vignette" />
       </div>
 

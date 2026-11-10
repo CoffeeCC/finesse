@@ -292,6 +292,24 @@ html.tv .ambilight {
   }
 }
 
+/* Light under the glass: a soft highlight follows the pointer across a card (lib/cardLight
+   sets --mx/--my). Only the light moves; the card stays where it is. */
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv) .tilt::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background:
+      radial-gradient(60% 45% at calc(var(--mx, 0.5) * 100%) calc(var(--my, 0.3) * 100%), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.06) 45%, transparent 70%);
+    mix-blend-mode: overlay;
+  }
+  html:not(.tv) .group:hover .tilt::before { opacity: 1; }
+}
+
 /* ---------- Poster light-spill (focused card glows its own color) ---------- */
 /* A focused/hovered card casts a soft glow in its dominant color onto the
    shelf beneath it, so browsing feels alive. --spill is set per card from the
@@ -1043,6 +1061,35 @@ html.tv .lv-line.leaving {
 }
 .os-orb.a { width: 62vw; height: 40vw; left: -14vw; bottom: -24vw; opacity: 0.4; animation: os-orb-a 18s ease-in-out infinite alternate; }
 .os-orb.b { width: 46vw; height: 32vw; right: -12vw; top: -18vw; opacity: 0.22; animation: os-orb-b 23s ease-in-out infinite alternate; }
+/* Short windows: a tiled pane on a tiling desktop (Omarchy's Hyprland, a half-height split).
+   The stage fits the pane instead of a full screen's height, the story line steps aside and
+   the gaps tighten, so the hero, the Now row and the live line are all there without scrolling. */
+@media (max-height: 720px) and (min-width: 600px) {
+  html:not(.tv) .os-stage { min-height: calc(var(--vh) * 100); }
+  html:not(.tv) .os-top { padding-top: 4.25rem; }
+  html:not(.tv) .os-kicker { margin-bottom: 0.5rem; }
+  html:not(.tv) .os-name { height: clamp(48px, calc(var(--vh) * 12), 96px); }
+  html:not(.tv) .os-line { display: none; }
+  html:not(.tv) .os-chips { margin-top: 0.75rem; }
+  html:not(.tv) .os-actions { margin-top: 1rem; }
+  html:not(.tv) .os-btn { height: 44px; padding: 0 20px; font-size: 15px; }
+  html:not(.tv) .os-btn.icon, html:not(.tv) .os-btn.os-restart, html:not(.tv) .os-btn.os-cast { height: 44px; }
+  html:not(.tv) .os-prog { margin-top: 0.75rem; }
+  html:not(.tv) .os-rail-at { margin-top: 0.75rem; }
+}
+/* Liquid light (LiquidLight.tsx): the title's colour as drifting ribbons of light, drawn by a
+   shader over the dark side of the stage. Black adds nothing under "screen", so it only lights. */
+.os-liquid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: os-fade 1.6s ease 0.2s both;
+}
+/* When the light sits over the scrim (not under it, like the orbs it replaces). */
+.os-scrim ~ .os-orb { opacity: 0.16; }
 @keyframes os-orb-a { to { transform: translate(14vw, -4vw) scale(1.18); } }
 @keyframes os-orb-b { to { transform: translate(-10vw, 5vw) scale(0.86); } }
 
@@ -1104,6 +1151,13 @@ html.tv .lv-line.leaving {
 }
 .os-name { display: flex; align-items: flex-end; height: clamp(64px, calc(var(--vh) * 13), 132px); }
 .os-title { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-bottom: 0.06em; }
+/* The title arrives a word at a time, each rising out of its own line. */
+.os-w { display: inline-block; overflow: hidden; vertical-align: bottom; padding: 0.08em 0.03em 0.14em; margin: -0.08em -0.03em -0.14em; }
+.os-w + .os-w { margin-left: 0.2em; }
+.os-w > span { display: inline-block; animation: os-word 0.95s cubic-bezier(0.16, 0.9, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 70ms + 60ms); }
+@keyframes os-word { from { transform: translateY(108%) rotate(5deg); opacity: 0; } to { transform: none; opacity: 1; } }
+html.tv .os-w > span, html[data-motion='reduce'] .os-w > span { animation: none; }
+@media (prefers-reduced-motion: reduce) { .os-w > span { animation: none; } }
 .os-title.long {
   white-space: normal;
   font-size: clamp(1.9rem, min(4.2vw, calc(var(--vh) * 6.2)), 4.1rem);
@@ -1161,7 +1215,7 @@ html.tv .lv-line.leaving {
 .os-btn.icon { width: 48px; padding: 0; }
 @media (min-width: 640px) { .os-btn.icon { width: 56px; } }
 /* Start over next to Resume: a round icon on a phone (the row is full there), words from sm up. */
-@media (max-width: 639px) { .os-btn.os-restart { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
+@media (max-width: 639px) { .os-btn.os-restart, .os-btn.os-cast { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
 @keyframes os-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 18px 50px -14px rgba(var(--tint-rgb), 0.95); }
   50% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0), 0 22px 70px -8px rgba(var(--tint-rgb), 0.95); }

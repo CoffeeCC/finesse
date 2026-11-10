@@ -38,6 +38,19 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Liquid light — next release
+
+- **Home glows in the title's own colour** — ribbons of light drift behind the hero and the Now
+  row, tinted by whatever you're resting on, and lean gently toward the mouse. Drawn on the
+  graphics card, paused when you can't see it. TVs, "reduce motion" and data saver keep the
+  calmer glow from before.
+- **Titles arrive a word at a time** on Home.
+- **Light under the glass** — a soft highlight follows the mouse across posters. The poster
+  itself stays still.
+- **Tiled windows** — in a short window (a tiled pane on Omarchy, a half-height split) Home fits
+  the hero, the Now row and the live line on one screen instead of pushing the row out of view.
+- **Phones: the "Play on…" button on Home shows its icon again** (it was an empty circle).
+
 ## Games that just work, and a few good fixes — v3.2.8 (2026-11-07)
 
 - **Every emulator works with a controller** — Switch (Eden), GameCube and Wii (Dolphin), PS2
