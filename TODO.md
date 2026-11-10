@@ -53,6 +53,11 @@
   the top bar remembers your libraries and the Moments bell from last time instead of adding
   them late (layout shift on a return visit: 0.14 before, 0 now).
 - **Titles arrive a word at a time** on Home and on each title's page.
+- **The sign-in screen has light in the room** — the same drifting ribbons behind "Who's
+  watching?", which now arrives a word at a time.
+- **Rest on a poster and the rest of its shelf steps back**, so the one you're on holds the
+  light (mouse only).
+- **Top 10 numerals are glass** — a bright outline filled with fading light.
 - **Light under the glass** — a soft highlight follows the mouse across posters. The poster
   itself stays still.
 - **Tiled windows** — in a short window (a tiled pane on Omarchy, a half-height split) Home fits

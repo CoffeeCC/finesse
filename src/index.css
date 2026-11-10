@@ -310,6 +310,14 @@ html.tv .ambilight {
   html:not(.tv) .group:hover .tilt::before { opacity: 1; }
 }
 
+/* Rest on a poster and the rest of its shelf steps back: the one you're on holds the light. */
+@media (hover: hover) and (pointer: fine) {
+  @supports selector(:has(*)) {
+    html:not(.tv) .depth-row .tilt { transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease, filter 0.4s ease; }
+    html:not(.tv):not([data-nav-mode='spatial']) .depth-row:has(.group:hover) .group:not(:hover) .tilt { opacity: 0.5; filter: saturate(0.55); }
+  }
+}
+
 /* ---------- Poster light-spill (focused card glows its own color) ---------- */
 /* A focused/hovered card casts a soft glow in its dominant color onto the
    shelf beneath it, so browsing feels alive. --spill is set per card from the
@@ -729,8 +737,13 @@ html[data-nav-mode='spatial'] .scroll-smooth {
   font-weight: 900;
   line-height: 0.73;
   letter-spacing: -0.06em;
-  color: #fff;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  /* Glass numerals: a bright outline, filled with light that fades toward the foot. */
+  color: transparent;
+  -webkit-text-stroke: 0.028em rgba(255, 255, 255, 0.95);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 8%, rgba(255, 255, 255, 0.55) 55%, rgba(255, 255, 255, 0.12) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
   pointer-events: none;
   transition: opacity 0.3s;
 }
@@ -1561,3 +1574,4 @@ html.tv .os-tile .cover { width: 145px; height: 145px; }
 html.tv .os-tile.on .cover { width: 181px; height: 181px; }
 html.tv .os-tile .tgen .tsun { width: 132px; height: 132px; }
 html.tv .os-tile.on .tgen .tsun { width: 160px; height: 160px; }
+html.tv .rank-badge { color: #fff; background: none; -webkit-text-stroke: 0; filter: none; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5); }
