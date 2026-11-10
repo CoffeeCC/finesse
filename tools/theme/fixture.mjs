@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 const stateFile = process.env.THEME_FIXTURE_STATE || new URL('./theme-fixture-state.json', import.meta.url)
 const user = { Id: 'theme-fixture', Name: 'Theme Fixture', HasPassword: false, Policy: { IsAdministrator: false } }
 const fixtureTitle = { Id: 'fixture-title', Name: 'An exceptionally long film title that still needs to be readable on a small screen', Type: 'Movie', Overview: 'A deliberately plain fixture without poster art, used to test a one-card library and long labels.', ProductionYear: 2026, RunTimeTicks: 54_000_000_000 }
+const fixtureHand = ['The Amber Gate', 'A Lantern at Dusk', 'The Astronomer’s Map', 'Letters from the North', 'The Midnight Archive']
+  .map((Name, index) => ({ ...fixtureTitle, Id: `fixture-hand-${index}`, Name }))
 const initialDispatch = () => ({ id: 101, movieId: 10, movie: { id: 10, title: 'Fixture Courier', images: [] }, title: 'fixture-release', size: 1000, sizeleft: 300, status: 'downloading', trackedDownloadState: 'importFailed', protocol: 'usenet', downloadId: 'fixture-nzo', statusMessages: [{ title: 'Fixture import problem', messages: ['This is disposable fixture data.'] }] })
 let dispatches = [initialDispatch()], events = [], lastMode = 'single'
 http.createServer((req, res) => {
@@ -45,7 +47,7 @@ http.createServer((req, res) => {
   if (path.endsWith('/Items') && !path.endsWith('/Resume')) {
     if (mode === 'hang') return // Intentionally never answer: exercise the UI's deal deadline.
     if (mode === 'error') return send({ message: 'Intentional fixture outage' }, 503)
-    const items = ['single', 'slow', 'dispatch'].includes(mode) ? [fixtureTitle] : []
+    const items = mode === 'hand' ? fixtureHand : ['single', 'slow', 'dispatch'].includes(mode) ? [fixtureTitle] : []
     if (mode === 'slow') return setTimeout(() => send({ Items: items, TotalRecordCount: items.length }), 3000)
     return send({ Items: items, TotalRecordCount: items.length })
   }

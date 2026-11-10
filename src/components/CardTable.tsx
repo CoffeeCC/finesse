@@ -16,6 +16,7 @@ import './arcane-actions.css'
 import './arcane-viewport.css'
 import ArcaneDeskDrawer from './ArcaneDeskDrawer'
 import ArcaneHandSource from './ArcaneHandSource'
+import ArcaneHandThumbwheel from './ArcaneHandThumbwheel'
 import { playArcaneSound } from '../lib/sound'
 import { arcaneTrinkets } from '../lib/arcaneTrinkets'
 const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
@@ -256,7 +257,14 @@ export default function CardTable() {
           </div>
         )}
 
-        {cards.length > 1 && <div className="hand-pager" aria-label="Browse cards"><button type="button" disabled={busy} onClick={() => select((cards.indexOf(pick!) - 1 + cards.length) % cards.length)} aria-label="Previous card">‹</button><span>{Math.max(0, cards.indexOf(pick!)) + 1} / {cards.length}</span><button type="button" disabled={busy} onClick={() => select((cards.indexOf(pick!) + 1) % cards.length)} aria-label="Next card">›</button></div>}
+        {cards.length > 1 && (
+          <ArcaneHandThumbwheel
+            index={Math.max(0, cards.indexOf(pick!))}
+            count={cards.length}
+            busy={busy}
+            onSelect={select}
+          />
+        )}
         <TableReservations />
         <div className="desk-status" role="status" aria-live="polite">{status}</div>
       </section>

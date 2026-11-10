@@ -34,7 +34,7 @@ html[data-motion=reduce] .desk-drawer,.no-table-motion .desk-drawer{animation:no
 @media(max-width:700px){.desk-drawer{max-height:75%;padding-top:25px}.desk-hinged-lid{height:65px}.desk-hinged-lid>span{font-size:32px;line-height:48px}.desk-drawer nav{max-height:calc(var(--vh,1vh)*48)}.desk-atlas-object>img{width:54px;height:48px}}
 @media(prefers-reduced-motion:reduce){.desk-hinged-lid{animation:none;transform:rotateX(-18deg)}.desk-atlas-object>img{transition:none}}
 html[data-motion=reduce] .desk-hinged-lid,.no-table-motion .desk-hinged-lid{animation:none;transform:rotateX(-18deg)}
-@media(max-width:700px){.arcane-viewport .celestial-table .hand-pager{top:auto}.arcane-viewport .celestial-table .hand-pager button{border:0;background:radial-gradient(circle at 35% 25%,#a58b50,#44361f 65%,#1c211e 70%);border-radius:50%;box-shadow:inset 0 0 0 2px #b89b5d,inset 0 0 0 5px #443522,2px 4px 6px #0009;color:#e9d3a0;text-shadow:0 2px #000;font-family:var(--font-display)}}
+@media(max-width:700px){.arcane-viewport .celestial-table .hand-pager{top:auto}}
 @media(max-width:700px){.arcane-viewport .celestial-table .movie-hand{bottom:38%}.arcane-viewport .celestial-table .hand-pager{bottom:30%}.arcane-viewport .desk-atlas-object,.arcane-viewport .arcane-coin{bottom:18.5%}}
 .desk-drawer,.desk-hinged-lid{animation:none}.desk-hinged-lid{transform:rotateX(-18deg)}
 .desk-instrument-scene{position:absolute;inset:0;z-index:2;pointer-events:none}.desk-instrument-scene canvas{display:block;width:100%;height:100%}.desk-drawer header,.desk-drawer nav{position:relative;z-index:3}.desk-drawer nav a[data-model-ready=true]>img{visibility:hidden}.desk-drawer nav a[data-model-ready=true]:is(:hover,:focus-visible)>img{transform:none}.desk-hinged-lid{z-index:1}

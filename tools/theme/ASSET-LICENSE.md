@@ -26,3 +26,5 @@ The Arcane Table assets added by this change are distributed under the repositor
 - Archive chest v2: original hollow walnut/leather chest, bottle-green suede lining, individual metal fittings, compass inlay and articulated lid in create-archive-chest.py and scenes/archive-chest-v2.blend. GLB and matching open/closed transparent stills derive from that source; no borrowed artwork, game models or recordings.
 
 - Dealer’s tally and hand-library rune stone: original Blender geometry/materials/reference bead motion in create-dealers-tally.py and their packed scenes. GLBs and matching transparent stills derive from those sources. The source stone has a dedicated wide render camera/framing; no third-party assets or recordings are included. The tally sound is original bounded Web Audio synthesis.
+
+- hand-thumbwheel-v1. Original Blender geometry, materials, motion, and fallback render. Editable scene and generator included.
