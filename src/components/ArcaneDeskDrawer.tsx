@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useSecondaryDestinations } from './NavBar'
 import { useOverlayFocus } from '../lib/overlayFocus'
 import { pushBackHandler } from '../lib/back'
-import { arcaneTrinkets, destinationTrinket } from '../lib/arcaneTrinkets'
+import { arcaneTrinkets, destinationTrinket, type ArcaneTrinket } from '../lib/arcaneTrinkets'
 import { DESK_SEQUENCE_MS, DRAWER_SEQUENCE_MS, deskPose, drawerPose, deskSoundCrossings, drawerSoundCrossings, partialCloseCue, partialOpenCue, resumePreparedMechanism, type DeskSound } from '../lib/deskSequence'
 import { playArcaneSound } from '../lib/sound'
 import { reducedMotion } from '../lib/settings'
@@ -18,7 +18,7 @@ import { DESK_CASE_LAYOUT } from '../assets/card-table/desk-case-layout'
 import './arcane-desk-case.css'
 const Instruments = lazy(() => import('./ArcaneDeskInstruments'))
 
-export default function ArcaneDeskDrawer({ motion: allowMotion = true, mode = 'desk', onClosed, blocked = false }: { motion?: boolean; mode?: 'desk' | 'lighting'; onClosed?: () => void; blocked?: boolean }) {
+export default function ArcaneDeskDrawer({ motion: allowMotion = true, mode = 'desk', onClosed, blocked = false, trigger, heading, contents }: { motion?: boolean; mode?: 'desk' | 'lighting'; onClosed?: () => void; blocked?: boolean; trigger?: { id: ArcaneTrinket; label: string; caption: string; className: string }; heading?: string; contents?: (close: () => void) => ReactNode }) {
   const [reduce, setReduce] = useState(reducedMotion)
   const motion = allowMotion && !reduce
   useEffect(() => {
@@ -137,16 +137,16 @@ export default function ArcaneDeskDrawer({ motion: allowMotion = true, mode = 'd
   const tools = [{ to: '/libraries', label: 'All libraries' }, { to: '/mylist', label: 'Saved stories' }, ...destinations,
     { to: '/settings', label: 'Settings & account' }, { to: '/remote', label: 'Remote control' }]
   return <>
-    {!lighting && <button type="button" inert={blocked} className="desk-atlas-object" data-ui-sound="handled" aria-label="Open the desk compartment" aria-haspopup="dialog" aria-expanded={present} onClick={show}><img src={arcaneTrinkets.desk} alt="" /><span>Unlock the desk</span></button>}
+    {!lighting && <button type="button" inert={!trigger&&blocked} aria-disabled={trigger&&blocked||undefined} className={`desk-atlas-object ${trigger?.className??''}`} data-ui-sound="handled" aria-label={trigger?.label??'Open the desk compartment'} aria-haspopup="dialog" aria-expanded={present} onClick={()=>{if(blocked)return;if(trigger)playArcaneSound('tally');show()}}>{trigger?<span className="hand-source-art"><img src={arcaneTrinkets[trigger.id]} alt=""/></span>:<img src={arcaneTrinkets.desk} alt="" />}<span>{trigger?.caption??'Unlock the desk'}</span></button>}
     {present && <div className="desk-drawer-shade" onClick={close}><div ref={ref} className={`desk-drawer ${lighting ? 'desk-lighting-drawer' : ''}`} data-desk-mode={mode} role="dialog" aria-modal="true" aria-label={lighting ? 'By candlelight' : 'Inside the arcane desk'} onClick={(event) => event.stopPropagation()}>
       <span className="desk-motion-clock" aria-hidden="true" />
       <picture className="desk-case-fallback" aria-hidden="true"><source media="(max-aspect-ratio:17/20)" srcSet={lighting ? portraitDrawer : portraitInterior} /><img src={lighting ? wideDrawer : wideInterior} alt="" /></picture>
       {!lighting && <div className="desk-fallback-lid" aria-hidden="true" />}
       <Suspense fallback={null}><Instruments motion={motion} mode={mode} /></Suspense>
-      <header><p>{lighting ? 'THE CANDLEKEEPER’S DRAWER' : 'WITHIN THE COLLECTOR’S DESK'}</p><h2>{lighting ? 'By candlelight.' : 'Tools for your journey.'}</h2></header>
+      <header><p>{lighting ? 'THE CANDLEKEEPER’S DRAWER' : 'WITHIN THE COLLECTOR’S DESK'}</p><h2>{heading??(lighting ? 'By candlelight.' : 'Tools for your journey.')}</h2></header>
       <button type="button" className="drawer-latch" data-ui-sound="handled" aria-label={open ? lighting ? 'Close the lighting drawer' : 'Close the desk compartment' : lighting ? 'Reopen the lighting drawer' : 'Reopen the desk compartment'} onClick={close}><img src={lighting ? drawerPull : arcaneTrinkets.desk} alt="" /><span>{open ? lighting ? 'Close drawer' : 'Close & lock' : lighting ? 'Reopen drawer' : 'Unlock again'}</span></button>
       <p className="desk-sequence-status" role="status">{phase === 'Desk open' || phase === 'Drawer open' ? '' : phase}</p>
-      {lighting ? <div className="desk-lighting-content" data-desk-content inert={!contentsReady}><ArcaneLightControls physical /></div> : <nav aria-label="Desk instruments" data-desk-content inert={!contentsReady}>{tools.map((tool) => { const id = destinationTrinket(tool.to); return <Link key={tool.to} to={tool.to} data-trinket={id ?? undefined} onClick={close}>{id && <img src={arcaneTrinkets[id]} alt="" />}<span>{tool.label}</span></Link> })}</nav>}
+      {lighting ? <div className="desk-lighting-content" data-desk-content inert={!contentsReady}><ArcaneLightControls physical /></div> : <nav className={contents?'hand-source-choices':undefined} role={contents?'group':undefined} aria-label={contents?'Library for your discovery hand':'Desk instruments'} data-desk-content inert={!contentsReady}>{contents?contents(close):tools.map((tool) => { const id = destinationTrinket(tool.to); return <Link key={tool.to} to={tool.to} data-trinket={id ?? undefined} onClick={close}>{id && <img src={arcaneTrinkets[id]} alt="" />}<span>{tool.label}</span></Link> })}</nav>}
     </div></div>}
   </>
 }

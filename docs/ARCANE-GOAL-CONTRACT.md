@@ -27,3 +27,5 @@ Current continuation: **progress** — published the original articulated desk/d
 
 
 Latest continuation: **progress**. Published fc31aad with passing GitHub CI. New local library-vault composition, original fortune-lots Blender asset/animation/sound, improved hollow archive chest and native Surprise origin/focus handling are being verified. No full-theme completion or reduction of scope.
+
+6 November continuation remains **progress**: vault checkpoint 3d5737f is published with passing CI. Local Home work now separates actual collection entrances from a new dealer’s tally for discovery-hand sources, with original Blender assets and sound, and a verified real two-library change/close/focus/reload flow. Many-library and fallback review remains; full-app scope, the ordinary hand-pager migration and all remaining route families remain active.

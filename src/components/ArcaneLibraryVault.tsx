@@ -19,11 +19,12 @@ export default function ArcaneLibraryVault() {
   const [params,setParams]=useSearchParams(),location=useLocation(),{surprise,busy}=useSurprise()
   const [notice,setNotice]=useState('')
   const root=useRef<HTMLDivElement>(null),focusShelf=useRef(false)
-  const decks=(data?.Items??[]).filter(v=>v.CollectionType==='movies'||v.CollectionType==='tvshows')
+  const kind=['movies','tvshows'].includes(params.get('kind')??'')?params.get('kind'):null
+  const decks=(data?.Items??[]).filter(v=>(v.CollectionType==='movies'||v.CollectionType==='tvshows')&&(!kind||v.CollectionType===kind))
   const pages=Math.max(1,Math.ceil(decks.length/6)),requested=Number(params.get('shelf'))
   const page=Number.isSafeInteger(requested)&&requested>=1?Math.min(pages,requested):1
   const visible=decks.slice((page-1)*6,page*6)
-  const turn=(next:number)=>{focusShelf.current=true;playArcaneSound('deck');setParams(next>1?{shelf:String(next)}:{},{replace:true})}
+  const turn=(next:number)=>{focusShelf.current=true;playArcaneSound('deck');setParams(previous=>{const updated=new URLSearchParams(previous);if(next>1)updated.set('shelf',String(next));else updated.delete('shelf');return updated},{replace:true})}
   useLayoutEffect(()=>{if(focusShelf.current){const first=root.current?.querySelector<HTMLElement>('.vault-deck');if(first){focusShelf.current=false;first.focus({preventScroll:true})}}},[page,data,isError])
   const draw=async()=>{
     if(busy)return
@@ -33,10 +34,10 @@ export default function ArcaneLibraryVault() {
   }
   return <div ref={root} className="arcane-library-vault" data-arcane-orb-host data-arcane-scene="vault">
     <ArcaneLighting vault sceneRevision={visible.map(v=>v.Id).join('|')} />
-    <header className="vault-heading"><Link to="/" className="vault-home" aria-label="Return to the table"><img src={arcaneTrinkets.home} alt=""/><span>Return to table</span></Link><div><p>THE COLLECTOR’S VAULT</p><h1>Your libraries</h1></div></header>
+    <header className="vault-heading"><Link to="/" className="vault-home" aria-label="Return to the table"><img src={arcaneTrinkets.home} alt=""/><span>Return to table</span></Link><div><p>THE COLLECTOR’S VAULT</p><h1>{kind==='movies'?'Movie libraries':kind==='tvshows'?'Show libraries':'Your libraries'}</h1></div></header>
     <div className="vault-search"><ArcaneSearchTrinket /></div><ArcaneDeskDrawer />
     <section className="vault-shelves" aria-label="Movie and show libraries" aria-busy={isLoading}>
-      <div className="vault-archive-heading"><span className="vault-archive-art" aria-hidden="true"><img src={archiveOpen} alt="" /></span><p>Choose a deck.<small>{isLoading?'Reading your libraries.':isError?'The archive is unavailable.':`${decks.length} movie and show ${decks.length===1?'library':'libraries'}.`} Other places are inside your keyed desk.</small></p></div>
+      <div className="vault-archive-heading"><Link className="vault-archive-art" to="/libraries" aria-label="Show all libraries"><img src={archiveOpen} alt="" /></Link><p>Choose a deck.<small>{isLoading?'Reading your libraries.':isError?'The archive is unavailable.':`${decks.length} ${kind==='movies'?'movie':kind==='tvshows'?'show':'movie and show'} ${decks.length===1?'library':'libraries'}.`} Other places are inside your keyed desk.</small></p></div>
       {isError?<div className="vault-notice" role="alert"><p>The vault couldn’t open. Check the server connection.</p><button className="vault-retry" onClick={()=>{focusShelf.current=true;void refetch()}} aria-label="Try opening your libraries again"><img src={arcaneTrinkets.library} alt=""/><span>Open the archive again</span></button></div>
         :isLoading?<p className="vault-notice" role="status">Opening the archive…</p>
           :!decks.length?<p className="vault-notice">Your movie and show decks will appear here when libraries are available. Other places are inside the keyed desk.</p>

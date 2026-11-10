@@ -13,6 +13,7 @@ import { deskPose, drawerPose } from '../lib/deskSequence'
 import { createBaizeMaps, createContactShadow } from '../lib/arcaneBaize'
 
 const models = {
+  handSourceChoice: () => import('../assets/card-table/hand-library-stone-v1.glb?url'),
   library: () => import('../assets/card-table/archive-chest-v2.glb?url'),
   mylist: () => import('../assets/card-table/story-codex-v1.glb?url'),
   anime: () => import('../assets/card-table/fox-mask-v1.glb?url'),
@@ -270,6 +271,7 @@ export default function ArcaneDeskInstruments({ motion, mode = 'desk' }: { motio
             const n = p.node, name = n.name
             n.position.copy(p.position); n.rotation.copy(p.rotation); n.scale.copy(p.scale)
             if (o.id === 'library' && name === 'ChestLid') n.rotation.x -= e * .85
+            if(o.id==='handSourceChoice'&&name==='SourceGem')n.scale.multiplyScalar(1+e*.12+(o.link.getAttribute('aria-pressed')==='true' ? .12 : 0))
             if (o.id === 'mylist' && name === 'CodexCoverPivot') n.rotation.z += e * .25
             if (o.id === 'music' && name.startsWith('LyreString')) n.rotation.y += Math.sin(time * 38 + p.position.x * 10) * e * .015
             if (o.id === 'lightingReset' && name.startsWith('TuningFork')) n.rotation.y += Math.sin(time*42)*e*.015

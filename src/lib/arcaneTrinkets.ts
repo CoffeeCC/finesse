@@ -28,9 +28,11 @@ import dispatchPause from '../assets/card-table/dispatch-escapement-v1-still.web
 import dispatchRetry from '../assets/card-table/dispatch-courier-horn-v1-still.webp'
 import dispatchCancel from '../assets/card-table/dispatch-shears-v1-still.webp'
 import surprise from '../assets/card-table/fortune-lots-v1-still.webp'
+import handSource from '../assets/card-table/dealers-tally-v1-still.webp'
+import handSourceChoice from '../assets/card-table/hand-library-stone-v1-still.webp'
 
 /** A function owns its object identity. Never fall back to another function's prop. */
-export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull, collectionQuery, collectionGenres, collectionWatch, collectionSort, collectionErase, dispatchPause, dispatchRetry, dispatchCancel, surprise } as const
+export const arcaneTrinkets = { home, search, movies, shows, library, mylist, anime, music, games, friends, collections, together, moments, smart, requests, activity, settings, remote, desk, lightingReset, lightingDrawerPull, collectionQuery, collectionGenres, collectionWatch, collectionSort, collectionErase, dispatchPause, dispatchRetry, dispatchCancel, surprise, handSource, handSourceChoice } as const
 export type ArcaneTrinket = keyof typeof arcaneTrinkets
 export function destinationTrinket(destination: string): ArcaneTrinket | null {
   if (destination === '/' || destination === '/dashboard') return 'home'

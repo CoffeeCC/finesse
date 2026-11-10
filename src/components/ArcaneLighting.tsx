@@ -209,6 +209,7 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
         }
         const mechanismNames = selector.includes('.dispatch-retry-art') ? ['CourierHornPivot'] : selector.includes('.dispatch-pause-art') ? ['EscapementLeverPivot'] : selector.includes('.dispatch-cancel-art') ? ['ShearLeftPivot','ShearRightPivot'] : selector === '.collection-query-art' ? ['QuillPivot'] : selector === '.collection-genres-art' ? ['VialStopperPivot0','VialStopperPivot1','VialStopperPivot2'] : selector === '.collection-watch-art' ? ['LanternHandlePivot'] : selector === '.collection-sort-art' ? ['SextantArmPivot'] : selector === '.collection-erase-art' ? ['EraserHandlePivot'] : []
         if(selector==='.fortune-lots-art')for(let i=0;i<7;i++)mechanismNames.push(`LotPivot${i}`)
+        if(selector==='.hand-source-art')for(let row=0;row<3;row++)for(let bead=0;bead<5;bead++)mechanismNames.push(`TallyBeadPivot${row}_${bead}`)
         const mechanisms = mechanismNames.flatMap(name => { const node=root.getObjectByName(name);return node?[{node,position:node.position.clone(),rotation:node.rotation.clone()}]:[] })
         objects.push({ root, selector, lid, cards, clasp, packets, mechanisms, open: 0, lidStart: selector === '.action-codex-art' ? lid?.rotation.z ?? 0 : lid?.rotation.x ?? 0, cardStart: cards?.position.y ?? 0, cardYaw: cards?.rotation.y ?? 0 })
         return root
@@ -257,8 +258,9 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
       }
       else {
         pending.push(load(orbURL.default, '.search-object .scrying-orb-art').then(() => {}))
-        pending.push(load(movieURL.default, '.deck-box-object:nth-child(1) .deck-trinket-art').then(() => {}))
-        pending.push(load(showURL.default, '.deck-box-object:nth-child(2) .deck-trinket-art').then(() => {}))
+        pending.push(load(movieURL.default, '.deck-box-object[data-deck-kind="movies"] .deck-trinket-art').then(() => {}))
+        pending.push(load(showURL.default, '.deck-box-object[data-deck-kind="tvshows"] .deck-trinket-art').then(() => {}))
+        pending.push(import('../assets/card-table/dealers-tally-v1.glb?url').then(url=>load(url.default,'.hand-source-art')).then(()=>{}))
         pending.push(load(coinURL.default, '.arcane-coin-art').then(() => {}))
         pending.push(load(codexURL.default, '.action-codex-art').then(() => {}))
         pending.push(load(drawURL.default, '.action-deck-art').then(() => {}))
@@ -488,7 +490,9 @@ export default function ArcaneLighting({ folio = false, staticOnly = false, work
             const spring=stepTrinketMotion(o.root.userData.toolSpring??{value:0,velocity:0},engaged,dt,still);o.root.userData.toolSpring=spring
             o.mechanisms.forEach((part,index)=>{
               part.node.position.copy(part.position);part.node.rotation.copy(part.rotation)
-              if(o.selector==='.fortune-lots-art'){
+              if(o.selector==='.hand-source-art'){
+                part.node.position.x+=spring.value*(index%5>2?.14:-.05)
+              } else if(o.selector==='.fortune-lots-art'){
                 const active=control?.getAttribute('aria-busy')==='true'
                 part.node.position.y+=still?0:spring.value*(.06+index*.007)+(active ? .12+Math.sin(time*8+index)*.035 : 0)
                 part.node.rotation.y+=still?0:spring.value*.18+(active?Math.sin(time*6+index)*.18:0)

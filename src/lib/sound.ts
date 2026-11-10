@@ -90,7 +90,7 @@ export function playSelect() {
 let installed = false
 
 /** Original, restrained object sounds; same context, volume and media guard as Finesse. */
-export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land' | 'tuning-fork' | 'quill' | 'vials' | 'lantern' | 'sextant' | 'eraser' | 'courier-horn' | 'escapement' | 'shears-open' | 'shears-cut' | 'lots' | DeskSound) {
+export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | 'flame' | 'coin-flip' | 'coin-land' | 'tuning-fork' | 'quill' | 'vials' | 'lantern' | 'sextant' | 'eraser' | 'courier-horn' | 'escapement' | 'shears-open' | 'shears-cut' | 'lots' | 'tally' | DeskSound) {
   const prefs = getPrefs(), vol = clamp(prefs.uiSoundsVolume ?? .6, 0, 1)
   if (!prefs.uiSounds || vol <= 0 || mediaIsPlaying() || document.hidden) return
   const ac = audioCtx(); if (!ac) return
@@ -119,7 +119,9 @@ export function playArcaneSound(kind: 'orb' | 'deck' | 'cards' | 'card-land' | '
     source.start(t); source.stop(t + duration)
     voices.push({source,gain})
   }
-  if(kind==='lots'){
+  if(kind==='tally'){
+    for(let i=0;i<3;i++){rustle(i*.055,.055,850+i*140,.014);tone(390+i*47,.07,.008,i*.055,280+i*37)}
+  } else if(kind==='lots'){
     for(let i=0;i<5;i++){rustle(i*.045,.045,1800-i*120,.015);tone(880+i*73,.075,.006,i*.045,650+i*38)}
   } else if (kind === 'courier-horn') {
     tone(220,.24,.014,0,247);tone(440,.18,.005,.03,494);rustle(.01,.18,460,.018)

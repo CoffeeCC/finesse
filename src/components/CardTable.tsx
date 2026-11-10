@@ -15,7 +15,9 @@ import drawStill from '../assets/card-table/draw-deck-v1-still.webp'
 import './arcane-actions.css'
 import './arcane-viewport.css'
 import ArcaneDeskDrawer from './ArcaneDeskDrawer'
+import ArcaneHandSource from './ArcaneHandSource'
 import { playArcaneSound } from '../lib/sound'
+import { arcaneTrinkets } from '../lib/arcaneTrinkets'
 const ThemeLab = import.meta.env.DEV ? lazy(() => import('./ArcaneThemeLab')) : null
 
 type Phase = 'idle' | 'shuffling' | 'waiting' | 'dealing'
@@ -227,7 +229,8 @@ export default function CardTable() {
         <p className="desk-inscription" aria-hidden="true">Finesse.</p>
         <ArcaneCoin />
         <ArcaneDeskDrawer motion={!motion.reduced} />
-        <TableNavigation decks={decks} selected={deck?.Id} busy={busy} reduced={motion.reduced} onChoose={changeDeck} />
+        <ArcaneHandSource decks={decks} selected={deck?.Id} busy={busy} reduced={motion.reduced} onChoose={changeDeck}/>
+        <TableNavigation decks={decks} reduced={motion.reduced} />
 
         <div key={pick?.Id ?? deck?.Id} className="mat-heading">
           <p className="table-kicker">{pick && !busy ? 'IN YOUR HAND' : 'EVERY DECK HOLDS A STORY.'}</p>
@@ -244,9 +247,9 @@ export default function CardTable() {
         </div>
 
         {error ? (
-          <div className="table-message" role="alert"><h3>We couldn’t deal this hand.</h3><p>{hand.error?.name === 'TimeoutError' ? 'The library took too long to answer. Try again in a moment.' : 'Check your server connection, then try again.'}</p><button type="button" className="table-primary" onClick={() => { setPhase('waiting'); void views.refetch(); if (deck) void hand.refetch() }}>Try again</button></div>
+          <div className="table-message" role="alert"><h3>We couldn’t deal this hand.</h3><p>{hand.error?.name === 'TimeoutError' ? 'The library took too long to answer. Try again in a moment.' : 'Check your server connection, then try again.'}</p><button type="button" className="table-recovery-object" data-ui-sound="handled" aria-label="Try again" onClick={() => {playArcaneSound('cards'); setPhase('waiting'); void views.refetch(); if (deck) void hand.refetch() }}><img src={drawStill} alt=""/><span>Deal the hand again</span></button></div>
         ) : !loading && !cards.length ? (
-          <div className="table-message"><h3>{deck ? 'An empty deck. For now.' : 'Your first deck starts here.'}</h3><p>{deck ? 'Add titles to this library, or choose another deck.' : 'Once your server has movies or shows, you can deal a hand here.'}</p><Link className="table-primary" to="/libraries">Explore libraries</Link></div>
+          <div className="table-message"><h3>{deck ? 'An empty deck. For now.' : 'Your first deck starts here.'}</h3><p>{deck ? 'Add titles to this library, or choose another hand library with the dealer’s tally.' : 'Once your server has movies or shows, you can deal a hand here.'}</p><Link className="table-recovery-object" to="/libraries"><img src={arcaneTrinkets.library} alt=""/><span>Explore libraries</span></Link></div>
         ) : (
           <div key={phase === 'shuffling' ? 'outgoing' : `${deck?.Id}-${deal}`} className="movie-hand" role="group" aria-label="Your hand of titles">
             {tableCards.map((item, index) => <MovieCard key={item.Id} item={item} index={index} count={tableCards.length} selected={pick?.Id === item.Id} selectedIndex={Math.max(0, tableCards.findIndex(card => card.Id === pick?.Id))} busy={busy} onSelect={() => summon(item, index)} />)}

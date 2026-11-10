@@ -1,30 +1,49 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { JfItem } from '../api/types'
 import { openSearch, useSearchOverlay } from '../lib/searchOverlay'
 import { IS_TV } from '../lib/device'
-import { useThemeEffects } from '../lib/theme'
 import ScryingOrb from './ScryingOrb'
 import DeckTrinket from './DeckTrinket'
+import './arcane-hand-source.css'
 
-function DeckButton({ deck, index, selected, busy, reduced, live, onChoose }: {
-  deck: JfItem; index: number; selected: boolean; busy: boolean; reduced: boolean; live: boolean; onChoose: (id: string) => void
+function DeckEntrance({ decks, kind, index, reduced }: {
+  decks: JfItem[]
+  kind: 'movies' | 'tvshows'
+  index: number
+  reduced: boolean
 }) {
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
-  return <button type="button" className={`table-object deck-box-object ${selected ? 'object-selected' : ''}`}
-    style={{ '--object-angle': `${index % 2 ? 5 : -5}deg` } as CSSProperties}
-    disabled={busy} aria-pressed={selected} onClick={() => onChoose(deck.Id)}
-    onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}
-    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}>
-    <DeckTrinket kind={deck.CollectionType === 'tvshows' ? 'shows' : 'movies'} enabled={live && index < 2}
-      reduced={reduced} active={hovered || focused} selected={selected} busy={busy && selected} />
-    <span className="object-label">{deck.Name}<small>{deck.CollectionType === 'tvshows' ? 'Series deck' : 'Movie deck'}</small></span>
-  </button>
+  const single = decks.length === 1
+  const shows = kind === 'tvshows'
+  const label = single ? decks[0].Name : shows ? 'Shows' : 'Movies'
+  const target = single ? `/library/${decks[0].Id}` : `/libraries?kind=${kind}`
+
+  return (
+    <Link
+      to={target}
+      className="table-object deck-box-object"
+      data-deck-kind={kind}
+      aria-label={`Open ${label} ${shows ? 'show' : 'movie'} ${single ? 'library' : 'libraries'}`}
+      title={label}
+      style={{ '--object-angle': `${index % 2 ? 5 : -5}deg` } as CSSProperties}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+    >
+      <DeckTrinket kind={shows ? 'shows' : 'movies'} enabled={false} reduced={reduced} active={hovered || focused} selected={false} busy={false} />
+      <span className="object-label">
+        <strong className="deck-entrance-name">{label}</strong>
+        <small>{single ? 'Browse the full deck' : `${decks.length} library decks`}</small>
+      </span>
+    </Link>
+  )
 }
 
-export default function TableNavigation({ decks, selected, busy, reduced, onChoose }: {
-  decks: JfItem[]; selected?: string; busy: boolean; reduced: boolean; onChoose: (id: string) => void
+export default function TableNavigation({ decks, reduced }: {
+  decks: JfItem[]; reduced: boolean
 }) {
   const [engaged, setEngaged] = useState(false)
   const orbButton = useRef<HTMLButtonElement>(null)
@@ -36,8 +55,6 @@ export default function TableNavigation({ decks, selected, busy, reduced, onChoo
       orbButton.current?.focus({ preventScroll: true })
     }
   }, [open])
-  useThemeEffects() // The shared ArcaneLighting scene owns all live objects now.
-  const live = false
   const navigate = useNavigate()
   return (
     <nav className="table-object-nav" aria-label="Table navigation">
@@ -45,12 +62,16 @@ export default function TableNavigation({ decks, selected, busy, reduced, onChoo
         onClick={() => { if (IS_TV || matchMedia('(max-width:759px)').matches) navigate('/search'); else { returnToOrb.current = true; openSearch() } }}
         onPointerEnter={() => setEngaged(true)} onPointerLeave={() => setEngaged(false)}
         onFocus={() => setEngaged(true)} onBlur={() => setEngaged(false)}>
-        <ScryingOrb reduced={reduced} enabled={live} active={engaged} />
+        <ScryingOrb reduced={reduced} enabled={false} active={engaged} />
         <span className="object-label">Search <small>The scrying orb</small></span>
       </button>
       <div className="table-deck-boxes" role="group" aria-label="Library decks">
-        {decks.map((deck, index) => <DeckButton key={deck.Id} deck={deck} index={index} selected={selected === deck.Id}
-          busy={busy} reduced={reduced} live={live} onChoose={onChoose} />)}
+        {(['movies', 'tvshows'] as const).map((kind, index) => {
+          const matchingDecks = decks.filter(deck => deck.CollectionType === kind)
+          return matchingDecks.length > 0 && (
+            <DeckEntrance key={kind} kind={kind} index={index} reduced={reduced} decks={matchingDecks} />
+          )
+        })}
       </div>
     </nav>
   )
