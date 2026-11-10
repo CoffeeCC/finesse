@@ -932,6 +932,8 @@ export async function getPlaybackInfo(
   audioStreamIndex?: number,
   subtitleStreamIndex?: number,
   mediaSourceId?: string,
+  /** Ask for a converted stream even if the file could play as it is (it just failed to). */
+  convert = false,
 ) {
   const cap = getPrefs().maxBitrate
   // Burn-in subtitles require a transcode path; direct play can't paint them.
@@ -966,8 +968,8 @@ export async function getPlaybackInfo(
         DeviceProfile: profile,
         MaxStreamingBitrate: maxBr,
         AutoOpenLiveStream: true,
-        EnableDirectPlay: cap === 0 && !burningSubs,
-        EnableDirectStream: !burningSubs,
+        EnableDirectPlay: cap === 0 && !burningSubs && !convert,
+        EnableDirectStream: !burningSubs && !convert,
         EnableTranscoding: true,
         AllowVideoStreamCopy: !burningSubs,
         AllowAudioStreamCopy: true,

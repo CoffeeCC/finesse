@@ -63,6 +63,13 @@
 - **Tiled windows** — in a short window (a tiled pane on Omarchy, a half-height split) Home fits
   the hero, the Now row and the live line on one screen instead of pushing the row out of view.
 - **Phones: the "Play on…" button on Home shows its icon again** (it was an empty circle).
+- **The player gets back on its feet** — when the connection drops it says "Reconnecting…" and
+  carries on from the same spot (a few tries, waiting a little longer each time). A file this
+  browser can't play is asked for again as a converted stream. Only if that fails too does it
+  stop, with a plain message and Try again. Before, it froze with a Play button that did nothing.
+- **Reloading the player resumes where you were** — the address keeps the current position, so a
+  phone that reloads a background tab picks up there instead of where you pressed Play (and no
+  longer sends that older position to the server).
 
 ## Games that just work, and a few good fixes — v3.2.8 (2026-11-07)
 
