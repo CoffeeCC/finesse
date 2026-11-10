@@ -26,10 +26,32 @@ export function useFriends() {
   })
 }
 
+/** The libraries as they were last time (per person), so the top bar's links are there from the
+ *  first paint instead of arriving late and pushing the rest along. */
+const viewsKey = () => `finesse.views.${api.getSession()?.userId ?? ''}`
+type Views = Awaited<ReturnType<typeof api.getViews>>
+function rememberedViews(): Views | undefined {
+  try {
+    const v = JSON.parse(localStorage.getItem(viewsKey()) ?? 'null') as Views | null
+    return v && Array.isArray(v.Items) ? v : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function useViews() {
   return useQuery({
     queryKey: ['views'],
-    queryFn: () => api.getViews(),
+    queryFn: async () => {
+      const v = await api.getViews()
+      try {
+        localStorage.setItem(viewsKey(), JSON.stringify({ ...v, Items: v.Items.map((i) => ({ Id: i.Id, Name: i.Name, Type: i.Type, CollectionType: i.CollectionType })) }))
+      } catch {
+        /* no storage: the links just arrive a moment later */
+      }
+      return v
+    },
+    placeholderData: rememberedViews,
     staleTime: 10 * 60_000,
   })
 }

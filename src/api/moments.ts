@@ -59,8 +59,23 @@ export const setMomentSettings = (fromFriends: boolean) => call<{ fromFriends: b
 
 /** Whether this server has Moments (older ones don't). */
 export function useMomentsOn(): boolean {
-  const { info } = useFinesse()
-  return Boolean(info?.features?.moments)
+  const { info, loading } = useFinesse()
+  // Until the server has answered, go by last time: the bell is in the top bar from the
+  // first paint instead of arriving late and pushing its neighbours along.
+  if (loading) {
+    try {
+      return localStorage.getItem('finesse.momentsOn') === '1'
+    } catch {
+      return false
+    }
+  }
+  const on = Boolean(info?.features?.moments)
+  try {
+    localStorage.setItem('finesse.momentsOn', on ? '1' : '0')
+  } catch {
+    /* no storage: the bell just arrives a moment later */
+  }
+  return on
 }
 
 /** What's been sent to you (and your own, apart); checked every minute. */

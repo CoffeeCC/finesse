@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useGenres, useHomeLayout, useLatest, useViews } from '../api/queries'
@@ -20,6 +20,7 @@ import { browseHref } from './BrowsePage'
 import { useAuth } from '../auth/AuthContext'
 import { useFinesse } from '../lib/finesseServer'
 import FriendRows from '../components/FriendRows'
+import Spotlight from '../components/Spotlight'
 
 const HOME_COLLECTIONS = new Set(['movies', 'tvshows'])
 const PREFERRED_GENRES = [
@@ -322,8 +323,8 @@ export default function HomePage() {
 
       <div className={`mt-6 sm:mt-8 ${customizing ? `${PAD} mx-auto max-w-3xl space-y-2` : 'space-y-8 sm:space-y-10'}`}>
         {visibleRows.map((r, i) => (
+          <Fragment key={r.key}>
           <RowFrame
-            key={r.key}
             desc={r}
             customizing={customizing}
             collapsed={layout.collapsed.includes(r.key)}
@@ -344,6 +345,9 @@ export default function HomePage() {
               window.scrollTo({ top: 0, behavior: 'smooth' })
             }}
           />
+          {/* One title gets the whole width, between the rows. */}
+          {!customizing && i === Math.min(1, visibleRows.length - 1) && <Spotlight movieLibId={movieLib?.Id} showLibId={showLib?.Id} />}
+          </Fragment>
         ))}
 
         {!customizing && <FriendRows />}

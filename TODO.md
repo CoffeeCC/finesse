@@ -44,7 +44,15 @@
   row, tinted by whatever you're resting on, and lean gently toward the mouse. Drawn on the
   graphics card, paused when you can't see it. TVs, "reduce motion" and data saver keep the
   calmer glow from before.
-- **Titles arrive a word at a time** on Home.
+- **Spotlight** — between Home's rows, one title you haven't watched gets the whole width, a
+  different one each day. The band opens up as you scroll to it, its artwork drifts behind it
+  and the title is drawn in, all in step with the scroll itself. Not on TVs.
+- **Each title's page wears its film** — the same drifting light, in the artwork's colour, over
+  the page's backdrop.
+- **Home no longer jumps as it loads** — the Now row keeps its final height from the start, and
+  the top bar remembers your libraries and the Moments bell from last time instead of adding
+  them late (layout shift on a return visit: 0.14 before, 0 now).
+- **Titles arrive a word at a time** on Home and on each title's page.
 - **Light under the glass** — a soft highlight follows the mouse across posters. The poster
   itself stays still.
 - **Tiled windows** — in a short window (a tiled pane on Omarchy, a half-height split) Home fits

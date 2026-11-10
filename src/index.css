@@ -1061,6 +1061,108 @@ html.tv .lv-line.leaving {
 }
 .os-orb.a { width: 62vw; height: 40vw; left: -14vw; bottom: -24vw; opacity: 0.4; animation: os-orb-a 18s ease-in-out infinite alternate; }
 .os-orb.b { width: 46vw; height: 32vw; right: -12vw; top: -18vw; opacity: 0.22; animation: os-orb-b 23s ease-in-out infinite alternate; }
+/* The Now row keeps the height of its largest (chosen) tile from the first paint, so the
+   hero above it doesn't jump up when a tile is chosen. */
+.os-rail { min-height: calc(clamp(240px, 74vw, 300px) * 0.5625 + 90px); }
+@media (min-width: 768px) { .os-rail { min-height: calc(clamp(270px, 24vw, 424px) * 0.5625 + 90px); } }
+@media (hover: none) { .os-rail { min-height: calc(clamp(208px, 64vw, 260px) * 0.5625 + 90px); } }
+html.tv .os-rail { min-height: 0; }
+
+/* ---------- Spotlight (Spotlight.tsx): one title, the whole width ---------- */
+.spot {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin: 0.5rem 0;
+  min-height: min(78vh, 720px);
+  display: flex;
+  align-items: flex-end;
+  background: var(--color-ink-950);
+}
+.spot-art { position: absolute; inset: -12% 0; z-index: -3; }
+.spot-art img { width: 100%; height: 100%; object-fit: cover; }
+.spot-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(90deg, rgba(8, 9, 14, 0.9) 0%, rgba(8, 9, 14, 0.55) 38%, rgba(8, 9, 14, 0) 72%),
+    linear-gradient(0deg, var(--color-ink-950) 0%, rgba(8, 9, 14, 0.5) 30%, rgba(8, 9, 14, 0) 60%),
+    linear-gradient(180deg, var(--color-ink-950) 0%, rgba(8, 9, 14, 0) 22%);
+}
+.spot-light { position: absolute; inset: 0; z-index: -1; pointer-events: none; mix-blend-mode: screen; opacity: 0.55; }
+.spot-body { position: relative; width: 100%; max-width: 1000px; padding: 3rem 1rem 3.5rem; }
+@media (min-width: 640px) { .spot-body { padding: 4rem 1.5rem 4.5rem; } }
+@media (min-width: 1024px) { .spot-body { padding: 5rem 3rem 5.5rem; } }
+.spot-title {
+  margin: 0.9rem 0 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(3rem, 9.5vw, 9.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-shadow: 0 12px 50px rgba(0, 0, 0, 0.55);
+  padding-bottom: 0.08em;
+  text-wrap: balance;
+}
+.spot-line {
+  margin-top: 1.1rem;
+  max-width: 620px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.8);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+@media (min-width: 640px) { .spot-line { font-size: 19px; } }
+.spot-actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+/* Tied to the scroll itself: the band opens from a rounded card to the full width, the
+   artwork drifts behind it, and the title is drawn in from the left as it rises. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    html:not([data-motion='reduce']) .spot {
+      animation: spotOpen linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+    html:not([data-motion='reduce']) .spot-art img {
+      animation: spotDrift linear both;
+      animation-timeline: view();
+    }
+    html:not([data-motion='reduce']) .spot-title {
+      animation: spotDraw linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+    html:not([data-motion='reduce']) .spot-line,
+    html:not([data-motion='reduce']) .spot-actions,
+    html:not([data-motion='reduce']) .spot .os-kicker {
+      animation: spotRise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 18%;
+    }
+  }
+}
+@keyframes spotOpen {
+  from { clip-path: inset(9% 7% 9% 7% round 44px); filter: brightness(0.6) saturate(0.7); }
+  to { clip-path: inset(0 0 0 0 round 0px); filter: none; }
+}
+@keyframes spotDrift {
+  from { transform: translate3d(0, -7%, 0) scale(1.08); }
+  to { transform: translate3d(0, 7%, 0) scale(1.08); }
+}
+@keyframes spotDraw {
+  from { clip-path: inset(-10% 100% -10% 0); transform: translate3d(0, 40px, 0); letter-spacing: 0.04em; }
+  to { clip-path: inset(-10% 0 -10% 0); transform: none; letter-spacing: -0.02em; }
+}
+@keyframes spotRise {
+  from { opacity: 0; transform: translate3d(0, 24px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
 /* Short windows: a tiled pane on a tiling desktop (Omarchy's Hyprland, a half-height split).
    The stage fits the pane instead of a full screen's height, the story line steps aside and
    the gaps tighten, so the hero, the Now row and the live line are all there without scrolling. */
