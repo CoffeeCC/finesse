@@ -9,3 +9,6 @@ previews/
 windows/installer/bin/
 windows/installer/obj/
 *.tsbuildinfo
+*.blend[0-9]
+__pycache__/
+*.pyc

@@ -1,0 +1,14 @@
+html[data-theme=card-table] .arcane-object-tabs{background:linear-gradient(100deg,#201c1a,#101d27 50%,#201d1b);border:1px solid #a88a5555;border-radius:16px 9px;box-shadow:inset 0 1px #dfc58a22,0 8px 25px #0009;backdrop-filter:none}
+.arcane-nav-art{display:inline-block;width:36px;height:32px;flex-shrink:0;pointer-events:none;transition:transform .25s;filter:drop-shadow(1px 3px 2px #0007)}.arcane-nav-art img{width:100%;height:100%;object-fit:contain}
+.arcane-object-tabs .arcane-nav-art{width:44px;height:35px}.arcane-object-tabs a{font-family:var(--font-display);font-size:17px;line-height:1;min-height:70px;padding-top:4px;gap:0;color:#c8bca0}.arcane-object-tabs a[aria-current=page]{color:#ffe4ad}
+.arcane-object-tabs a:focus-visible{outline:2px solid #b7dce9;outline-offset:-3px;border-radius:14px}
+.arcane-object-tabs a:hover .arcane-nav-art,.arcane-object-tabs a:focus-visible .arcane-nav-art{transform:translateY(-3px) rotate(-3deg)}
+html[data-theme=card-table] .vt-nav nav.arcane-main-nav{background:none;border:0;box-shadow:none;border-radius:0;gap:6px;overflow:visible;padding:0}
+html[data-theme=card-table] .arcane-main-nav>a,html[data-theme=card-table] .arcane-main-nav button[aria-haspopup=menu]{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;min-height:56px;min-width:54px;max-width:100px;padding:0 7px;background:none!important;border-radius:10px;font-size:11px;line-height:1.2;color:#d5c5a3;box-shadow:none}
+.arcane-main-nav>a[aria-current=page]{color:#ffe4ad!important}.arcane-main-nav>a>span:last-child{max-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arcane-main-nav button[aria-haspopup=menu]>svg{display:none}.arcane-main-nav>a:hover .arcane-nav-art,.arcane-main-nav>a:focus-visible .arcane-nav-art,.arcane-main-nav button[aria-haspopup=menu]:hover .arcane-nav-art{transform:translateY(-2px) rotate(-3deg)}
+.arcane-main-nav :is(a,button):focus-visible{outline:2px solid #b7dce9;outline-offset:1px}
+@media(prefers-reduced-motion:reduce){.arcane-nav-art{transition:none;transform:none!important}}
+html[data-motion=reduce] .arcane-nav-art{transition:none;transform:none!important}
+html[data-theme=card-table] .finesse-mini-player{background:linear-gradient(100deg,#203039f5,#111e29f5);border-color:#b3975d66;box-shadow:inset 0 1px #e4ca8d22,0 -5px 20px #0005}
+@media(max-width:767px){html[data-theme=card-table] .finesse-mini-player{bottom:calc(5.25rem + env(safe-area-inset-bottom))}}

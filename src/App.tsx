@@ -8,7 +8,7 @@ import LoginPage from './auth/LoginPage'
 import TvConnectPage from './pages/TvConnectPage'
 import NavBar from './components/NavBar'
 import BottomTabs from './components/BottomTabs'
-import HomePage from './pages/HomePage'
+import HomePage, { StandardHome } from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import ItemPage from './pages/ItemPage'
 import SearchPage from './pages/SearchPage'
@@ -37,6 +37,10 @@ import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
 import { initUiSounds } from './lib/sound'
 import { initGamepad } from './lib/gamepad'
 import ControllerHint from './components/ControllerHint'
+import ThemeWorkspace from './components/ThemeWorkspace'
+import { useTheme } from './lib/theme'
+import { arcaneRouteOrigin } from './lib/arcaneRouteOrigin'
+import { ArcaneSceneLayout, useArcaneSceneLayout } from './lib/arcaneSceneLayout'
 import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
 import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
@@ -65,11 +69,20 @@ const RemotePage = lazyPage(() => import('./pages/RemotePage'))
 const SmartCollectionsPage = lazyPage(() => import('./pages/SmartCollectionsPage'))
 const TogetherPage = lazyPage(() => import('./pages/TogetherPage'))
 const MomentsPage = lazyPage(() => import('./pages/MomentsPage'))
+const OrbProjection = __WEBOS__ ? null : lazyPage(() => import('./components/ArcaneOrbProjection'))
 
 export default function App() {
+  return <ArcaneSceneLayout><AppContent /></ArcaneSceneLayout>
+}
+function AppContent() {
   const { session } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const arcane = useTheme() === 'card-table' && !__WEBOS__
+  const orbOpen = arcane && /^\/item\/[^/]+$/.test(location.pathname)
+  const sceneLocation = orbOpen ? arcaneRouteOrigin(location.state) ?? { pathname: '/', search: '', hash: '' } : location
+  const immersive = useArcaneSceneLayout()
+  const tableScreen = arcane && (immersive || orbOpen || sceneLocation.pathname === '/' || sceneLocation.pathname === '/dashboard')
   useSpatialNavigation()
   useRouteMemory()
   // Be a cast target for other devices ("Play on…"), and keep watch state live.
@@ -175,14 +188,15 @@ export default function App() {
           path="*"
           element={
             <>
-              <NavBar />
-              <main className="pt-16 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+              {!tableScreen && <NavBar />}
+              <main className={tableScreen ? 'arcane-fullscreen-main' : 'pt-16 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0'}>
                 {/* Re-keying per path gives every page a rise-in entrance */}
-                <div key={location.pathname} className={enterClass}>
+                <div key={sceneLocation.pathname} className={tableScreen ? '' : enterClass}>
                   <PageError>
                   <Suspense fallback={<PageLoading />}>
-                  <Routes>
+                  <ThemeWorkspace><Routes location={sceneLocation}>
                     <Route path="/" element={<HomePage />} />
+                    <Route path="/dashboard" element={arcane ? <HomePage /> : <StandardHome />} />
                     <Route path="/library/:viewId" element={<LibraryPage />} />
                     <Route path="/item/:itemId" element={<ItemPage />} />
                     <Route path="/person/:personId" element={<PersonPage />} />
@@ -207,15 +221,16 @@ export default function App() {
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
+                  </Routes></ThemeWorkspace>
                   </Suspense>
                   </PageError>
                 </div>
               </main>
+              {orbOpen && OrbProjection && <Suspense fallback={null}><OrbProjection /></Suspense>}
               <MiniPlayer />
               <CastRemote />
               <NowPlaying />
-              <BottomTabs />
+              {!tableScreen && <BottomTabs />}
               {!IS_TV && <SearchOverlay />}
               <QuickMenu />
               <MomentArrivals />
