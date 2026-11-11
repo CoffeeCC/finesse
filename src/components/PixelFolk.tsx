@@ -13,9 +13,12 @@ import { getPrefs, reducedMotion } from '../lib/settings'
 // world begins.
 //
 // As the screensaver (full), the world is the whole screen, and what they build with has to come
-// from somewhere: a little pixel Finesse hangs in the sky (its name, a row of posters), and they
-// take it apart block by block, each one falling to the ground to be carried off. When there's
-// nothing left of it, it comes back.
+// from somewhere: the screen you left open. A chunky pixel copy of it is taken as the screensaver
+// starts (pagePixels: every poster, card, button and line of text, as blocks), and they take THAT
+// apart from the bottom up, each block falling to the ground to be carried off, with a little
+// rubble coming loose around it. The real page is never touched: move the mouse and it's back.
+// When there's nothing left of the copy, it comes back too. (On a screen with nothing to copy, a
+// little pixel Finesse hangs in the sky instead: its name and a shelf of posters.)
 //
 // They wear the app's colours: one camp the accent, the other its opposite on the wheel, so
 // changing the accent in Settings re-dresses them. They notice you: they scatter from a fast
@@ -119,6 +122,68 @@ interface Spark {
   life: number
   c: RGB
   g: number
+}
+
+/**
+ * The page as it is right now, as a w×h canvas of chunky pixels: images drawn small, anything with
+ * a background as a block of its colour, text as bars of its colour. Null when there's too little
+ * on screen to be worth taking apart. Nothing is read back from the images, so it works whatever
+ * server they came from.
+ */
+function pagePixels(w: number, h: number, scale: number): HTMLCanvasElement | null {
+  try {
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const g = c.getContext('2d')!
+    g.imageSmoothingEnabled = true
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let drawn = 0
+    const els = document.querySelectorAll<HTMLElement>('#root *')
+    for (let i = 0; i < els.length && drawn < 2500; i++) {
+      const el = els[i]!
+      if (el.closest('.marquee-in, .pixel-folk')) continue
+      const b = el.getBoundingClientRect()
+      if (b.width < 3 || b.height < 3 || b.bottom < 0 || b.top > vh || b.right < 0 || b.left > vw) continue
+      const x = b.left / scale
+      const y = b.top / scale
+      const bw = b.width / scale
+      const bh = b.height / scale
+      if (el instanceof HTMLImageElement) {
+        if (el.complete && el.naturalWidth > 0) {
+          g.globalAlpha = 1
+          g.drawImage(el, x, y, bw, bh)
+          drawn++
+        }
+        continue
+      }
+      const cs = getComputedStyle(el)
+      if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 0.05) continue
+      const bg = cs.backgroundColor
+      if (bg && bg !== 'transparent' && !/, 0\)$/.test(bg) && b.width < vw * 0.98) {
+        g.globalAlpha = 1
+        g.fillStyle = bg
+        g.fillRect(x, y, bw, bh)
+        drawn++
+      }
+      // Its own words (not its children's), as a bar of the text's colour.
+      let words = false
+      for (const n of el.childNodes) if (n.nodeType === 3 && n.textContent && n.textContent.trim().length > 1) words = true
+      if (words) {
+        g.globalAlpha = 0.85
+        g.fillStyle = cs.color
+        const lines = Math.max(1, Math.round(b.height / (parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4 || 20)))
+        const lh = bh / lines
+        for (let l = 0; l < lines; l++) g.fillRect(x, y + l * lh + lh * 0.3, Math.max(1, bw * (l === lines - 1 && lines > 1 ? 0.6 : 1)), Math.max(1, lh * 0.4))
+        drawn++
+      }
+    }
+    g.globalAlpha = 1
+    return drawn >= 12 ? c : null
+  } catch {
+    return null
+  }
 }
 
 const FONT: Record<string, string[]> = {
@@ -250,6 +315,9 @@ export default function PixelFolk({ full = false }: { full?: boolean } = {}) {
     /** The little pixel Finesse in the sky (screensaver), and blocks of it on their way down. */
     let sky: { x: number; y: number; c: RGB; there: boolean }[] = []
     let drops: { x: number; y: number; vy: number; c: RGB; landed: boolean }[] = []
+    /** The pixel copy of the screen that was open (screensaver), and how much of each column is left. */
+    let page: { canvas: HTMLCanvasElement; g: CanvasRenderingContext2D; bottom: Int16Array; readable: boolean } | null = null
+    let pageTried = false
 
     // The app's colours: one camp wears the accent, the other its opposite.
     let teams: RGB[] = [[117, 137, 216], [216, 160, 96]]
@@ -289,7 +357,19 @@ export default function PixelFolk({ full = false }: { full?: boolean } = {}) {
       drops = []
       age = 0
       progressAt = tick
-      if (full && !sky.some((c) => c.there)) {
+      if (full && (!page || !page.bottom.some((b) => b >= 0)) && (!pageTried || page)) {
+        // The screen that was left open, in chunky pixels, to be taken apart. (Again, once it's all gone.)
+        pageTried = true
+        const copy = pagePixels(W, HT, scale)
+        if (copy) {
+          const pg = copy.getContext('2d', { willReadFrequently: true })!
+          // The land along the bottom is theirs already.
+          pg.clearRect(0, HT - H - 1, W, H + 1)
+          page = { canvas: copy, g: pg, bottom: new Int16Array(W).fill(HT - H - 2), readable: true }
+          if (tick > 0) for (let i = 0; i < 4; i++) setTimeout(() => firework(W * 0.2 + r() * W * 0.6), i * 300)
+        } else page = null
+      }
+      if (full && !page && !sky.some((c) => c.there)) {
         // A new little Finesse to take apart: its name, then a shelf of posters.
         sky = []
         const word = 'FINESSE'
@@ -344,6 +424,8 @@ export default function PixelFolk({ full = false }: { full?: boolean } = {}) {
       canvas.width = W
       canvas.height = HT
       sky = []
+      page = null
+      pageTried = false
       settle()
     }
     size()
@@ -536,7 +618,43 @@ export default function PixelFolk({ full = false }: { full?: boolean } = {}) {
               f.target = p.x + (r() < 0.5 ? -8 - r() * 6 : p.w + 8 + r() * 6)
               // The screensaver: the block comes off the little Finesse in the sky. The lowest one
               // left in some column lets go and falls; they walk to where it lands.
-              const left = sky.filter((c) => c.there)
+              if (page) {
+                // The lowest block left in some column lets go and falls; a little rubble comes with it.
+                let col = -1
+                for (let k = 0; k < 24 && col < 0; k++) {
+                  const c = Math.floor(r() * W)
+                  if (page.bottom[c]! >= 0) col = c
+                }
+                if (col >= 0) {
+                  const py = page.bottom[col]!
+                  let colour: RGB = teams[f.team]!
+                  if (page.readable) {
+                    try {
+                      const d = page.g.getImageData(col, py, 1, 1).data
+                      if (d[3]! > 20) colour = [d[0]!, d[1]!, d[2]!]
+                    } catch {
+                      page.readable = false
+                    }
+                  }
+                  for (const c of [col, Math.min(W - 1, col + 1)]) {
+                    const b = page.bottom[c]!
+                    if (b < 0) continue
+                    page.g.clearRect(c, b - 1, 1, 2)
+                    page.bottom[c] = b - 2
+                  }
+                  drops.push({ x: col, y: py - oy, vy: 0, c: colour, landed: false })
+                  for (let k = 0; k < 5; k++) {
+                    const c = Math.max(0, Math.min(W - 1, col + Math.round((r() - 0.5) * 14)))
+                    const b = page.bottom[c]!
+                    if (b < 0) continue
+                    page.g.clearRect(c, b, 1, 1)
+                    page.bottom[c] = b - 1
+                    sparks.push({ x: c, y: b - oy, vx: (r() - 0.5) * 0.3, vy: 0, life: 40 + r() * 30, c: mix(colour, [120, 124, 140], 0.4), g: 0.07 })
+                  }
+                  f.target = col
+                }
+              }
+              const left = page ? [] : sky.filter((c) => c.there)
               if (left.length) {
                 const col = left[Math.floor(r() * left.length)]!.x
                 const cell = left.filter((c) => c.x === col).sort((a, b) => b.y - a.y)[0]!
@@ -602,6 +720,7 @@ export default function PixelFolk({ full = false }: { full?: boolean } = {}) {
         g.fillStyle = css(c, a)
         g.fillRect(Math.round(x), Math.round(y), 1, 1)
       }
+      if (page) g.drawImage(page.canvas, 0, -oy)
       for (const c of sky) if (c.there) px(c.x, c.y, c.c)
       for (const d of drops) px(d.x, d.y, d.c)
       // Ground: a soft line, each camp's half in its own colour.

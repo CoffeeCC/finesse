@@ -48,10 +48,11 @@
   wear your accent colour, scatter from a fast mouse and gather round a still one, run to a
   star you drop by clicking bare ground, hop to the interface's sounds and bob while music
   plays. Computers only; Settings → Appearance turns them off.
-- **Pixel folk as the screensaver** — an option in Settings → Appearance. Their world fills the
-  screen, and a little pixel Finesse hangs in the sky: its name and a shelf of posters, which
-  they take apart block by block to build with. When it's all gone, it comes back.
-
+- **Pixel folk as the screensaver** — an option in Settings → Appearance. When Finesse goes idle,
+  the screen you left open turns into chunky pixels and their world fills the bottom of it.
+  They take your screen apart from the bottom up to build with: each block falls to the ground
+  and is carried off, with a little rubble coming loose around it. It's only a copy: move the
+  mouse and your real screen is back, untouched. When the copy is all gone, it comes back too.
 - **Moments is a feed** — everything the people here and on friends' servers flagged for you,
   and your own, newest first. Press play on a card and just that scene plays right there,
   streamed from the server that has it (yours or your friend's), then stops. New moments drop
