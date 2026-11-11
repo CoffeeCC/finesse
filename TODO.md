@@ -53,6 +53,13 @@
   They take your screen apart from the bottom up to build with: each block falls to the ground
   and is carried off, with a little rubble coming loose around it. It's only a copy: move the
   mouse and your real screen is back, untouched. When the copy is all gone, it comes back too.
+- **React and comment on moments** — six reactions (one each, change it or take it back) and
+  comments under every moment in the feed. Everyone who can see a moment shares one thread,
+  wherever they are: a friend's reply shows up with their server's name beside theirs. A moment
+  sent to one person stays between you and them, thread included. Whoever wrote a comment,
+  whoever flagged the moment, or an admin can delete it.
+- **Moments play on the click** — a card that's on screen gets its scene ready ahead of time, so
+  pressing play starts at once instead of loading.
 - **Moments is a feed** — everything the people here and on friends' servers flagged for you,
   and your own, newest first. Press play on a card and just that scene plays right there,
   streamed from the server that has it (yours or your friend's), then stops. New moments drop

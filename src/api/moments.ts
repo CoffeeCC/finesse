@@ -57,6 +57,26 @@ export const sendMoment = (m: { item: string; start: number | null; end: number 
 export const getMomentSettings = () => call<{ fromFriends: boolean }>('GET', '/api/moments/settings')
 export const setMomentSettings = (fromFriends: boolean) => call<{ fromFriends: boolean }>('PUT', '/api/moments/settings', { fromFriends })
 
+// ---------- Reactions and comments (server/src/momentSocial.ts) ----------
+
+export interface MomentThread {
+  reactions: { emoji: string; count: number; mine: boolean; who: string[] }[]
+  comments: { id: string; from: string; text: string; created: number; mine: boolean; canDelete: boolean }[]
+}
+
+export const getThreads = (keys: string[]) => call<{ threads: Record<string, MomentThread>; reactions: string[] }>('GET', `/api/moments/social?keys=${keys.map(encodeURIComponent).join(',')}`)
+export const reactToMoment = async (key: string, emoji: string | null) => (await call<{ thread: MomentThread }>('POST', '/api/moments/react', { key, emoji })).thread
+export const commentOnMoment = async (key: string, text: string) => (await call<{ thread: MomentThread }>('POST', '/api/moments/comment', { key, text })).thread
+export const deleteMomentComment = async (key: string, id: string) => (await call<{ thread: MomentThread }>('POST', '/api/moments/comment/delete', { key, id })).thread
+
+/** The threads of the moments on screen, looked at again every 15 seconds while the feed is open.
+ *  On a server that doesn't have them yet (an older Finesse) this is simply empty. */
+export function useThreads(keys: string[]) {
+  const on = useMomentsOn()
+  const id = keys.join(',')
+  return useQuery({ queryKey: ['moments', 'social', id], queryFn: () => getThreads(keys), enabled: on && keys.length > 0, refetchInterval: 15_000, staleTime: 8_000, retry: false, placeholderData: (prev) => prev })
+}
+
 /** Whether this server has Moments (older ones don't). */
 export function useMomentsOn(): boolean {
   const { info, loading } = useFinesse()

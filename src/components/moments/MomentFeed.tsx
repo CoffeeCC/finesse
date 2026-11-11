@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import * as api from '../../api/client'
-import { clock, deleteMoment, markMomentsRead, momentHref, useInbox, type InboxMoment, type MyMoment } from '../../api/moments'
+import { clock, commentOnMoment, deleteMoment, deleteMomentComment, markMomentsRead, momentHref, reactToMoment, useInbox, useThreads, type InboxMoment, type MomentThread, type MyMoment } from '../../api/moments'
 import { useMomentCollectionsOn } from '../../api/momentCollections'
 import { useToast } from '../Toast'
 import SaveMoment from './SaveMoment'
@@ -10,7 +10,9 @@ import SaveMoment from './SaveMoment'
 // The feed: every moment the people here and on friends' servers have flagged for you, and your
 // own, newest first. Each one is a card you can play right where it is: just that stretch of the
 // film or episode, streamed from whichever server has it (yours or the friend's), then it stops.
-// New ones arrive at the top while the page is open. Nothing here is copied anywhere: a moment is
+// A card that's on screen gets ready ahead of time (the video is fetched and parked at the scene),
+// so pressing play starts it at once. Under each: reactions and comments, shared by everyone
+// who can see that moment, wherever they are. New moments arrive at the top while the page is open. Nothing here is copied anywhere: a moment is
 // a place in a video and a note, and the video stays on its own server.
 
 type Entry = (InboxMoment | MyMoment) & { own: boolean }
@@ -28,20 +30,31 @@ function ago(ms: number): string {
   return d === 1 ? 'yesterday' : d < 30 ? `${d} days ago` : new Date(ms).toLocaleDateString()
 }
 
-/** Plays one stretch of a title in place, then stops. Direct play where the browser can, a
- *  converted stream (hls.js, loaded only when needed) where it can't. */
-function StretchPlayer({ m, onDone, onFail }: { m: Entry; onDone: () => void; onFail: () => void }) {
+/** How many cards are getting a video ready right now (two at most: friends' servers aren't ours to hammer). */
+let warming = 0
+
+/**
+ * One stretch of a title, in place. It gets ready as soon as it's mounted (asks how to play it,
+ * and for a file the browser can play as it is, loads it and parks it at the scene) and plays
+ * when `play` turns true, then stops at the end of the stretch. A title that has to be converted
+ * is only asked about ahead of time: the converting itself starts on play, so nobody's server
+ * works on scenes that are only scrolled past.
+ */
+function StretchPlayer({ m, play, onDone, onFail }: { m: Entry; play: boolean; onDone: () => void; onFail: () => void }) {
   const ref = useRef<HTMLVideoElement>(null)
-  const [ready, setReady] = useState(false)
+  const [prepared, setPrepared] = useState(false)
+  const [showing, setShowing] = useState(false)
+  const later = useRef<{ url: string; session: string } | null>(null)
+  const hlsRef = useRef<{ destroy: () => void } | null>(null)
   const start = Math.max(0, (m.start ?? 0) - 1)
   const end = m.end ?? (m.start ?? 0) + 30
+  const fail = useRef(onFail)
+  fail.current = onFail
 
   useEffect(() => {
     const v = ref.current
     if (!v) return
     let live = true
-    let hls: { destroy: () => void } | null = null
-    let session: { transcoding: boolean; id: string } | null = null
     const seek = () => {
       try {
         v.currentTime = start
@@ -56,57 +69,75 @@ function StretchPlayer({ m, onDone, onFail }: { m: Entry; onDone: () => void; on
         const src = info.MediaSources[0]
         if (!src) throw new Error('no file')
         if (src.SupportsDirectPlay) {
+          v.preload = 'auto'
           v.src = api.directStreamUrl(m.item, src.Id, src.Container)
           v.addEventListener('loadedmetadata', seek, { once: true })
         } else if (src.TranscodingUrl) {
-          session = { transcoding: true, id: info.PlaySessionId }
-          const url = api.transcodeUrl(src.TranscodingUrl)
-          const { default: Hls } = await import('hls.js')
-          if (!live) return
-          if (Hls.isSupported()) {
-            const h = new Hls({ startPosition: start, maxBufferLength: 20 })
-            hls = h
-            h.on(Hls.Events.ERROR, (_e, d) => d.fatal && live && onFail())
-            h.loadSource(url)
-            h.attachMedia(v)
-          } else {
-            v.src = url
-            v.addEventListener('loadedmetadata', seek, { once: true })
-          }
+          later.current = { url: api.transcodeUrl(src.TranscodingUrl), session: info.PlaySessionId }
         } else throw new Error('no way to play it')
-        await v.play().catch(() => {})
+        setPrepared(true)
       } catch {
-        if (live) onFail()
+        if (live) fail.current()
       }
     })()
     return () => {
       live = false
-      hls?.destroy()
-      if (session?.transcoding) api.stopActiveEncoding(session.id)
+      hlsRef.current?.destroy()
+      hlsRef.current = null
+      if (later.current) api.stopActiveEncoding(later.current.session)
+      later.current = null
       v.removeAttribute('src')
       v.load()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [m.key])
 
+  useEffect(() => {
+    const v = ref.current
+    if (!v || !play || !prepared) return
+    let live = true
+    void (async () => {
+      const t = later.current
+      if (t && !hlsRef.current && !v.src) {
+        const { default: Hls } = await import('hls.js')
+        if (!live) return
+        if (Hls.isSupported()) {
+          const h = new Hls({ startPosition: start, maxBufferLength: 20 })
+          hlsRef.current = h
+          h.on(Hls.Events.ERROR, (_e, d) => d.fatal && live && fail.current())
+          h.loadSource(t.url)
+          h.attachMedia(v)
+        } else {
+          v.src = t.url
+          v.addEventListener('loadedmetadata', () => (v.currentTime = start), { once: true })
+        }
+      }
+      await v.play().catch(() => {})
+    })()
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [play, prepared])
+
   return (
     <>
       <video
         ref={ref}
-        className="absolute inset-0 h-full w-full bg-black object-contain"
+        className={`absolute inset-0 h-full w-full bg-black object-contain ${play ? '' : 'invisible'}`}
         playsInline
-        controls={ready}
-        onPlaying={() => setReady(true)}
-        onError={onFail}
+        controls={play && showing}
+        onPlaying={() => setShowing(true)}
+        onError={() => fail.current()}
         onTimeUpdate={(e) => {
           const v = e.currentTarget
-          if (v.currentTime >= end + 1) {
+          if (play && v.currentTime >= end + 1) {
             v.pause()
             onDone()
           }
         }}
       />
-      {!ready && (
+      {play && !showing && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/40">
           <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white" aria-label="Loading" />
         </div>
@@ -115,10 +146,146 @@ function StretchPlayer({ m, onDone, onFail }: { m: Entry; onDone: () => void; on
   )
 }
 
-function Card({ m, fresh, onSave }: { m: Entry; fresh: boolean; onSave: (m: Entry) => void }) {
+/** Reactions and comments under a card. */
+function Social({ m, thread, offered, onThread }: { m: Entry; thread: MomentThread | undefined; offered: string[]; onThread: (t: MomentThread) => void }) {
+  const toast = useToast()
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [all, setAll] = useState(false)
+  const act = async (work: () => Promise<MomentThread>) => {
+    setBusy(true)
+    try {
+      onThread(await work())
+      return true
+    } catch (e) {
+      toast((e as Error).message, 'error')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+  const mine = thread?.reactions.find((r) => r.mine)?.emoji ?? null
+  const count = (emoji: string) => thread?.reactions.find((r) => r.emoji === emoji)
+  const comments = thread?.comments ?? []
+  const shown = all ? comments : comments.slice(-2)
+  return (
+    <div className="border-t border-white/6 px-3 pb-3 pt-2.5">
+      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="React">
+        {offered.map((emoji) => {
+          const r = count(emoji)
+          const on = mine === emoji
+          return (
+            <button
+              key={emoji}
+              onClick={() => void act(() => reactToMoment(m.key, on ? null : emoji))}
+              disabled={busy}
+              aria-pressed={on}
+              title={r ? r.who.join(', ') + (r.count > r.who.length ? ` and ${r.count - r.who.length} more` : '') : undefined}
+              className={`feed-react flex h-8 items-center gap-1 rounded-full border px-2.5 text-[15px] leading-none transition-colors ${on ? 'border-accent-400/70 bg-accent-400/20' : r ? 'border-white/12 bg-white/6 hover:bg-white/10' : 'border-transparent hover:bg-white/8'}`}
+            >
+              <span aria-hidden>{emoji}</span>
+              {r && <span className={`text-[12px] font-semibold tabular-nums ${on ? 'text-white' : 'text-ink-300'}`}>{r.count}</span>}
+              <span className="sr-only">{on ? 'Take back' : 'React'} {emoji}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {comments.length > shown.length && (
+        <button onClick={() => setAll(true)} className="mt-2.5 text-[12.5px] font-semibold text-ink-300 hover:text-white">
+          See all {comments.length} comments
+        </button>
+      )}
+      {shown.length > 0 && (
+        <ul className="mt-2.5 space-y-2">
+          {shown.map((c) => (
+            <li key={c.id} className="group/c flex items-start gap-2.5">
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white" style={{ background: `hsl(${hueOf(c.from)} 50% 40%)` }} aria-hidden>
+                {(c.mine ? 'Y' : c.from[0] ?? '?').toUpperCase()}
+              </span>
+              <p className="min-w-0 flex-1 text-[13.5px] leading-snug text-ink-100">
+                <span className="mr-1.5 font-semibold text-white">{c.from}</span>
+                <span className="whitespace-pre-wrap break-words">{c.text}</span>
+                <span className="ml-2 text-[11.5px] text-ink-400">{ago(c.created)}</span>
+              </p>
+              {c.canDelete && (
+                <button onClick={() => void act(() => deleteMomentComment(m.key, c.id))} disabled={busy} aria-label="Delete comment" className="shrink-0 rounded px-1.5 text-ink-400 opacity-0 hover:text-red-300 focus-visible:opacity-100 group-hover/c:opacity-100 [@media(hover:none)]:opacity-100">
+                  ×
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form
+        className="mt-2.5 flex items-center gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          const t = text.trim()
+          if (!t) return
+          if (await act(() => commentOnMoment(m.key, t))) {
+            setText('')
+            setAll(true)
+          }
+        }}
+      >
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={300}
+          placeholder="Add a comment…"
+          aria-label={`Comment on ${m.title}`}
+          className="h-9 min-w-0 flex-1 rounded-full border border-white/10 bg-white/5 px-3.5 text-[13.5px] text-white outline-none placeholder:text-ink-400 focus:border-accent-400/60"
+        />
+        <button type="submit" disabled={busy || !text.trim()} className="h-9 shrink-0 rounded-full bg-white px-3.5 text-[13px] font-semibold text-ink-950 transition-opacity disabled:opacity-30">
+          Send
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function Card({ m, fresh, onSave, thread, offered, onThread }: { m: Entry; fresh: boolean; onSave: (m: Entry) => void; thread: MomentThread | undefined; offered: string[] | null; onThread: (t: MomentThread) => void }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [playing, setPlaying] = useState(false)
+  // On screen for a beat: get its video ready, so play is instant. Two cards at a time, no more.
+  const [warm, setWarm] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = box.current
+    if (!el || m.start == null || typeof IntersectionObserver === 'undefined') return
+    let timer = 0
+    let mine = false
+    const release = () => {
+      window.clearTimeout(timer)
+      if (mine) {
+        mine = false
+        warming--
+        setWarm(false)
+      }
+    }
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e!.isIntersecting) {
+          timer = window.setTimeout(() => {
+            if (mine || warming >= 2) return
+            mine = true
+            warming++
+            setWarm(true)
+          }, 350)
+        } else release()
+      },
+      { threshold: 0.6 },
+    )
+    io.observe(el)
+    return () => {
+      io.disconnect()
+      release()
+    }
+  }, [m.key, m.start])
   const [shown, setShown] = useState(!m.spoiler || m.own)
   const [art, setArt] = useState<'Backdrop' | 'Primary' | null>('Backdrop')
   const [armed, setArmed] = useState(false)
@@ -172,19 +339,27 @@ function Card({ m, fresh, onSave }: { m: Entry; fresh: boolean; onSave: (m: Entr
         </div>
       )}
 
-      <div className="relative mt-3 aspect-video w-full overflow-hidden bg-ink-950">
-        {playing ? (
+      <div ref={box} className="relative mt-3 aspect-video w-full overflow-hidden bg-ink-950">
+        {!whole && !failed && (warm || playing) && (
           <StretchPlayer
             m={m}
+            play={playing}
             onDone={() => setPlaying(false)}
             onFail={() => {
+              // Getting ready quietly failed: say nothing unless they'd pressed play.
+              if (playing) toast('Couldn’t play it here. Try “Watch from here”.', 'error')
               setPlaying(false)
-              toast('Couldn’t play it here. Try opening it in the player.', 'error')
+              setFailed(true)
             }}
           />
-        ) : (
+        )}
+        {!playing && (
           <button
-            onClick={() => (whole ? undefined : setPlaying(true))}
+            onClick={() => {
+              if (whole) return
+              setFailed(false)
+              setPlaying(true)
+            }}
             className="group absolute inset-0 block w-full text-left outline-none"
             aria-label={whole ? m.title : `Play ${who === 'You' ? 'your' : `${who}’s`} moment in ${m.title}`}
             tabIndex={whole ? -1 : 0}
@@ -238,6 +413,7 @@ function Card({ m, fresh, onSave }: { m: Entry; fresh: boolean; onSave: (m: Entr
           </button>
         )}
       </footer>
+      {offered && <Social m={m} thread={thread} offered={offered} onThread={onThread} />}
     </article>
   )
 }
@@ -280,6 +456,12 @@ export default function MomentFeed() {
   }, [data])
 
   const shown = entries.filter((e) => (filter === 'all' ? true : filter === 'yours' ? e.own : !e.own))
+  // Reactions and comments for what's listed (nothing on a server that doesn't have them yet).
+  const keys = useMemo(() => entries.map((e) => e.key).slice(0, 80), [entries])
+  const social = useThreads(keys)
+  const qc = useQueryClient()
+  const setThread = (key: string, t: MomentThread) =>
+    qc.setQueryData(['moments', 'social', keys.join(',')], (old: { threads: Record<string, MomentThread>; reactions: string[] } | undefined) => (old ? { ...old, threads: { ...old.threads, [key]: t } } : old))
   const tab = (id: typeof filter, label: string, n: number) => (
     <button
       onClick={() => setFilter(id)}
@@ -340,7 +522,7 @@ export default function MomentFeed() {
 
       <div className="mt-6 space-y-5">
         {shown.map((m) => (
-          <Card key={m.key} m={m} fresh={fresh.has(m.key)} onSave={setSaving} />
+          <Card key={m.key} m={m} fresh={fresh.has(m.key)} onSave={setSaving} thread={social.data?.threads[m.key]} offered={social.data?.reactions ?? null} onThread={(t) => setThread(m.key, t)} />
         ))}
       </div>
 

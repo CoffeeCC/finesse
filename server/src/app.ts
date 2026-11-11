@@ -8,6 +8,7 @@ import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
+import { registerMomentSocial } from './momentSocial.ts'
 import { openLists } from './lists.ts'
 import { registerSmartCollections } from './smartCollections.ts'
 import { Parental, registerParental } from './parental.ts'
@@ -158,6 +159,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   const groups = registerGroups(router, { settings, jf, auth, parental })
   registerParental(router, { settings, auth, parental, jf })
   const moments = registerMoments(router, { settings, jf, auth, groups, parental })
+  registerMomentSocial(router, { settings, auth, groups, store: moments.store, momentFor: moments.momentFor, parental })
   const lists = openLists(join(p.configDir, 'lists.db'))
   const access = new Access({ jf, groups, settings })
   access.limited = (userId) => parental.limitOf(userId) !== null
