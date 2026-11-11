@@ -40,6 +40,27 @@
 
 ## Liquid light — next release
 
+- **Stuck downloads sort themselves out** — a torrent nobody is sharing, or a download that
+  can't be added to your library, used to sit there until someone pressed Retry. Now Finesse
+  presses it for you: a download that fails outright is replaced straight away; one that stalls
+  or can't be added to your library gets an hour (you can change the wait), then it's dropped, that release is never picked again, and another is searched for (from
+  Usenet if the torrent was dead, and the other way round). Up to three swaps a day per title.
+  A full disk or a folder problem is never "fixed" by downloading something else: it's shown
+  with what to do. Usenet goes first and torrents are the backup unless an admin chooses the
+  other way round; that, the wait and the off switch are right on the Requests page.
+- **Get a better copy, from inside the player** — watching a film that looks rough? Playback
+  settings has "Get a better copy". Finesse finds the best release that's a real step up, starts
+  it downloading and lets you keep watching. When it's in the library the player moves over to
+  it at the same moment in the film, and the old file is replaced. Films only for now.
+- **Downloads say what's going on** — each one shows its speed, the time left, how much has
+  arrived, its quality and how it's coming. "Details" opens the release's name, where it was
+  found, the app downloading it and each episode's progress. The header adds it all up.
+- **Problems in plain words** — "One or more episodes expected in this release were not imported
+  or missing from the release" is now "It downloaded, but some of the episodes it promised
+  weren't in it", with what Finesse will do about it and when.
+- **A tighter Requests page** — downloads are three to a row on a wide screen, stuck ones first,
+  and each request's buttons sit beside it instead of under it.
+
 - **Home glows in the title's own colour** — ribbons of light drift behind the hero and the Now
   row, tinted by whatever you're resting on, and lean gently toward the mouse. Drawn on the
   graphics card, paused when you can't see it. TVs, "reduce motion" and data saver keep the

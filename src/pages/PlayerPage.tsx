@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import Hls from 'hls.js'
+import { usePlayerUpgrade } from '../lib/playerUpgrade'
 import * as api from '../api/client'
 import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
 import { adjacentEpisodes, episodeCode } from '../lib/episodes'
@@ -764,6 +765,20 @@ export default function PlayerPage() {
 
   const loadStreamRef = useRef(loadStream)
   loadStreamRef.current = loadStream
+
+  // "Get a better copy" (lib/playerUpgrade): when it lands, carry on with it at this moment.
+  const upgrade = usePlayerUpgrade(item, {
+    say: (text, tone) => toast(text, tone),
+    onReady: (newId) => {
+      const at = positionTicks()
+      if (newId === itemId) {
+        recoverRef.current = { tries: 0, converted: false, timer: 0, lastAt: 0 }
+        void loadStreamRef.current(at, undefined, undefined, { paused: pausedByUserRef.current })
+      } else {
+        navigate(`/play/${newId}${at > 0 ? `?t=${at}` : ''}`, { replace: true })
+      }
+    },
+  })
   const tracksRef = useRef({ audio: audioIndex, sub: subIndex })
   tracksRef.current = { audio: audioIndex, sub: subIndex }
   /** Paused by the person (not by an error): a retry after an error comes back the same way. */
@@ -2581,6 +2596,23 @@ export default function PlayerPage() {
                   )}
                   <PanelToggle label="Stats for nerds" on={showStats} onToggle={() => setShowStats((v) => !v)} />
                 </section>
+                {upgrade.available && (
+                  <section className="border-t border-white/5 pt-3">
+                    <button
+                      onClick={upgrade.start}
+                      disabled={upgrade.stage === 'looking' || upgrade.stage === 'downloading' || upgrade.stage === 'arriving'}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-ink-200 hover:bg-white/10 disabled:hover:bg-transparent transition-colors"
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span>Get a better copy</span>
+                        {(upgrade.stage === 'looking' || upgrade.stage === 'downloading' || upgrade.stage === 'arriving') && <span className="h-2 w-2 shrink-0 rounded-full bg-accent-400 animate-pulse" aria-hidden />}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-snug text-ink-400" role="status">
+                        {upgrade.line || 'Looks rough? Finesse finds a better one and switches to it while you watch.'}
+                      </span>
+                    </button>
+                  </section>
+                )}
               </div>
             )}
           </div>
