@@ -26,6 +26,9 @@ import { artistOf, trackArt } from '../lib/music'
 import { usePlayTrack } from '../lib/playAlbum'
 import { useAudio } from '../audio/AudioPlayerContext'
 import type { JfItem } from '../api/types'
+import { fuzzyFind } from '../lib/fuzzy'
+import { useTitleIndex } from '../api/queries'
+import { knownFinesse } from '../lib/finesseServer'
 
 // Universal search: one box for everything. A ranked top result, then one list
 // of titles: your library's first, then titles only friends' servers have (Groups),
@@ -141,8 +144,13 @@ export default function SearchPanel({
     if (!IS_TV && (mode === 'overlay' || !initialQuery)) inputRef.current?.focus()
   }, [mode, initialQuery])
 
-  const active = term.length > 1
-  const lib = useSearch(active ? term : '')
+  // What's typed right now (the server is asked a beat later, once typing pauses). The app's own
+  // list of titles answers at once, typos forgiven, and the server's answer joins it when it lands.
+  const typed = input.trim()
+  const active = term.length > 1 || typed.length > 1
+  const index = useTitleIndex(true)
+  const instant = useMemo(() => fuzzyFind(index.data ?? [], typed, (i) => i.Name ?? '', 12), [index.data, typed])
+  const lib = useSearch(term.length > 1 ? term : '')
   const people = useSearchPeople(active && (scope === 'all' || scope === 'people') ? term : '')
   const friendSearch = useFriendSearch(active && (scope === 'all' || scope === 'movies' || scope === 'shows') ? term : '')
   const friendHits = useMemo(
@@ -156,8 +164,11 @@ export default function SearchPanel({
   const music = useMusicSearch(active && hasMusic && (scope === 'all' || scope === 'music') ? term : '')
 
   const ranked = useMemo(() => {
-    const q = norm(term)
-    const items = (lib.data?.Items ?? []).filter((i) =>
+    const q = norm(typed || term)
+    // The server's matches for what was last asked, only while that's still what's typed.
+    const fromServer = term === typed ? (lib.data?.Items ?? []) : []
+    const have = new Set(fromServer.map((i) => i.Id))
+    const items = [...fromServer, ...instant.filter((i) => !have.has(i.Id))].filter((i) =>
       scope === 'movies'
         ? i.Type === 'Movie'
         : scope === 'shows'
@@ -170,7 +181,7 @@ export default function SearchPanel({
       .map((item, i) => ({ item, s: score(item, q), i }))
       .sort((a, b) => b.s - a.s || a.i - b.i)
       .map((x) => x.item)
-  }, [lib.data, term, scope])
+  }, [lib.data, term, typed, instant, scope])
 
   // Requestable titles (Radarr/Sonarr), ranked like the library so the show someone typed
   // exactly isn't below a loose movie match. mergeTitles drops the ones the library has.
@@ -241,7 +252,9 @@ export default function SearchPanel({
 
   const nothing =
     active &&
+    term === typed &&
     !lib.isLoading &&
+    !request.isLoading &&
     !music.isLoading &&
     ranked.length === 0 &&
     peopleList.length === 0 &&
@@ -329,9 +342,15 @@ export default function SearchPanel({
           <>
             {(scope === 'music' ? music.isLoading : lib.isLoading) && <p className="px-2.5 py-6 text-sm text-ink-400">Searching…</p>}
             {nothing && (
-              <p className="px-2.5 py-6 text-sm text-ink-300">
-                Nothing matches “{term}”. Check the spelling, or try a person or genre.
-              </p>
+              <div className="px-2.5 py-6 text-sm text-ink-300">
+                <p>Nothing here matches “{term}”, and nothing by that name turned up to request either.</p>
+                <p className="mt-1 text-ink-400">Try fewer words, a person’s name or a genre.</p>
+                {canRequest && knownFinesse()?.features?.requests && (
+                  <Link to={`/request?q=${encodeURIComponent(term)}`} onClick={opened} data-result className="mt-3 inline-flex rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+                    Look for it on the Requests page
+                  </Link>
+                )}
+              </div>
             )}
 
             {top && <TopResult item={top} also={topTitle?.sources.slice(1) ?? []} onOpen={opened} />}

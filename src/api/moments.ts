@@ -79,9 +79,10 @@ export function useMomentsOn(): boolean {
 }
 
 /** What's been sent to you (and your own, apart); checked every minute. */
-export function useInbox() {
+export function useInbox(live = false) {
   const on = useMomentsOn()
-  return useQuery({ queryKey: ['moments', 'inbox'], queryFn: () => getInbox(), enabled: on, refetchInterval: 60_000, staleTime: 30_000, retry: false })
+  // The feed is open (live): look every 20 seconds, so what people flag turns up while you're there.
+  return useQuery({ queryKey: ['moments', 'inbox'], queryFn: () => getInbox(), enabled: on, refetchInterval: live ? 20_000 : 60_000, staleTime: live ? 10_000 : 30_000, retry: false })
 }
 
 /** "1:02:15" / "4:05". */

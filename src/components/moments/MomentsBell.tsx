@@ -229,7 +229,8 @@ export function MomentArrivals() {
     return () => clearTimeout(t)
   }, [card])
 
-  if (!card) return null
+  // On the feed itself the new moment has just dropped in at the top: no card as well.
+  if (!card || window.location.pathname.replace(/\/$/, '').endsWith('/moments')) return null
   return (
     <div role="status" className="toast-in fixed bottom-24 md:bottom-6 right-3 sm:right-6 z-[72] w-[min(22rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-1.5 shadow-2xl backdrop-blur-xl">
       <MomentLine

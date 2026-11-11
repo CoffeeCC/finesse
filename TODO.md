@@ -40,6 +40,16 @@
 
 ## Liquid light — next release
 
+- **Moments is a feed** — everything the people here and on friends' servers flagged for you,
+  and your own, newest first. Press play on a card and just that scene plays right there,
+  streamed from the server that has it (yours or your friend's), then stops. New moments drop
+  in at the top while you're looking. Spoilers stay covered until you tap. Your collections are
+  one tap away.
+- **Search answers as you type, typos and all** — "harbur" finds Harbour Lights and "papr lant"
+  finds Paper Lanterns, on every keystroke, without waiting for the server. When nothing
+  matches, it offers to look for it on the Requests page instead of stopping. The window is
+  wider too.
+
 - **Stuck downloads sort themselves out** — a torrent nobody is sharing, or a download that
   can't be added to your library, used to sit there until someone pressed Retry. Now Finesse
   presses it for you: a download that fails outright is replaced straight away; one that stalls

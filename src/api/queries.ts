@@ -617,6 +617,19 @@ export function useBecauseYouWatched() {
   return { seedName, items: similar.data?.Items, loading: lastPlayed.isLoading || similar.isLoading }
 }
 
+/** Every film and show's name, held in the app so search can answer on each keystroke and
+ *  forgive typos (lib/fuzzy.ts). Asked for once search is opened, kept for ten minutes. */
+export function useTitleIndex(enabled: boolean) {
+  return useQuery({
+    queryKey: ['titleIndex'],
+    enabled,
+    staleTime: 10 * 60_000,
+    gcTime: 30 * 60_000,
+    retry: false,
+    queryFn: async () => (await api.getItems({ recursive: true, includeItemTypes: 'Movie,Series', sortBy: 'SortName', limit: 20000, fields: `${CARD_FIELDS},ProviderIds` })).Items,
+  })
+}
+
 export function useSearch(term: string) {
   return useQuery({
     queryKey: ['search', term],
