@@ -40,6 +40,18 @@
 
 ## Liquid light — next release
 
+- **Pixel folk** — tiny people live along the bottom of the screen, behind the page. Every time
+  you open Finesse it's a different world. Two camps settle either side and grow up through
+  three ages (huts and campfires, then stone towers and windmills, then factories and radio
+  masts), a block at a time. Then the rivalry boils over into a small war, they make peace,
+  build a rocket together and fly it off the top of the screen, and a new world begins. They
+  wear your accent colour, scatter from a fast mouse and gather round a still one, run to a
+  star you drop by clicking bare ground, hop to the interface's sounds and bob while music
+  plays. Computers only; Settings → Appearance turns them off.
+- **Pixel folk as the screensaver** — an option in Settings → Appearance. Their world fills the
+  screen, and a little pixel Finesse hangs in the sky: its name and a shelf of posters, which
+  they take apart block by block to build with. When it's all gone, it comes back.
+
 - **Moments is a feed** — everything the people here and on friends' servers flagged for you,
   and your own, newest first. Press play on a card and just that scene plays right there,
   streamed from the server that has it (yours or your friend's), then stops. New moments drop

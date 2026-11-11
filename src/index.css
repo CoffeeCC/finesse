@@ -1583,3 +1583,20 @@ html.tv .rank-badge { color: #fff; background: none; -webkit-text-stroke: 0; fil
 @keyframes feedGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(117, 137, 216, 0); } 30% { box-shadow: 0 0 0 2px rgba(117, 137, 216, 0.7), 0 0 60px -10px rgba(117, 137, 216, 0.7); } }
 html.tv .feed-new, html[data-motion='reduce'] .feed-new { animation: none; }
 @media (prefers-reduced-motion: reduce) { .feed-new { animation: none; } }
+
+/* ---------- Pixel folk (PixelFolk.tsx) ---------- */
+/* A tiny canvas along the bottom edge, stretched with hard edges, behind the page's content
+   (in front of the colour wash). It never takes a click. */
+.pixel-folk {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  z-index: -1;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  opacity: 0.9;
+  animation: os-fade 1.2s ease both;
+}

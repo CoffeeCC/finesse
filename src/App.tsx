@@ -28,6 +28,7 @@ import { useRemoteControl } from './lib/remoteControl'
 import { routeCommitted, transitionActive } from './lib/motion'
 import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
+import PixelFolk from './components/PixelFolk'
 import SearchOverlay from './components/SearchOverlay'
 import QuickMenu from './components/os/QuickMenu'
 import PartyInvites from './components/PartyInvites'
@@ -161,6 +162,7 @@ export default function App() {
       {__WEBOS__ && <TvPointer />}
       {!IS_TV && <MoodWash />}
       <FocusBackdrop />
+      <PixelFolk />
       <Marquee />
       <div className="grain" aria-hidden />
       <ControllerHint />

@@ -56,6 +56,10 @@ export interface Prefs {
   momentPopups: boolean
   /** Reduce motion here even when the device doesn't ask for it (it's always reduced when it does). */
   reduceMotion: boolean
+  /** The tiny people along the bottom of the app (components/PixelFolk). */
+  pixelFolk: boolean
+  /** The screensaver is the pixel folk's world, full screen, instead of drifting library art. */
+  screensaverPixel: boolean
 }
 
 const KEY = 'finesse.prefs'
@@ -78,6 +82,8 @@ const DEFAULTS: Prefs = {
   onlineLyrics: true,
   momentPopups: true,
   reduceMotion: false,
+  pixelFolk: true,
+  screensaverPixel: false,
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike
