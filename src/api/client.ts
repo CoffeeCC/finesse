@@ -127,7 +127,7 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  opts: { method?: string; body?: unknown; server?: string; token?: string; peer?: string } = {},
+  opts: { method?: string; body?: unknown; server?: string; token?: string; peer?: string; /** Finish even if the page is closing. */ keepalive?: boolean } = {},
 ): Promise<T> {
   // A friend's title (tagged id) goes to the friend's server, through ours.
   let body = opts.body !== undefined ? JSON.stringify(opts.body) : undefined
@@ -148,6 +148,7 @@ async function request<T>(
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
     body,
+    ...(opts.keepalive ? { keepalive: true } : {}),
   })
   // A friend stopped sharing: that's about them, not our own sign-in.
   if (peer && (res.status === 401 || res.status === 404)) throw new ApiError(res.status, 'That server isn’t shared with you any more')
@@ -601,6 +602,8 @@ export async function getMostWatchedAtHome(limit = 10): Promise<JfItem[]> {
             EnableImages: false,
             EnableUserData: true,
             EnableTotalRecordCount: false,
+            // A whole watch history: nothing but ids, lengths and play counts.
+            Fields: 'SeriesId',
           }),
       ),
     ),
@@ -769,9 +772,21 @@ function uiDpPath(): string {
   return `/DisplayPreferences/${UI_DP}` + qs({ userId: session!.userId, client: 'finesse' })
 }
 
+// The accent and the preview quality live in the same saved preferences and are both read as the
+// app opens: one request answers both (kept a few seconds, never across a change).
+let uiDp: { at: number; value: Promise<JfDisplayPreferences> } | null = null
+function readUiDp(): Promise<JfDisplayPreferences> {
+  if (!uiDp || Date.now() - uiDp.at > 5000) {
+    const value = request<JfDisplayPreferences>(uiDpPath())
+    uiDp = { at: Date.now(), value }
+    value.catch(() => (uiDp = null))
+  }
+  return uiDp.value
+}
+
 export async function getAccentPref(): Promise<string | null> {
   try {
-    const dp = await request<JfDisplayPreferences>(uiDpPath())
+    const dp = await readUiDp()
     return dp?.CustomPrefs?.accent ?? null
   } catch {
     return null
@@ -782,11 +797,12 @@ export async function setAccentPref(name: string): Promise<void> {
   const dp = (await request<JfDisplayPreferences>(uiDpPath()).catch(() => ({}))) as JfDisplayPreferences
   dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), accent: name }
   await request(uiDpPath(), { method: 'POST', body: dp })
+  uiDp = null
 }
 
 export async function getPreviewQualityPref(): Promise<string | null> {
   try {
-    const dp = await request<JfDisplayPreferences>(uiDpPath())
+    const dp = await readUiDp()
     return dp?.CustomPrefs?.previewQuality ?? null
   } catch {
     return null
@@ -797,6 +813,7 @@ export async function setPreviewQualityPref(quality: string): Promise<void> {
   const dp = (await request<JfDisplayPreferences>(uiDpPath()).catch(() => ({}))) as JfDisplayPreferences
   dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), previewQuality: quality }
   await request(uiDpPath(), { method: 'POST', body: dp })
+  uiDp = null
 }
 
 // ---------- Home layout (per-account customization) ----------
@@ -932,6 +949,8 @@ export async function getPlaybackInfo(
   audioStreamIndex?: number,
   subtitleStreamIndex?: number,
   mediaSourceId?: string,
+  /** Ask for a converted stream even if the file could play as it is (it just failed to). */
+  convert = false,
 ) {
   const cap = getPrefs().maxBitrate
   // Burn-in subtitles require a transcode path; direct play can't paint them.
@@ -966,8 +985,8 @@ export async function getPlaybackInfo(
         DeviceProfile: profile,
         MaxStreamingBitrate: maxBr,
         AutoOpenLiveStream: true,
-        EnableDirectPlay: cap === 0 && !burningSubs,
-        EnableDirectStream: !burningSubs,
+        EnableDirectPlay: cap === 0 && !burningSubs && !convert,
+        EnableDirectStream: !burningSubs && !convert,
         EnableTranscoding: true,
         AllowVideoStreamCopy: !burningSubs,
         AllowAudioStreamCopy: true,
@@ -1078,9 +1097,10 @@ export function reportPlaybackProgress(r: PlaybackReport) {
   }).catch(() => {})
 }
 
-export function reportPlaybackStopped(r: PlaybackReport) {
+export function reportPlaybackStopped(r: PlaybackReport, keepalive = false) {
   return request('/Sessions/Playing/Stopped', {
     method: 'POST',
+    keepalive,
     body: {
       ItemId: r.itemId,
       MediaSourceId: r.mediaSourceId,
@@ -1090,10 +1110,10 @@ export function reportPlaybackStopped(r: PlaybackReport) {
   }).catch(() => {})
 }
 
-export function stopActiveEncoding(playSessionId: string) {
+export function stopActiveEncoding(playSessionId: string, keepalive = false) {
   return request(
     '/Videos/ActiveEncodings' + qs({ deviceId: DEVICE_ID, playSessionId }),
-    { method: 'DELETE' },
+    { method: 'DELETE', keepalive },
   ).catch(() => {})
 }
 

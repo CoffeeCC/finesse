@@ -346,7 +346,7 @@ export default function QualityModal({
 }
 
 /** Heuristic when *arr doesn't set isUpgrade (common on some versions). */
-function isLikelyUpgrade(r: ArrRelease, current: ArrQualityInfo | null): boolean {
+export function isLikelyUpgrade(r: ArrRelease, current: ArrQualityInfo | null): boolean {
   if (!current) return !r.rejected
   if (r.qualityResolution != null && current.qualityResolution != null) {
     if (r.qualityResolution > current.qualityResolution) return true

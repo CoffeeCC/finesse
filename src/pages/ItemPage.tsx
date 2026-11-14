@@ -1,6 +1,6 @@
 import MomentComposer from '../components/moments/MomentComposer'
 import { useMomentsOn } from '../api/moments'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import TitleLogo from '../components/TitleLogo'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -27,6 +27,7 @@ import { useDepthParallax } from '../lib/depth'
 import { goBack } from '../lib/back'
 import { IS_TV } from '../lib/device'
 import { setMood } from '../lib/mood'
+import LiquidLight from '../components/LiquidLight'
 import { useToast } from '../components/Toast'
 import FixMatchDialog from '../components/FixMatchDialog'
 import CastMenu from '../components/CastMenu'
@@ -373,6 +374,11 @@ export default function ItemPage() {
     if (avg) setMood(vividRgb(avg[0], avg[1], avg[2]).join(', '))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.Id])
+  const filmTint = useMemo(() => {
+    const avg = item ? blurhashAverageColor(primaryBlurhash(item)) : null
+    return avg ? vividRgb(avg[0], avg[1], avg[2]).join(', ') : '117, 137, 216'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.Id])
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const toast = useToast()
@@ -434,7 +440,13 @@ export default function ItemPage() {
   const backdrop = backdropUrl(item)
   const logo = logoUrl(item)
   const titleText = (
-    <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl leading-[0.95] text-white mb-3 drop-shadow-lg">{item.Name}</h1>
+    <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl leading-[0.95] text-white mb-3 drop-shadow-lg" aria-label={item.Name}>
+      {(item.Name ?? '').split(' ').map((word, i) => (
+        <span key={i} aria-hidden className="os-w" style={{ '--i': i } as CSSProperties}>
+          <span>{word}</span>
+        </span>
+      ))}
+    </h1>
   )
   const poster = posterUrl(item, 600)
   const cast = item.People?.filter((p) => p.Type === 'Actor').slice(0, 12) ?? []
@@ -589,6 +601,10 @@ export default function ItemPage() {
           )}
           {/* Fade the sharp backdrop into its own blurred ambilight — progressive-blur look, no seam */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950/45 via-ink-950/10 to-ink-950/30 pointer-events-none" />
+          {/* The film's own colour as drifting light over its artwork (LiquidLight). */}
+          <div className="absolute inset-0 pointer-events-none mix-blend-screen opacity-50" aria-hidden>
+            <LiquidLight tint={filmTint} />
+          </div>
         </div>
 
         {/* Own transition layer (vt-detail-head): fades in above the morphing

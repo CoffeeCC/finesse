@@ -21,6 +21,8 @@ export function defaultPlugins(ref: StackRef = {}): Plugin[] {
 
 export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugins(ref)) {
   const { server, deps } = createApp({ plugins })
+  // Stuck downloads are replaced without anyone asking (downloadRescue.ts).
+  deps.downloadRescue?.start()
   const s = deps.settings.get()
   const port = Number(process.env.PORT || 8080)
   const host = process.env.HOST || '0.0.0.0'

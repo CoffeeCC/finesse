@@ -48,6 +48,8 @@ export function groupUserIds(s: Settings): Set<string> {
 
 export class Auth {
   private cache = new Map<string, { user: JfUser | null; at: number }>()
+  /** Checks with Jellyfin that are under way, by token hash. */
+  private checking = new Map<string, Promise<JfUser | null>>()
   private settings: SettingsStore
   private jf: Jellyfin
 
@@ -62,6 +64,16 @@ export class Auth {
     const hit = this.cache.get(key)
     const now = Date.now()
     if (hit && now - hit.at < (hit.user ? 30000 : 5000)) return hit.user
+    // A page fires a dozen requests at once: they share one check with Jellyfin instead of
+    // each making its own when the cached answer has just run out.
+    const going = this.checking.get(key)
+    if (going) return going
+    const check = this.check(token, key, hit, now).finally(() => this.checking.delete(key))
+    this.checking.set(key, check)
+    return check
+  }
+
+  private async check(token: string, key: string, hit: { user: JfUser | null; at: number } | undefined, now: number): Promise<JfUser | null> {
     let user: JfUser | null
     try {
       user = await this.jf.me(token)

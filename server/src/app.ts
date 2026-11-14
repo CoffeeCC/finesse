@@ -8,6 +8,7 @@ import { ApiError, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
+import { registerMomentSocial } from './momentSocial.ts'
 import { openLists } from './lists.ts'
 import { registerSmartCollections } from './smartCollections.ts'
 import { Parental, registerParental } from './parental.ts'
@@ -31,6 +32,7 @@ import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
+import { registerDownloadRescue, type DownloadRescue } from './downloadRescue.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
 import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
 import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
@@ -49,6 +51,8 @@ export interface AppDeps {
   updater?: WebUpdater
   /** Playing Wolf games in Finesse's page (Moonlight-Web on FINESSE_STREAM_PORT). */
   browserStream?: import('./browserStream.ts').BrowserStream
+  /** Replaces downloads that get stuck (downloadRescue.ts); main.ts starts its loop. */
+  downloadRescue?: DownloadRescue
   /** More rows for Connected apps (the system plugin adds Jellyfin's video conversion). */
   connectionChecks?: ((refresh: boolean) => Promise<ConnCheck | null>)[]
 }
@@ -155,6 +159,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   const groups = registerGroups(router, { settings, jf, auth, parental })
   registerParental(router, { settings, auth, parental, jf })
   const moments = registerMoments(router, { settings, jf, auth, groups, parental })
+  registerMomentSocial(router, { settings, auth, groups, store: moments.store, momentFor: moments.momentFor, parental })
   const lists = openLists(join(p.configDir, 'lists.db'))
   const access = new Access({ jf, groups, settings })
   access.limited = (userId) => parental.limitOf(userId) !== null
@@ -169,6 +174,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
   registerRequestDefaults(router, { settings, auth })
+  deps.downloadRescue = registerDownloadRescue(router, { settings, auth })
   registerAlbumRequests(router, { settings, auth, parental })
   // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
   let conns: { at: number; report: Promise<ConnReport> } | null = null

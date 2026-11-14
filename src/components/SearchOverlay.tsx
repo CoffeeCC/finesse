@@ -1,9 +1,13 @@
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import SearchPanel from './SearchPanel'
+import { lazyPage } from '../lib/lazyPage'
 import { closeSearch, openSearch, useSearchOverlay } from '../lib/searchOverlay'
 import { isTypingTarget, pushBackHandler } from '../lib/back'
+
+// The panel is a big piece of code; it loads the first time search opens (App warms it up
+// once Home has settled, so in practice it's already there).
+const SearchPanel = lazyPage(() => import('./SearchPanel'))
 
 /** Desktop universal search: "/" (or ⌘K / Ctrl+K) from anywhere, or the navbar
  *  field. Closes on Escape / Back, a click outside, or opening a result. */
@@ -58,8 +62,10 @@ export default function SearchOverlay() {
         if (e.target === e.currentTarget) closeSearch()
       }}
     >
-      <div className="os-glass mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[28px] toast-in">
-        <SearchPanel mode="overlay" initialQuery={query} onClose={closeSearch} />
+      <div className="os-glass mx-auto flex max-h-full min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-[28px] toast-in">
+        <Suspense fallback={<div className="h-24" />}>
+          <SearchPanel mode="overlay" initialQuery={query} onClose={closeSearch} />
+        </Suspense>
       </div>
     </div>,
     document.body,

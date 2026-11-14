@@ -44,7 +44,8 @@ export default defineConfig(({ mode }) => {
   const proxy: Record<string, object> = {}
   if (env.FINESSE_SERVER) {
     const target = env.FINESSE_SERVER.replace(/\/+$/, '')
-    proxy['^/finesse/(api|arr|previews|invite-api|games)(/|$)'] = { target, changeOrigin: true }
+    // Only the games API: other /games/… paths are app pages and must reload as the app.
+    proxy['^/finesse/(api|arr|previews|invite-api|games/api|games/assets|games/sgdb)(/|$)'] = { target, changeOrigin: true }
     proxy['/jellyfin'] = { target, changeOrigin: true, ws: true }
   }
   if (!env.FINESSE_SERVER && env.RADARR_KEY) {
@@ -154,6 +155,19 @@ export default defineConfig(({ mode }) => {
             },
           },
         }
-      : {}),
+      : {
+          build: {
+            rollupOptions: {
+              output: {
+                // React, the router and the query library change far less often than the app:
+                // in a file of their own, a new release doesn't make browsers fetch them again.
+                manualChunks(id: string) {
+                  if (/node_modules\/(react|react-dom|scheduler|react-router|react-router-dom|@remix-run\/router)\//.test(id)) return 'react'
+                  if (/node_modules\/@tanstack\/(react-query|query-core)\//.test(id)) return 'query'
+                },
+              },
+            },
+          },
+        }),
   }
 })

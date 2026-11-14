@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { memo, useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { backdropUrl, episodeThumbUrl, getItem, imageUrl, posterUrl, trickplayTileUrl } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
@@ -37,7 +37,7 @@ function subtitle(item: JfItem): string {
   return item.ProductionYear ? String(item.ProductionYear) : ''
 }
 
-export default function MediaCard({
+function MediaCardImpl({
   item,
   width,
   onDismiss,
@@ -127,7 +127,9 @@ export default function MediaCard({
     hoverTimer.current = window.setTimeout(() => {
       claimPreview(stopPreview)
       setPreview(true)
-    }, 700)
+      // A real pause, not a breath between presses: starting a video decoder on the TV for a
+      // card that's about to lose focus is the costliest thing browsing can do.
+    }, 1200)
   }, [canFocusPreview, clipUrl, stopPreview])
 
   const onTvBlur = useCallback(() => {
@@ -298,7 +300,7 @@ export function playHref(item: JfItem): string {
  *  still or the film's backdrop instead of a cropped poster, and selecting it
  *  plays straight away — resuming where you left off. A small ⓘ opens details
  *  (pointer only; on a remote OK plays, like the big streaming apps). */
-export function WideCard({
+function WideCardImpl({
   item,
   onDismiss,
 }: {
@@ -465,3 +467,9 @@ function ThumbFlip({ itemId, onReady }: { itemId: string; onReady: () => void })
     </div>
   )
 }
+
+// Home re-renders several times while its rows load; a card whose title hasn't changed has
+// nothing new to draw.
+const MediaCard = memo(MediaCardImpl)
+export default MediaCard
+export const WideCard = memo(WideCardImpl)

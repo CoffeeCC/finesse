@@ -2,7 +2,9 @@
 // adding to the library, stuck, searching again after a failed download, or ready. Built only
 // from what Radarr/Sonarr/Lidarr report (their queue, the title's files, failed-download
 // history), so a percentage only shows when a download really reports one.
-// Pure (no imports), so server/test/request-status.test.ts can test it.
+// Pure (its one import is pure too), so server/test/request-status.test.ts can test it.
+
+import { explainProblem } from './downloadProblems.ts'
 
 export type RequestStage = 'none' | 'searching' | 'not-out' | 'queued' | 'downloading' | 'paused' | 'importing' | 'stuck' | 'retrying' | 'ready'
 
@@ -36,7 +38,7 @@ export function requestStatus(f: RequestFacts): RequestStatus {
   const q = f.queue
   if (q) {
     if (q.status === 'Needs attention')
-      return { stage: 'stuck', label: 'Download stuck', detail: q.reason ? `${q.reason}` : 'The download needs a look from whoever runs the server.', tone: 'bad' }
+      return { stage: 'stuck', label: 'Download stuck', detail: q.reason ? explainProblem(q.reason, q.progress >= 100).what : 'The download needs a look from whoever runs the server.', tone: 'bad' }
     if (q.done) return { stage: 'importing', label: 'Almost ready', detail: 'Downloaded, adding it to the library', tone: 'busy' }
     const pct = Math.max(0, Math.min(100, Math.round(q.progress)))
     if (q.paused || q.status === 'Paused') return { stage: 'paused', label: `Paused at ${pct}%`, progress: pct, tone: 'wait' }
@@ -49,7 +51,8 @@ export function requestStatus(f: RequestFacts): RequestStatus {
     return {
       stage: 'retrying',
       label: 'Searching again',
-      detail: f.failure.message ? `The last download failed: ${f.failure.message}` : 'The last download failed.',
+      // The app's own words ("Aborted, cannot be completed") said the way a person would.
+      detail: f.failure.message ? `${explainProblem(f.failure.message).what} Finesse is looking for another.` : 'The last download failed. Finesse is looking for another.',
       tone: 'wait',
     }
   return { stage: 'searching', label: 'Searching for a release', tone: 'wait' }

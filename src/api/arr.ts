@@ -501,6 +501,27 @@ export interface ArrQueueItem {
   paused: boolean
   /** How it's being fetched: Usenet (SABnzbd), torrent (qBittorrent, behind the VPN), both (a series with some of each), or unknown. */
   via: DownloadVia
+  /** Bytes in all, and still to come (0 when the app doesn't say). */
+  sizeBytes: number
+  leftBytes: number
+  /** When the app expects it to finish (the last part's time, for several), if it says. */
+  etaAt?: string
+  /** "WEBDL-1080p" (or "2 qualities" when its parts differ). */
+  quality?: string
+  /** The release's own name, the site it was found on, and the app downloading it. */
+  release?: string
+  indexer?: string
+  client?: string
+  /** A show's episodes or an artist's albums in this row, each with its own state. */
+  parts: QueuePart[]
+}
+
+export interface QueuePart {
+  label: string
+  progress: number
+  status: string
+  done: boolean
+  reason?: string
 }
 
 export type DownloadVia = 'usenet' | 'torrent' | 'mixed' | null
@@ -515,7 +536,12 @@ interface RawQueueRecord {
   movie?: { title?: string; images?: ArrImage[] }
   series?: { title?: string; images?: ArrImage[] }
   artist?: { artistName?: string; images?: ArrImage[] }
-  episode?: { seasonNumber?: number; episodeNumber?: number }
+  episode?: { seasonNumber?: number; episodeNumber?: number; title?: string }
+  album?: { title?: string }
+  estimatedCompletionTime?: string
+  quality?: { quality?: { name?: string } }
+  indexer?: string
+  downloadClient?: string
   title?: string
   status?: string
   trackedDownloadStatus?: string
@@ -578,13 +604,14 @@ interface Agg {
   queueIds: number[]
   nzoIds: string[]
   protocols: string[]
+  records: RawQueueRecord[]
 }
 
 function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => number): Map<number, Agg> {
   const map = new Map<number, Agg>()
   for (const r of records) {
     const id = idOf(r)
-    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [], protocols: [] }
+    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [], protocols: [], records: [] }
     const { size, left } = pct(r.size, r.sizeleft)
     cur.size += size
     cur.left += left
@@ -598,10 +625,52 @@ function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => numbe
     if (r.id) cur.queueIds.push(r.id)
     cur.nzoIds.push(...nzoOf(r))
     if (r.protocol) cur.protocols.push(r.protocol)
+    cur.records.push(r)
     map.set(id, cur)
   }
   return map
 }
+
+/** The detail every row carries: sizes, when it should finish, quality, where it came from. */
+function detailOf(records: RawQueueRecord[]): Pick<ArrQueueItem, 'sizeBytes' | 'leftBytes' | 'etaAt' | 'quality' | 'release' | 'indexer' | 'client'> {
+  // A season pack is one download listed once per episode: count its bytes once.
+  const seen = new Set<string>()
+  let sizeBytes = 0
+  let leftBytes = 0
+  let eta = 0
+  const uniq = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => Boolean(x && x.trim())))]
+  for (const r of records) {
+    const id = r.downloadId ?? `row-${r.id}`
+    if (!seen.has(id)) {
+      seen.add(id)
+      sizeBytes += r.size ?? 0
+      leftBytes += r.sizeleft ?? 0
+    }
+    const t = r.estimatedCompletionTime ? Date.parse(r.estimatedCompletionTime) : NaN
+    if (Number.isFinite(t) && (r.sizeleft ?? 0) > 0) eta = Math.max(eta, t)
+  }
+  const qualities = uniq(records.map((r) => r.quality?.quality?.name))
+  const releases = uniq(records.map((r) => r.title))
+  const indexers = uniq(records.map((r) => r.indexer))
+  const clients = uniq(records.map((r) => r.downloadClient))
+  return {
+    sizeBytes,
+    leftBytes,
+    ...(eta ? { etaAt: new Date(eta).toISOString() } : {}),
+    ...(qualities.length === 1 ? { quality: qualities[0] } : qualities.length > 1 ? { quality: `${qualities.length} qualities` } : {}),
+    ...(releases.length === 1 ? { release: releases[0] } : releases.length > 1 ? { release: `${releases.length} releases` } : {}),
+    ...(indexers.length ? { indexer: indexers.join(', ') } : {}),
+    ...(clients.length ? { client: clients.join(', ') } : {}),
+  }
+}
+
+function partOf(r: RawQueueRecord, label: string): QueuePart {
+  const { size, left } = pct(r.size, r.sizeleft)
+  const { label: status, done } = statusLabel(r.status, r.trackedDownloadState, r.trackedDownloadStatus)
+  return { label, progress: size > 0 ? Math.round(((size - left) / size) * 100) : done ? 100 : 0, status, done, ...(status === 'Needs attention' ? { reason: reasonOf(r) } : {}) }
+}
+
+const pad2 = (n?: number) => String(n ?? 0).padStart(2, '0')
 
 /** Active downloads from Radarr + Sonarr + Lidarr, aggregated per movie / series / artist. */
 export async function arrQueue(): Promise<ArrQueueItem[]> {
@@ -631,6 +700,8 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       nzoIds: nzoOf(r),
       paused: r.status === 'paused',
       via: viaOf([r.protocol]),
+      ...detailOf([r]),
+      parts: [],
     })
   }
 
@@ -656,6 +727,15 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       nzoIds: agg.nzoIds,
       paused: agg.allPaused,
       via: viaOf(agg.protocols),
+      ...detailOf(agg.records),
+      parts: agg.records
+        .map((r) =>
+          kind === 'series'
+            ? { sort: (r.episode?.seasonNumber ?? 0) * 10000 + (r.episode?.episodeNumber ?? 0), part: partOf(r, `S${pad2(r.episode?.seasonNumber)} · E${pad2(r.episode?.episodeNumber)}${r.episode?.title ? ` · ${r.episode.title}` : ''}`) }
+            : { sort: 0, part: partOf(r, r.album?.title ?? r.title ?? 'Album') },
+        )
+        .sort((a, b) => a.sort - b.sort)
+        .map((x) => x.part),
     })
   }
 
@@ -668,8 +748,8 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       `${agg.count} album${agg.count === 1 ? '' : 's'}`, pickPoster(agg.rec.artist?.images))
   }
 
-  // Downloading first, then importing, then queued; most-complete first within a group.
-  const rank = (i: ArrQueueItem) => (i.status === 'Downloading' ? 0 : i.done ? 1 : 2)
+  // What needs someone first, then downloading, importing, queued; most-complete first within a group.
+  const rank = (i: ArrQueueItem) => (i.status === 'Needs attention' ? 0 : i.status === 'Downloading' ? 1 : i.done ? 2 : 3)
   return items.sort((a, b) => rank(a) - rank(b) || b.progress - a.progress)
 }
 
@@ -924,6 +1004,26 @@ export async function arrGrabRelease(kind: ArrKind, release: ArrRelease): Promis
       ? release.raw
       : { guid: release.guid, indexerId: release.indexerId },
   })
+}
+
+/** The movie Radarr holds for a TMDb id, with the file it has now (the player's "Get a better copy"). */
+export interface ArrMovieFile {
+  id: number
+  title: string
+  fileId?: number
+  /** The file's name on disk (no folders): what Jellyfin will show once it has scanned it. */
+  fileName?: string
+  quality?: string
+  sizeBytes?: number
+}
+
+export async function arrMovieByTmdb(tmdbId: string | number): Promise<ArrMovieFile | null> {
+  const list = await arrFetch<Record<string, unknown>[]>('movie', `/movie?tmdbId=${encodeURIComponent(String(tmdbId))}`)
+  const m = Array.isArray(list) ? list[0] : undefined
+  if (!m || typeof m.id !== 'number') return null
+  const f = m.movieFile as { id?: number; relativePath?: string; path?: string; size?: number; quality?: { quality?: { name?: string } } } | undefined
+  const name = (f?.relativePath ?? f?.path ?? '').split(/[\\/]/).pop() || undefined
+  return { id: m.id, title: (m.title as string) ?? '', fileId: f?.id, fileName: name, quality: f?.quality?.quality?.name, sizeBytes: f?.size }
 }
 
 /** Automatic search for a better release within the quality profile (MoviesSearch / SeriesSearch). */

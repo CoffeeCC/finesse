@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { getPublicUsers, publicUserImageUrl, type JfPublicUser } from '../api/client'
@@ -207,7 +207,11 @@ export default function LoginPage() {
       {mode === 'profiles' && (
         <div className="card-in relative text-center px-6">
           <h1 className="font-display text-5xl sm:text-7xl leading-none text-white mb-3">
-            Who&rsquo;s watching?
+            {['Who’s', 'watching?'].map((word, i) => (
+              <span key={word} className="os-w" style={{ '--i': i } as CSSProperties}>
+                <span>{word}</span>
+              </span>
+            ))}
           </h1>
           <p className="text-sm text-ink-400 mb-10">
             <FinesseWordmark />

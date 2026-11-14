@@ -41,6 +41,8 @@ function blip(freq: number, dur: number, peak: number, type: OscillatorType = 's
   if (!p.uiSounds || vol <= 0 || mediaIsPlaying()) return
   const ac = audioCtx()
   if (!ac) return
+  // The pixel folk hear it too (components/PixelFolk): higher notes, higher hops.
+  window.dispatchEvent(new CustomEvent('finesse:blip', { detail: freq }))
   // Randomize a touch: ±3% pitch, ±12% level — similar, never identical.
   const fJitter = 1 + (Math.random() - 0.5) * 0.06
   const gJitter = 1 + (Math.random() - 0.5) * 0.24

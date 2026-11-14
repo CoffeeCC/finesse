@@ -6,7 +6,8 @@ import { lazy, type ComponentType } from 'react'
 
 const KEY = 'finesse.chunkReload'
 
-export function lazyPage<T extends ComponentType<object>>(load: () => Promise<{ default: T }>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pages take no props, but lazy components (the search panel, the pixel folk) do
+export function lazyPage<T extends ComponentType<any>>(load: () => Promise<{ default: T }>) {
   return lazy(async () => {
     try {
       const m = await load()

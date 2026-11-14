@@ -79,11 +79,20 @@ function candidates(): HTMLElement[] {
  *  pixels, so a rect distance must be multiplied by the zoom to scroll it.
  *  Newer engines report both zoomed (factor 1). */
 function screenPerRectPx(): number {
+  // Asked two or three times per key press, and each ask reads the page's computed style and
+  // its size: the answer is kept for half a second (it only changes with the display size).
+  const now = performance.now()
+  if (scaleKept && now - scaleKept.at < 500) return scaleKept.k
+  let value = 1
   const zoom = parseFloat(getComputedStyle(document.documentElement).zoom || '1') || 1
-  if (zoom === 1) return 1
-  const k = window.innerWidth / document.documentElement.getBoundingClientRect().width
-  return Math.abs(k - zoom) < 0.05 ? zoom : 1
+  if (zoom !== 1) {
+    const k = window.innerWidth / document.documentElement.getBoundingClientRect().width
+    value = Math.abs(k - zoom) < 0.05 ? zoom : 1
+  }
+  scaleKept = { at: now, k: value }
+  return value
 }
+let scaleKept: { at: number; k: number } | null = null
 
 function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], currentEl: Element | null): HTMLElement | null {
   const cx = current.left + current.width / 2
@@ -106,7 +115,8 @@ function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], current
   let nearest = Infinity
   const slack = Math.max(64, 0.75 * (dir === 'up' || dir === 'down' ? current.height : current.width))
   const viewW = window.innerWidth / screenPerRectPx()
-  const scored: { el: HTMLElement; primary: number; cross: number; overlap: number }[] = []
+  // Each candidate is measured once: its centre is kept for the second pass below.
+  const scored: { el: HTMLElement; primary: number; cross: number; overlap: number; midX: number }[] = []
 
   for (const el of els) {
     if (el === currentEl) continue
@@ -147,14 +157,13 @@ function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], current
     if (dir === 'right' && dx <= 0) continue
     if (dir === 'left' && dx >= 0) continue
     nearest = Math.min(nearest, Math.max(0, primary))
-    scored.push({ el, primary: Math.max(0, primary), cross, overlap })
+    scored.push({ el, primary: Math.max(0, primary), cross, overlap, midX: r.left + r.width / 2 })
   }
 
-  for (const { el, primary, cross, overlap } of scored) {
+  for (const { el, primary, cross, overlap, midX } of scored) {
     // Unaligned fallbacks must be on screen: at the end of a row, Right used to
     // jump to a card scrolled out of view in some other row.
-    const r = el.getBoundingClientRect()
-    const onScreen = r.left + r.width / 2 >= 0 && r.left + r.width / 2 <= viewW
+    const onScreen = midX >= 0 && midX <= viewW
     if (overlap > 4 && primary <= nearest + slack) {
       // Aligned: nearest edge wins; centre alignment only breaks ties.
       const score = primary * 10 + cross
@@ -412,7 +421,7 @@ function onKeyDown(e: KeyboardEvent) {
   lastMove = from ? { from, to: next, dir } : null
   rememberFocus(next)
   // Physical depth: CSS leans the newly focused card toward the direction of travel.
-  document.documentElement.dataset.navDir = dir
+  if (document.documentElement.dataset.navDir !== dir) document.documentElement.dataset.navDir = dir // only on a change of direction: writing it restyles every card
   playNav(next)
 }
 
@@ -536,7 +545,7 @@ export function jumpRow(dir: 'up' | 'down') {
   keepClear(next)
   lastMove = null
   rememberFocus(next)
-  document.documentElement.dataset.navDir = dir
+  if (document.documentElement.dataset.navDir !== dir) document.documentElement.dataset.navDir = dir // only on a change of direction: writing it restyles every card
   playNav(next)
 }
 

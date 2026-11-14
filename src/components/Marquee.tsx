@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
+import { lazyPage } from '../lib/lazyPage'
 import TitleLogo from './TitleLogo'
 import { useLocation } from 'react-router-dom'
 import { backdropUrl, logoUrl } from '../api/client'
@@ -9,6 +10,9 @@ import { getPrefs } from '../lib/settings'
 // becomes drifting library art — backdrops with title logos + taglines, slow
 // Ken Burns, gentle crossfades, and a clock. Any input dismisses it instantly.
 // Never runs during playback or on the full-bleed player.
+
+// Only fetched when the pixel-folk screensaver is switched on and comes up.
+const PixelFolk = lazyPage(() => import('./PixelFolk'))
 
 const IDLE_MS = 120_000 // 2 minutes
 const SLIDE_MS = 9_000
@@ -95,6 +99,22 @@ export default function Marquee() {
       window.clearInterval(clock)
     }
   }, [active, items.length])
+
+  // The pixel folk's world instead of library art (Settings → Appearance).
+  if (active && getPrefs().screensaverPixel) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-ink-950 marquee-in" aria-hidden>
+        <div className="absolute top-8 right-10 text-right marquee-fade">
+          <div className="text-5xl font-semibold text-white/90 tabular-nums tracking-tight">{now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+          <div className="text-sm text-white/60 mt-1">{now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+        </div>
+        <Suspense fallback={null}>
+          <PixelFolk full />
+        </Suspense>
+        <div className="absolute top-8 left-10 text-xs text-white/40 marquee-fade">Move to dismiss</div>
+      </div>
+    )
+  }
 
   if (!active || items.length === 0) return null
   const item = items[idx % items.length]

@@ -56,6 +56,12 @@ export interface Prefs {
   momentPopups: boolean
   /** Reduce motion here even when the device doesn't ask for it (it's always reduced when it does). */
   reduceMotion: boolean
+  /** The tiny people along the bottom of the app (components/PixelFolk). Off unless turned on. */
+  pixelFolk: boolean
+  /** Ribbons of drifting light behind the home stage and title pages (components/LiquidLight). Off unless turned on. */
+  liquidLight: boolean
+  /** The screensaver is the pixel folk's world, full screen, instead of drifting library art. */
+  screensaverPixel: boolean
 }
 
 const KEY = 'finesse.prefs'
@@ -78,6 +84,9 @@ const DEFAULTS: Prefs = {
   onlineLyrics: true,
   momentPopups: true,
   reduceMotion: false,
+  pixelFolk: false,
+  liquidLight: false,
+  screensaverPixel: false,
 }
 
 // UI zoom presets surfaced in settings. CSS `zoom` reflows the layout (unlike
@@ -130,14 +139,20 @@ export const BITRATE_OPTIONS: { label: string; value: number }[] = [
   { label: '720 kbps — audio-priority', value: 720_000 },
 ]
 
+// Cards read the prefs while they render (hundreds of times as Home loads), so the parsed
+// result is kept for as long as what's stored hasn't changed.
+let kept: { raw: string | null; prefs: Prefs } | null = null
+
 export function getPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(KEY)
+    if (kept && kept.raw === raw) return kept.prefs
     const parsed = raw ? (JSON.parse(raw) as Partial<Prefs>) : {}
     const merged = { ...DEFAULTS, ...parsed }
     // 10-foot default: unless the user explicitly picked a size, the TV runs at
     // 130% — bigger type AND fewer cards on screen (less to paint per frame).
     if (__WEBOS__ && !('uiScale' in parsed)) merged.uiScale = 1.3
+    kept = { raw, prefs: Object.freeze(merged) }
     return merged
   } catch {
     return { ...DEFAULTS }

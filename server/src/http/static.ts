@@ -118,7 +118,10 @@ export async function compressed(file: string, stat: Stats, enc: 'br' | 'gzip'):
 function cacheControl(rel: string): string {
   const p = rel.toLowerCase()
   if (p === '/index.html' || p.endsWith('/version.json') || p.endsWith('manifest.json') || p.endsWith('manifest-hd.json'))
-    return 'no-cache, no-store, must-revalidate'
+    // Checked with the server on every load (so an update shows at once), but a copy may be
+    // kept: "no-store" would stop the browser ever asking "has it changed?", and the whole
+    // page would be sent again each time instead of a short "no".
+    return 'no-cache'
   if (p.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
   return 'public, max-age=3600'
 }

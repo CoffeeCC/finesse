@@ -4,20 +4,15 @@ import { Suspense, useEffect, useLayoutEffect, useMemo } from 'react'
 import { lazyPage } from './lib/lazyPage'
 import { PageError } from './components/PageError'
 import { useAuth } from './auth/AuthContext'
-import LoginPage from './auth/LoginPage'
 import TvConnectPage from './pages/TvConnectPage'
 import NavBar from './components/NavBar'
 import BottomTabs from './components/BottomTabs'
 import HomePage from './pages/HomePage'
-import LibraryPage from './pages/LibraryPage'
-import ItemPage from './pages/ItemPage'
-import SearchPage from './pages/SearchPage'
 import MyListPage from './pages/MyListPage'
 import LibrariesPage from './pages/LibrariesPage'
-import DropToAdd from './components/DropToAdd'
 import BrowsePage from './pages/BrowsePage'
 import MiniPlayer from './components/MiniPlayer'
-import NowPlaying from './components/NowPlaying'
+import NowPlayingGate from './components/NowPlayingGate'
 import TvBoot from './components/TvBoot'
 import TvPointer from './components/TvPointer'
 import FocusBackdrop from './components/FocusBackdrop'
@@ -28,6 +23,7 @@ import { useRemoteControl } from './lib/remoteControl'
 import { routeCommitted, transitionActive } from './lib/motion'
 import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
+import { Quiet } from './components/Quiet'
 import SearchOverlay from './components/SearchOverlay'
 import QuickMenu from './components/os/QuickMenu'
 import PartyInvites from './components/PartyInvites'
@@ -36,15 +32,42 @@ import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
 import { initUiSounds } from './lib/sound'
 import { initGamepad } from './lib/gamepad'
+import { initCardLight } from './lib/cardLight'
 import ControllerHint from './components/ControllerHint'
 import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
 import { applyAccent, getStoredAccent, setStoredAccent } from './lib/accent'
 import { getPrefs, setPrefs, type PreviewQuality } from './lib/settings'
 
-// Pages beyond the first screens load when first opened (their own files on the web; the TV
-// build inlines them into its one app.js, see vite.config.ts). Home, a library, a title,
-// search and My List stay in the main file so the everyday paths never wait.
+// Everything but Home loads when first opened (its own file on the web; the TV build inlines
+// them into its one app.js, see vite.config.ts), so the first screen downloads and runs as
+// little as it can. The everyday next steps (a title, a library, search) are fetched quietly
+// as soon as Home has settled (warmEverydayPages), so they still open without a wait.
+const everyday = {
+  item: () => import('./pages/ItemPage'),
+  library: () => import('./pages/LibraryPage'),
+  search: () => import('./pages/SearchPage'),
+}
+const LoginPage = lazyPage(() => import('./auth/LoginPage'))
+const ItemPage = lazyPage(everyday.item)
+const LibraryPage = lazyPage(everyday.library)
+const SearchPage = lazyPage(everyday.search)
+// Extras that sit on every screen but do nothing at first paint.
+const DropToAdd = lazyPage(() => import('./components/DropToAdd'))
+const PixelFolk = lazyPage(() => import('./components/PixelFolk'))
+
+let warmed = false
+function warmEverydayPages() {
+  if (warmed || __WEBOS__) return
+  warmed = true
+  const go = () => {
+    for (const load of Object.values(everyday)) void load().catch(() => {})
+    void import('./components/SearchPanel').catch(() => {})
+  }
+  const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
+  if (idle) idle(go, { timeout: 4000 })
+  else window.setTimeout(go, 2000)
+}
 const InvitePage = lazyPage(() => import('./pages/InvitePage'))
 const SetupPage = lazyPage(() => import('./pages/setup/SetupPage'))
 const PlayerPage = lazyPage(() => import('./pages/PlayerPage'))
@@ -88,6 +111,8 @@ export default function App() {
   useEffect(() => initUiSounds(), [])
   // Game controllers drive the app like a remote (lib/gamepad).
   useEffect(() => initGamepad(), [])
+  // A highlight follows the mouse across cards (lib/cardLight).
+  useEffect(() => initCardLight(), [])
 
   // Remote/keyboard Back everywhere (player included): close the topmost open
   // menu/sheet first, otherwise step back — see lib/back.ts for the webOS
@@ -135,6 +160,10 @@ export default function App() {
     })
   }, [session])
 
+  useEffect(() => {
+    if (session) warmEverydayPages()
+  }, [session])
+
   if (!session) {
     return (
       <PageError>
@@ -158,8 +187,14 @@ export default function App() {
       {__WEBOS__ && <TvPointer />}
       {!IS_TV && <MoodWash />}
       <FocusBackdrop />
+      {!IS_TV && getPrefs().pixelFolk && (
+        <Suspense fallback={null}>
+          <PixelFolk />
+        </Suspense>
+      )}
       <Marquee />
-      <div className="grain" aria-hidden />
+      {/* Not over the player: a blended layer above the film costs every video frame, and can't be seen there. */}
+      {!location.pathname.startsWith('/play/') && <div className="grain" aria-hidden />}
       <ControllerHint />
       <PageError key={location.pathname.startsWith('/play/') || location.pathname.startsWith('/games/') || location.pathname === '/setup' ? location.pathname : 'app'}>
       <Suspense fallback={<div className="fixed inset-0 bg-black" />}>
@@ -212,16 +247,20 @@ export default function App() {
                   </PageError>
                 </div>
               </main>
-              <MiniPlayer />
-              <CastRemote />
-              <NowPlaying />
+              <Quiet name="MiniPlayer"><MiniPlayer /></Quiet>
+              <Quiet name="CastRemote"><CastRemote /></Quiet>
+              <Quiet name="NowPlaying"><NowPlayingGate /></Quiet>
               <BottomTabs />
               {!IS_TV && <SearchOverlay />}
-              <QuickMenu />
-              <MomentArrivals />
-              <PartyInvites />
+              <Quiet name="QuickMenu"><QuickMenu /></Quiet>
+              <Quiet name="MomentArrivals"><MomentArrivals /></Quiet>
+              <Quiet name="PartyInvites"><PartyInvites /></Quiet>
               <ServerUpdateOverlay />
-              {!__WEBOS__ && <DropToAdd />}
+              {!__WEBOS__ && (
+                <Suspense fallback={null}>
+                  <DropToAdd />
+                </Suspense>
+              )}
             </>
           }
         />

@@ -234,10 +234,14 @@ export class ClipMaker {
     this.timer.unref()
   }
 
-  /** Every movie and episode Jellyfin has. Throws unless the listing is complete. */
+  /**
+   * Every movie and episode Jellyfin has. Throws unless the listing is complete. Just the path
+   * and length of each: the list is read every few minutes, and each title's media details
+   * (kilobytes apiece, megabytes for a big library) are only needed for the few being made (heights).
+   */
   private async items(s: Settings): Promise<Item[]> {
     const base = `${s.jellyfin.url!.replace(/\/+$/, '')}${s.jellyfin.basePath}`
-    const r = await fetch(`${base}/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=Path,MediaStreams&EnableImages=false&EnableUserData=false&EnableTotalRecordCount=true`, {
+    const r = await fetch(`${base}/Items?Recursive=true&IncludeItemTypes=Movie,Episode&Fields=Path&EnableImages=false&EnableUserData=false&EnableTotalRecordCount=true`, {
       headers: { Authorization: `MediaBrowser Token="${s.jellyfin.apiKey}"` },
       signal: AbortSignal.timeout(120000),
     })
@@ -246,6 +250,21 @@ export class ClipMaker {
     if (!Array.isArray(body.Items)) throw new Error('its answer had no list of titles')
     if (typeof body.TotalRecordCount === 'number' && body.TotalRecordCount > body.Items.length) throw new Error(`it listed ${body.Items.length} of ${body.TotalRecordCount} titles`)
     return body.Items
+  }
+
+  /** The video height of each of these titles (which sizes of clip to make). Throws if Jellyfin can't say. */
+  private async heights(s: Settings, ids: string[]): Promise<Map<string, number>> {
+    const base = `${s.jellyfin.url!.replace(/\/+$/, '')}${s.jellyfin.basePath}`
+    const r = await fetch(`${base}/Items?Ids=${ids.join(',')}&Fields=MediaStreams&EnableImages=false&EnableUserData=false`, {
+      headers: { Authorization: `MediaBrowser Token="${s.jellyfin.apiKey}"` },
+      signal: AbortSignal.timeout(60000),
+    })
+    if (!r.ok) throw new Error(`Jellyfin answered ${r.status}`)
+    const body = (await r.json()) as { Items?: Item[] }
+    const want = new Set(ids)
+    const out = new Map<string, number>()
+    for (const it of body.Items ?? []) if (want.has(it.Id)) out.set(it.Id, Math.max(0, ...(it.MediaStreams ?? []).filter((m) => m.Type === 'Video').map((m) => m.Height ?? 0)))
+    return out
   }
 
   /** How clips get made here, or why they can't (looked up at most every 10 minutes). */
@@ -372,9 +391,21 @@ export class ClipMaker {
         return this.status
       }
       this.status.where = enc.where
-      for (const it of todo) {
+      let known = new Map<string, number>()
+      for (const [n, it] of todo.entries()) {
         if (Date.now() > until || !this.idle()) break
-        const height = Math.max(0, ...(it.MediaStreams ?? []).filter((m) => m.Type === 'Video').map((m) => m.Height ?? 0))
+        if (!known.has(it.Id)) {
+          // The next few titles' heights, asked for as they come up.
+          try {
+            known = await this.heights(s, todo.slice(n, n + 50).map((t) => t.Id))
+          } catch (e) {
+            log.warn(`couldn't read video sizes from Jellyfin (${(e as Error).message}); clips carry on next time`)
+            break
+          }
+        }
+        // A title Jellyfin dropped since the listing: next run's listing sorts it out.
+        const height = known.get(it.Id)
+        if (height === undefined) continue
         const tiers: [number, number, string][] = [[480, 30, `${it.Id}.mp4`]]
         if (height >= 720) tiers.push([720, 26, `${it.Id}.720.mp4`])
         if (height >= 1080) tiers.push([1080, 24, `${it.Id}.1080.mp4`])
