@@ -220,9 +220,13 @@ export class Orchestrator implements StackHost {
     return me?.Config.Image ?? process.env.FINESSE_IMAGE ?? 'node:22-alpine'
   }
 
-  /** Which of the devices the stack cares about exist on the HOST (cached a minute). */
+  /**
+   * Which of the devices the stack cares about exist on the HOST. Remembered for half an hour:
+   * in Docker, looking means starting a throwaway container, and the health loop asks every
+   * minute for an answer that almost never changes. (streamingProbe looks afresh when asked.)
+   */
   async hostDevices(): Promise<string[]> {
-    if (this.hostProbe && Date.now() - this.hostProbe.at < 60000) return this.hostProbe.devices
+    if (this.hostProbe && Date.now() - this.hostProbe.at < 30 * 60_000) return this.hostProbe.devices
     const want = ['/dev/net/tun', '/dev/dri', '/dev/uinput', '/dev/uhid', '/dev/nvidia0']
     let devices: string[]
     let gpuGroups: string[] = []
