@@ -382,6 +382,27 @@ await scene('games', async () => {
   if (K > 1) console.log(`  game frames per (slowed) second: ${fps.toFixed(1)}`)
 })
 
+await scene('gamestore', async () => {
+  await page.goto(`${APP}/games/store`)
+  await by('region', 'Featured games').waitFor({ timeout: 30000 })
+  await d.caption('The game store', 'In beta: a store of PC games on your own server. It starts empty, and you choose where its games come from.')
+  await sleep(3200)
+  await d.click(by('link', 'Browse'), { after: 1800 })
+  await d.caption('Browse and filter', 'Narrow by genre, platform and players. The counts follow what you’ve picked.')
+  await d.click(page.getByRole('button', { name: /^Strategy/, pressed: false }).first(), { after: 1400 })
+  await d.click(page.getByRole('button', { name: /^Linux/, pressed: false }).first(), { after: 2200 })
+  await d.click(page.getByRole('link', { name: /Warzone 2100/ }).first(), { after: 2400 })
+  await d.caption('A page per game', 'Pick the Windows or the Linux build and press Request. Finesse downloads it, checks it, and shows how far along it is.')
+  await sleep(3600)
+  await page.goto(`${APP}/settings`)
+  await d.click(by('button', /^Server/), { after: 1500 })
+  const store = page.getByRole('heading', { name: /Game store/ })
+  await store.scrollIntoViewIfNeeded()
+  await d.caption('Your sources', 'A source is one file listing games. Add its address here, or drop the file on the server. Finesse comes with none.')
+  await d.hover(page.getByRole('button', { name: 'Read them again' }), { after: 2600 })
+  await d.clear()
+})
+
 await scene('settings', async () => {
   await page.goto(`${APP}/settings`)
   await sleep(1800)

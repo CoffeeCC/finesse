@@ -135,7 +135,7 @@ fg += segs.map((_, i) => `[v${i}]`).join('') + `concat=n=${segs.length}:v=1:a=0[
 const NAMES = {
   intro: 'Welcome', wizard: 'Install and set up', build: 'Building your server', signin: 'Profiles and sign-in', home: 'Home',
   search: 'Search', detail: 'A title’s page', player: 'The player', shows: 'Movies and shows', request: 'Requests and downloads',
-  music: 'Music and lyrics', games: 'Games', settings: 'Settings, your server and invites',
+  music: 'Music and lyrics', games: 'Games', gamestore: 'The game store', settings: 'Settings, your server and invites',
   groups: 'Groups: friends’ libraries',
 }
 const chapters = JSON.parse(readFileSync(join(DESK, 'chapters.json'), 'utf8')).map((c) => ({ title: NAMES[c.name] ?? c.name, t: c.t }))
