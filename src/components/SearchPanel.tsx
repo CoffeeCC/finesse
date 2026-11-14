@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -149,7 +149,10 @@ export default function SearchPanel({
   const typed = input.trim()
   const active = term.length > 1 || typed.length > 1
   const index = useTitleIndex(true)
-  const instant = useMemo(() => fuzzyFind(index.data ?? [], typed, (i) => i.Name ?? '', 12), [index.data, typed])
+  // Typing stays ahead of the matching: on a slow device the list catches up a beat later
+  // instead of each letter waiting for it.
+  const typedLater = useDeferredValue(typed)
+  const instant = useMemo(() => fuzzyFind(index.data ?? [], typedLater, (i) => i.Name ?? '', 12), [index.data, typedLater])
   const lib = useSearch(term.length > 1 ? term : '')
   const people = useSearchPeople(active && (scope === 'all' || scope === 'people') ? term : '')
   const friendSearch = useFriendSearch(active && (scope === 'all' || scope === 'movies' || scope === 'shows') ? term : '')

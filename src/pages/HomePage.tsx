@@ -225,6 +225,9 @@ function EmptyLibrary() {
   )
 }
 
+// One object, so the rows built from it aren't rebuilt on every render while the real layout loads.
+const EMPTY_LAYOUT: HomeLayout = { hidden: [], collapsed: [], order: [], added: [] }
+
 export default function HomePage() {
   const { data: views, isLoading: viewsLoading, isError: viewsError, refetch: refetchViews, isFetching: viewsFetching } = useViews()
   const queryClient = useQueryClient()
@@ -251,7 +254,7 @@ export default function HomePage() {
   // ---- Layout (per account) ----
   const { data: serverLayout } = useHomeLayout()
   const [draft, setDraft] = useState<HomeLayout | null>(null)
-  const layout = draft ?? serverLayout ?? { hidden: [], collapsed: [], order: [], added: [] }
+  const layout = draft ?? serverLayout ?? EMPTY_LAYOUT
   const [customizing, setCustomizing] = useState(false)
   const toast = useToast()
   // Rows that came up empty last time Home showed them (they hide themselves).

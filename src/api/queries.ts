@@ -131,12 +131,15 @@ export function useClipManifest() {
     queryFn: async (): Promise<ClipManifest> => {
       // The sign-in rides in a header, not the address.
       const init: RequestInit = { cache: 'no-cache', headers: { Authorization: api.mediaBrowserAuthHeader() } }
-      const base = await fetch(`${CONTENT_BASE}previews/manifest.json`, init)
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => [])
-      const hdRaw = await fetch(`${CONTENT_BASE}previews/manifest-hd.json`, init)
-        .then((r) => (r.ok ? r.json() : {}))
-        .catch(() => ({}))
+      // Both at once: neither needs the other.
+      const [base, hdRaw] = await Promise.all([
+        fetch(`${CONTENT_BASE}previews/manifest.json`, init)
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []),
+        fetch(`${CONTENT_BASE}previews/manifest-hd.json`, init)
+          .then((r) => (r.ok ? r.json() : {}))
+          .catch(() => ({})),
+      ])
       const has = new Set<string>(Array.isArray(base) ? base : [])
       const hd = new Map<string, number[]>()
       if (hdRaw && typeof hdRaw === 'object') {
@@ -583,11 +586,13 @@ export function useItemsRow(label: string, query: api.ItemsQuery | null) {
 
 /** "Because you watched X" — most recent resume item (or last played), then Similar. */
 export function useBecauseYouWatched() {
+  const qc = useQueryClient()
   const lastPlayed = useQuery({
     queryKey: ['lastPlayed'],
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const resume = await api.getResume()
+      // The same answer Home's stage already asked for (useResume): shared, not fetched twice.
+      const resume = await qc.fetchQuery({ queryKey: ['resume'], queryFn: () => api.getResume(), staleTime: 60_000 })
       if (resume.Items.length) return resume.Items[0]
       const played = await api.getItems({
         recursive: true,
@@ -692,14 +697,38 @@ export function useMusicSearch(term: string) {
   })
 }
 
-/** "Top 10 at home" — see api.getMostWatchedAtHome. Changes slowly; cached. */
+/**
+ * "Top 10 at home" — see api.getMostWatchedAtHome. Working it out means reading everyone's whole
+ * watch history, the heaviest thing Home asks the server, and the answer changes slowly. So the
+ * last ranking is kept on this device and shown at once; it's worked out again when it's more
+ * than half an hour old.
+ */
+const TOP_TEN_FRESH_MS = 30 * 60_000
 export function useMostWatchedAtHome() {
   const session = api.getSession()
+  const key = `finesse.top10.${session?.userId ?? ''}`
+  let kept: { at: number; items: JfItem[] } | null = null
+  try {
+    const raw = session ? localStorage.getItem(key) : null
+    const parsed = raw ? (JSON.parse(raw) as { at?: unknown; items?: unknown }) : null
+    if (parsed && typeof parsed.at === 'number' && Array.isArray(parsed.items)) kept = { at: parsed.at, items: parsed.items as JfItem[] }
+  } catch {
+    /* no copy kept */
+  }
   return useQuery({
     queryKey: ['mostWatchedAtHome', session?.userId],
-    queryFn: () => api.getMostWatchedAtHome(10),
+    queryFn: async () => {
+      const items = await api.getMostWatchedAtHome(10)
+      try {
+        localStorage.setItem(key, JSON.stringify({ at: Date.now(), items }))
+      } catch {
+        /* storage full or blocked: it just isn't kept */
+      }
+      return items
+    },
     enabled: !!session,
-    staleTime: 30 * 60_000,
+    staleTime: TOP_TEN_FRESH_MS,
+    ...(kept ? { initialData: kept.items, initialDataUpdatedAt: kept.at } : {}),
   })
 }
 

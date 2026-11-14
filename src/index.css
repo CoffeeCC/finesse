@@ -283,7 +283,11 @@ html.tv .ambilight {
   /* Transform only: the compositor runs it at the display's own rate (120 Hz
      and up) without repainting the poster. */
   transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
+}
+/* A layer of its own only for the card under the pointer: on every card at once it meant
+   hundreds of layers on Home for the compositor to keep and scroll. */
+@media (hover: hover) and (pointer: fine) {
+  .group:hover .tilt { will-change: transform; }
 }
 /* Mouse hover: a small, fixed lift — the card doesn't chase the pointer. */
 @media (hover: hover) and (pointer: fine) {
@@ -534,6 +538,15 @@ html.tv .depth-front {
   transform: none;
   transition: none;
 }
+/* TVs: no full-screen blended layer over every frame (it's a 3.5% texture nobody sees from the
+   sofa), and landing on a card costs one outline and one lift, not a sweep, a lean and a
+   46px-blur glow painted on each press of the remote. */
+html.tv .grain { display: none; }
+html.tv .sheen::after { display: none; }
+html.tv .spill-glow { display: none; }
+html.tv[data-nav-dir] .group:focus .tilt,
+html.tv[data-nav-dir] .group:focus-visible .tilt { animation: none !important; }
+
 /* A band of light sweeps across a card as you land on it. */
 .sheen::after {
   content: '';
@@ -1179,8 +1192,10 @@ html.tv .os-rail { min-height: 0; }
   to { transform: translate3d(0, 7%, 0) scale(1.08); }
 }
 @keyframes spotDraw {
-  from { clip-path: inset(-10% 100% -10% 0); transform: translate3d(0, 40px, 0); letter-spacing: 0.04em; }
-  to { clip-path: inset(-10% 0 -10% 0); transform: none; letter-spacing: -0.02em; }
+  /* No letter-spacing here: animating it re-laid-out and re-balanced the headline on every
+     frame of the scroll. The wipe and the rise are the effect. */
+  from { clip-path: inset(-10% 100% -10% 0); transform: translate3d(0, 40px, 0); }
+  to { clip-path: inset(-10% 0 -10% 0); transform: none; }
 }
 @keyframes spotRise {
   from { opacity: 0; transform: translate3d(0, 24px, 0); }
@@ -1336,15 +1351,33 @@ html.tv .os-w > span, html[data-motion='reduce'] .os-w > span { animation: none;
 .os-btn:hover { transform: translateY(-1px); }
 .os-btn:active { transform: scale(0.97); }
 @media (min-width: 640px) { .os-btn { height: 56px; padding: 0 28px; font-size: 17px; } }
-.os-btn.primary { background: #f5f3ee; color: #08090e; animation: os-breathe 3.4s ease-in-out infinite; }
+/* The glow breathes. It's two shadows on pseudo-elements whose opacity and size animate (work
+   the graphics card does by itself), not a box-shadow that changes, which repainted a big
+   blurred area on every frame for as long as Home was open. */
+.os-btn.primary { position: relative; background: #f5f3ee; color: #08090e; }
+.os-btn.primary::before,
+.os-btn.primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.os-btn.primary::before { box-shadow: 0 20px 60px -11px rgba(var(--tint-rgb), 0.95); animation: os-breathe 3.4s ease-in-out infinite; }
+.os-btn.primary::after { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.2); animation: os-ring 3.4s ease-in-out infinite; }
 .os-btn.primary:hover { background: #fff; }
 .os-btn.icon { width: 48px; padding: 0; }
 @media (min-width: 640px) { .os-btn.icon { width: 56px; } }
 /* Start over next to Resume: a round icon on a phone (the row is full there), words from sm up. */
 @media (max-width: 639px) { .os-btn.os-restart, .os-btn.os-cast { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
 @keyframes os-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 18px 50px -14px rgba(var(--tint-rgb), 0.95); }
-  50% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0), 0 22px 70px -8px rgba(var(--tint-rgb), 0.95); }
+  0%, 100% { opacity: 0.82; transform: scale(0.97); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+@keyframes os-ring {
+  0%, 100% { opacity: 0; transform: scale(0.94); }
+  40% { opacity: 1; }
+  50% { opacity: 0; transform: scale(1.03); }
 }
 .os-prog { height: 5px; width: min(460px, 100%); border-radius: 9999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
 .os-prog > i { display: block; height: 100%; border-radius: 9999px; background: linear-gradient(90deg, #f5f3ee, rgb(var(--tint-rgb))); }
@@ -1506,7 +1539,7 @@ html.tv .os-w > span, html[data-motion='reduce'] .os-w > span { animation: none;
 
 @media (prefers-reduced-motion: reduce) {
   .os-bd.on, .os-bd.soft.on, .os-orb, .os-gen .sun, .os-gen .floor, .os-hero > *,
-  .os-btn.primary, .os-tile::after, .os-tile .tgen .tfloor, .os-eq > i, .os-live .run,
+  .os-btn.primary::before, .os-btn.primary::after, .os-tile::after, .os-tile .tgen .tfloor, .os-eq > i, .os-live .run,
   .os-sheet-in, .os-fade-in, .os-stripes, .os-ping {
     animation: none !important;
   }
@@ -1530,7 +1563,7 @@ html.tv .os-logo { max-width: 560px; max-height: 130px; animation: none; }
 html.tv .os-hero > * { animation: os-rise-tv 0.45s ease-out both; }
 @keyframes os-rise-tv { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 html.tv .os-btn { height: 60px; padding: 0 30px; font-size: 19px; }
-html.tv .os-btn.primary { animation: none; box-shadow: none; }
+html.tv .os-btn.primary::before, html.tv .os-btn.primary::after { display: none; }
 html.tv .os-btn > * + * { margin-left: 10px; }
 html.tv .os-prog { width: 460px; }
 html.tv .os-kicker > * + * { margin-left: 12px; }

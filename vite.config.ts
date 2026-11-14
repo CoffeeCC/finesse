@@ -155,6 +155,19 @@ export default defineConfig(({ mode }) => {
             },
           },
         }
-      : {}),
+      : {
+          build: {
+            rollupOptions: {
+              output: {
+                // React, the router and the query library change far less often than the app:
+                // in a file of their own, a new release doesn't make browsers fetch them again.
+                manualChunks(id: string) {
+                  if (/node_modules\/(react|react-dom|scheduler|react-router|react-router-dom|@remix-run\/router)\//.test(id)) return 'react'
+                  if (/node_modules\/@tanstack\/(react-query|query-core)\//.test(id)) return 'query'
+                },
+              },
+            },
+          },
+        }),
   }
 })

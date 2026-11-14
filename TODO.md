@@ -53,6 +53,15 @@
   They take your screen apart from the bottom up to build with: each block falls to the ground
   and is carried off, with a little rubble coming loose around it. It's only a copy: move the
   mouse and your real screen is back, untouched. When the copy is all gone, it comes back too.
+- **Faster to open, lighter to run** — Home downloads less than half the code it used to before
+  it shows (the rest arrives once it has settled, so titles, libraries and search still open
+  at once), and the parts that rarely change are kept between updates. Fewer duplicate requests
+  as it opens; the "Top 10 at home" ranking is kept on the device instead of reading everyone's
+  whole watch history on every visit. Smoother on TVs: each press of the remote measures half
+  as much, and landing on a card no longer paints a sweep, a lean and a big blurred glow. On
+  the server: no throwaway container every couple of minutes to look for graphics devices,
+  preview clips no longer read every title's media details every five minutes, and a page's
+  burst of requests shares one sign-in check.
 - **The bell tells you when someone answers** — a comment or a reaction on a moment you flagged
   shows under "On your moments" in the bell, with a dot until you've seen it. (For moments on
   your own server's titles; ones you flagged on a friend's server aren't included yet.)

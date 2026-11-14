@@ -281,10 +281,16 @@ export default function NowStage() {
     setSeen((s) => (near.every((k) => s.has(k)) ? s : new Set([...s, ...near])))
   }, [entries, f])
 
+  // The entries are rebuilt every time the house is asked what's playing (every 15 s), so the
+  // effects below go by what the focused title IS, not by the object: otherwise a playing
+  // preview clip would restart on every poll.
+  const tint = entry?.tint
+  const entryKey = entry?.key
+  const clipIds = [entry?.item?.Id, entry?.item?.SeriesId].filter(Boolean).join(',')
   // The whole app takes on the title's colour (nav, washes, loading states).
   useEffect(() => {
-    if (entry) setMood(entry.tint)
-  }, [entry])
+    if (tint) setMood(tint)
+  }, [tint])
 
   // Rest on a title for a moment and its preview clip plays behind the stage —
   // only while the stage is on screen: scrolled down the page, it pauses and starts nothing new.
@@ -295,13 +301,12 @@ export default function NowStage() {
   useEffect(() => {
     setClip(null)
     // TVs: one video decoder is for the film itself, not a background loop.
-    if (!entry?.item || reducedMotion() || IS_TV || !stageInView) return
-    const ids = [entry.item.Id, entry.item.SeriesId].filter(Boolean) as string[]
-    const url = ids.map((id) => previewClipUrl(id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)).find(Boolean)
+    if (!clipIds || !entryKey || reducedMotion() || IS_TV || !stageInView) return
+    const url = clipIds.split(',').map((id) => previewClipUrl(id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)).find(Boolean)
     if (!url) return
-    const t = window.setTimeout(() => setClip({ key: entry.key, url, on: false }), CLIP_DWELL_MS)
+    const t = window.setTimeout(() => setClip({ key: entryKey, url, on: false }), CLIP_DWELL_MS)
     return () => window.clearTimeout(t)
-  }, [entry, manifest, stageInView])
+  }, [entryKey, clipIds, manifest, stageInView])
   useEffect(() => {
     if (!clip) return
     claimPreview(stopClip)
@@ -409,8 +414,11 @@ export default function NowStage() {
               </div>
             )
           }
-          if (e.art) return <img key={e.key} className={`os-bd${cls}`} src={e.art} alt="" />
-          if (e.cover) return <img key={e.key} className={`os-bd soft${cls}`} src={e.cover} alt="" />
+          // The one on show is the biggest picture on the page: it goes first. Its neighbours
+          // (ready for the next focus) wait their turn.
+          const pri = i === f ? 'high' : 'low'
+          if (e.art) return <img key={e.key} className={`os-bd${cls}`} src={e.art} alt="" fetchPriority={pri} decoding="async" />
+          if (e.cover) return <img key={e.key} className={`os-bd soft${cls}`} src={e.cover} alt="" fetchPriority={pri} decoding="async" />
           return null
         })}
         {clip && clip.key === entry.key && (

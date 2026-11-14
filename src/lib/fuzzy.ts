@@ -48,8 +48,24 @@ const allowed = (len: number) => (len <= 3 ? 0 : len <= 7 ? 1 : 2)
  * one may be unfinished: people search as they type).
  */
 export function fuzzyScore(title: string, query: string): number {
-  const t = plain(title)
-  const q = plain(query)
+  return scorePlain(plainTitle(title), plain(query))
+}
+
+// A library's titles don't change between keystrokes: each is tidied once and remembered, so a
+// keystroke costs the comparing, not five rounds of text clean-up per title.
+const tidied = new Map<string, string>()
+function plainTitle(title: string): string {
+  let t = tidied.get(title)
+  if (t === undefined) {
+    if (tidied.size > 60_000) tidied.clear()
+    t = plain(title)
+    tidied.set(title, t)
+  }
+  return t
+}
+
+/** fuzzyScore for a title and a query that have both been through plain() already. */
+function scorePlain(t: string, q: string): number {
   if (!t || !q) return 0
   if (t === q) return 100
   if (t.startsWith(q)) return 90
@@ -80,9 +96,10 @@ export function fuzzyScore(title: string, query: string): number {
 
 /** The best `limit` of `items` for `query`, best first (ties keep their order). */
 export function fuzzyFind<T>(items: T[], query: string, name: (t: T) => string, limit = 12): T[] {
-  if (plain(query).length < 2) return []
+  const q = plain(query)
+  if (q.length < 2) return []
   return items
-    .map((item, i) => ({ item, s: fuzzyScore(name(item), query), i }))
+    .map((item, i) => ({ item, s: scorePlain(plainTitle(name(item)), q), i }))
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .slice(0, limit)

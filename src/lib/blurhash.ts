@@ -4,7 +4,9 @@ const dataUrlCache = new Map<string, string>()
 const colorCache = new Map<string, [number, number, number]>()
 
 /** Decode a blurhash into a small data-URL (cached). Returns null on bad hashes. */
-export function blurhashToDataURL(hash: string | undefined, w = 32, h = 48): string | null {
+// 16×24: a blurhash holds only a few soft shapes and is stretched to the card anyway, so a
+// quarter of the pixels looks the same and costs a quarter of the work per poster.
+export function blurhashToDataURL(hash: string | undefined, w = 16, h = 24): string | null {
   if (!hash) return null
   const cached = dataUrlCache.get(hash)
   if (cached) return cached

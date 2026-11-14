@@ -602,6 +602,8 @@ export async function getMostWatchedAtHome(limit = 10): Promise<JfItem[]> {
             EnableImages: false,
             EnableUserData: true,
             EnableTotalRecordCount: false,
+            // A whole watch history: nothing but ids, lengths and play counts.
+            Fields: 'SeriesId',
           }),
       ),
     ),
@@ -770,9 +772,21 @@ function uiDpPath(): string {
   return `/DisplayPreferences/${UI_DP}` + qs({ userId: session!.userId, client: 'finesse' })
 }
 
+// The accent and the preview quality live in the same saved preferences and are both read as the
+// app opens: one request answers both (kept a few seconds, never across a change).
+let uiDp: { at: number; value: Promise<JfDisplayPreferences> } | null = null
+function readUiDp(): Promise<JfDisplayPreferences> {
+  if (!uiDp || Date.now() - uiDp.at > 5000) {
+    const value = request<JfDisplayPreferences>(uiDpPath())
+    uiDp = { at: Date.now(), value }
+    value.catch(() => (uiDp = null))
+  }
+  return uiDp.value
+}
+
 export async function getAccentPref(): Promise<string | null> {
   try {
-    const dp = await request<JfDisplayPreferences>(uiDpPath())
+    const dp = await readUiDp()
     return dp?.CustomPrefs?.accent ?? null
   } catch {
     return null
@@ -783,11 +797,12 @@ export async function setAccentPref(name: string): Promise<void> {
   const dp = (await request<JfDisplayPreferences>(uiDpPath()).catch(() => ({}))) as JfDisplayPreferences
   dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), accent: name }
   await request(uiDpPath(), { method: 'POST', body: dp })
+  uiDp = null
 }
 
 export async function getPreviewQualityPref(): Promise<string | null> {
   try {
-    const dp = await request<JfDisplayPreferences>(uiDpPath())
+    const dp = await readUiDp()
     return dp?.CustomPrefs?.previewQuality ?? null
   } catch {
     return null
@@ -798,6 +813,7 @@ export async function setPreviewQualityPref(quality: string): Promise<void> {
   const dp = (await request<JfDisplayPreferences>(uiDpPath()).catch(() => ({}))) as JfDisplayPreferences
   dp.CustomPrefs = { ...(dp.CustomPrefs ?? {}), previewQuality: quality }
   await request(uiDpPath(), { method: 'POST', body: dp })
+  uiDp = null
 }
 
 // ---------- Home layout (per-account customization) ----------
