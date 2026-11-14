@@ -578,6 +578,27 @@ export default function SettingsPage() {
                 scope="device"
               />
               <Toggle
+                label="Liquid light"
+                hint="Ribbons of light in each title’s own colour drift behind the home screen and title pages, and lean toward your mouse. Off, there’s a soft still glow instead. Takes effect on the next page you open."
+                checked={prefs.liquidLight}
+                onChange={(v) => update({ liquidLight: v })}
+                scope="device"
+              />
+              <Toggle
+                label="Pixel folk"
+                hint="Tiny people along the bottom of the screen who build, launch rockets and squabble, differently every time you open Finesse. They hop to the interface’s sounds and notice your mouse. Takes effect when Finesse is next opened."
+                checked={prefs.pixelFolk}
+                onChange={(v) => update({ pixelFolk: v })}
+                scope="device"
+              />
+              <Toggle
+                label="Pixel folk as the screensaver"
+                hint="When idle, their whole world fills the screen instead of library art, with the clock. Needs Screensaver on."
+                checked={prefs.screensaverPixel}
+                onChange={(v) => update({ screensaverPixel: v })}
+                scope="device"
+              />
+              <Toggle
                 label="Screensaver"
                 hint="When idle, library art drifts by with a clock. Any input dismisses it; never during playback."
                 checked={prefs.screensaver}

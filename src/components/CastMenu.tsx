@@ -149,7 +149,7 @@ export default function CastMenu({
 
   const trigger =
     variant === 'os' ? (
-      <button type="button" onClick={toggle} aria-label="Play on another device" aria-expanded={open} title="Play on another device" className={`os-btn os-glass max-sm:w-12 max-sm:px-0 ${className}`}>
+      <button type="button" onClick={toggle} aria-label="Play on another device" aria-expanded={open} title="Play on another device" className={`os-btn os-glass os-cast ${className}`}>
         <CastIcon />
         <span className="hidden sm:inline">Play on…</span>
       </button>

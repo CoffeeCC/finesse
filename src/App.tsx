@@ -28,6 +28,8 @@ import { useRemoteControl } from './lib/remoteControl'
 import { routeCommitted, transitionActive } from './lib/motion'
 import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
+import PixelFolk from './components/PixelFolk'
+import { Quiet } from './components/Quiet'
 import SearchOverlay from './components/SearchOverlay'
 import QuickMenu from './components/os/QuickMenu'
 import PartyInvites from './components/PartyInvites'
@@ -36,6 +38,7 @@ import { IS_TV } from './lib/device'
 import { goBack, isBackKey, isTypingTarget, runBackHandlers } from './lib/back'
 import { initUiSounds } from './lib/sound'
 import { initGamepad } from './lib/gamepad'
+import { initCardLight } from './lib/cardLight'
 import ControllerHint from './components/ControllerHint'
 import { useClipManifest } from './api/queries'
 import { getAccentPref, getPreviewQualityPref } from './api/client'
@@ -88,6 +91,8 @@ export default function App() {
   useEffect(() => initUiSounds(), [])
   // Game controllers drive the app like a remote (lib/gamepad).
   useEffect(() => initGamepad(), [])
+  // A highlight follows the mouse across cards (lib/cardLight).
+  useEffect(() => initCardLight(), [])
 
   // Remote/keyboard Back everywhere (player included): close the topmost open
   // menu/sheet first, otherwise step back — see lib/back.ts for the webOS
@@ -158,6 +163,7 @@ export default function App() {
       {__WEBOS__ && <TvPointer />}
       {!IS_TV && <MoodWash />}
       <FocusBackdrop />
+      <PixelFolk />
       <Marquee />
       <div className="grain" aria-hidden />
       <ControllerHint />
@@ -212,14 +218,14 @@ export default function App() {
                   </PageError>
                 </div>
               </main>
-              <MiniPlayer />
-              <CastRemote />
-              <NowPlaying />
+              <Quiet name="MiniPlayer"><MiniPlayer /></Quiet>
+              <Quiet name="CastRemote"><CastRemote /></Quiet>
+              <Quiet name="NowPlaying"><NowPlaying /></Quiet>
               <BottomTabs />
               {!IS_TV && <SearchOverlay />}
-              <QuickMenu />
-              <MomentArrivals />
-              <PartyInvites />
+              <Quiet name="QuickMenu"><QuickMenu /></Quiet>
+              <Quiet name="MomentArrivals"><MomentArrivals /></Quiet>
+              <Quiet name="PartyInvites"><PartyInvites /></Quiet>
               <ServerUpdateOverlay />
               {!__WEBOS__ && <DropToAdd />}
             </>

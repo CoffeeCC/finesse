@@ -26,10 +26,32 @@ export function useFriends() {
   })
 }
 
+/** The libraries as they were last time (per person), so the top bar's links are there from the
+ *  first paint instead of arriving late and pushing the rest along. */
+const viewsKey = () => `finesse.views.${api.getSession()?.userId ?? ''}`
+type Views = Awaited<ReturnType<typeof api.getViews>>
+function rememberedViews(): Views | undefined {
+  try {
+    const v = JSON.parse(localStorage.getItem(viewsKey()) ?? 'null') as Views | null
+    return v && Array.isArray(v.Items) ? v : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function useViews() {
   return useQuery({
     queryKey: ['views'],
-    queryFn: () => api.getViews(),
+    queryFn: async () => {
+      const v = await api.getViews()
+      try {
+        localStorage.setItem(viewsKey(), JSON.stringify({ ...v, Items: v.Items.map((i) => ({ Id: i.Id, Name: i.Name, Type: i.Type, CollectionType: i.CollectionType })) }))
+      } catch {
+        /* no storage: the links just arrive a moment later */
+      }
+      return v
+    },
+    placeholderData: rememberedViews,
     staleTime: 10 * 60_000,
   })
 }
@@ -593,6 +615,19 @@ export function useBecauseYouWatched() {
   })
 
   return { seedName, items: similar.data?.Items, loading: lastPlayed.isLoading || similar.isLoading }
+}
+
+/** Every film and show's name, held in the app so search can answer on each keystroke and
+ *  forgive typos (lib/fuzzy.ts). Asked for once search is opened, kept for ten minutes. */
+export function useTitleIndex(enabled: boolean) {
+  return useQuery({
+    queryKey: ['titleIndex'],
+    enabled,
+    staleTime: 10 * 60_000,
+    gcTime: 30 * 60_000,
+    retry: false,
+    queryFn: async () => (await api.getItems({ recursive: true, includeItemTypes: 'Movie,Series', sortBy: 'SortName', limit: 20000, fields: `${CARD_FIELDS},ProviderIds` })).Items,
+  })
 }
 
 export function useSearch(term: string) {

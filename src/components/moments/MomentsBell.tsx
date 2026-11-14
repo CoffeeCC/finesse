@@ -5,7 +5,7 @@ import { useMomentCollectionsOn } from '../../api/momentCollections'
 import SaveMoment from './SaveMoment'
 import { pushBackHandler } from '../../lib/back'
 import { useOverlayFocus } from '../../lib/overlayFocus'
-import { clock, deleteMoment, getInbox, markMomentsRead, momentHref, useInbox, useMomentsOn, type InboxMoment, type MyMoment } from '../../api/moments'
+import { clock, deleteMoment, getInbox, markActivitySeen, markMomentsRead, momentHref, useActivity, useInbox, useMomentsOn, type InboxMoment, type MyMoment } from '../../api/moments'
 import { useToast } from '../Toast'
 
 // The bell in the top bar: moments and recommendations sent to you. Opening one
@@ -79,6 +79,7 @@ export function MomentLine({ m, onOpen, compact, onSave, onDelete }: { m: InboxM
 export default function MomentsBell({ lux }: { lux: boolean }) {
   const on = useMomentsOn()
   const { data } = useInbox()
+  const activity = useActivity().data
   const [open, setOpen] = useState(false)
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -94,6 +95,9 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
     if (!open) return
     // Opening the list asks friends' servers for anything new first.
     void getInbox(true).then((d) => qc.setQueryData(['moments', 'inbox'], d), () => {})
+    // Comments and reactions count as seen once the list has been opened (they stay marked
+    // "new" until it closes, so it's clear which they were).
+    void markActivitySeen().catch(() => {})
     const onDown = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
     window.addEventListener('pointerdown', onDown)
     // Back (Escape, the remote's Back) closes the list, and only that: it never
@@ -105,13 +109,16 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
     return () => {
       window.removeEventListener('pointerdown', onDown)
       pop()
+      void qc.invalidateQueries({ queryKey: ['moments', 'activity'] })
     }
   }, [open, qc])
 
   if (!on) return null
   const list = data?.moments ?? []
   const mine = data?.mine ?? []
-  const unread = data?.unread ?? 0
+  const replies = activity?.items ?? []
+  const unreadSent = data?.unread ?? 0
+  const unread = unreadSent + (activity?.unread ?? 0)
 
   const openOne = async (m: InboxMoment) => {
     setOpen(false)
@@ -164,14 +171,35 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-1">
             <p className="text-[15px] font-semibold text-white">Moments</p>
-            {unread > 0 && (
+            {unreadSent > 0 && (
               <button type="button" onClick={allRead} className="text-[12.5px] font-medium text-ink-300 hover:text-white">
                 Mark all read
               </button>
             )}
           </div>
           <div className="max-h-[calc(var(--vh,1vh)*65)] overflow-y-auto">
-            {mine.length > 0 && <p className="px-3 pb-1 pt-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Sent to you</p>}
+            {replies.length > 0 && (
+              <>
+                <p className="px-3 pb-1 pt-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">On your moments</p>
+                {replies.slice(0, 8).map((r) => (
+                  <Link
+                    key={`${r.kind}-${r.key}-${r.from}-${r.created}`}
+                    to="/moments"
+                    onClick={() => setOpen(false)}
+                    className="flex items-start gap-2.5 rounded-xl px-3 py-2 hover:bg-white/5"
+                  >
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${r.fresh ? 'bg-accent-300' : 'bg-transparent'}`} aria-hidden />
+                    <span className="min-w-0 text-[13.5px] leading-snug text-ink-200">
+                      <span className="font-semibold text-white">{r.from}</span> {r.kind === 'comment' ? 'commented on' : `reacted ${r.what} to`} your moment in <span className="text-white">{r.title}</span>
+                      {r.kind === 'comment' && <span className="mt-0.5 block truncate text-ink-400">“{r.what}”</span>}
+                      {r.fresh && <span className="sr-only"> (new)</span>}
+                    </span>
+                  </Link>
+                ))}
+                <div className="mx-3 my-1.5 border-t border-white/5" />
+              </>
+            )}
+            {(mine.length > 0 || replies.length > 0) && <p className="px-3 pb-1 pt-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Sent to you</p>}
             {list.length ? (
               list.map((m) => <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} onSave={saveOne?.(m)} />)
             ) : (
@@ -229,7 +257,8 @@ export function MomentArrivals() {
     return () => clearTimeout(t)
   }, [card])
 
-  if (!card) return null
+  // On the feed itself the new moment has just dropped in at the top: no card as well.
+  if (!card || window.location.pathname.replace(/\/$/, '').endsWith('/moments')) return null
   return (
     <div role="status" className="toast-in fixed bottom-24 md:bottom-6 right-3 sm:right-6 z-[72] w-[min(22rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-1.5 shadow-2xl backdrop-blur-xl">
       <MomentLine

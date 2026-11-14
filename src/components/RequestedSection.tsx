@@ -67,37 +67,34 @@ function Row({ r }: { r: ArrRequested }) {
   }
 
   return (
-    <div className="flex gap-3 rounded-xl border bg-ink-900/60 border-white/5 p-2.5">
+    <div className="flex items-center gap-3 rounded-xl border bg-ink-900/60 border-white/5 p-2.5">
       <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-white truncate">
           {r.title}
           {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
         </p>
-        <p className="mt-0.5 text-xs text-ink-400">
+        <p className="mt-0.5 text-xs text-ink-400 truncate">
           {KIND_LABEL[r.kind]} · requested {ago(r.added)}
         </p>
         <RequestStatusView status={requestStatus({ requested: true, hasFile: false, available: r.available, failure: failures?.get(r.key) })} className="mt-1" />
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          {r.available && (
-            <button
-              onClick={again}
-              disabled={busy}
-              className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 disabled:opacity-50 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
-            >
-              Search again
-            </button>
-          )}
-          <button
-            onClick={cancel}
-            disabled={busy}
-            className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-              armed ? 'bg-red-500 hover:bg-red-400 text-white font-semibold' : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
-            }`}
-          >
-            {armed ? 'Tap again to confirm' : 'Take back'}
+      </div>
+      {/* The two things you can do, beside it, not under it: twice as many fit on a screen. */}
+      <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+        {r.available && (
+          <button onClick={again} disabled={busy} className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 disabled:opacity-50 px-3 py-1.5 text-[13px] font-medium text-ink-100 transition-colors">
+            Search again
           </button>
-        </div>
+        )}
+        <button
+          onClick={cancel}
+          disabled={busy}
+          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50 ${
+            armed ? 'bg-red-500 hover:bg-red-400 text-white font-semibold' : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
+          }`}
+        >
+          {armed ? 'Tap to confirm' : 'Take back'}
+        </button>
       </div>
     </div>
   )

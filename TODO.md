@@ -38,6 +38,102 @@
       so it re-themes live). Stored per-user in DisplayPreferences (`finesse-ui` → `accent`) for
       cross-device sync + mirrored to localStorage for instant no-flash apply. `src/lib/accent.ts`.
 
+## Liquid light — next release
+
+- **Pixel folk** — tiny people live along the bottom of the screen, behind the page. Every time
+  you open Finesse it's a different world. Two camps settle either side and grow up through
+  three ages (huts and campfires, then stone towers and windmills, then factories and radio
+  masts), a block at a time. Then the rivalry boils over into a small war, they make peace,
+  build a rocket together and fly it off the top of the screen, and a new world begins. They
+  wear your accent colour, scatter from a fast mouse and gather round a still one, run to a
+  star you drop by clicking bare ground, hop to the interface's sounds and bob while music
+  plays. Computers only, and off until you turn them on in Settings → Appearance.
+- **Pixel folk as the screensaver** — an option in Settings → Appearance. When Finesse goes idle,
+  the screen you left open turns into chunky pixels and their world fills the bottom of it.
+  They take your screen apart from the bottom up to build with: each block falls to the ground
+  and is carried off, with a little rubble coming loose around it. It's only a copy: move the
+  mouse and your real screen is back, untouched. When the copy is all gone, it comes back too.
+- **The bell tells you when someone answers** — a comment or a reaction on a moment you flagged
+  shows under "On your moments" in the bell, with a dot until you've seen it. (For moments on
+  your own server's titles; ones you flagged on a friend's server aren't included yet.)
+- **The phone's tab bar is always readable** — a darker bar that bright posters underneath no
+  longer tint, so the labels don't fade and a Play button behind it can't be mistaken for a tab.
+- **Small extras can't take the app down** — if the Moments bell, party invites, the quick menu
+  or the mini player hits something unexpected from the server, that one piece hides and the
+  page carries on, instead of every screen saying "This page didn't load".
+- **Closing the tab stops the stream properly** — the server is told playback stopped and stops
+  converting the video, instead of carrying on for nobody for a while.
+- **Changing episode quickly** no longer starts the next one at the previous one's resume point.
+- **React and comment on moments** — six reactions (one each, change it or take it back) and
+  comments under every moment in the feed. Everyone who can see a moment shares one thread,
+  wherever they are: a friend's reply shows up with their server's name beside theirs. A moment
+  sent to one person stays between you and them, thread included. Whoever wrote a comment,
+  whoever flagged the moment, or an admin can delete it.
+- **Moments play on the click** — a card that's on screen gets its scene ready ahead of time, so
+  pressing play starts at once instead of loading.
+- **Moments is a feed** — everything the people here and on friends' servers flagged for you,
+  and your own, newest first. Press play on a card and just that scene plays right there,
+  streamed from the server that has it (yours or your friend's), then stops. New moments drop
+  in at the top while you're looking. Spoilers stay covered until you tap. Your collections are
+  one tap away.
+- **Search answers as you type, typos and all** — "harbur" finds Harbour Lights and "papr lant"
+  finds Paper Lanterns, on every keystroke, without waiting for the server. When nothing
+  matches, it offers to look for it on the Requests page instead of stopping. The window is
+  wider too.
+
+- **Stuck downloads sort themselves out** — a torrent nobody is sharing, or a download that
+  can't be added to your library, used to sit there until someone pressed Retry. Now Finesse
+  presses it for you: a download that fails outright is replaced straight away; one that stalls
+  or can't be added to your library gets an hour (you can change the wait), then it's dropped, that release is never picked again, and another is searched for (from
+  Usenet if the torrent was dead, and the other way round). Up to three swaps a day per title.
+  A full disk or a folder problem is never "fixed" by downloading something else: it's shown
+  with what to do. Usenet goes first and torrents are the backup unless an admin chooses the
+  other way round; that, the wait and the off switch are right on the Requests page.
+- **Get a better copy, from inside the player** — watching a film that looks rough? Playback
+  settings has "Get a better copy". Finesse finds the best release that's a real step up, starts
+  it downloading and lets you keep watching. When it's in the library the player moves over to
+  it at the same moment in the film, and the old file is replaced. Films only for now.
+- **Downloads say what's going on** — each one shows its speed, the time left, how much has
+  arrived, its quality and how it's coming. "Details" opens the release's name, where it was
+  found, the app downloading it and each episode's progress. The header adds it all up.
+- **Problems in plain words** — "One or more episodes expected in this release were not imported
+  or missing from the release" is now "It downloaded, but some of the episodes it promised
+  weren't in it", with what Finesse will do about it and when.
+- **A tighter Requests page** — downloads are three to a row on a wide screen, stuck ones first,
+  and each request's buttons sit beside it instead of under it.
+
+- **Home glows in the title's own colour** — ribbons of light drift behind the hero and the Now
+  row, tinted by whatever you're resting on, and lean gently toward the mouse. Drawn on the
+  graphics card, paused when you can't see it. Off until you turn on **Liquid light** in
+  Settings → Appearance; without it (and on TVs, with "reduce motion" or data saver) Home keeps
+  the calmer glow from before.
+- **Spotlight** — between Home's rows, one title you haven't watched gets the whole width, a
+  different one each day. The band opens up as you scroll to it, its artwork drifts behind it
+  and the title is drawn in, all in step with the scroll itself. Not on TVs.
+- **Each title's page wears its film** — the same drifting light, in the artwork's colour, over
+  the page's backdrop.
+- **Home no longer jumps as it loads** — the Now row keeps its final height from the start, and
+  the top bar remembers your libraries and the Moments bell from last time instead of adding
+  them late (layout shift on a return visit: 0.14 before, 0 now).
+- **Titles arrive a word at a time** on Home and on each title's page.
+- **The sign-in screen has light in the room** — the same drifting ribbons behind "Who's
+  watching?", which now arrives a word at a time.
+- **Rest on a poster and the rest of its shelf steps back**, so the one you're on holds the
+  light (mouse only).
+- **Top 10 numerals are glass** — a bright outline filled with fading light.
+- **Light under the glass** — a soft highlight follows the mouse across posters. The poster
+  itself stays still.
+- **Tiled windows** — in a short window (a tiled pane on Omarchy, a half-height split) Home fits
+  the hero, the Now row and the live line on one screen instead of pushing the row out of view.
+- **Phones: the "Play on…" button on Home shows its icon again** (it was an empty circle).
+- **The player gets back on its feet** — when the connection drops it says "Reconnecting…" and
+  carries on from the same spot (a few tries, waiting a little longer each time). A file this
+  browser can't play is asked for again as a converted stream. Only if that fails too does it
+  stop, with a plain message and Try again. Before, it froze with a Play button that did nothing.
+- **Reloading the player resumes where you were** — the address keeps the current position, so a
+  phone that reloads a background tab picks up there instead of where you pressed Play (and no
+  longer sends that older position to the server).
+
 ## Games that just work, and a few good fixes — v3.2.8 (2026-11-07)
 
 - **Every emulator works with a controller** — Switch (Eden), GameCube and Wii (Dolphin), PS2

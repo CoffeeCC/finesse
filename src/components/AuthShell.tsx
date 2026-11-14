@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { splashscreenUrl } from '../api/client'
 
 /** Cinematic full-screen shell shared by Login + Invite for a seamless brand. */
+import LiquidLight from './LiquidLight'
+
 export default function AuthShell({
   children,
   server = '',
@@ -23,6 +25,10 @@ export default function AuthShell({
         />
       )}
       <div className="absolute inset-0 bg-gradient-to-b from-ink-950/70 via-ink-950/40 to-ink-950" />
+      {/* Light in the room before anyone's signed in (LiquidLight). */}
+      <div className="absolute inset-0 pointer-events-none mix-blend-screen opacity-70" aria-hidden>
+        <LiquidLight tint="117, 137, 216" />
+      </div>
       <div className="grain" aria-hidden />
       {children}
     </div>

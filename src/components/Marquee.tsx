@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import PixelFolk from './PixelFolk'
 import TitleLogo from './TitleLogo'
 import { useLocation } from 'react-router-dom'
 import { backdropUrl, logoUrl } from '../api/client'
@@ -95,6 +96,20 @@ export default function Marquee() {
       window.clearInterval(clock)
     }
   }, [active, items.length])
+
+  // The pixel folk's world instead of library art (Settings → Appearance).
+  if (active && getPrefs().screensaverPixel) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-ink-950 marquee-in" aria-hidden>
+        <div className="absolute top-8 right-10 text-right marquee-fade">
+          <div className="text-5xl font-semibold text-white/90 tabular-nums tracking-tight">{now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>
+          <div className="text-sm text-white/60 mt-1">{now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+        </div>
+        <PixelFolk full />
+        <div className="absolute top-8 left-10 text-xs text-white/40 marquee-fade">Move to dismiss</div>
+      </div>
+    )
+  }
 
   if (!active || items.length === 0) return null
   const item = items[idx % items.length]

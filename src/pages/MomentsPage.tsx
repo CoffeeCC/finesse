@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import MomentFeed from '../components/moments/MomentFeed'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -28,6 +29,16 @@ const BTN_SOFT = `${BTN} bg-white/10 border border-white/15 text-white hover:bg-
 const H2 = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-ink-400'
 
 export default function MomentsPage() {
+  return (
+    <Routes>
+      <Route index element={<MomentFeed />} />
+      <Route path="collections" element={<Collections />} />
+      <Route path=":id" element={<Collections one />} />
+    </Routes>
+  )
+}
+
+function Collections({ one }: { one?: boolean }) {
   const on = useMomentCollectionsOn()
   if (!on)
     return (
@@ -36,12 +47,7 @@ export default function MomentsPage() {
         <p className="mt-3 text-[14px] text-ink-300">This server’s Finesse is older and can’t keep moment collections yet. Ask whoever runs it to update Finesse.</p>
       </div>
     )
-  return (
-    <Routes>
-      <Route index element={<CollectionsHome />} />
-      <Route path=":id" element={<CollectionPage />} />
-    </Routes>
-  )
+  return one ? <CollectionPage /> : <CollectionsHome />
 }
 
 function CollectionsHome() {
@@ -64,7 +70,8 @@ function CollectionsHome() {
   )
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
-      <h1 className="page-title">Moments</h1>
+      <Link to="/moments" className="text-[13px] font-semibold text-accent-300 hover:text-white">‹ Moments</Link>
+      <h1 className="page-title mt-1">Your collections</h1>
       <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-ink-400">
         Keep favourite moments together. Save one from the Moments bell: what’s been sent to you, or one of yours under Saved by you. A collection holds where each moment is and its note, not the video, and only you see it until you share it.
       </p>
@@ -136,7 +143,7 @@ function CollectionPage() {
       <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
         <h1 className="page-title">Collection not found</h1>
         <p className="mt-2 text-[14px] text-ink-300">{(error as Error | null)?.message ?? 'It may have been removed, or it isn’t shared with you any more.'}</p>
-        <Link to="/moments" className={`${BTN_SOFT} mt-4`}>
+        <Link to="/moments/collections" className={`${BTN_SOFT} mt-4`}>
           Back to Moments
         </Link>
       </div>
@@ -144,7 +151,7 @@ function CollectionPage() {
   const gone = c.entries.filter((e) => !e.available).length
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
-      <Link to="/moments" className="text-[13px] font-semibold text-accent-300 hover:text-white">
+      <Link to="/moments/collections" className="text-[13px] font-semibold text-accent-300 hover:text-white">
         ‹ Moments
       </Link>
       <h1 className="page-title mt-1">{c.name}</h1>
@@ -242,7 +249,7 @@ function CollectionPage() {
             try {
               await deleteMomentCollection(c.id)
               await qc.invalidateQueries({ queryKey: ['momentCollections'] })
-              navigate('/moments', { replace: true })
+              navigate('/moments/collections', { replace: true })
             } catch (err) {
               toast((err as Error).message, 'error')
               setBusy(false)

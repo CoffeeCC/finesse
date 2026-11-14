@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import Hls from 'hls.js'
+import { usePlayerUpgrade } from '../lib/playerUpgrade'
 import * as api from '../api/client'
 import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
 import { adjacentEpisodes, episodeCode } from '../lib/episodes'
@@ -28,6 +29,31 @@ import type { JfItem, JfMediaStream, JfTrickplayInfo } from '../api/types'
 const IS_FIREFOX = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent)
 
 const PROGRESS_INTERVAL_MS = 10_000
+/** How many times playback is retried after an error before the Try again screen. */
+const MAX_RECOVERIES = 4
+const recoveryWait = (tries: number) => Math.min(8000, 1000 * 2 ** (tries - 1))
+const LOST_CONNECTION = 'Couldn’t keep playing: the connection to your server dropped. Check it, then try again.'
+const CANT_PLAY = 'Couldn’t play this. Check the connection to your server, then try again, or try it on another device.'
+
+/** Puts the position in the address (?t=) without a navigation, so a reloaded tab resumes here.
+ *  The handover from another device (?from=) is dropped: it has already happened. */
+function rememberPosition(itemId: string, ticks: number) {
+  if (!(ticks > 0)) return
+  try {
+    const u = new URL(window.location.href)
+    const hashRoute = u.hash.startsWith('#/')
+    const route = new URL(hashRoute ? u.hash.slice(1) : u.pathname + u.search, 'http://x')
+    if (!route.pathname.endsWith(`/play/${itemId}`)) return
+    route.searchParams.set('t', String(Math.round(ticks)))
+    route.searchParams.delete('from')
+    route.searchParams.delete('fromName')
+    if (hashRoute) u.hash = route.pathname + route.search
+    else u.search = route.search
+    window.history.replaceState(window.history.state, '', u.toString())
+  } catch {
+    /* not worth breaking playback over */
+  }
+}
 const NEXT_CARD_FALLBACK_SECONDS = 25
 const NEXT_COUNTDOWN = 10
 
@@ -353,6 +379,10 @@ export default function PlayerPage() {
   const loadGenRef = useRef(0)
   /** While a new stream is loading: whether it should stay paused once it's up (null when not loading). */
   const loadPausedRef = useRef<boolean | null>(null)
+  /** Getting playback back after an error: tries so far, whether this title now needs a converted
+   *  stream, the pending retry, and when the last error was. */
+  const recoverRef = useRef({ tries: 0, converted: false, timer: 0, lastAt: 0 })
+  const [recovering, setRecovering] = useState(false)
 
   const [error, setError] = useState('')
   const [buffering, setBuffering] = useState(true)
@@ -574,7 +604,7 @@ export default function PlayerPage() {
   }, [])
 
   const loadStream = useCallback(
-    async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean } = {}) => {
+    async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean; convert?: boolean } = {}) => {
       const video = videoRef.current
       if (!video || !itemId) return
       const gen = ++loadGenRef.current
@@ -597,7 +627,9 @@ export default function PlayerPage() {
       try {
         const subIdx = sub === undefined || sub === -1 ? undefined : sub
         burnedInSubRef.current = subIdx !== undefined
-        const info = await api.getPlaybackInfo(itemId, atTicks, audio, subIdx, prevMediaSourceId)
+        // Once a file has failed to play as it is, this title stays on a converted stream.
+        const convert = opts.convert ?? recoverRef.current.converted
+        const info = await api.getPlaybackInfo(itemId, atTicks, audio, subIdx, prevMediaSourceId, convert)
         if (gen !== loadGenRef.current) return // superseded (episode switched / track changed again)
         const source = info.MediaSources[0]
         if (!source) throw new Error('This title has no playable file')
@@ -605,7 +637,7 @@ export default function PlayerPage() {
         let url: string
         let transcoding = false
         // Prefer HLS when burning subs or when direct play isn't offered.
-        if (source.TranscodingUrl && (subIdx !== undefined || !source.SupportsDirectPlay)) {
+        if (source.TranscodingUrl && (subIdx !== undefined || convert || !source.SupportsDirectPlay)) {
           url = api.transcodeUrl(source.TranscodingUrl)
           transcoding = true
         } else if (source.SupportsDirectPlay) {
@@ -676,14 +708,26 @@ export default function PlayerPage() {
           hls.loadSource(url)
           hls.attachMedia(video)
           hls.on(Hls.Events.ERROR, (_e, data) => {
-            if (data.fatal) {
-              setError(
-                data.details
-                  ? `Playback failed (${data.type}: ${data.details})`
-                  : `Playback failed (${data.type})`,
-              )
-              setBuffering(false)
+            if (!data.fatal) return
+            const r = recoverRef.current
+            r.lastAt = Date.now()
+            // The connection dropped: carry on loading from where it got to, a few times, waiting longer each time.
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR && r.tries < MAX_RECOVERIES) {
+              r.tries++
+              setRecovering(true)
+              window.clearTimeout(r.timer)
+              r.timer = window.setTimeout(() => hlsRef.current === hls && hls.startLoad(), recoveryWait(r.tries))
+              return
             }
+            // The browser stumbled on the picture or sound: hls.js can usually rebuild it in place.
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR && r.tries < 2) {
+              r.tries++
+              hls.recoverMediaError()
+              return
+            }
+            setRecovering(false)
+            setError(data.type === Hls.ErrorTypes.NETWORK_ERROR ? LOST_CONNECTION : CANT_PLAY)
+            setBuffering(false)
           })
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             applyResumeSeek()
@@ -700,8 +744,9 @@ export default function PlayerPage() {
           video.src = url
           repaintOverlay()
           if (resumeSec > 0) {
-            video.addEventListener('loadedmetadata', applyResumeSeek, { once: true })
-            video.addEventListener('canplay', applyResumeSeek, { once: true })
+            // Once, and only if this is still the stream on screen: changing episode before
+            // the first has loaded must not carry its resume point over to the next.
+            video.addEventListener('loadedmetadata', () => gen === loadGenRef.current && applyResumeSeek(), { once: true })
           }
           if (!stayPaused) await video.play().catch(() => {})
           if (gen === loadGenRef.current) setBuffering(false)
@@ -718,6 +763,27 @@ export default function PlayerPage() {
     },
     [itemId, report, teardownStream, applySubBlobFromRaw],
   )
+
+  const loadStreamRef = useRef(loadStream)
+  loadStreamRef.current = loadStream
+
+  // "Get a better copy" (lib/playerUpgrade): when it lands, carry on with it at this moment.
+  const upgrade = usePlayerUpgrade(item, {
+    say: (text, tone) => toast(text, tone),
+    onReady: (newId) => {
+      const at = positionTicks()
+      if (newId === itemId) {
+        recoverRef.current = { tries: 0, converted: false, timer: 0, lastAt: 0 }
+        void loadStreamRef.current(at, undefined, undefined, { paused: pausedByUserRef.current })
+      } else {
+        navigate(`/play/${newId}${at > 0 ? `?t=${at}` : ''}`, { replace: true })
+      }
+    },
+  })
+  const tracksRef = useRef({ audio: audioIndex, sub: subIndex })
+  tracksRef.current = { audio: audioIndex, sub: subIndex }
+  /** Paused by the person (not by an error): a retry after an error comes back the same way. */
+  const pausedByUserRef = useRef(false)
 
   // Per-item state resets DURING render when the episode changes in place.
   // Resetting in an effect left one committed render where the new episode ran
@@ -737,6 +803,7 @@ export default function PlayerPage() {
     setBufferedAbs(0)
     setPendingSeek(null)
     setHover(null)
+    setRecovering(false)
     setAbsTime(ticksToSeconds(startTicks))
   }
 
@@ -760,21 +827,37 @@ export default function PlayerPage() {
     subVttRawRef.current = null
     revokeSubBlob()
     lastTicks.current = startTicks ?? 0
+    window.clearTimeout(recoverRef.current.timer)
+    recoverRef.current = { tries: 0, converted: false, timer: 0, lastAt: 0 }
     loadStream(startTicks)
 
-    const progressTimer = setInterval(
-      () => report(api.reportPlaybackProgress, videoRef.current?.paused),
-      PROGRESS_INTERVAL_MS,
-    )
+    const progressTimer = setInterval(() => {
+      report(api.reportPlaybackProgress, videoRef.current?.paused)
+      // A reloaded tab (phones throw background tabs away) picks up here, not where it began.
+      if (streamRef.current?.itemId === itemId) rememberPosition(itemId!, positionTicks())
+    }, PROGRESS_INTERVAL_MS)
     let alive = true
     api.getMediaSegments(itemId!).then(
       (r) => alive && setSegments(r.Items ?? []),
       () => alive && setSegments([]),
     )
 
+    // Closing the tab or the browser: tell the server it stopped and to stop converting, with
+    // requests that are allowed to finish after the page is gone. (Leaving the player inside
+    // the app is the clean-up below.)
+    const onHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return
+      report((r) => api.reportPlaybackStopped(r, true))
+      const s = streamRef.current
+      if (s?.transcoding && s.playSessionId) void api.stopActiveEncoding(s.playSessionId, true)
+    }
+    window.addEventListener('pagehide', onHide)
+
     return () => {
       alive = false
+      window.removeEventListener('pagehide', onHide)
       clearInterval(progressTimer)
+      window.clearTimeout(recoverRef.current.timer)
       const stopped = report(api.reportPlaybackStopped)
       teardownStream(true)
       revokeSubBlob()
@@ -862,7 +945,13 @@ export default function PlayerPage() {
       // playing — the reliable "not buffering" signal. webOS Chromium 68 doesn't
       // fire 'playing'/'canplay' dependably after a mid-stream stall, so the
       // spinner would otherwise hang forever.
-      if (!v.paused) setBuffering(false)
+      if (!v.paused) {
+        setBuffering(false)
+        setRecovering(false)
+        // Playing again for a while: the next problem gets the full set of retries.
+        const r = recoverRef.current
+        if (r.tries && Date.now() - r.lastAt > 15000) r.tries = 0
+      }
       try {
         const b = v.buffered
         if (b.length) setBufferedAbs(s.offsetSec + b.end(b.length - 1))
@@ -871,6 +960,7 @@ export default function PlayerPage() {
       }
     }
     const onPlay = () => {
+      pausedByUserRef.current = false
       setPlaying(true)
       setEnded(false)
       scheduleHide()
@@ -878,6 +968,7 @@ export default function PlayerPage() {
       report(api.reportPlaybackProgress, false)
     }
     const onPause = () => {
+      if (!v.error) pausedByUserRef.current = true
       setPlaying(false)
       report(api.reportPlaybackProgress, true)
     }
@@ -888,6 +979,32 @@ export default function PlayerPage() {
       setPlaying(false)
       setEnded(true)
     }
+    // A file playing as it is failed (converted streams are hls.js's, above). A dropped connection is
+    // retried where it was; a file this browser can't decode is asked for again, converted.
+    const onError = () => {
+      const s = streamRef.current
+      const code = v.error?.code
+      if (!s || !code || code === 1 || hlsRef.current) return
+      const r = recoverRef.current
+      r.lastAt = Date.now()
+      if (r.tries >= MAX_RECOVERIES) {
+        setRecovering(false)
+        setError(code === 2 ? LOST_CONNECTION : CANT_PLAY)
+        setBuffering(false)
+        return
+      }
+      r.tries++
+      const convert = code !== 2 && !s.transcoding
+      if (convert) r.converted = true
+      setRecovering(true)
+      const { audio, sub } = tracksRef.current
+      window.clearTimeout(r.timer)
+      r.timer = window.setTimeout(
+        () => loadStreamRef.current(positionTicks(), audio, burnedInSubRef.current && sub !== -1 ? sub : undefined, { paused: pausedByUserRef.current }),
+        convert && r.tries === 1 ? 0 : recoveryWait(r.tries),
+      )
+    }
+    v.addEventListener('error', onError)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
@@ -905,8 +1022,9 @@ export default function PlayerPage() {
       v.removeEventListener('playing', onPlaying)
       v.removeEventListener('canplay', onPlaying)
       v.removeEventListener('ended', onEnded)
+      v.removeEventListener('error', onError)
     }
-  }, [report, scheduleHide])
+  }, [report, scheduleHide, positionTicks])
 
   // Buffering watchdog — the spinner's source of truth. webOS Chromium drops or
   // misorders 'playing'/'canplay'/'timeupdate' often enough that event-driven
@@ -2491,6 +2609,23 @@ export default function PlayerPage() {
                   )}
                   <PanelToggle label="Stats for nerds" on={showStats} onToggle={() => setShowStats((v) => !v)} />
                 </section>
+                {upgrade.available && (
+                  <section className="border-t border-white/5 pt-3">
+                    <button
+                      onClick={upgrade.start}
+                      disabled={upgrade.stage === 'looking' || upgrade.stage === 'downloading' || upgrade.stage === 'arriving'}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-ink-200 hover:bg-white/10 disabled:hover:bg-transparent transition-colors"
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span>Get a better copy</span>
+                        {(upgrade.stage === 'looking' || upgrade.stage === 'downloading' || upgrade.stage === 'arriving') && <span className="h-2 w-2 shrink-0 rounded-full bg-accent-400 animate-pulse" aria-hidden />}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-snug text-ink-400" role="status">
+                        {upgrade.line || 'Looks rough? Finesse finds a better one and switches to it while you watch.'}
+                      </span>
+                    </button>
+                  </section>
+                )}
               </div>
             )}
           </div>
@@ -2568,13 +2703,23 @@ export default function PlayerPage() {
         />
       )}
 
+      {recovering && !error && (
+        <div role="status" className="pointer-events-none absolute left-1/2 top-20 z-40 -translate-x-1/2 flex items-center gap-2.5 rounded-full os-glass px-4 py-2 text-sm font-medium text-white">
+          <span className="h-2 w-2 rounded-full bg-accent-400 animate-pulse" aria-hidden />
+          Reconnecting…
+        </div>
+      )}
+
       {error && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
           <p className="text-white">{error}</p>
           <div className="flex gap-3">
             <button
               autoFocus
-              onClick={() => loadStream(secondsToTicks(liveAbsSec()), audioIndex, subIndex === -1 ? undefined : subIndex)}
+              onClick={() => {
+                recoverRef.current.tries = 0
+                loadStream(secondsToTicks(liveAbsSec()), audioIndex, subIndex === -1 ? undefined : subIndex)
+              }}
               className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
             >
               Try again

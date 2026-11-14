@@ -292,6 +292,32 @@ html.tv .ambilight {
   }
 }
 
+/* Light under the glass: a soft highlight follows the pointer across a card (lib/cardLight
+   sets --mx/--my). Only the light moves; the card stays where it is. */
+@media (hover: hover) and (pointer: fine) {
+  html:not(.tv) .tilt::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background:
+      radial-gradient(60% 45% at calc(var(--mx, 0.5) * 100%) calc(var(--my, 0.3) * 100%), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.06) 45%, transparent 70%);
+    mix-blend-mode: overlay;
+  }
+  html:not(.tv) .group:hover .tilt::before { opacity: 1; }
+}
+
+/* Rest on a poster and the rest of its shelf steps back: the one you're on holds the light. */
+@media (hover: hover) and (pointer: fine) {
+  @supports selector(:has(*)) {
+    html:not(.tv) .depth-row .tilt { transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease, filter 0.4s ease; }
+    html:not(.tv):not([data-nav-mode='spatial']) .depth-row:has(.group:hover) .group:not(:hover) .tilt { opacity: 0.5; filter: saturate(0.55); }
+  }
+}
+
 /* ---------- Poster light-spill (focused card glows its own color) ---------- */
 /* A focused/hovered card casts a soft glow in its dominant color onto the
    shelf beneath it, so browsing feels alive. --spill is set per card from the
@@ -711,8 +737,13 @@ html[data-nav-mode='spatial'] .scroll-smooth {
   font-weight: 900;
   line-height: 0.73;
   letter-spacing: -0.06em;
-  color: #fff;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  /* Glass numerals: a bright outline, filled with light that fades toward the foot. */
+  color: transparent;
+  -webkit-text-stroke: 0.028em rgba(255, 255, 255, 0.95);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 8%, rgba(255, 255, 255, 0.55) 55%, rgba(255, 255, 255, 0.12) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
   pointer-events: none;
   transition: opacity 0.3s;
 }
@@ -912,6 +943,17 @@ html.tv .lv-line.leaving {
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
     0 20px 56px rgba(0, 0, 0, 0.55);
 }
+/* The phone's tab bar: always on screen, so always readable. A darker base and less colour
+   boost than .os-glass, so bright artwork under it doesn't tint it or wash out the labels. */
+.os-tabbar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)), rgba(9, 11, 17, 0.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.15);
+  backdrop-filter: blur(24px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 32px rgba(0, 0, 0, 0.5);
+}
 /* Scrolling inside a glass panel. Touch screens get no bar (it would ride the
    rounded edge); a mouse gets a thin one, inset from the edge by the panel's
    padding. The ends fade, so a cut-off card reads as "more below". */
@@ -1043,6 +1085,137 @@ html.tv .lv-line.leaving {
 }
 .os-orb.a { width: 62vw; height: 40vw; left: -14vw; bottom: -24vw; opacity: 0.4; animation: os-orb-a 18s ease-in-out infinite alternate; }
 .os-orb.b { width: 46vw; height: 32vw; right: -12vw; top: -18vw; opacity: 0.22; animation: os-orb-b 23s ease-in-out infinite alternate; }
+/* The Now row keeps the height of its largest (chosen) tile from the first paint, so the
+   hero above it doesn't jump up when a tile is chosen. */
+.os-rail { min-height: calc(clamp(240px, 74vw, 300px) * 0.5625 + 90px); }
+@media (min-width: 768px) { .os-rail { min-height: calc(clamp(270px, 24vw, 424px) * 0.5625 + 90px); } }
+@media (hover: none) { .os-rail { min-height: calc(clamp(208px, 64vw, 260px) * 0.5625 + 90px); } }
+html.tv .os-rail { min-height: 0; }
+
+/* ---------- Spotlight (Spotlight.tsx): one title, the whole width ---------- */
+.spot {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin: 0.5rem 0;
+  min-height: min(78vh, 720px);
+  display: flex;
+  align-items: flex-end;
+  background: var(--color-ink-950);
+}
+.spot-art { position: absolute; inset: -12% 0; z-index: -3; }
+.spot-art img { width: 100%; height: 100%; object-fit: cover; }
+.spot-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(90deg, rgba(8, 9, 14, 0.9) 0%, rgba(8, 9, 14, 0.55) 38%, rgba(8, 9, 14, 0) 72%),
+    linear-gradient(0deg, var(--color-ink-950) 0%, rgba(8, 9, 14, 0.5) 30%, rgba(8, 9, 14, 0) 60%),
+    linear-gradient(180deg, var(--color-ink-950) 0%, rgba(8, 9, 14, 0) 22%);
+}
+.spot-light { position: absolute; inset: 0; z-index: -1; pointer-events: none; mix-blend-mode: screen; opacity: 0.55; }
+.spot-body { position: relative; width: 100%; max-width: 1000px; padding: 3rem 1rem 3.5rem; }
+@media (min-width: 640px) { .spot-body { padding: 4rem 1.5rem 4.5rem; } }
+@media (min-width: 1024px) { .spot-body { padding: 5rem 3rem 5.5rem; } }
+.spot-title {
+  margin: 0.9rem 0 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(3rem, 9.5vw, 9.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-shadow: 0 12px 50px rgba(0, 0, 0, 0.55);
+  padding-bottom: 0.08em;
+  text-wrap: balance;
+}
+.spot-line {
+  margin-top: 1.1rem;
+  max-width: 620px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.8);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+@media (min-width: 640px) { .spot-line { font-size: 19px; } }
+.spot-actions { margin-top: 1.6rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+/* Tied to the scroll itself: the band opens from a rounded card to the full width, the
+   artwork drifts behind it, and the title is drawn in from the left as it rises. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    html:not([data-motion='reduce']) .spot {
+      animation: spotOpen linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+    html:not([data-motion='reduce']) .spot-art img {
+      animation: spotDrift linear both;
+      animation-timeline: view();
+    }
+    html:not([data-motion='reduce']) .spot-title {
+      animation: spotDraw linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+    html:not([data-motion='reduce']) .spot-line,
+    html:not([data-motion='reduce']) .spot-actions,
+    html:not([data-motion='reduce']) .spot .os-kicker {
+      animation: spotRise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 18%;
+    }
+  }
+}
+@keyframes spotOpen {
+  from { clip-path: inset(9% 7% 9% 7% round 44px); filter: brightness(0.6) saturate(0.7); }
+  to { clip-path: inset(0 0 0 0 round 0px); filter: none; }
+}
+@keyframes spotDrift {
+  from { transform: translate3d(0, -7%, 0) scale(1.08); }
+  to { transform: translate3d(0, 7%, 0) scale(1.08); }
+}
+@keyframes spotDraw {
+  from { clip-path: inset(-10% 100% -10% 0); transform: translate3d(0, 40px, 0); letter-spacing: 0.04em; }
+  to { clip-path: inset(-10% 0 -10% 0); transform: none; letter-spacing: -0.02em; }
+}
+@keyframes spotRise {
+  from { opacity: 0; transform: translate3d(0, 24px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Short windows: a tiled pane on a tiling desktop (Omarchy's Hyprland, a half-height split).
+   The stage fits the pane instead of a full screen's height, the story line steps aside and
+   the gaps tighten, so the hero, the Now row and the live line are all there without scrolling. */
+@media (max-height: 720px) and (min-width: 600px) {
+  html:not(.tv) .os-stage { min-height: calc(var(--vh) * 100); }
+  html:not(.tv) .os-top { padding-top: 4.25rem; }
+  html:not(.tv) .os-kicker { margin-bottom: 0.5rem; }
+  html:not(.tv) .os-name { height: clamp(48px, calc(var(--vh) * 12), 96px); }
+  html:not(.tv) .os-line { display: none; }
+  html:not(.tv) .os-chips { margin-top: 0.75rem; }
+  html:not(.tv) .os-actions { margin-top: 1rem; }
+  html:not(.tv) .os-btn { height: 44px; padding: 0 20px; font-size: 15px; }
+  html:not(.tv) .os-btn.icon, html:not(.tv) .os-btn.os-restart, html:not(.tv) .os-btn.os-cast { height: 44px; }
+  html:not(.tv) .os-prog { margin-top: 0.75rem; }
+  html:not(.tv) .os-rail-at { margin-top: 0.75rem; }
+}
+/* Liquid light (LiquidLight.tsx): the title's colour as drifting ribbons of light, drawn by a
+   shader over the dark side of the stage. Black adds nothing under "screen", so it only lights. */
+.os-liquid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: os-fade 1.6s ease 0.2s both;
+}
+/* When the light sits over the scrim (not under it, like the orbs it replaces). */
+.os-scrim ~ .os-orb { opacity: 0.16; }
 @keyframes os-orb-a { to { transform: translate(14vw, -4vw) scale(1.18); } }
 @keyframes os-orb-b { to { transform: translate(-10vw, 5vw) scale(0.86); } }
 
@@ -1104,6 +1277,13 @@ html.tv .lv-line.leaving {
 }
 .os-name { display: flex; align-items: flex-end; height: clamp(64px, calc(var(--vh) * 13), 132px); }
 .os-title { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-bottom: 0.06em; }
+/* The title arrives a word at a time, each rising out of its own line. */
+.os-w { display: inline-block; overflow: hidden; vertical-align: bottom; padding: 0.08em 0.03em 0.14em; margin: -0.08em -0.03em -0.14em; }
+.os-w + .os-w { margin-left: 0.2em; }
+.os-w > span { display: inline-block; animation: os-word 0.95s cubic-bezier(0.16, 0.9, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 70ms + 60ms); }
+@keyframes os-word { from { transform: translateY(108%) rotate(5deg); opacity: 0; } to { transform: none; opacity: 1; } }
+html.tv .os-w > span, html[data-motion='reduce'] .os-w > span { animation: none; }
+@media (prefers-reduced-motion: reduce) { .os-w > span { animation: none; } }
 .os-title.long {
   white-space: normal;
   font-size: clamp(1.9rem, min(4.2vw, calc(var(--vh) * 6.2)), 4.1rem);
@@ -1161,7 +1341,7 @@ html.tv .lv-line.leaving {
 .os-btn.icon { width: 48px; padding: 0; }
 @media (min-width: 640px) { .os-btn.icon { width: 56px; } }
 /* Start over next to Resume: a round icon on a phone (the row is full there), words from sm up. */
-@media (max-width: 639px) { .os-btn.os-restart { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
+@media (max-width: 639px) { .os-btn.os-restart, .os-btn.os-cast { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
 @keyframes os-breathe {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 18px 50px -14px rgba(var(--tint-rgb), 0.95); }
   50% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0), 0 22px 70px -8px rgba(var(--tint-rgb), 0.95); }
@@ -1405,3 +1585,29 @@ html.tv .os-tile .cover { width: 145px; height: 145px; }
 html.tv .os-tile.on .cover { width: 181px; height: 181px; }
 html.tv .os-tile .tgen .tsun { width: 132px; height: 132px; }
 html.tv .os-tile.on .tgen .tsun { width: 160px; height: 160px; }
+html.tv .rank-badge { color: #fff; background: none; -webkit-text-stroke: 0; filter: none; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5); }
+
+/* ---------- The Moments feed (MomentFeed.tsx) ---------- */
+/* A moment that arrives while you're looking drops in from above and glows for a breath. */
+.feed-new { animation: feedIn 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both, feedGlow 2.4s ease 0.3s both; }
+@keyframes feedIn { from { opacity: 0; transform: translateY(-18px) scale(0.98); } }
+@keyframes feedGlow { 0%, 100% { box-shadow: 0 0 0 0 rgba(117, 137, 216, 0); } 30% { box-shadow: 0 0 0 2px rgba(117, 137, 216, 0.7), 0 0 60px -10px rgba(117, 137, 216, 0.7); } }
+html.tv .feed-new, html[data-motion='reduce'] .feed-new { animation: none; }
+@media (prefers-reduced-motion: reduce) { .feed-new { animation: none; } }
+
+/* ---------- Pixel folk (PixelFolk.tsx) ---------- */
+/* A tiny canvas along the bottom edge, stretched with hard edges, behind the page's content
+   (in front of the colour wash). It never takes a click. */
+.pixel-folk {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  z-index: -1;
+  pointer-events: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  opacity: 0.9;
+  animation: os-fade 1.2s ease both;
+}

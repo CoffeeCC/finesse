@@ -97,6 +97,8 @@ export interface Settings {
   maintenance?: { lastBackup?: string; lastStackUpdate?: string; lastGraphics?: string }
   /** Where new requests go, per app: setup's profile names, and choices from Settings → Downloads (requestDefaults.ts). */
   requests?: { profiles: Record<string, string>; defaults?: Partial<Record<'radarr' | 'sonarr' | 'lidarr', import('./requestDefaults.ts').RequestDefault>> }
+  /** Stuck downloads are replaced automatically (downloadRescue.ts); on unless switched off. */
+  downloads?: { autoFix?: boolean; /** How long a stalled download gets before it's swapped (minutes; 60 unless set). */ stalledMinutes?: number; /** Which goes first when both are set up (Usenet unless set). */ prefer?: 'usenet' | 'torrent' }
   /** Groups: libraries shared between Finesse servers (see groups.ts). */
   groups?: GroupsState
   /** Parental limits per profile (lower-case Jellyfin user id), see parental.ts. */
