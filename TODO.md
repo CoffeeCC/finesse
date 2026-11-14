@@ -1,5 +1,34 @@
 # Finesse — TODO
 
+## Game store (Beta) — next release
+
+Off until an administrator turns it on in Settings → Server → Game store. Finesse comes with no
+games in it and points at no site: you choose where games come from.
+
+- **A store of PC games under Games** — a front page with shelves, browse with genre, platform
+  and player filters, a page per game, and a Requests page that follows each game from
+  "Waiting to download" to "Ready to play".
+- **Sources you add** — a source is a feed: one file that lists games and where each can be
+  downloaded. Give its address in Settings, or put the file in the `game-feeds` folder of
+  Finesse's config folder. Settings shows how many games each source gave and which were left
+  out and why. Format: `docs/game-store-feed.md`.
+- **Add a game from a file** — an installer or a zip you already have becomes a game in the
+  store and a request, with nothing downloaded.
+- **Downloads** — magnet links go through the torrent downloader Finesse set up behind its VPN,
+  and are refused while the VPN is down, saying so. Ordinary `https` downloads are fetched
+  directly and carry on after being cut off. You can pause a download and carry on later.
+  Checksums that come with a game are checked before anything else touches it.
+- **Sharing back** — a finished torrent keeps sharing until it has given back as much as it took
+  or a week has passed (both settable), then the download is removed and the game stays.
+- **Pictures come from your server** — covers and screenshots are fetched once by Finesse and
+  served from it, so browsing the store tells no outside site who's looking.
+- **Not yet: installing.** A request downloads and checks a game, then stops and says installing
+  arrives with a later update; the download is kept. The part that installs hands-off (unpack,
+  run silently, click through, or ask you) is written and tested against pretend installers, and
+  its window helper against real windows under Wine, but the sealed-off place it must run in
+  isn't built. Downloads only work on servers Finesse set up; with your own apps the store can
+  be browsed only.
+
 ## Done (2026-06-26)
 - [x] **Request feature (Jellyseerr-style)** — search + add movies/shows to the library
       from inside Finesse. Radarr/Sonarr proxied through the app's nginx with keys

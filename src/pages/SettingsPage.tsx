@@ -16,6 +16,7 @@ import { playSelect, playNav } from '../lib/sound'
 import { useFinesse } from '../lib/finesseServer'
 import { DONATE_URL, PROJECT_URL } from '../lib/project'
 import SystemPanel, { TvServerAddress } from './settings/SystemPanel'
+import GameStoreAdmin from './settings/GameStoreAdmin'
 import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
@@ -727,6 +728,7 @@ export default function SettingsPage() {
                 <GroupsAdmin />
                 <ParentalAdmin />
                 <StreamingSettings />
+                <GameStoreAdmin />
                 <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">
                   <CreateUserForm />
                   <div className="border-t border-white/5 pt-6">

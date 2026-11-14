@@ -82,3 +82,16 @@ try:
     print('invites cleared')
 except Exception as e:
     print('invite reset skipped', e)
+# The game store: on, with the demo's feed of free, open-source games (tools/tour/demo/game-feed.json).
+# Nothing in the tour requests one, so nothing is downloaded.
+try:
+    import os, shutil
+    feeds = D + '/root/config/finesse/game-feeds'
+    os.makedirs(feeds, exist_ok=True)
+    shutil.copyfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'game-feed.json'), feeds + '/Open games.json')
+    req = urllib.request.Request(F + '/api/games/store/settings', method='PUT', data=json.dumps({'enabled': True}).encode(),
+        headers={'Authorization': f'MediaBrowser Token="{KEY}"', 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        print('game store on:', json.loads(r.read()).get('games'), 'games')
+except Exception as e:
+    print('game store skipped', e)

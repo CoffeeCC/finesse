@@ -1,0 +1,36 @@
+{
+  "games": [
+    {
+      "id": "my-free-game",
+      "title": "My Free Game",
+      "summary": "A one-line pitch shown on the card.",
+      "description": "A longer description for the game's own page.",
+      "developer": "You",
+      "year": 2026,
+      "genres": ["Platformer"],
+      "modes": ["single", "local"],
+      "license": "MIT",
+      "website": "https://example.org/my-free-game",
+      "cover": "https://example.org/my-free-game/cover.jpg",
+      "downloads": [
+        {
+          "id": "win",
+          "platform": "windows",
+          "installer": "inno",
+          "sizeBytes": 52428800,
+          "version": "1.0.0",
+          "url": "https://example.org/my-free-game/my-free-game-1.0.0-setup.exe",
+          "checksums": [{ "file": "my-free-game-1.0.0-setup.exe", "algo": "sha256", "expected": "0000000000000000000000000000000000000000000000000000000000000000" }]
+        },
+        {
+          "id": "linux",
+          "platform": "linux",
+          "installer": "archive",
+          "sizeBytes": 48234496,
+          "version": "1.0.0",
+          "url": "https://example.org/my-free-game/my-free-game-1.0.0-linux-x86_64.tar.xz"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+== 01-plain  (1 file(s), 1.4M)
+   tier 1 unpack:  exit 0 in 0s, 2 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
+   tier 2 silent:  exit 0 in 8s, 4 files
+   tier 2 game:    STARTS (still running after 10 s)
+== 02-spanned  (5 file(s), 345M)
+   tier 1 unpack:  exit 0 in 2s, 5 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
+   tier 2 silent:  exit 0 in 15s, 7 files
+   tier 2 game:    STARTS (still running after 10 s)
+== 03-ultra  (1 file(s), 9.1M)
+   tier 1 unpack:  exit 0 in 1s, 3 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
+   tier 2 silent:  exit 0 in 12s, 5 files
+   tier 2 game:    STARTS (still running after 10 s)
+== 04-pages  (1 file(s), 29M)
+   tier 1 unpack:  exit 0 in 1s, 4 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
