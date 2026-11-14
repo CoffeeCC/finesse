@@ -81,6 +81,17 @@ interface CommentRow extends ReactRow {
   text: string
 }
 
+interface ActivityRow {
+  kind: 'comment' | 'reaction'
+  moment: string
+  title: string
+  server: string
+  name: string
+  /** The comment's text, or the reaction. */
+  what: string
+  created: number
+}
+
 export class SocialStore {
   private db: MomentStore['db']
 
@@ -113,6 +124,10 @@ export class SocialStore {
         created INTEGER NOT NULL,
         PRIMARY KEY (friend, ref, user)
       );
+      CREATE TABLE IF NOT EXISTS social_seen (
+        user TEXT PRIMARY KEY,
+        at INTEGER NOT NULL
+      );
     `)
   }
 
@@ -142,6 +157,27 @@ export class SocialStore {
       reactions: this.db.prepare('SELECT * FROM reactions WHERE moment = ? ORDER BY created').all(moment) as unknown as ReactRow[],
       comments: this.db.prepare('SELECT * FROM comments WHERE moment = ? ORDER BY created').all(moment) as unknown as CommentRow[],
     }
+  }
+
+  /**
+   * What other people did on the moments this person flagged here (their own comments and
+   * reactions aren't news to them), newest first, from the last 30 days.
+   */
+  activity(uid: string): { seenAt: number; rows: ActivityRow[] } {
+    const since = Date.now() - 30 * 86400e3
+    const mineOnly = `m.author_user = ? AND (m.author_server IS NULL OR m.author_server = '') AND NOT (x.server = '' AND x.user = ?) AND x.created > ?`
+    const comments = this.db
+      .prepare(`SELECT 'comment' AS kind, x.moment, m.title, x.server, x.name, x.text AS what, x.created FROM comments x JOIN moments m ON m.id = x.moment WHERE ${mineOnly} ORDER BY x.created DESC LIMIT 30`)
+      .all(uid, uid, since) as unknown as ActivityRow[]
+    const reactions = this.db
+      .prepare(`SELECT 'reaction' AS kind, x.moment, m.title, x.server, x.name, x.emoji AS what, x.created FROM reactions x JOIN moments m ON m.id = x.moment WHERE ${mineOnly} ORDER BY x.created DESC LIMIT 30`)
+      .all(uid, uid, since) as unknown as ActivityRow[]
+    const seen = this.db.prepare('SELECT at FROM social_seen WHERE user = ?').get(uid) as { at: number } | undefined
+    return { seenAt: seen?.at ?? 0, rows: [...comments, ...reactions].sort((a, b) => b.created - a.created).slice(0, 30) }
+  }
+
+  markSeen(uid: string) {
+    this.db.prepare('INSERT OR REPLACE INTO social_seen (user, at) VALUES (?, ?)').run(uid, Date.now())
   }
 
   /** Threads of moments that are gone go with them. */
@@ -276,6 +312,22 @@ export function registerMomentSocial(
   }
 
   // ---------- the app ----------
+
+  // What's new on the moments this person flagged: comments and reactions from other people
+  // (the bell). Limited profiles see only titles they may open.
+  router.get('/api/moments/activity', async ({ req, res }) => {
+    const me = await person(req)
+    const { seenAt, rows } = social.activity(me.uid)
+    const items = rows
+      .filter((r) => momentFor(me.uid, `l:${r.moment}`))
+      .map((r) => ({ kind: r.kind, key: `l:${r.moment}`, title: r.title, from: label(r), what: r.kind === 'comment' ? cleanComment(r.what) : r.what, created: r.created, fresh: r.created > seenAt }))
+    sendJson(res, 200, { items, unread: items.filter((i) => i.fresh).length })
+  })
+  router.post('/api/moments/activity/seen', async ({ req, res }) => {
+    const me = await person(req)
+    social.markSeen(me.uid)
+    sendJson(res, 200, { ok: true })
+  })
 
   // The threads of the moments on screen.
   router.get('/api/moments/social', async ({ req, res, url }) => {

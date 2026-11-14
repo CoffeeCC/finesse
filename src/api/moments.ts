@@ -50,7 +50,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const getMomentTargets = (item: string) => call<MomentTargets>('GET', `/api/moments/targets?item=${encodeURIComponent(item)}`)
 export const getItemMoments = async (item: string) => (await call<{ moments: Moment[] }>('GET', `/api/moments/item/${encodeURIComponent(item)}`)).moments
-export const getInbox = (fresh = false) => call<{ moments: InboxMoment[]; unread: number; mine?: MyMoment[] }>('GET', `/api/moments/inbox${fresh ? '?fresh=1' : ''}`)
+/** The inbox, in the shape the app expects whatever the server sent (an older or newer one, or an error page in between). */
+export const getInbox = async (fresh = false): Promise<{ moments: InboxMoment[]; unread: number; mine?: MyMoment[] }> => {
+  const d = await call<{ moments?: unknown; unread?: unknown; mine?: unknown }>('GET', `/api/moments/inbox${fresh ? '?fresh=1' : ''}`)
+  return { moments: Array.isArray(d.moments) ? (d.moments as InboxMoment[]) : [], unread: Number(d.unread) || 0, mine: Array.isArray(d.mine) ? (d.mine as MyMoment[]) : [] }
+}
 export const markMomentsRead = (keys: string[]) => call('POST', '/api/moments/read', { keys })
 export const deleteMoment = (key: string) => call('DELETE', `/api/moments/${encodeURIComponent(key)}`)
 export const sendMoment = (m: { item: string; start: number | null; end: number | null; note: string; spoiler: boolean; to: string[] }) => call<{ key: string }>('POST', '/api/moments', m)
@@ -68,6 +72,29 @@ export const getThreads = (keys: string[]) => call<{ threads: Record<string, Mom
 export const reactToMoment = async (key: string, emoji: string | null) => (await call<{ thread: MomentThread }>('POST', '/api/moments/react', { key, emoji })).thread
 export const commentOnMoment = async (key: string, text: string) => (await call<{ thread: MomentThread }>('POST', '/api/moments/comment', { key, text })).thread
 export const deleteMomentComment = async (key: string, id: string) => (await call<{ thread: MomentThread }>('POST', '/api/moments/comment/delete', { key, id })).thread
+
+/** Something someone else did on a moment you flagged. */
+export interface MomentActivity {
+  kind: 'comment' | 'reaction'
+  key: string
+  title: string
+  from: string
+  /** The comment, or the reaction. */
+  what: string
+  created: number
+  fresh: boolean
+}
+export const getActivity = async (): Promise<{ items: MomentActivity[]; unread: number }> => {
+  const d = await call<{ items?: unknown; unread?: unknown }>('GET', '/api/moments/activity')
+  return { items: Array.isArray(d.items) ? (d.items as MomentActivity[]) : [], unread: Number(d.unread) || 0 }
+}
+export const markActivitySeen = () => call('POST', '/api/moments/activity/seen')
+
+/** Comments and reactions on your moments, for the bell. Empty on a server that doesn't have them yet. */
+export function useActivity() {
+  const on = useMomentsOn()
+  return useQuery({ queryKey: ['moments', 'activity'], queryFn: getActivity, enabled: on, refetchInterval: 60_000, staleTime: 30_000, retry: false })
+}
 
 /** The threads of the moments on screen, looked at again every 15 seconds while the feed is open.
  *  On a server that doesn't have them yet (an older Finesse) this is simply empty. */

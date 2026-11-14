@@ -159,3 +159,29 @@ test('a friend’s server can’t put words in the mouth of someone here', async
   assert.equal(forged.mine, false)
   assert.equal(forged.from, 'robin · Sam’s server', 'but as Sam’s server’s word, not Robin’s own')
 })
+
+test('the bell: what other people did on your moments is news once, and your own isn’t', async () => {
+  const m = await call(A.url, 'POST', '/api/moments', 'a-admin', { item: jfA.movie, start: 60, end: 70, note: 'bell', to: ['home'] })
+  const key = String(m.data.key)
+  type Act = { items: { kind: string; key: string; from: string; what: string; title: string; fresh: boolean }[]; unread: number }
+  const activity = async (token: string) => (await call(A.url, 'GET', '/api/moments/activity', token)).data as unknown as Act
+  const mine = async () => (await activity('a-admin')).items.filter((i) => i.key === key)
+
+  await call(A.url, 'POST', '/api/moments/comment', 'a-admin', { key, text: 'my own note' })
+  assert.deepEqual(await mine(), [])
+  await call(A.url, 'POST', '/api/moments/comment', 'a-robin', { key, text: 'so good' })
+  await call(A.url, 'POST', '/api/moments/react', 'a-jo', { key, emoji: '👏' })
+  const now = await mine()
+  assert.deepEqual(now.map((i) => [i.kind, i.from, i.what, i.title, i.fresh]).sort(), [['comment', 'robin', 'so good', 'Sintel', true], ['reaction', 'jo', '👏', 'Sintel', true]].sort())
+  assert.ok((await activity('a-admin')).unread >= 2)
+  // Robin commented; that's not news for robin.
+  assert.equal((await activity('a-robin')).items.some((i) => i.key === key), false)
+
+  assert.equal((await call(A.url, 'POST', '/api/moments/activity/seen', 'a-admin')).status, 200)
+  const seen = await activity('a-admin')
+  assert.deepEqual([seen.unread, seen.items.filter((i) => i.key === key).length], [0, 2])
+  await new Promise((r) => setTimeout(r, 5))
+  await call(A.url, 'POST', '/api/moments/comment', 'a-jo', { key, text: 'again!' })
+  assert.equal((await activity('a-admin')).unread, 1)
+  assert.equal((await call(A.url, 'GET', '/api/moments/activity')).status, 401)
+})

@@ -44,7 +44,8 @@ export default defineConfig(({ mode }) => {
   const proxy: Record<string, object> = {}
   if (env.FINESSE_SERVER) {
     const target = env.FINESSE_SERVER.replace(/\/+$/, '')
-    proxy['^/finesse/(api|arr|previews|invite-api|games)(/|$)'] = { target, changeOrigin: true }
+    // Only the games API: other /games/… paths are app pages and must reload as the app.
+    proxy['^/finesse/(api|arr|previews|invite-api|games/api|games/assets|games/sgdb)(/|$)'] = { target, changeOrigin: true }
     proxy['/jellyfin'] = { target, changeOrigin: true, ws: true }
   }
   if (!env.FINESSE_SERVER && env.RADARR_KEY) {

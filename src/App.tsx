@@ -29,6 +29,7 @@ import { routeCommitted, transitionActive } from './lib/motion'
 import CastRemote from './components/CastRemote'
 import MoodWash from './components/MoodWash'
 import PixelFolk from './components/PixelFolk'
+import { Quiet } from './components/Quiet'
 import SearchOverlay from './components/SearchOverlay'
 import QuickMenu from './components/os/QuickMenu'
 import PartyInvites from './components/PartyInvites'
@@ -217,14 +218,14 @@ export default function App() {
                   </PageError>
                 </div>
               </main>
-              <MiniPlayer />
-              <CastRemote />
-              <NowPlaying />
+              <Quiet name="MiniPlayer"><MiniPlayer /></Quiet>
+              <Quiet name="CastRemote"><CastRemote /></Quiet>
+              <Quiet name="NowPlaying"><NowPlaying /></Quiet>
               <BottomTabs />
               {!IS_TV && <SearchOverlay />}
-              <QuickMenu />
-              <MomentArrivals />
-              <PartyInvites />
+              <Quiet name="QuickMenu"><QuickMenu /></Quiet>
+              <Quiet name="MomentArrivals"><MomentArrivals /></Quiet>
+              <Quiet name="PartyInvites"><PartyInvites /></Quiet>
               <ServerUpdateOverlay />
               {!__WEBOS__ && <DropToAdd />}
             </>

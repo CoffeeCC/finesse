@@ -53,6 +53,17 @@
   They take your screen apart from the bottom up to build with: each block falls to the ground
   and is carried off, with a little rubble coming loose around it. It's only a copy: move the
   mouse and your real screen is back, untouched. When the copy is all gone, it comes back too.
+- **The bell tells you when someone answers** — a comment or a reaction on a moment you flagged
+  shows under "On your moments" in the bell, with a dot until you've seen it. (For moments on
+  your own server's titles; ones you flagged on a friend's server aren't included yet.)
+- **The phone's tab bar is always readable** — a darker bar that bright posters underneath no
+  longer tint, so the labels don't fade and a Play button behind it can't be mistaken for a tab.
+- **Small extras can't take the app down** — if the Moments bell, party invites, the quick menu
+  or the mini player hits something unexpected from the server, that one piece hides and the
+  page carries on, instead of every screen saying "This page didn't load".
+- **Closing the tab stops the stream properly** — the server is told playback stopped and stops
+  converting the video, instead of carrying on for nobody for a while.
+- **Changing episode quickly** no longer starts the next one at the previous one's resume point.
 - **React and comment on moments** — six reactions (one each, change it or take it back) and
   comments under every moment in the feed. Everyone who can see a moment shares one thread,
   wherever they are: a friend's reply shows up with their server's name beside theirs. A moment

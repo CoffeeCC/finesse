@@ -27,7 +27,7 @@ export default function BottomTabs() {
     // A floating glass bar (2.0), clear of the screen's edges and the home indicator.
     <nav
       aria-label="Tabs"
-      className="vt-tabs md:hidden fixed inset-x-3 z-50 rounded-[26px] os-glass bg-ink-950/50"
+      className="vt-tabs md:hidden fixed inset-x-3 z-50 rounded-[26px] os-tabbar"
       style={{ bottom: 'max(10px, env(safe-area-inset-bottom))' }}
     >
       <div className="grid grid-cols-4">

@@ -744,8 +744,9 @@ export default function PlayerPage() {
           video.src = url
           repaintOverlay()
           if (resumeSec > 0) {
-            video.addEventListener('loadedmetadata', applyResumeSeek, { once: true })
-            video.addEventListener('canplay', applyResumeSeek, { once: true })
+            // Once, and only if this is still the stream on screen: changing episode before
+            // the first has loaded must not carry its resume point over to the next.
+            video.addEventListener('loadedmetadata', () => gen === loadGenRef.current && applyResumeSeek(), { once: true })
           }
           if (!stayPaused) await video.play().catch(() => {})
           if (gen === loadGenRef.current) setBuffering(false)
@@ -841,8 +842,20 @@ export default function PlayerPage() {
       () => alive && setSegments([]),
     )
 
+    // Closing the tab or the browser: tell the server it stopped and to stop converting, with
+    // requests that are allowed to finish after the page is gone. (Leaving the player inside
+    // the app is the clean-up below.)
+    const onHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return
+      report((r) => api.reportPlaybackStopped(r, true))
+      const s = streamRef.current
+      if (s?.transcoding && s.playSessionId) void api.stopActiveEncoding(s.playSessionId, true)
+    }
+    window.addEventListener('pagehide', onHide)
+
     return () => {
       alive = false
+      window.removeEventListener('pagehide', onHide)
       clearInterval(progressTimer)
       window.clearTimeout(recoverRef.current.timer)
       const stopped = report(api.reportPlaybackStopped)
