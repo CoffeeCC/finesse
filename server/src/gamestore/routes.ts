@@ -3,13 +3,14 @@
 // checking, installing: WS2–WS5 of docs/agents/game-store-plan.md); until one is plugged in they
 // answer 501 in plain words. Nothing here ever sends where a download comes from.
 
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type { Auth } from '../auth.ts'
 import type { SettingsStore } from '../config.ts'
 import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
-import { cleanFeedConfig, feedProvider, type Fetcher, type FeedConfig } from './feed.ts'
+import { cleanFeedConfig, feedProvider, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
 import type { CatalogueGame, CatalogueSource, GameMode, GamePlatform, StoreGameDetail, StoreQuery, StoreSort } from './types.ts'
 
 /** What turns a request into an installed game. WS2 onwards provide it. */
@@ -38,8 +39,10 @@ export interface GameStore {
   /** Reads the feeds now and twice a day while the store is on. */
   start(): void
   stop(): void
-  /** Plugged in by the pipeline when the server can download and install. */
+  /** Plugged in (wiring.ts) on servers that can download. */
   pipeline?: RequestPipeline
+  /** There's a sandbox to install in too; without one a request stops after its download is checked. */
+  installs?: boolean
 }
 
 const SORTS: StoreSort[] = ['popular', 'new', 'name', 'year']
@@ -87,10 +90,38 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   let syncing: Promise<Record<string, FeedStatus>> | null = null
   let timer: NodeJS.Timeout | null = null
 
+  // Feed files dropped into the config folder (game-feeds/*.json): the same format, read from
+  // disk. This is where a script of your own, or an agent, plugs a source in: it writes the file.
+  const filesDir = join(settings.paths.configDir, 'game-feeds')
+  const localFeeds = (): { id: string; name: string; file: string }[] => {
+    let names: string[] = []
+    try {
+      names = readdirSync(filesDir).filter((n) => n.toLowerCase().endsWith('.json')).sort()
+    } catch {
+      /* no folder: no files */
+    }
+    return names.slice(0, 50).map((n) => {
+      const name = basename(n, '.json')
+      return { id: `file-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'feed'}`, name, file: join(filesDir, n) }
+    })
+  }
+
   const syncOnce = async () => {
     const list = feeds()
-    db.keepProviders(list.map((f) => f.id))
-    for (const id of Object.keys(status)) if (!list.some((f) => f.id === id)) delete status[id]
+    const files = localFeeds()
+    const ids = [...list.map((f) => f.id), ...files.map((f) => f.id)]
+    db.keepProviders(ids)
+    for (const id of Object.keys(status)) if (!ids.includes(id)) delete status[id]
+    for (const f of files) {
+      try {
+        const feed = parseFeed(JSON.parse(readFileSync(f.file, 'utf8')), f.id)
+        db.replaceProvider(f.id, feed.entries)
+        status[f.id] = { at: new Date().toISOString(), ok: true, games: feed.entries.length, notes: feed.skipped.slice(0, 20) }
+      } catch (e) {
+        const why = e instanceof SyntaxError ? 'The file isn’t valid JSON.' : e instanceof Error ? e.message : 'The file couldn’t be read.'
+        status[f.id] = { at: new Date().toISOString(), ok: false, games: db.games().filter((g) => g.provider === f.id).length, notes: [why] }
+      }
+    }
     for (const cfg of list) {
       const provider = feedProvider(cfg, deps.get)
       try {
@@ -110,7 +141,7 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     sync: () => (syncing ??= syncOnce().finally(() => (syncing = null))),
     start() {
       if (timer) return
-      const tick = () => void (gameStoreEnabled(settings) && feeds().length ? store.sync() : null)
+      const tick = () => void (gameStoreEnabled(settings) && (feeds().length || localFeeds().length) ? store.sync() : null)
       timer = setInterval(tick, SYNC_EVERY_MS)
       timer.unref()
       tick()
@@ -120,13 +151,16 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
       timer = null
     },
   }
-  const feedList = () => feeds().map((f) => ({ ...f, status: status[f.id] ?? null }))
+  const feedList = () => [
+    ...feeds().map((f) => ({ ...f, status: status[f.id] ?? null })),
+    ...localFeeds().map((f) => ({ id: f.id, name: f.name, file: basename(f.file), status: status[f.id] ?? null })),
+  ]
 
   const on = () => {
     if (!gameStoreEnabled(settings)) throw new ApiError(404, 'The game store isn’t turned on on this server. An administrator can turn it on in Settings.')
   }
   const pipeline = (): RequestPipeline => {
-    if (!store.pipeline) throw new ApiError(501, 'This server can’t download and install games yet. Browsing works; requests come with a later update.')
+    if (!store.pipeline) throw new ApiError(501, 'This server can’t download games: that needs a server Finesse set up itself. Browsing the store still works.')
     return store.pipeline
   }
   const requestOr404 = (id: string | undefined): StoredRequest => {
@@ -135,10 +169,12 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     return r
   }
 
+  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length })
+
   // On or off (administrators). Off is the default: Finesse ships no game sources.
   router.get('/api/games/store/settings', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    sendJson(res, 200, { enabled: gameStoreEnabled(settings), canInstall: Boolean(store.pipeline), games: db.games().length })
+    sendJson(res, 200, state())
   })
   router.put('/api/games/store/settings', async ({ req, res }) => {
     await auth.requireAdmin(req)
@@ -148,7 +184,9 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     settings.update((s) => {
       s.gameStore = { ...(s.gameStore ?? {}), enabled }
     })
-    sendJson(res, 200, { enabled, canInstall: Boolean(store.pipeline), games: db.games().length })
+    // Turned on: read the feeds straight away, so the store isn't empty until the next round.
+    if (enabled) await store.sync()
+    sendJson(res, 200, state())
   })
 
   // Where the games come from: feeds an administrator adds (Finesse ships none).

@@ -120,8 +120,10 @@ before(async () => {
   servers.push(jf.server, F.app)
   // The same file the server opened: what a provider's sync would have written.
   db = new GameStoreDb(join(F.settings.paths.configDir, 'gamestore.db'))
-  db.replaceProvider('test', GAMES.map((g) => ({ game: g, sources: g.id === 'wz2100' ? [source('wz-win', 'wz2100', { checksums: [{ file: 'setup.exe', algo: 'sha256', expected: 'ab'.repeat(32) }], version: '4.5.5' }), source('wz-linux', 'wz2100', { platform: 'linux', installer: 'linux' })] : [source(`${g.id}-win`, g.id)] })))
 })
+/** What a source's sync would have written (done after the store is on: turning it on reads the feeds, which forgets anything else). */
+const seed = () =>
+  db.replaceProvider('test', GAMES.map((g) => ({ game: g, sources: g.id === 'wz2100' ? [source('wz-win', 'wz2100', { checksums: [{ file: 'setup.exe', algo: 'sha256', expected: 'ab'.repeat(32) }], version: '4.5.5' }), source('wz-linux', 'wz2100', { platform: 'linux', installer: 'linux' })] : [source(`${g.id}-win`, g.id)] })))
 after(() => {
   for (const s of servers) s.close()
 })
@@ -138,7 +140,9 @@ test('off by default: nothing to browse, and the app isn’t told there’s a st
 
 test('turned on: the front page, search, filters and a game, with nothing about where it comes from', async () => {
   const on = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { enabled: true })
-  assert.deepEqual(on.data, { enabled: true, canInstall: false, games: 5 })
+  assert.deepEqual(on.data, { enabled: true, canDownload: false, canInstall: false, games: 0 })
+  seed()
+  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data, { enabled: true, canDownload: false, canInstall: false, games: 5 })
   assert.equal(((await call(F.url, 'GET', '/api/finesse')).data.features as Record<string, boolean>).gameStore, true)
 
   const h = await call(F.url, 'GET', `${S}/home`, 't-robin')
@@ -171,7 +175,7 @@ test('requests: refused in plain words until the server can install; then one pe
   assert.deepEqual((await call(F.url, 'GET', `${S}/requests`, 't-robin')).data, [])
   const none = await call(F.url, 'POST', `${S}/requests`, 't-robin', { gameId: 'wz2100', sourceId: 'wz-win' })
   assert.equal(none.status, 501)
-  assert.match(none.data.error!, /can’t download and install games yet/)
+  assert.match(none.data.error!, /can’t download games: that needs a server Finesse set up itself/)
   assert.equal((await call(F.url, 'POST', `${S}/requests`, 't-robin', { gameId: 'wz2100', sourceId: '0ad-win' })).status, 404, 'a download of another game')
   assert.equal((await call(F.url, 'POST', `${S}/requests`, 't-robin', { gameId: 'wz2100' })).status, 400)
 
@@ -272,4 +276,22 @@ test('feeds fill the store: added, re-read, kept when unreachable, and gone when
   assert.equal((await call(F.url, 'DELETE', `${S}/feeds/mine`, 't-admin')).status, 200)
   assert.equal((await call(F.url, 'GET', `${S}/search?q=feed`, 't-robin')).data.total, 0)
   assert.equal((await call(F.url, 'DELETE', `${S}/feeds/mine`, 't-admin')).status, 404)
+})
+
+test('a feed file dropped into the config folder fills the store too, and says what’s wrong with a bad one', async () => {
+  const { mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+  const dir = join(F.settings.paths.configDir, 'game-feeds')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'My Shelf.json'), JSON.stringify({ games: [{ title: 'Shelf Game', downloads: [{ platform: 'windows', sizeBytes: 9, magnet: MAGNET }] }] }))
+  writeFileSync(join(dir, 'broken.json'), '{ not json')
+  type Feeds = { feeds: { id: string; name: string; file?: string; status: { ok: boolean; games: number; notes: string[] } }[] }
+  const synced = (await call(F.url, 'POST', `${S}/sync`, 't-admin')).data as unknown as Feeds
+  assert.deepEqual(synced.feeds.map((f) => [f.id, f.file, f.status.ok, f.status.games, f.status.notes[0]]), [
+    ['file-my-shelf', 'My Shelf.json', true, 1, undefined],
+    ['file-broken', 'broken.json', false, 0, 'The file isn’t valid JSON.'],
+  ])
+  assert.deepEqual(((await call(F.url, 'GET', `${S}/search?q=shelf`, 't-robin')).data.items as { id: string }[]).map((g) => g.id), ['file-my-shelf-shelf-game'])
+  rmSync(dir, { recursive: true })
+  await call(F.url, 'POST', `${S}/sync`, 't-admin')
+  assert.equal((await call(F.url, 'GET', `${S}/search?q=shelf`, 't-robin')).data.total, 0)
 })

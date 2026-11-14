@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { createServer, type Server } from 'node:http'
+import type { Server } from 'node:http'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { GameStoreDb } from '../src/gamestore/db.ts'
@@ -13,7 +13,8 @@ import { DirectDownloader, fileNameFrom } from '../src/gamestore/direct.ts'
 import { Pipeline, type Installer } from '../src/gamestore/pipeline.ts'
 import { QbitDownloader } from '../src/gamestore/qbit.ts'
 import type { CatalogueGame, CatalogueSource, InstallOutcome } from '../src/gamestore/types.ts'
-import { listen, tmp } from './helpers.ts'
+import { fakeQbit as startQbit } from './fakeQbit.ts'
+import { tmp } from './helpers.ts'
 
 const servers: Server[] = []
 after(() => {
@@ -23,66 +24,6 @@ after(() => {
 const MAGNET = 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'
 const game: CatalogueGame = { id: 'g1', title: 'Stand-in Game', summary: '', genres: [], modes: ['single'], platforms: ['windows'], addedAt: '2026-01-01T00:00:00.000Z', popularity: 1, provider: 't' }
 const user = { id: 'u'.repeat(32), name: 'robin' }
-
-interface FakeTorrent {
-  hash: string
-  tags: string
-  category: string
-  state: string
-  progress: number
-  dlspeed: number
-  eta: number
-  ratio: number
-  content_path: string
-}
-
-/** qBittorrent's API, as much as Finesse uses: sign-in with a cookie, add, info by tag, stop/start, delete. */
-async function fakeQbit(downloads: string) {
-  const torrents: FakeTorrent[] = []
-  const q = { torrents, connection: 'connected', up: true, logins: 0, v5: true, url: '' }
-  const server = createServer((req, res) => {
-    let body = ''
-    req.on('data', (c) => (body += c))
-    req.on('end', () => {
-      if (!q.up) return void req.socket.destroy()
-      const url = new URL(req.url!, 'http://x')
-      const form = new URLSearchParams(body)
-      const path = url.pathname.replace('/api/v2', '')
-      if (path === '/auth/login') {
-        const ok = form.get('username') === 'admin' && form.get('password') === 'pw'
-        q.logins++
-        return void res.writeHead(200, ok ? { 'Set-Cookie': 'SID=abc; HttpOnly; path=/' } : {}).end(ok ? 'Ok.' : 'Fails.')
-      }
-      if (req.headers.cookie !== 'SID=abc') return void res.writeHead(403).end('Forbidden')
-      const json = (v: unknown) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(v))
-      if (path === '/transfer/info') return void json({ connection_status: q.connection })
-      if (path === '/torrents/info') return void json(torrents.filter((t) => t.tags.split(',').includes(url.searchParams.get('tag') ?? '')))
-      if (path === '/torrents/add') {
-        const hash = /btih:([0-9a-f]+)/.exec(form.get('urls') ?? '')![1]!
-        torrents.push({ hash, tags: form.get('tags') ?? '', category: form.get('category') ?? '', state: 'metaDL', progress: 0, dlspeed: 0, eta: 8640000, ratio: 0, content_path: join(downloads, 'Stand-in Game') })
-        return void res.writeHead(200).end('Ok.')
-      }
-      const mine = torrents.filter((t) => (form.get('hashes') ?? '').split('|').includes(t.hash))
-      if (path === '/torrents/stop' || path === '/torrents/start') {
-        if (!q.v5) return void res.writeHead(404).end()
-        for (const t of mine) t.state = path.endsWith('stop') ? 'stoppedDL' : 'downloading'
-        return void res.writeHead(200).end()
-      }
-      if (path === '/torrents/pause' || path === '/torrents/resume') {
-        for (const t of mine) t.state = path.endsWith('pause') ? 'pausedDL' : 'downloading'
-        return void res.writeHead(200).end()
-      }
-      if (path === '/torrents/delete') {
-        for (const t of mine) torrents.splice(torrents.indexOf(t), 1)
-        return void res.writeHead(200).end()
-      }
-      res.writeHead(404).end()
-    })
-  })
-  servers.push(server)
-  q.url = await listen(server)
-  return q
-}
 
 /** A finished download on disk, with its own checksum list. */
 function finishedDownload(downloads: string, damaged = false) {
@@ -96,7 +37,8 @@ function finishedDownload(downloads: string, damaged = false) {
 async function world(opts: { outcome?: () => InstallOutcome; free?: number } = {}) {
   const dir = tmp()
   const downloads = join(dir, 'torrents', 'games')
-  const qbit = await fakeQbit(downloads)
+  const qbit = await startQbit(downloads)
+  servers.push(qbit.server)
   let vpn: { ok: true } | { ok: false; why: string } = { ok: true }
   const installed: string[] = []
   const removed: string[] = []
@@ -335,4 +277,63 @@ test('a direct https download: carried on after being cut off, and removed once 
   assert.equal((await new DirectDownloader(dir, get).status('r1')).state, 'done')
   await d.remove('r1', { files: true })
   assert.equal(existsSync(d.folder('r1')), false)
+})
+
+test('on a server Finesse set up, a request over the API downloads through the VPN’s downloader, is checked, and stops at “can’t install yet”', async () => {
+  const { call, fakeJellyfin, finesse } = await import('./peers.ts')
+  const { NO_SANDBOX } = await import('../src/gamestore/wiring.ts')
+  const jf = await fakeJellyfin('Home', [{ name: 'alex', token: 't-admin', admin: true }, { name: 'robin', token: 't-robin', admin: false }], 'service')
+  const F = await finesse('wired', jf, 'service')
+  const data = tmp()
+  // The apps name the data folder /data; Finesse finds it at the real folder.
+  const qbit = await startQbit('/data/torrents/games')
+  servers.push(jf.server, F.app, qbit.server)
+  const S = '/api/games/store'
+  const tick = () => (F.deps.gameStore!.pipeline as Pipeline).tick()
+
+  await call(F.url, 'PUT', `${S}/settings`, 't-admin', { enabled: true })
+  F.deps.gameStore!.db.replaceProvider('t', [{ game, sources: [{ id: 's1', gameId: 'g1', platform: 'windows', installer: 'inno', sizeBytes: 1000, magnet: MAGNET }] }])
+  // Someone's own apps (adopt): no data folder, no VPN of Finesse's: no downloads.
+  assert.equal((await call(F.url, 'POST', `${S}/requests`, 't-robin', { gameId: 'g1', sourceId: 's1' })).status, 501)
+
+  // A server Finesse set up, without a VPN: torrents are refused, saying why.
+  F.settings.update((s) => {
+    s.mode = 'bundle'
+    s.stack = { hostRoot: data, hostData: data, timezone: 'UTC', puid: 1000, pgid: 1000, services: ['qbittorrent'] }
+    s.services.qbittorrent = { url: qbit.url, username: 'admin', password: 'pw' }
+  })
+  const noVpn = await call(F.url, 'POST', `${S}/requests`, 't-robin', { gameId: 'g1', sourceId: 's1' })
+  assert.equal(noVpn.status, 503)
+  assert.match(noVpn.data.error!, /only go through a VPN Finesse set up/)
+  assert.equal(qbit.torrents.length, 0)
+
+  F.settings.update((s) => {
+    s.stack!.vpn = { provider: 'custom' } as never
+  })
+  const st = (await call(F.url, 'GET', `${S}/settings`, 't-admin')).data
+  assert.deepEqual([st.canDownload, st.canInstall], [true, false])
+  const made = await call(F.url, 'POST', `${S}/requests`, 't-robin', { gameId: 'g1', sourceId: 's1' })
+  assert.equal(made.status, 201)
+  const id = made.data.id as string
+  // Asking again shows the one already going.
+  assert.equal((await call(F.url, 'POST', `${S}/requests`, 't-admin', { gameId: 'g1', sourceId: 's1' })).data.id, id)
+  await tick()
+  assert.equal(qbit.torrents.length, 1)
+
+  finishedDownload(join(data, 'torrents', 'games'))
+  Object.assign(qbit.torrents[0]!, { state: 'uploading', progress: 1 })
+  let now = ''
+  for (let i = 0; i < 50 && now !== 'failed'; i++) {
+    await tick()
+    await new Promise((r) => setTimeout(r, 5))
+    now = ((await call(F.url, 'GET', `${S}/requests`, 't-robin')).data as unknown as { state: string }[])[0]!.state
+  }
+  const list = (await call(F.url, 'GET', `${S}/requests`, 't-robin')).data as unknown as Record<string, unknown>[]
+  assert.deepEqual([list[0]!.state, list[0]!.detail, list[0]!.requestedBy], ['failed', NO_SANDBOX, 'robin'])
+  assert.equal(/magnet|btih|folder|\/data\//.test(JSON.stringify(list)), false)
+
+  // Cancelled by whoever asked: the download and its files go.
+  assert.equal((await call(F.url, 'DELETE', `${S}/requests/${id}`, 't-robin')).status, 200)
+  assert.deepEqual([qbit.torrents.length, (await call(F.url, 'GET', `${S}/requests`, 't-robin')).data], [0, []])
+  ;(F.deps.gameStore!.pipeline as Pipeline).halt()
 })

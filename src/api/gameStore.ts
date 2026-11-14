@@ -305,3 +305,42 @@ const serverStore: GameStoreApi = {
     return u.toString()
   },
 }
+
+// ---------- Settings → Server → Game store (administrators) ----------
+
+/** How a source's last read went. */
+export interface FeedStatus {
+  at: string
+  ok: boolean
+  games: number
+  /** Why it failed, or which games were left out, in words. */
+  notes: string[]
+}
+
+/** A source of games: a feed at an address, or a feed file in the server's config folder. */
+export interface StoreFeed {
+  id: string
+  name: string
+  url?: string
+  /** A file in the config folder's game-feeds folder (removed by deleting the file). */
+  file?: string
+  status: FeedStatus | null
+}
+
+export interface StoreSettings {
+  enabled: boolean
+  /** This server can download games (browsing works without). */
+  canDownload: boolean
+  /** It can install them too; without that a request stops once its download is checked. */
+  canInstall: boolean
+  games: number
+}
+
+export const gameStoreAdmin = {
+  settings: () => call<StoreSettings>('GET', '/settings'),
+  setEnabled: (enabled: boolean) => call<StoreSettings>('PUT', '/settings', { enabled }),
+  feeds: () => call<{ feeds: StoreFeed[] }>('GET', '/feeds').then((r) => r.feeds),
+  addFeed: (name: string, url: string) => call<{ feeds: StoreFeed[] }>('POST', '/feeds', { name, url }).then((r) => r.feeds),
+  removeFeed: (id: string) => call<{ feeds: StoreFeed[] }>('DELETE', `/feeds/${encodeURIComponent(id)}`).then((r) => r.feeds),
+  sync: () => call<{ feeds: StoreFeed[] }>('POST', '/sync').then((r) => r.feeds),
+}

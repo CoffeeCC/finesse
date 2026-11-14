@@ -18,6 +18,8 @@ export interface QbitDeps {
    * qBittorrent is locked to on Windows. Words when not.
    */
   vpn(): { ok: true; adapter?: string } | { ok: false; why: string }
+  /** Where game downloads are saved, as qBittorrent names it. */
+  savePath?(): string | null
   /** A folder as qBittorrent names it → as Finesse reads it. */
   localPath?(appPath: string): string | null
   fetch?: typeof fetch
@@ -111,7 +113,10 @@ export class QbitDownloader implements Downloader {
     if (await this.torrent(job.id)) return
     const ready = await this.available()
     if (!ready.ok) throw new Error(ready.why)
-    const r = await this.call('/torrents/add', { urls: job.magnet, category: GAMES_CATEGORY, tags: tag(job.id), paused: 'false', stopped: 'false' })
+    const savePath = this.deps.savePath?.() ?? ''
+    // The category keeps game downloads in a folder of their own; it's made once (409 = already there).
+    await this.call('/torrents/createCategory', { category: GAMES_CATEGORY, savePath }).catch(() => null)
+    const r = await this.call('/torrents/add', { urls: job.magnet, category: GAMES_CATEGORY, tags: tag(job.id), paused: 'false', stopped: 'false', ...(savePath ? { savepath: savePath } : {}) })
     const body = await r.text()
     if (!r.ok || /fails/i.test(body)) throw new Error('The downloader wouldn’t take this download.')
   }
