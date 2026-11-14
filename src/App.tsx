@@ -59,6 +59,11 @@ const AlbumPage = lazyPage(() => import('./pages/AlbumPage'))
 const GamesPage = lazyPage(() => import('./pages/GamesPage'))
 const GameDetailPage = lazyPage(() => import('./pages/GameDetailPage'))
 const PlayGamePage = lazyPage(() => import('./pages/PlayGamePage'))
+const GameStorePage = lazyPage(() => import('./pages/GameStorePage'))
+const GameStoreBrowsePage = lazyPage(() => import('./pages/GameStoreBrowsePage'))
+const GameStoreGamePage = lazyPage(() => import('./pages/GameStoreGamePage'))
+const GameRequestsPage = lazyPage(() => import('./pages/GameRequestsPage'))
+const GameInstallerPage = lazyPage(() => import('./pages/GameInstallerPage'))
 const StreamPlayPage = lazyPage(() => import('./pages/StreamPlayPage'))
 const FriendsPage = lazyPage(() => import('./pages/FriendsPage'))
 const RemotePage = lazyPage(() => import('./pages/RemotePage'))
@@ -191,6 +196,11 @@ export default function App() {
                     <Route path="/album/:albumId" element={<AlbumPage />} />
                     <Route path="/games" element={<GamesPage />} />
                     <Route path="/games/game/:romId" element={<GameDetailPage />} />
+                    <Route path="/games/store" element={<GameStorePage />} />
+                    <Route path="/games/store/browse" element={<GameStoreBrowsePage />} />
+                    <Route path="/games/store/game/:gameId" element={<GameStoreGamePage />} />
+                    <Route path="/games/store/requests" element={<GameRequestsPage />} />
+                    <Route path="/games/store/requests/:requestId/installer" element={<GameInstallerPage />} />
                     <Route path="/search" element={<SearchPage />} />
                     <Route path="/request" element={<RequestPage />} />
                     <Route path="/request/movie/:tmdbId" element={<RequestMoviePage />} />

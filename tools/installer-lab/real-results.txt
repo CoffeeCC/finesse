@@ -1,0 +1,19 @@
+== warzone2100: warzone2100_win_installer.exe (inno)
+   tier 1 unpack:  innoextract, exit 2 in 0s, 0 files, 512
+   tier 2 command: wine warzone2100_win_installer.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /ALLUSERS /DIR=C:\Games\warzone2100 /LOG=C:\setup.log
+   tier 2 silent:  exit 0 in 12s, 222 files in Games/warzone2100
+   tier 2 program: Games/warzone2100/bin/warzone2100.exe
+   tier 2 game:    STARTS (still running after 20 s)
+   RESULT: ready, by a silent install
+== supertux: SuperTux-v0.7.0-win64.msi (msi)
+   tier 1 unpack:  msiextract, exit 0 in 2s, 5215 files, 2.7M
+   tier 1 program: SuperTux/bin/supertux2.exe
+   tier 1 game:    STARTS (still running after 20 s)
+   RESULT: ready, by unpacking (the installer never ran)
+== 0ad: 0ad-0.28.0-win64.exe (nsis)
+   tier 1 unpack:  7z, exit 2 in 0s, 0 files, 512
+   tier 2 command: wine 0ad-0.28.0-win64.exe /S /D=C:\Games\0ad
+   tier 2 silent:  exit 0 in 80s, 144 files in Games/0ad
+   tier 2 program: Games/0ad/binaries/system/pyrogenesis.exe
+   tier 2 game:    STARTS (still running after 20 s)
+   RESULT: ready, by a silent install

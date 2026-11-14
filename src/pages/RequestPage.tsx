@@ -18,6 +18,7 @@ import {
   type DiscoverSection,
 } from '../api/arr'
 import { noteRequested } from '../api/queries'
+import { useStoreMode } from '../api/gameStoreQueries'
 import { discoverStatus } from '../lib/requestState'
 import { lookupTitles, matchesTerm } from '../lib/discovery'
 import ArrThumb from '../components/ArrThumb'
@@ -52,6 +53,7 @@ export default function RequestPage() {
 
 function RequestPageInner() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const storeMode = useStoreMode()
   const term = searchParams.get('q') ?? ''
   const kindParam = searchParams.get('kind') as ArrKind
   const kind = KINDS.some((k) => k.kind === kindParam) ? kindParam : 'movie'
@@ -164,6 +166,11 @@ function RequestPageInner() {
                 {k.label}
               </button>
             ))}
+            {storeMode && (
+              <Link to="/games/store" className="px-4 py-1.5 rounded-full text-sm font-medium text-ink-300 hover:text-white transition-colors">
+                Games
+              </Link>
+            )}
           </div>
         </div>
 
