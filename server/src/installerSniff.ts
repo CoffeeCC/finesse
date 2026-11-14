@@ -27,6 +27,12 @@ export interface Sniffed {
   notes: string[]
 }
 
+/** A Windows program with nothing packed into it: the game itself, not an installer. */
+export function looksPortable(s: Sniffed): boolean {
+  return s.kind === 'unknown' && /^Windows (console )?program$/.test(s.format) && !s.notes.some((n) => n.startsWith(UNKNOWN_PAYLOAD))
+}
+const UNKNOWN_PAYLOAD = 'A large block of data is appended'
+
 /** How much of the start of the file, and of the overlay, is read. */
 const HEAD = 8 * 1024 * 1024
 const OVERLAY = 1024 * 1024
@@ -129,7 +135,7 @@ function sniffWindows(head: Buffer, size: number, overlay: Buffer | undefined): 
   const sfx = payload ? (archiveFormat(tail) ?? archiveFormat(tail.subarray(0, 4096), true)) : null
   if (sfx) return { kind: 'archive', format: `Self-extracting ${sfx.format}`, arch, unpack: '7z', notes }
   if (payload > 1024 * 1024)
-    notes.push('A large block of data is appended that Finesse doesn’t recognise: probably an installer it doesn’t know.')
+    notes.push(`${UNKNOWN_PAYLOAD} that Finesse doesn’t recognise: probably an installer it doesn’t know.`)
   return { kind: 'unknown', format: pe.gui ? 'Windows program' : 'Windows console program', arch, notes }
 }
 

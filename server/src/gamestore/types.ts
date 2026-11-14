@@ -183,9 +183,9 @@ export interface SurveyedFile {
 
 export interface InstallStep {
   tier: Tier
-  /** unpack: the tool, and the file it opens. */
-  tool?: UnpackTool
-  file?: string
+  /** unpack: the tool ('copy' when the download already is the game), and the files it opens. */
+  tool?: UnpackTool | 'copy'
+  files?: string[]
   /** silent / auto-click: the installer and its switches (<dir> and <log> are filled in by the runner). */
   command?: string[]
   /** Why this step is here, in plain words (shown in the request's log). */
@@ -201,6 +201,14 @@ export interface InstallPlan {
   linux: boolean
   steps: InstallStep[]
   notes: string[]
+}
+
+export interface JobFile {
+  /** Relative to the folder asked for, forward slashes. */
+  path: string
+  size: number
+  /** Marked as a program (Linux builds have no file ending to go by). */
+  executable?: boolean
 }
 
 /** A top-level window on the sandbox's screen, as the window helper reports it. */
@@ -222,6 +230,8 @@ export interface RunResult {
   hung: boolean
   /** The tail of the tool's or the installer's own log. */
   log: string
+  /** Where the game ended up, when the installer didn't put it where it was told. */
+  dir?: string
 }
 
 export interface LaunchResult {
@@ -245,11 +255,19 @@ export interface SandboxRunner {
   supports(tool: UnpackTool): { maxVersion?: string }
   /** What's inside, without unpacking (innoextract --list, 7z l). Empty when the tool can't say. */
   list(tool: UnpackTool, file: string): Promise<string[]>
-  unpack(tool: UnpackTool, file: string, into: string, onProgress?: (bytes: number) => void): Promise<RunResult>
-  /** Run an installer (or a Linux install script). Stops everything in the sandbox on a hang. */
-  install(command: string[], opts: { hangAfterMs: number; onProgress?: (bytes: number) => void }): Promise<RunResult>
+  /** Unpack (or, with 'copy', copy) a file into a folder of the job. Runs nothing from the download. */
+  unpack(tool: UnpackTool | 'copy', file: string, into: string, onProgress?: (bytes: number) => void): Promise<RunResult>
+  /**
+   * Run an installer (or a Linux install script). In the command, <dir> is the install folder
+   * and <log> a file for the installer's own log; the runner fills both in. With hangAfterMs,
+   * everything in the sandbox is stopped once nothing has happened for that long. `shown` runs
+   * it with its windows (for clicking through it); without, there's nobody to see them.
+   */
+  install(command: string[], opts: { hangAfterMs?: number; shown?: boolean; onProgress?: (bytes: number) => void }): Promise<RunResult>
   /** Every file under a folder of the job (after unpacking or installing). */
-  files(dir: string): Promise<{ path: string; size: number }[]>
+  files(dir: string): Promise<JobFile[]>
+  /** Empty a folder of the job (between one way of installing and the next). */
+  clear(dir: string): Promise<void>
   /** Start a program and report what's on screen after it settles (or it exits). */
   launch(program: string, opts: { waitMs: number }): Promise<LaunchResult>
   /** The windows on screen now, and clicking a button in one by its label. */
