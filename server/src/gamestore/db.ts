@@ -18,6 +18,15 @@ export interface StoredRequest extends GameRequest {
   screenshot?: string
   /** What a person has to answer, when it needs them. */
   waitingOn?: string
+  /** The download as it was when asked for (a feed may drop the game before it's done). Never sent out. */
+  source?: CatalogueSource
+  /** It was handed to the downloader. */
+  added?: boolean
+  /** Where the finished download is, as Finesse reads it. */
+  folder?: string
+  readyAt?: string
+  /** The download was removed once it had been shared back enough (the game stays). */
+  downloadRemoved?: boolean
 }
 
 export interface RequestEvent {
@@ -101,6 +110,12 @@ export class GameStoreDb {
     }
   }
 
+  /** Forgets the games of providers that aren't set up any more. */
+  keepProviders(ids: string[]) {
+    const gone = (this.db.prepare('SELECT DISTINCT provider FROM store_game').all() as { provider: string }[]).map((r) => r.provider).filter((p) => !ids.includes(p))
+    for (const p of gone) this.replaceProvider(p, [])
+  }
+
   games(): CatalogueGame[] {
     return (this.db.prepare('SELECT data FROM store_game').all() as { data: string }[]).map((r) => json<CatalogueGame | null>(r.data, null)).filter((g): g is CatalogueGame => g !== null)
   }
@@ -165,6 +180,6 @@ export function publicSource(s: CatalogueSource): StoreSource {
 
 /** What a browser may know of a request: not who asked by id, nor where things are on disk. */
 export function publicRequest(r: StoredRequest): GameRequest {
-  const { userId: _u, installDir: _d, program: _p, screenshot: _s, waitingOn: _w, ...pub } = r
+  const { userId: _u, installDir: _d, program: _p, screenshot: _s, waitingOn: _w, source: _src, added: _a, folder: _f, readyAt: _r, downloadRemoved: _g, ...pub } = r
   return pub
 }

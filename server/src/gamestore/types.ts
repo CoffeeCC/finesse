@@ -154,11 +154,14 @@ export interface DownloadStatus {
   folder?: string
   /** Why, in the downloader's words, when state is error. */
   reason?: string
+  /** Uploaded ÷ downloaded so far (torrents). */
+  ratio?: number
 }
 
 export interface Downloader {
   /** Whether it can take a download right now (the VPN is up, it answers), and why not. */
   available(): Promise<{ ok: true } | { ok: false; why: string }>
+  /** Start a download. Adding one that's already there changes nothing (and carries it on after a restart). */
   add(job: { id: string; magnet?: string; url?: string; sizeBytes: number }): Promise<void>
   status(id: string): Promise<DownloadStatus>
   pause(id: string): Promise<void>

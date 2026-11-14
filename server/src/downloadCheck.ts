@@ -129,7 +129,7 @@ export function describeChecks(checks: FileCheck[]): { ok: boolean; genuine: boo
   const bad = checks.filter((c) => c.result !== 'ok')
   const genuine = checks.some((c) => c.source === 'store' && c.result === 'ok')
   if (!bad.length)
-    return { ok: true, genuine, text: `All ${checks.length} checksum${checks.length === 1 ? '' : 's'} match${genuine ? ', including the store’s' : ''}.` }
+    return { ok: true, genuine, text: checks.length === 1 ? `Its checksum matches${genuine ? ' the store’s' : ''}.` : `All ${checks.length} checksums match${genuine ? ', including the store’s' : ''}.` }
   const first = bad[0]!
   const what = first.result === 'missing' ? `${basename(first.file)} is missing` : `${basename(first.file)} doesn’t match its checksum`
   return { ok: false, genuine: false, text: `${what}${bad.length > 1 ? ` (and ${bad.length - 1} more)` : ''}. It may be damaged or incomplete: re-check the download, or try again.` }

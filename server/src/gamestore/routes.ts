@@ -9,6 +9,7 @@ import type { SettingsStore } from '../config.ts'
 import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
+import { cleanFeedConfig, feedProvider, type Fetcher, type FeedConfig } from './feed.ts'
 import type { CatalogueGame, CatalogueSource, GameMode, GamePlatform, StoreGameDetail, StoreQuery, StoreSort } from './types.ts'
 
 /** What turns a request into an installed game. WS2 onwards provide it. */
@@ -21,8 +22,22 @@ export interface RequestPipeline {
   installerDone(r: StoredRequest): Promise<StoredRequest>
 }
 
+/** How a feed's last read went (Settings shows it). */
+export interface FeedStatus {
+  at: string
+  ok: boolean
+  games: number
+  /** Why it failed, or which games were left out, in words. */
+  notes: string[]
+}
+
 export interface GameStore {
   db: GameStoreDb
+  /** Reads every feed into the catalogue. Never throws: each feed's status says how it went. */
+  sync(): Promise<Record<string, FeedStatus>>
+  /** Reads the feeds now and twice a day while the store is on. */
+  start(): void
+  stop(): void
   /** Plugged in by the pipeline when the server can download and install. */
   pipeline?: RequestPipeline
 }
@@ -62,10 +77,50 @@ export function gameStoreEnabled(settings: SettingsStore): boolean {
   return settings.get().gameStore?.enabled === true
 }
 
-export function registerGameStore(router: Router, deps: { settings: SettingsStore; auth: Auth; db?: GameStoreDb }): GameStore {
+const SYNC_EVERY_MS = 12 * 60 * 60 * 1000
+
+export function registerGameStore(router: Router, deps: { settings: SettingsStore; auth: Auth; db?: GameStoreDb; get?: Fetcher }): GameStore {
   const { settings, auth } = deps
-  const store: GameStore = { db: deps.db ?? new GameStoreDb(join(settings.paths.configDir, 'gamestore.db')) }
-  const db = store.db
+  const db = deps.db ?? new GameStoreDb(join(settings.paths.configDir, 'gamestore.db'))
+  const feeds = (): FeedConfig[] => settings.get().gameStore?.feeds ?? []
+  const status: Record<string, FeedStatus> = {}
+  let syncing: Promise<Record<string, FeedStatus>> | null = null
+  let timer: NodeJS.Timeout | null = null
+
+  const syncOnce = async () => {
+    const list = feeds()
+    db.keepProviders(list.map((f) => f.id))
+    for (const id of Object.keys(status)) if (!list.some((f) => f.id === id)) delete status[id]
+    for (const cfg of list) {
+      const provider = feedProvider(cfg, deps.get)
+      try {
+        const entries = []
+        for await (const e of provider.list()) entries.push(e)
+        db.replaceProvider(cfg.id, entries)
+        status[cfg.id] = { at: new Date().toISOString(), ok: true, games: entries.length, notes: provider.skipped.slice(0, 20) }
+      } catch (e) {
+        // A feed that can't be read keeps the games it gave last time.
+        status[cfg.id] = { at: new Date().toISOString(), ok: false, games: db.games().filter((g) => g.provider === cfg.id).length, notes: [e instanceof Error ? e.message : 'The feed couldn’t be read.'] }
+      }
+    }
+    return status
+  }
+  const store: GameStore = {
+    db,
+    sync: () => (syncing ??= syncOnce().finally(() => (syncing = null))),
+    start() {
+      if (timer) return
+      const tick = () => void (gameStoreEnabled(settings) && feeds().length ? store.sync() : null)
+      timer = setInterval(tick, SYNC_EVERY_MS)
+      timer.unref()
+      tick()
+    },
+    stop() {
+      if (timer) clearInterval(timer)
+      timer = null
+    },
+  }
+  const feedList = () => feeds().map((f) => ({ ...f, status: status[f.id] ?? null }))
 
   const on = () => {
     if (!gameStoreEnabled(settings)) throw new ApiError(404, 'The game store isn’t turned on on this server. An administrator can turn it on in Settings.')
@@ -94,6 +149,41 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
       s.gameStore = { ...(s.gameStore ?? {}), enabled }
     })
     sendJson(res, 200, { enabled, canInstall: Boolean(store.pipeline), games: db.games().length })
+  })
+
+  // Where the games come from: feeds an administrator adds (Finesse ships none).
+  router.get('/api/games/store/feeds', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    sendJson(res, 200, { feeds: feedList() })
+  })
+  router.post('/api/games/store/feeds', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    let cfg: FeedConfig
+    try {
+      cfg = cleanFeedConfig(await readJson(req), feeds().map((f) => f.id))
+    } catch (e) {
+      throw new ApiError(400, e instanceof Error ? e.message : 'That feed can’t be added.')
+    }
+    if (feeds().length >= 20) throw new ApiError(400, 'That’s the most feeds one server can have (20). Remove one first.')
+    settings.update((s) => {
+      s.gameStore = { ...(s.gameStore ?? {}), feeds: [...(s.gameStore?.feeds ?? []), cfg] }
+    })
+    await store.sync()
+    sendJson(res, 201, { feeds: feedList() })
+  })
+  router.delete('/api/games/store/feeds/:id', async ({ req, res, params }) => {
+    await auth.requireAdmin(req)
+    if (!feeds().some((f) => f.id === params.id)) throw new ApiError(404, 'That feed isn’t here any more.')
+    settings.update((s) => {
+      s.gameStore = { ...(s.gameStore ?? {}), feeds: (s.gameStore?.feeds ?? []).filter((f) => f.id !== params.id) }
+    })
+    await store.sync()
+    sendJson(res, 200, { feeds: feedList() })
+  })
+  router.post('/api/games/store/sync', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    await store.sync()
+    sendJson(res, 200, { feeds: feedList() })
   })
 
   // ---------- browsing ----------

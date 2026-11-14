@@ -104,7 +104,7 @@ export interface Settings {
   /** What Finesse changed in each limited profile's Jellyfin policy, so lifting the limit undoes only that (parental.ts). */
   parentalJellyfin?: Record<string, import('./parental.ts').JfPolicyNote>
   /** The game store (server/src/gamestore): off until an administrator turns it on. */
-  gameStore?: { enabled?: boolean }
+  gameStore?: { enabled?: boolean; feeds?: import('./gamestore/feed.ts').FeedConfig[] }
   /** Moments (server/src/moments.ts): friends' servers may send them here (default yes). */
   momentsFromFriends?: boolean
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */

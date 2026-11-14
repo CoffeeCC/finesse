@@ -56,7 +56,7 @@ test('checks files beside the list, and from a list in a subfolder', async () =>
 test('only a store checksum makes a download genuine', async () => {
   const dir = folder({ 'game.exe': 'g', 'game.exe.md5': `${md5('g')}  game.exe\n` })
   try {
-    assert.deepEqual(describeChecks(await verifyDownload(dir)), { ok: true, genuine: false, text: 'All 1 checksum match.' })
+    assert.deepEqual(describeChecks(await verifyDownload(dir)), { ok: true, genuine: false, text: 'Its checksum matches.' })
     const withStore = await verifyDownload(dir, { store: [{ file: 'game.exe', algo: 'sha256', expected: sha256('g') }] })
     assert.equal(describeChecks(withStore).genuine, true)
     assert.match(describeChecks(withStore).text, /including the store’s/)

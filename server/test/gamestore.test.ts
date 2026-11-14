@@ -191,3 +191,85 @@ test('requests: refused in plain words until the server can install; then one pe
   assert.equal((await call(F.url, 'POST', `${S}/requests/r1/retry`, 't-robin')).status, 403)
   assert.equal((await call(F.url, 'POST', `${S}/requests/r1/retry`, 't-admin')).status, 501, 'an administrator may')
 })
+
+// ---------- feeds ----------
+
+test('a feed is read strictly: only magnets and https, sizes and platforms required, nothing trusted', async () => {
+  const { parseFeed, cleanFeedConfig } = await import('../src/gamestore/feed.ts')
+  const example = JSON.parse(readFileSync(join(import.meta.dirname, '../../examples/game-store/feed.json'), 'utf8'))
+  const ex = parseFeed(example, 'mine')
+  assert.deepEqual([ex.entries.length, ex.skipped, ex.entries[0]!.game.id, ex.entries[0]!.game.platforms, ex.entries[0]!.sources.map((s) => s.id)], [1, [], 'mine-my-free-game', ['windows', 'linux'], ['mine-my-free-game-win', 'mine-my-free-game-linux']])
+
+  const dl = (more: Record<string, unknown>) => ({ platform: 'windows', sizeBytes: 10, url: 'https://example.org/a.exe', ...more })
+  const f = parseFeed(
+    {
+      games: [
+        { title: 'Good', cover: 'javascript:alert(1)', website: 'http://example.org', screenshots: ['https://example.org/1.jpg', 'file:///etc/passwd'], modes: ['online', 'bogus'], year: 'soon', downloads: [dl({ magnet: MAGNET, installer: 'made-up', checksums: [{ file: '../x', algo: 'sha256', expected: 'ab'.repeat(32) }, { file: 'a.exe', algo: 'sha256', expected: 'zz' }, { file: 'a.exe', algo: 'md5', expected: 'AB'.repeat(16) }] })] },
+        { title: 'Good' },
+        { title: 'Plain http', downloads: [dl({ url: 'http://example.org/a.exe' })] },
+        { title: 'Not a magnet', downloads: [dl({ url: undefined, magnet: 'magnet:?dn=nothing' })] },
+        { title: 'No size', downloads: [dl({ sizeBytes: 'big' })] },
+        { title: 'Mac only', downloads: [dl({ platform: 'mac' })] },
+        { summary: 'No title' },
+        'nonsense',
+      ],
+    },
+    'f',
+  )
+  assert.deepEqual(f.entries.map((e) => e.game.title), ['Good'])
+  const g = f.entries[0]!
+  assert.deepEqual([g.game.cover, g.game.website, g.game.screenshots, g.game.modes, g.game.year], [undefined, undefined, ['https://example.org/1.jpg'], ['online'], undefined])
+  assert.deepEqual([g.sources[0]!.magnet, g.sources[0]!.url, g.sources[0]!.installer, g.sources[0]!.checksums], [MAGNET, undefined, 'unknown', [{ file: 'a.exe', algo: 'md5', expected: 'ab'.repeat(16) }]])
+  assert.equal(f.skipped.length, 7)
+  assert.throws(() => parseFeed({ nope: 1 }, 'f'), /didn’t give a game feed/)
+
+  assert.deepEqual(cleanFeedConfig({ name: 'Free Games!', url: 'https://example.org/feed.json' }), { id: 'free-games', name: 'Free Games!', url: 'https://example.org/feed.json' })
+  assert.throws(() => cleanFeedConfig({ name: 'x', url: 'ftp://example.org' }), /must start with https/)
+  assert.throws(() => cleanFeedConfig({ name: 'x', url: 'http://example.org/feed.json' }), /must start with https/)
+  assert.equal(cleanFeedConfig({ name: 'Home', url: 'http://192.168.1.5/feed.json' }).id, 'home')
+  assert.throws(() => cleanFeedConfig({ name: 'Home', url: 'https://example.org' }, ['home']), /already a feed/)
+})
+
+test('feeds fill the store: added, re-read, kept when unreachable, and gone when removed', async () => {
+  const { createServer } = await import('node:http')
+  const { listen } = await import('./helpers.ts')
+  let doc: unknown = { games: [{ title: 'Feed Game', genres: ['Puzzle'], downloads: [{ platform: 'linux', sizeBytes: 5, url: 'https://example.org/g.tar.xz' }] }, { title: 'No download' }] }
+  let up = true
+  const feed = createServer((_req, res) => {
+    if (!up) return void res.writeHead(503).end()
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(doc))
+  })
+  servers.push(feed)
+  const url = `${await listen(feed)}/feed.json`
+  type Feeds = { feeds: { id: string; status: { ok: boolean; games: number; notes: string[] } }[] }
+
+  assert.equal((await call(F.url, 'POST', `${S}/feeds`, 't-robin', { name: 'Mine', url })).status, 403)
+  assert.equal((await call(F.url, 'POST', `${S}/feeds`, 't-admin', { name: 'Mine', url: 'nope' })).status, 400)
+  const added = await call(F.url, 'POST', `${S}/feeds`, 't-admin', { name: 'Mine', url })
+  assert.equal(added.status, 201)
+  const st = (added.data as unknown as Feeds).feeds[0]!
+  assert.deepEqual([st.id, st.status.ok, st.status.games, st.status.notes.length], ['mine', true, 1, 1])
+  assert.match(st.status.notes[0]!, /^No download: no download Finesse can use/)
+  const found = await call(F.url, 'GET', `${S}/search?q=feed`, 't-robin')
+  assert.deepEqual((found.data.items as { id: string }[]).map((g) => g.id), ['mine-feed-game'])
+  assert.equal(/example\.org/.test((await call(F.url, 'GET', `${S}/games/mine-feed-game`, 't-robin')).text), false, 'the address stays on the server')
+  assert.equal((await call(F.url, 'GET', `${S}/search`, 't-robin')).data.total, 1, 'games from a source that isn’t set up any more are forgotten')
+
+  // Unreachable: last time's games stay, and the status says so.
+  up = false
+  const down = (await call(F.url, 'POST', `${S}/sync`, 't-admin')).data as unknown as Feeds
+  assert.deepEqual([down.feeds[0]!.status.ok, down.feeds[0]!.status.games], [false, 1])
+  assert.match(down.feeds[0]!.status.notes[0]!, /wouldn’t give the feed \(it answered 503\)/)
+
+  // Back, with the game gone: it leaves the store.
+  up = true
+  doc = { games: [] }
+  await call(F.url, 'POST', `${S}/sync`, 't-admin')
+  assert.equal((await call(F.url, 'GET', `${S}/search?q=feed`, 't-robin')).data.total, 0)
+
+  doc = { games: [{ title: 'Feed Game', downloads: [{ platform: 'linux', sizeBytes: 5, url: 'https://example.org/g.tar.xz' }] }] }
+  await call(F.url, 'POST', `${S}/sync`, 't-admin')
+  assert.equal((await call(F.url, 'DELETE', `${S}/feeds/mine`, 't-admin')).status, 200)
+  assert.equal((await call(F.url, 'GET', `${S}/search?q=feed`, 't-robin')).data.total, 0)
+  assert.equal((await call(F.url, 'DELETE', `${S}/feeds/mine`, 't-admin')).status, 404)
+})
