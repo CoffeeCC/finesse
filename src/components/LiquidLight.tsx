@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { IS_TV } from '../lib/device'
-import { reducedMotion } from '../lib/settings'
+import { getPrefs, reducedMotion } from '../lib/settings'
 
 // Liquid light: ribbons of light in the focused title's own colour, drifting behind the home
 // stage like an aurora. A small fragment shader drawn at a third of the screen's size (the
 // browser smooths it up, which is the look), at 30 frames a second, and only while it's on
 // screen and the tab is visible. The light leans gently toward the pointer; nothing on the
-// page moves with it. TVs, "reduce motion", data saver and browsers without WebGL get the
-// two soft orbs this replaces.
+// page moves with it. It's off unless someone turns it on (Settings → Appearance): without
+// it, and on TVs, with "reduce motion", data saver or no WebGL, there are two soft orbs.
 
 const VERT = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'
 const FRAG = `
@@ -49,7 +49,7 @@ const parseTint = (s: string): [number, number, number] => {
 }
 
 function allowed(): boolean {
-  if (IS_TV || reducedMotion()) return false
+  if (!getPrefs().liquidLight || IS_TV || reducedMotion()) return false
   const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
   return !conn?.saveData
 }

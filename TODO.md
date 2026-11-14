@@ -47,7 +47,7 @@
   build a rocket together and fly it off the top of the screen, and a new world begins. They
   wear your accent colour, scatter from a fast mouse and gather round a still one, run to a
   star you drop by clicking bare ground, hop to the interface's sounds and bob while music
-  plays. Computers only; Settings → Appearance turns them off.
+  plays. Computers only, and off until you turn them on in Settings → Appearance.
 - **Pixel folk as the screensaver** — an option in Settings → Appearance. When Finesse goes idle,
   the screen you left open turns into chunky pixels and their world fills the bottom of it.
   They take your screen apart from the bottom up to build with: each block falls to the ground
@@ -93,8 +93,9 @@
 
 - **Home glows in the title's own colour** — ribbons of light drift behind the hero and the Now
   row, tinted by whatever you're resting on, and lean gently toward the mouse. Drawn on the
-  graphics card, paused when you can't see it. TVs, "reduce motion" and data saver keep the
-  calmer glow from before.
+  graphics card, paused when you can't see it. Off until you turn on **Liquid light** in
+  Settings → Appearance; without it (and on TVs, with "reduce motion" or data saver) Home keeps
+  the calmer glow from before.
 - **Spotlight** — between Home's rows, one title you haven't watched gets the whole width, a
   different one each day. The band opens up as you scroll to it, its artwork drifts behind it
   and the title is drawn in, all in step with the scroll itself. Not on TVs.

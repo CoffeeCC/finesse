@@ -56,8 +56,10 @@ export interface Prefs {
   momentPopups: boolean
   /** Reduce motion here even when the device doesn't ask for it (it's always reduced when it does). */
   reduceMotion: boolean
-  /** The tiny people along the bottom of the app (components/PixelFolk). */
+  /** The tiny people along the bottom of the app (components/PixelFolk). Off unless turned on. */
   pixelFolk: boolean
+  /** Ribbons of drifting light behind the home stage and title pages (components/LiquidLight). Off unless turned on. */
+  liquidLight: boolean
   /** The screensaver is the pixel folk's world, full screen, instead of drifting library art. */
   screensaverPixel: boolean
 }
@@ -82,7 +84,8 @@ const DEFAULTS: Prefs = {
   onlineLyrics: true,
   momentPopups: true,
   reduceMotion: false,
-  pixelFolk: true,
+  pixelFolk: false,
+  liquidLight: false,
   screensaverPixel: false,
 }
 
