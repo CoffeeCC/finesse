@@ -98,6 +98,32 @@ export class Pipeline implements RequestPipeline {
     return this.deps.db.request(r.id)!
   }
 
+  /** A file an administrator put on the server: nothing to download, so it starts at the check. */
+  adopt(id: string, game: CatalogueGame, source: CatalogueSource, user: { id: string; name: string }, folder: string): StoredRequest {
+    const at = this.now()
+    this.deps.db.saveRequest({ id, gameId: game.id, title: game.title, sourceId: source.id, platform: source.platform, installer: source.installer, state: 'queued', sizeBytes: source.sizeBytes, requestedBy: user.name, userId: user.id, source, added: true, folder, createdAt: at, updatedAt: at })
+    this.deps.db.advance(id, 'checking', { progress: 100 }, `${user.name} added it from a file.`)
+    void this.tick()
+    return this.deps.db.request(id)!
+  }
+
+  async pause(r: StoredRequest): Promise<StoredRequest> {
+    if (!r.source || !['downloading', 'queued'].includes(r.state) || !r.added) throw new ApiError(409, 'There’s no download to pause right now.')
+    await this.deps.downloaderFor(r.source).pause(r.id)
+    return this.deps.db.advance(r.id, 'paused', { bytesPerSecond: undefined, etaSeconds: undefined, detail: undefined }, 'Paused.')!
+  }
+
+  async resume(r: StoredRequest): Promise<StoredRequest> {
+    if (!r.source || r.state !== 'paused') throw new ApiError(409, 'That download isn’t paused.')
+    const d = this.deps.downloaderFor(r.source)
+    const ready = await d.available()
+    if (!ready.ok) throw new ApiError(503, ready.why)
+    await d.resume(r.id)
+    const next = this.deps.db.advance(r.id, 'downloading', { detail: undefined }, 'Carrying on.')!
+    void this.tick()
+    return next
+  }
+
   private async room(sizeBytes: number) {
     const free = await this.deps.freeBytes().catch(() => Infinity)
     const need = sizeBytes * ROOM_NEEDED
@@ -117,6 +143,7 @@ export class Pipeline implements RequestPipeline {
     // A download that finished is kept: only what came after it is done again.
     const status = r.added ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
     const have = status?.state === 'done'
+    if (!have && r.source.local) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
     if (!have) {
       const ready = await this.deps.downloaderFor(r.source).available()
       if (!ready.ok) throw new ApiError(503, ready.why)
@@ -172,6 +199,7 @@ export class Pipeline implements RequestPipeline {
 
   private async queued(r: StoredRequest) {
     if (!r.source) return this.fail(r.id, 'That game isn’t in the store any more.')
+    if (r.source.local) return this.fail(r.id, 'The file for this game isn’t on the server any more. Add it again from Settings.')
     const d = this.deps.downloaderFor(r.source)
     const ready = await d.available()
     // Waiting (for the VPN, say) isn't failing: it says why and tries again.
@@ -194,7 +222,8 @@ export class Pipeline implements RequestPipeline {
       if (!s.folder) return this.fail(r.id, 'The download finished, but Finesse can’t see where it was saved. Check the downloads folder in Settings → Server.')
       return void this.deps.db.advance(r.id, 'checking', { progress: 100, bytesPerSecond: undefined, etaSeconds: undefined, folder: s.folder }, 'The download finished.')
     }
-    const state: GameRequestState = s.state === 'paused' ? 'paused' : 'downloading'
+    // Paused by a person stays paused until they carry on (a torrent that's merely queued behind others isn't "going").
+    const state: GameRequestState = s.state === 'paused' || (r.state === 'paused' && s.state === 'queued') ? 'paused' : 'downloading'
     const detail = s.state === 'queued' ? 'Waiting for other downloads, or for someone to share it.' : undefined
     this.deps.db.advance(r.id, state, { progress: s.progress, bytesPerSecond: s.bytesPerSecond, etaSeconds: s.etaSeconds, detail })
   }

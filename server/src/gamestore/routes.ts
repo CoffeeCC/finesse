@@ -8,6 +8,7 @@ import { basename, join } from 'node:path'
 import type { Auth } from '../auth.ts'
 import type { SettingsStore } from '../config.ts'
 import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
+import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
 import { cleanFeedConfig, feedProvider, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
@@ -21,7 +22,12 @@ export interface RequestPipeline {
   retry(r: StoredRequest): Promise<StoredRequest>
   /** The person finished the installer by hand ("Needs you"). */
   installerDone(r: StoredRequest): Promise<StoredRequest>
+  pause(r: StoredRequest): Promise<StoredRequest>
+  resume(r: StoredRequest): Promise<StoredRequest>
 }
+
+/** A game added from a file an administrator has (wiring.ts streams it into the data folder). */
+export type Upload = (body: NodeJS.ReadableStream, meta: { title: string; fileName: string; platform: GamePlatform; sizeBytes: number }, user: { id: string; name: string }) => Promise<StoredRequest>
 
 /** How a feed's last read went (Settings shows it). */
 export interface FeedStatus {
@@ -41,6 +47,7 @@ export interface GameStore {
   stop(): void
   /** Plugged in (wiring.ts) on servers that can download. */
   pipeline?: RequestPipeline
+  upload?: Upload
   /** There's a sandbox to install in too; without one a request stops after its download is checked. */
   installs?: boolean
 }
@@ -81,8 +88,10 @@ export function gameStoreEnabled(settings: SettingsStore): boolean {
 }
 
 const SYNC_EVERY_MS = 12 * 60 * 60 * 1000
+/** Games added from files by an administrator: not from any feed, so a sync leaves them alone. */
+export const YOURS = 'yours'
 
-export function registerGameStore(router: Router, deps: { settings: SettingsStore; auth: Auth; db?: GameStoreDb; get?: Fetcher }): GameStore {
+export function registerGameStore(router: Router, deps: { settings: SettingsStore; auth: Auth; db?: GameStoreDb; get?: Fetcher; art?: ArtCache }): GameStore {
   const { settings, auth } = deps
   const db = deps.db ?? new GameStoreDb(join(settings.paths.configDir, 'gamestore.db'))
   const feeds = (): FeedConfig[] => settings.get().gameStore?.feeds ?? []
@@ -109,7 +118,7 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   const syncOnce = async () => {
     const list = feeds()
     const files = localFeeds()
-    const ids = [...list.map((f) => f.id), ...files.map((f) => f.id)]
+    const ids = [...list.map((f) => f.id), ...files.map((f) => f.id), YOURS]
     db.keepProviders(ids)
     for (const id of Object.keys(status)) if (!ids.includes(id)) delete status[id]
     for (const f of files) {
@@ -169,7 +178,8 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     return r
   }
 
-  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length })
+  const seeding = () => settings.get().gameStore?.seeding ?? { ratio: 1, days: 7 }
+  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length, seeding: seeding() })
 
   // On or off (administrators). Off is the default: Finesse ships no game sources.
   router.get('/api/games/store/settings', async ({ req, res }) => {
@@ -178,14 +188,22 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   })
   router.put('/api/games/store/settings', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    const body = await readJson<{ enabled?: unknown }>(req)
-    if (typeof body.enabled !== 'boolean') throw new ApiError(400, 'enabled is true or false')
-    const enabled = body.enabled
+    const body = await readJson<{ enabled?: unknown; seeding?: { ratio?: unknown; days?: unknown } }>(req)
+    if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw new ApiError(400, 'enabled is true or false')
+    if (body.enabled === undefined && body.seeding === undefined) throw new ApiError(400, 'Nothing to change')
+    const enabled = body.enabled ?? gameStoreEnabled(settings)
+    let share = seeding()
+    if (body.seeding !== undefined) {
+      const ratio = Number(body.seeding?.ratio)
+      const days = Number(body.seeding?.days)
+      if (!(ratio >= 0 && ratio <= 10) || !(days >= 0 && days <= 365)) throw new ApiError(400, 'Share back up to 10 times what was downloaded, for up to a year.')
+      share = { ratio, days }
+    }
     settings.update((s) => {
-      s.gameStore = { ...(s.gameStore ?? {}), enabled }
+      s.gameStore = { ...(s.gameStore ?? {}), enabled, seeding: share }
     })
     // Turned on: read the feeds straight away, so the store isn't empty until the next round.
-    if (enabled) await store.sync()
+    if (body.enabled === true) await store.sync()
     sendJson(res, 200, state())
   })
 
@@ -253,6 +271,30 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     sendJson(res, 200, detail)
   })
 
+  // Pictures (art.ts). No sign-in: an <img> can't send one, and a picture is only served for
+  // an address that's in the catalogue, by a hash nobody can turn back into that address.
+  const art = deps.art ?? new ArtCache(join(settings.paths.configDir, 'gamestore-art'))
+  let known: { at: number; byId: Map<string, string> } | null = null
+  const pictureUrl = (id: string): string | undefined => {
+    const fresh = () => {
+      const byId = new Map<string, string>()
+      for (const g of db.games()) for (const u of [g.cover, g.hero, ...(g.screenshots ?? [])]) if (u) byId.set(artId(u), u)
+      // A request keeps its cover even after its game has left the store.
+      for (const r of db.requests()) if (r.cover) byId.set(artId(r.cover), r.cover)
+      return (known = { at: Date.now(), byId })
+    }
+    const now = known && Date.now() - known.at < 60_000 ? known : fresh()
+    return now.byId.get(id) ?? (now.at < Date.now() - 2000 ? fresh().byId.get(id) : undefined)
+  }
+  router.get('/api/games/store/art/:id', async ({ res, params }) => {
+    on()
+    const url = /^[0-9a-f]{32}$/.test(params.id ?? '') ? pictureUrl(params.id!) : undefined
+    const pic = url ? await art.picture(url) : null
+    if (!pic) throw new ApiError(404, 'No such picture')
+    res.writeHead(200, { 'Content-Type': pic.type, 'Content-Length': pic.body.length, 'Cache-Control': 'private, max-age=604800, immutable', 'X-Content-Type-Options': 'nosniff' })
+    res.end(pic.body)
+  })
+
   // ---------- requests ----------
 
   router.get('/api/games/store/requests', async ({ req, res }) => {
@@ -288,6 +330,8 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     const r = await mine(req, params.id)
     await pipeline().cancel(r)
     db.removeRequest(r.id)
+    // A game that only existed as that file goes with it.
+    if (r.source?.local) db.removeGame(r.gameId)
     sendJson(res, 200, { ok: true })
   })
 
@@ -295,6 +339,32 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     const r = await mine(req, params.id)
     if (r.state !== 'failed') throw new ApiError(409, 'That request is still going.')
     sendJson(res, 200, publicRequest(await pipeline().retry(r)))
+  })
+
+  router.post('/api/games/store/requests/:id/pause', async ({ req, res, params }) => {
+    const r = await mine(req, params.id)
+    sendJson(res, 200, publicRequest(await pipeline().pause(r)))
+  })
+  router.post('/api/games/store/requests/:id/resume', async ({ req, res, params }) => {
+    const r = await mine(req, params.id)
+    sendJson(res, 200, publicRequest(await pipeline().resume(r)))
+  })
+
+  // An administrator adds a game from an installer or archive they have: the file is the
+  // request's body, its name and the game's title are in the address.
+  router.post('/api/games/store/upload', async ({ req, res, url }) => {
+    await auth.requireAdmin(req)
+    const user = await auth.requirePerson(req)
+    on()
+    if (!store.upload) throw new ApiError(501, 'This server can’t take game files: that needs a server Finesse set up itself.')
+    const title = (url.searchParams.get('title') ?? '').trim().slice(0, 200)
+    const fileName = (url.searchParams.get('name') ?? '').trim()
+    const sizeBytes = Number(req.headers['content-length'])
+    if (!title) throw new ApiError(400, 'Give the game a name.')
+    if (!fileName || !(sizeBytes > 0)) throw new ApiError(400, 'Choose the game’s installer or archive.')
+    const asked = oneOf(url.searchParams.get('platform'), PLATFORMS, 'platform')
+    const platform = asked ?? (/\.(sh|run|appimage|x86_64|tar(\.\w+)?|tgz)$/i.test(fileName) ? 'linux' : 'windows')
+    sendJson(res, 201, publicRequest(await store.upload(req, { title, fileName, platform, sizeBytes }, { id: user.id, name: user.Name })))
   })
 
   router.post('/api/games/store/requests/:id/installer-done', async ({ req, res, params }) => {

@@ -3,15 +3,19 @@
 // finished download (the engine in a sandbox: install.ts + a SandboxRunner) is handed in by the
 // host; until one exists, a request downloads, is checked, and stops there saying so.
 
-import { statfs } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { mkdir, rm, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
+import { pipeline as pump } from 'node:stream/promises'
+import { ApiError } from '../http/core.ts'
 import type { SettingsStore } from '../config.ts'
 import { fromApp, toApp } from '../stack/apppaths.ts'
 import { isNative } from '../stack/host.ts'
-import { DirectDownloader } from './direct.ts'
+import { DirectDownloader, safeFileName } from './direct.ts'
 import { Pipeline, type Installer } from './pipeline.ts'
 import { QbitDownloader } from './qbit.ts'
-import type { GameStore } from './routes.ts'
+import { YOURS, type GameStore } from './routes.ts'
 
 export const NO_SANDBOX = 'It’s downloaded and checked, but this server can’t install games yet. That arrives with a later update. The download is kept, so “Try again” then carries on from here.'
 
@@ -50,15 +54,16 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
     localPath: (p) => (stack() ? fromApp(stack()!.hostData, p) : null),
     savePath: () => (stack() ? toApp(stack()!.hostData, TORRENT_GAMES) : null),
   })
+  let direct: DirectDownloader | null = null
   // Made when first needed: a server that's still being set up gets its pipeline once setup is done.
   let pipeline: Pipeline | null = null
   const get = (): Pipeline | undefined => {
     const st = stack()
     if (!pipeline && st) {
-      const direct = new DirectDownloader(join(st.hostData, ...DIRECT_GAMES.split('/')))
+      const files = (direct = new DirectDownloader(join(st.hostData, ...DIRECT_GAMES.split('/'))))
       pipeline = new Pipeline({
         db: store.db,
-        downloaderFor: (s) => (s.magnet ? torrents : direct),
+        downloaderFor: (s) => (s.magnet ? torrents : files),
         installer: opts.installer ?? noInstaller,
         freeBytes: async () => {
           const f = await statfs(stack()?.hostData ?? '/')
@@ -72,6 +77,30 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
     return pipeline ?? undefined
   }
   Object.defineProperty(store, 'pipeline', { get, enumerable: true })
+
+  // A game from a file an administrator has: streamed into its own folder beside the direct
+  // downloads, listed in the store, and picked up by the pipeline at "checking".
+  store.upload = async (body, meta, user) => {
+    const p = get()
+    const st = stack()
+    if (!p || !st || !direct) throw new ApiError(501, 'This server can’t take game files: that needs a server Finesse set up itself.')
+    const free = await statfs(st.hostData).then((f) => f.bavail * f.bsize, () => Infinity)
+    if (free < meta.sizeBytes * 3) throw new ApiError(507, 'There isn’t enough room on the server for this game and its install. Free some space and try again.')
+    const id = randomUUID().replace(/-/g, '').slice(0, 16)
+    const folder = direct.folder(id)
+    await mkdir(folder, { recursive: true })
+    try {
+      await pump(body, createWriteStream(join(folder, safeFileName(meta.fileName))))
+    } catch (e) {
+      await rm(folder, { recursive: true, force: true })
+      throw new ApiError(400, 'The file didn’t arrive in one piece. Try again.')
+    }
+    const slug = meta.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'game'
+    const game = { id: `${YOURS}-${slug}-${id.slice(0, 6)}`, title: meta.title, summary: 'Added from a file on this server.', genres: [], modes: ['single' as const], platforms: [meta.platform], addedAt: new Date().toISOString(), popularity: 0, provider: YOURS }
+    const source = { id: `${game.id}-file`, gameId: game.id, platform: meta.platform, installer: 'unknown' as const, sizeBytes: meta.sizeBytes, local: true, installerHint: safeFileName(meta.fileName) }
+    store.db.putGame(game, [source])
+    return p.adopt(id, game, source, user, folder)
+  }
   store.installs = Boolean(opts.installer)
   get()
 }

@@ -21,10 +21,14 @@ interface Job {
 
 const PART = '.part'
 
-export function fileNameFrom(url: string): string {
-  const last = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() ?? '')
-  const safe = last.replace(/[^\w.+ ()\-]/g, '_').replace(/^\.+/, '').slice(0, 150)
+/** A file name with nothing in it that could leave its folder. */
+export function safeFileName(name: string): string {
+  const safe = name.replace(/[^\w.+ ()\-]/g, '_').replace(/^\.+/, '').slice(0, 150)
   return safe || 'download'
+}
+
+export function fileNameFrom(url: string): string {
+  return safeFileName(decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() ?? ''))
 }
 
 export class DirectDownloader implements Downloader {

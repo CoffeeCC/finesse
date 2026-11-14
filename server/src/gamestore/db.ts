@@ -5,6 +5,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { artPath } from './art.ts'
 import type { CatalogueGame, CatalogueSource, GameRequest, GameRequestState, StoreSource } from './types.ts'
 
 /** A request as the server keeps it: what the app sees, plus who asked and what the pipeline needs. */
@@ -110,6 +111,18 @@ export class GameStoreDb {
     }
   }
 
+  /** One game, added or replaced by itself (a file an administrator added). */
+  putGame(game: CatalogueGame, sources: CatalogueSource[]) {
+    this.db.prepare('INSERT OR REPLACE INTO store_game (id, provider, title, popularity, added_at, data) VALUES (?, ?, ?, ?, ?, ?)').run(game.id, game.provider, game.title, game.popularity, game.addedAt, JSON.stringify(game))
+    this.db.prepare('DELETE FROM store_source WHERE game_id = ?').run(game.id)
+    for (const s of sources) this.db.prepare('INSERT OR REPLACE INTO store_source (id, game_id, data) VALUES (?, ?, ?)').run(s.id, game.id, JSON.stringify({ ...s, gameId: game.id }))
+  }
+
+  removeGame(id: string) {
+    this.db.prepare('DELETE FROM store_source WHERE game_id = ?').run(id)
+    this.db.prepare('DELETE FROM store_game WHERE id = ?').run(id)
+  }
+
   /** Forgets the games of providers that aren't set up any more. */
   keepProviders(ids: string[]) {
     const gone = (this.db.prepare('SELECT DISTINCT provider FROM store_game').all() as { provider: string }[]).map((r) => r.provider).filter((p) => !ids.includes(p))
@@ -181,5 +194,5 @@ export function publicSource(s: CatalogueSource): StoreSource {
 /** What a browser may know of a request: not who asked by id, nor where things are on disk. */
 export function publicRequest(r: StoredRequest): GameRequest {
   const { userId: _u, installDir: _d, program: _p, screenshot: _s, waitingOn: _w, source: _src, added: _a, folder: _f, readyAt: _r, downloadRemoved: _g, ...pub } = r
-  return pub
+  return { ...pub, ...(pub.cover ? { cover: artPath(pub.cover) } : {}) }
 }

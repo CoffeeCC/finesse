@@ -30,6 +30,9 @@ export default function GameStoreAdmin() {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [open, setOpen] = useState('')
+  const [title, setTitle] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [sent, setSent] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +65,24 @@ export default function GameStoreAdmin() {
     if (await act('add', () => gameStoreAdmin.addFeed(name.trim(), url.trim()), 'Source added')) {
       setName('')
       setUrl('')
+    }
+  }
+
+  const addFile = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!file) return
+    setSent(0)
+    try {
+      await gameStoreAdmin.upload(file, title.trim(), setSent)
+      toast('Added. It’s under Games → Game store → Requests.')
+      setTitle('')
+      setFile(null)
+      ;(e.target as HTMLFormElement).reset()
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setSent(null)
     }
   }
 
@@ -167,6 +188,62 @@ export default function GameStoreAdmin() {
                 A source is a feed: one file that lists games and where each can be downloaded. Give its address here, or put the file in the <span className="text-ink-200">game-feeds</span> folder of Finesse’s config folder on the server and press “Read them again”.
               </p>
             </form>
+
+            {s.canDownload && (
+              <>
+                <form onSubmit={addFile} className="space-y-2 border-t border-white/5 pt-4">
+                  <div className="text-[13px] font-medium text-white">Add a game from a file</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input className={`${field} w-48`} placeholder="The game’s name" aria-label="The game’s name" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
+                    <input
+                      type="file"
+                      aria-label="The game’s installer or archive"
+                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      className="min-w-0 flex-1 basis-56 text-[12.5px] text-ink-300 file:mr-3 file:h-9 file:rounded-lg file:border file:border-white/10 file:bg-white/[0.04] file:px-3 file:text-[12.5px] file:font-medium file:text-ink-200"
+                      required
+                    />
+                    <button type="submit" className={smallBtn + ' h-9'} disabled={sent !== null || !file || !title.trim()}>
+                      {sent !== null && <Spinner className="h-3 w-3" />}
+                      {sent !== null ? `Sending ${sent}%` : 'Add game'}
+                    </button>
+                  </div>
+                  <p className="text-[12.5px] leading-relaxed text-ink-400">For an installer or a zip you already have. It’s copied to the server and handled like a finished download; nothing is downloaded.</p>
+                </form>
+
+                <div className="space-y-2 border-t border-white/5 pt-4">
+                  <div className="text-[13px] font-medium text-white">Sharing back</div>
+                  <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-300">
+                    <span>After a torrent finishes, keep sharing it until it has given back</span>
+                    <select
+                      aria-label="How much to share back"
+                      className={`${field} w-auto`}
+                      value={s.seeding.ratio}
+                      onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, ratio: Number(e.target.value) }), 'Saved')}
+                    >
+                      {[...new Set([0, 0.5, 1, 2, 3, s.seeding.ratio])].sort((a, b) => a - b).map((r) => (
+                        <option key={r} value={r}>
+                          {r === 0 ? 'nothing' : r === 1 ? 'as much as it took' : `${r}× what it took`}
+                        </option>
+                      ))}
+                    </select>
+                    <span>or for</span>
+                    <select
+                      aria-label="How long to share back"
+                      className={`${field} w-auto`}
+                      value={s.seeding.days}
+                      onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, days: Number(e.target.value) }), 'Saved')}
+                    >
+                      {[...new Set([1, 3, 7, 14, 30, s.seeding.days])].sort((a, b) => a - b).map((d) => (
+                        <option key={d} value={d}>
+                          {d === 1 ? '1 day' : `${d} days`}
+                        </option>
+                      ))}
+                    </select>
+                    <span>, whichever comes first. Then the download is removed; the game stays.</span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

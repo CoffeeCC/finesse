@@ -125,9 +125,11 @@ export interface CatalogueGame extends StoreGame {
 /** A download as the server keeps it. Where it comes from never reaches a browser. */
 export interface CatalogueSource extends StoreSource {
   gameId: string
-  /** Exactly one of these: a magnet for the downloader, or a direct address. */
+  /** One of these: a magnet for the downloader, a direct address, or a file already on this server. */
   magnet?: string
   url?: string
+  /** Added from a file by an administrator: there's nothing to download. */
+  local?: boolean
   /** The store's own checksums for the files (the only ones that say they're genuine). */
   checksums?: ChecksumEntry[]
   /** The file in the download that is the installer, when the provider knows. */

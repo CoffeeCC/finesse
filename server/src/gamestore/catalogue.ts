@@ -2,6 +2,7 @@
 // catalogue holds. The same rules as the demo store the pages were built on
 // (src/api/gameStore.demo.ts), so the real store behaves the way the demo did. Pure.
 
+import { artPath } from './art.ts'
 import type { CatalogueGame, Facet, GameMode, GamePlatform, StoreFacets, StoreGame, StoreHome, StorePage, StoreQuery, StoreShelf } from './types.ts'
 
 export const PLATFORM_LABEL: Record<GamePlatform, string> = { windows: 'Windows', linux: 'Linux' }
@@ -16,10 +17,16 @@ export function genreSlug(name: string): string {
     .replace(/^-|-$/g, '')
 }
 
-/** What the app gets: the catalogue's own fields (popularity, provider) stay on the server. */
+/** What the app gets: the catalogue's own fields (popularity, provider) stay on the server, and
+ *  pictures are named by Finesse's own address for them (art.ts), never the feed's. */
 export function publicGame(g: CatalogueGame): StoreGame {
   const { popularity: _p, provider: _v, ...game } = g
-  return game
+  return {
+    ...game,
+    ...(game.cover ? { cover: artPath(game.cover) } : {}),
+    ...(game.hero ? { hero: artPath(game.hero) } : {}),
+    ...(game.screenshots ? { screenshots: game.screenshots.map(artPath) } : {}),
+  }
 }
 
 type Filter = Omit<StoreQuery, 'sort' | 'offset' | 'limit'>

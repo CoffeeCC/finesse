@@ -282,7 +282,7 @@ test('a direct https download: carried on after being cut off, and removed once 
 test('on a server Finesse set up, a request over the API downloads through the VPN’s downloader, is checked, and stops at “can’t install yet”', async () => {
   const { call, fakeJellyfin, finesse } = await import('./peers.ts')
   const { NO_SANDBOX } = await import('../src/gamestore/wiring.ts')
-  const jf = await fakeJellyfin('Home', [{ name: 'alex', token: 't-admin', admin: true }, { name: 'robin', token: 't-robin', admin: false }], 'service')
+  const jf = await fakeJellyfin('Home', [{ name: 'alex', token: 't-admin', admin: true }, { name: 'robin', token: 't-robin', admin: false }, { name: 'jo', token: 't-jo', admin: false }], 'service')
   const F = await finesse('wired', jf, 'service')
   const data = tmp()
   // The apps name the data folder /data; Finesse finds it at the real folder.
@@ -320,6 +320,18 @@ test('on a server Finesse set up, a request over the API downloads through the V
   await tick()
   assert.equal(qbit.torrents.length, 1)
 
+  // Paused and carried on by whoever asked (not by someone else).
+  Object.assign(qbit.torrents[0]!, { state: 'downloading', progress: 0.2 })
+  await tick()
+  assert.equal((await call(F.url, 'POST', `${S}/requests/${id}/pause`, 't-jo')).status, 403)
+  const paused = await call(F.url, 'POST', `${S}/requests/${id}/pause`, 't-robin')
+  assert.deepEqual([paused.status, paused.data.state, qbit.torrents[0]!.state], [200, 'paused', 'stoppedDL'])
+  await tick()
+  assert.equal(F.deps.gameStore!.db.request(id)!.state, 'paused')
+  assert.equal((await call(F.url, 'POST', `${S}/requests/${id}/pause`, 't-robin')).status, 409)
+  const going = await call(F.url, 'POST', `${S}/requests/${id}/resume`, 't-robin')
+  assert.deepEqual([going.data.state, qbit.torrents[0]!.state], ['downloading', 'downloading'])
+
   finishedDownload(join(data, 'torrents', 'games'))
   Object.assign(qbit.torrents[0]!, { state: 'uploading', progress: 1 })
   let now = ''
@@ -335,5 +347,57 @@ test('on a server Finesse set up, a request over the API downloads through the V
   // Cancelled by whoever asked: the download and its files go.
   assert.equal((await call(F.url, 'DELETE', `${S}/requests/${id}`, 't-robin')).status, 200)
   assert.deepEqual([qbit.torrents.length, (await call(F.url, 'GET', `${S}/requests`, 't-robin')).data], [0, []])
+
+  // How long a finished torrent is shared back is a setting.
+  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data.seeding, { ratio: 1, days: 7 })
+  assert.equal((await call(F.url, 'PUT', `${S}/settings`, 't-admin', { seeding: { ratio: 99, days: 1 } })).status, 400)
+  const set = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { seeding: { ratio: 2, days: 14 } })
+  assert.deepEqual([set.data.enabled, set.data.seeding], [true, { ratio: 2, days: 14 }])
+
+  // A game from a file the administrator has: no download, straight to the check.
+  const file = Buffer.from('an installer of my own')
+  const up = (token: string, query: string) => fetch(`${F.url}${S}/upload?${query}`, { method: 'POST', headers: { Authorization: `MediaBrowser Client="test", Device="t", DeviceId="t", Version="1", Token="${token}"`, 'Content-Type': 'application/octet-stream' }, body: file })
+  assert.equal((await up('t-robin', 'title=Mine&name=setup.exe')).status, 403)
+  assert.equal((await up('t-admin', 'name=setup.exe')).status, 400)
+  const added = await up('t-admin', `title=${encodeURIComponent('My Own Game')}&name=${encodeURIComponent('../../My Setup.exe')}`)
+  assert.equal(added.status, 201)
+  const mine = (await added.json()) as { id: string; gameId: string; state: string; platform: string }
+  assert.deepEqual([mine.state, mine.platform, /^yours-my-own-game-/.test(mine.gameId)], ['checking', 'windows', true])
+  const kept = F.deps.gameStore!.db.request(mine.id)!
+  assert.equal(existsSync(join(kept.folder!, '_.._My Setup.exe')), true, 'the name can’t leave its folder')
+  assert.equal(kept.folder!.startsWith(join(data, 'downloads', 'games')), true)
+  const page = await call(F.url, 'GET', `${S}/games/${mine.gameId}`, 't-robin')
+  assert.deepEqual([page.data.game && (page.data.game as { title: string }).title, (page.data.sources as unknown[]).length], ['My Own Game', 1])
+  // A sync of the feeds leaves it alone; cancelling removes the file and the game with it.
+  await call(F.url, 'POST', `${S}/sync`, 't-admin')
+  assert.equal((await call(F.url, 'GET', `${S}/games/${mine.gameId}`, 't-robin')).status, 200)
+  for (let i = 0; i < 50 && F.deps.gameStore!.db.request(mine.id)!.state !== 'failed'; i++) {
+    await tick()
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  assert.equal(F.deps.gameStore!.db.request(mine.id)!.detail, NO_SANDBOX)
+  assert.equal((await call(F.url, 'DELETE', `${S}/requests/${mine.id}`, 't-admin')).status, 200)
+  assert.deepEqual([existsSync(kept.folder!), (await call(F.url, 'GET', `${S}/games/${mine.gameId}`, 't-robin')).status], [false, 404])
   ;(F.deps.gameStore!.pipeline as Pipeline).halt()
+})
+
+test('pictures: fetched once through Finesse, only real pictures, never from inside the network', async () => {
+  const { ArtCache, artPath } = await import('../src/gamestore/art.ts')
+  const dir = tmp()
+  const asked: string[] = []
+  const get = (async (url: string) => {
+    asked.push(url)
+    const type = url.endsWith('.html') ? 'text/html' : url.endsWith('.svg') ? 'image/svg+xml' : 'image/png'
+    const res = new Response(Buffer.from('png-bytes'), { status: url.includes('missing') ? 404 : 200, headers: { 'content-type': type } })
+    Object.defineProperty(res, 'url', { value: url.includes('redirect') ? 'http://example.org/a.png' : url })
+    return res
+  }) as typeof fetch
+  const art = new ArtCache(dir, get)
+  const ok = await art.picture('https://example.org/cover.png')
+  assert.deepEqual([ok?.type, ok?.body.toString()], ['image/png', 'png-bytes'])
+  await art.picture('https://example.org/cover.png')
+  assert.equal((await new ArtCache(dir, get).picture('https://example.org/cover.png'))?.type, 'image/png')
+  assert.deepEqual(asked, ['https://example.org/cover.png'], 'kept on disk after the first time')
+  for (const bad of ['https://example.org/page.html', 'https://example.org/x.svg', 'https://example.org/missing.png', 'https://example.org/redirect.png', 'http://example.org/a.png', 'https://192.168.1.10/a.png', 'https://localhost/a.png', 'https://nas.local/a.png']) assert.equal(await art.picture(bad), null, bad)
+  assert.match(artPath('https://example.org/cover.png'), /^\/api\/games\/store\/art\/[0-9a-f]{32}$/)
 })

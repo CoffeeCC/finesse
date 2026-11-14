@@ -15,7 +15,10 @@ the short version of **where things plug in** and what's already there.
 | Downloads: magnets via the VPN's qBittorrent, https directly | `qbit.ts`, `direct.ts`, `wiring.ts` | Tested against a pretend qBittorrent only |
 | Request pipeline (queued → … → ready / failed, restart-safe) | `pipeline.ts` | Works; stops after "checking" until there's an installer |
 | Install engine (unpack → silent → auto-click → needs you, start check) | `install.ts`, `answers.ts`, `program.ts` | Tested against a pretend sandbox only |
-| Sandbox (Docker), Windows host, window helper, play/stream | — | **Not built** (WS4, WS5, WS6 in the plan) |
+| Pictures served by Finesse (`/api/games/store/art/<hash>`) | `art.ts` | Works (fetch tested against a pretend server) |
+| Pause / carry on, sharing-back setting, "Add a game from a file" | `pipeline.ts`, `wiring.ts`, `routes.ts`, Settings | Works in tests |
+| Window helper (list windows, press a button, picture the screen) | `tools/winhelper/` | Built with mingw; passes its test under Wine + Xvfb. Nothing calls it yet |
+| Sandbox (Docker), Windows host, play/stream | — | **Not built** (WS4, WS5, WS6 in the plan) |
 
 ## Adding a source of games
 

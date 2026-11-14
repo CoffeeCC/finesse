@@ -140,9 +140,9 @@ test('off by default: nothing to browse, and the app isn’t told there’s a st
 
 test('turned on: the front page, search, filters and a game, with nothing about where it comes from', async () => {
   const on = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { enabled: true })
-  assert.deepEqual(on.data, { enabled: true, canDownload: false, canInstall: false, games: 0 })
+  assert.deepEqual(on.data, { enabled: true, canDownload: false, canInstall: false, games: 0, seeding: { ratio: 1, days: 7 } })
   seed()
-  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data, { enabled: true, canDownload: false, canInstall: false, games: 5 })
+  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data, { enabled: true, canDownload: false, canInstall: false, games: 5, seeding: { ratio: 1, days: 7 } })
   assert.equal(((await call(F.url, 'GET', '/api/finesse')).data.features as Record<string, boolean>).gameStore, true)
 
   const h = await call(F.url, 'GET', `${S}/home`, 't-robin')
@@ -164,6 +164,7 @@ test('turned on: the front page, search, filters and a game, with nothing about 
   ])
   assert.deepEqual((d.data.similar as { id: string }[]).map((g) => g.id), ['0ad', 'wesnoth'])
   assert.equal((await call(F.url, 'GET', `${S}/games/nope`, 't-robin')).status, 404)
+  assert.equal((await call(F.url, 'GET', `${S}/art/${'0'.repeat(32)}`)).status, 404, 'only pictures the catalogue has')
 
   for (const path of ['home', 'search', 'facets', 'games/wz2100', 'requests']) {
     const r = await call(F.url, 'GET', `${S}/${path}`, 't-robin')

@@ -91,6 +91,16 @@ function RequestRow({ r }: { r: GameRequest }) {
             Try again
           </button>
         )}
+        {actions.canPause && r.state === 'downloading' && (
+          <button type="button" onClick={() => actions.pause.mutate(r.id, { onError: fail })} disabled={actions.pause.isPending} className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-50">
+            Pause
+          </button>
+        )}
+        {actions.canPause && r.state === 'paused' && (
+          <button type="button" onClick={() => actions.resume.mutate(r.id, { onError: fail })} disabled={actions.resume.isPending} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50">
+            Carry on
+          </button>
+        )}
         {r.state === 'ready' ? (
           <Link to="/games" className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/20">
             Play

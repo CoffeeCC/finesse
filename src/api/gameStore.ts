@@ -157,6 +157,9 @@ export interface GameStoreApi {
   retry(requestId: string): Promise<GameRequest>
   /** The person finished the installer on its screen ("needs-you" → carry on). */
   installerDone(requestId: string): Promise<GameRequest>
+  /** Pause and carry on a download (the real store only: the demo has none). */
+  pause?(requestId: string): Promise<GameRequest>
+  resume?(requestId: string): Promise<GameRequest>
   /** The installer's screen (a noVNC websocket), or null where there isn't one (the demo). */
   installerScreenUrl(requestId: string): string | null
 }
@@ -281,7 +284,15 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const text = await res.text()
   const data = text ? (JSON.parse(text) as unknown) : null
   if (!res.ok) throw new StoreError(res.status, (data as { error?: string } | null)?.error || 'The store didn’t answer')
-  return data as T
+  return pictures(data) as T
+}
+
+/** The server names pictures by its own path; make each a full address (the TV app isn't served by it). */
+function pictures(v: unknown): unknown {
+  if (typeof v === 'string') return v.startsWith('/api/games/store/art/') ? finesseApi(v) : v
+  if (Array.isArray(v)) return v.map(pictures)
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, pictures(x)]))
+  return v
 }
 
 const qs = (q: StoreQuery) => {
@@ -299,6 +310,8 @@ const serverStore: GameStoreApi = {
   cancel: (id) => call('DELETE', `/requests/${encodeURIComponent(id)}`),
   retry: (id) => call('POST', `/requests/${encodeURIComponent(id)}/retry`),
   installerDone: (id) => call('POST', `/requests/${encodeURIComponent(id)}/installer-done`),
+  pause: (id) => call('POST', `/requests/${encodeURIComponent(id)}/pause`),
+  resume: (id) => call('POST', `/requests/${encodeURIComponent(id)}/resume`),
   installerScreenUrl: (id) => {
     const u = new URL(finesseApi(`/api/games/store/requests/${encodeURIComponent(id)}/screen`), window.location.href)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -334,11 +347,35 @@ export interface StoreSettings {
   /** It can install them too; without that a request stops once its download is checked. */
   canInstall: boolean
   games: number
+  /** How long a finished torrent is shared back before its download is removed. */
+  seeding: { ratio: number; days: number }
 }
 
 export const gameStoreAdmin = {
   settings: () => call<StoreSettings>('GET', '/settings'),
   setEnabled: (enabled: boolean) => call<StoreSettings>('PUT', '/settings', { enabled }),
+  setSeeding: (seeding: { ratio: number; days: number }) => call<StoreSettings>('PUT', '/settings', { seeding }),
+  /** Adds a game from an installer or archive on this device. `onProgress` gets 0–100 as it's sent. */
+  upload: (file: File, title: string, onProgress?: (pct: number) => void) =>
+    new Promise<GameRequest>((resolve, reject) => {
+      const x = new XMLHttpRequest()
+      x.open('POST', finesseApi(`/api/games/store/upload?title=${encodeURIComponent(title)}&name=${encodeURIComponent(file.name)}`))
+      x.setRequestHeader('Authorization', mediaBrowserAuthHeader())
+      x.setRequestHeader('Content-Type', 'application/octet-stream')
+      x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100))
+      x.onerror = () => reject(new StoreError(0, 'Can’t reach Finesse'))
+      x.onload = () => {
+        let data: { error?: string } | null = null
+        try {
+          data = JSON.parse(x.responseText)
+        } catch {
+          /* not JSON */
+        }
+        if (x.status >= 200 && x.status < 300 && data) resolve(data as unknown as GameRequest)
+        else reject(new StoreError(x.status, data?.error || 'The file couldn’t be added'))
+      }
+      x.send(file)
+    }),
   feeds: () => call<{ feeds: StoreFeed[] }>('GET', '/feeds').then((r) => r.feeds),
   addFeed: (name: string, url: string) => call<{ feeds: StoreFeed[] }>('POST', '/feeds', { name, url }).then((r) => r.feeds),
   removeFeed: (id: string) => call<{ feeds: StoreFeed[] }>('DELETE', `/feeds/${encodeURIComponent(id)}`).then((r) => r.feeds),

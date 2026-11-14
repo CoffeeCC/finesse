@@ -103,6 +103,18 @@ export function useGameRequestActions() {
       onSuccess: put,
       onSettled: refresh,
     }),
+    /** Only the real store can pause (the demo's downloads are pretend). */
+    canPause: mode === 'server',
+    pause: useMutation({
+      mutationFn: async (id: string) => (await api(mode)).pause!(id),
+      onSuccess: put,
+      onSettled: refresh,
+    }),
+    resume: useMutation({
+      mutationFn: async (id: string) => (await api(mode)).resume!(id),
+      onSuccess: put,
+      onSettled: refresh,
+    }),
     installerDone: useMutation({
       mutationFn: async (id: string) => (await api(mode)).installerDone(id),
       onSuccess: put,
