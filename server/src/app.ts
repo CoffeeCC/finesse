@@ -31,6 +31,7 @@ import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
+import { registerGameStore, type GameStore } from './gamestore/routes.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
 import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
 import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
@@ -49,6 +50,8 @@ export interface AppDeps {
   updater?: WebUpdater
   /** Playing Wolf games in Finesse's page (Moonlight-Web on FINESSE_STREAM_PORT). */
   browserStream?: import('./browserStream.ts').BrowserStream
+  /** The game store: its catalogue and requests; the pipeline plugs in here. */
+  gameStore?: GameStore
   /** More rows for Connected apps (the system plugin adds Jellyfin's video conversion). */
   connectionChecks?: ((refresh: boolean) => Promise<ConnCheck | null>)[]
 }
@@ -93,6 +96,8 @@ function features(s: Settings) {
     parental: true,
     /** Watching one title together, in step (parties.ts). */
     parties: true,
+    /** The game store (gamestore/): an administrator turned it on. */
+    gameStore: s.gameStore?.enabled === true,
   }
 }
 
@@ -169,6 +174,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerUploads(router, { uploads, auth })
   registerDeletions(router, { deleter: new Deleter(settings), auth })
   registerRequestDefaults(router, { settings, auth })
+  deps.gameStore = registerGameStore(router, { settings, auth })
   registerAlbumRequests(router, { settings, auth, parental })
   // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
   let conns: { at: number; report: Promise<ConnReport> } | null = null
