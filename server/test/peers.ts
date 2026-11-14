@@ -156,7 +156,7 @@ export async function finesse(name: string, jf: { url: string }, serviceKey: str
   const paths = { configDir: config, settingsFile: join(config, 'finesse.json'), invitesDb: join(config, 'invites.db'), bakedWeb: join(dir, 'web'), updatedWeb: join(config, 'web'), previews: join(config, 'previews'), backups: join(config, 'backups') }
   const { createApp } = await import('../src/app.ts')
   const app = createApp({ paths })
-  return { app: app.server, settings: app.deps.settings, url: await listen(app.server) }
+  return { app: app.server, settings: app.deps.settings, deps: app.deps, url: await listen(app.server) }
 }
 
 export const H = (token?: string) => ({ 'Content-Type': 'application/json', Authorization: `MediaBrowser Client="test", Device="t", DeviceId="t", Version="1"${token ? `, Token="${token}"` : ''}` })

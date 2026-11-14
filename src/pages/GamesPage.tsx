@@ -6,6 +6,7 @@ import { CardSkeleton } from '../components/Skeletons'
 import { useMoonlightApp } from '../components/MoonlightPlay'
 import StreamingSection from '../components/StreamingSection'
 import { useFinesse } from '../lib/finesseServer'
+import { useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 
 function GameCard({ rom }: { rom: RommRom }) {
   // RomM's cover, unless it didn't load: then SteamGridDB's, then the tile.
@@ -107,6 +108,30 @@ function GameCard({ rom }: { rom: RommRom }) {
 
 const SHELF_CAP = 20
 
+/** "Games", and the way into the game store when this server has one. */
+function GamesTitle({ className = '' }: { className?: string }) {
+  const store = useStoreMode()
+  const { data: requests } = useGameRequests()
+  const needsYou = requests?.some((r) => r.state === 'needs-you')
+  return (
+    <div className={`flex flex-wrap items-center gap-4 ${className}`}>
+      <h1 className="page-title">Games</h1>
+      {store && (
+        <Link
+          to="/games/store"
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-medium text-ink-200 hover:text-white"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.35m-16.5 11.65V9.35m0 0a3 3 0 0 0 3.75-.62 3 3 0 0 0 4.5 0 3 3 0 0 0 4.5 0 3 3 0 0 0 3.75.62M3.75 9.35a3 3 0 0 1-.62-4.72L4.32 3.4a1.5 1.5 0 0 1 1.06-.44h13.24a1.5 1.5 0 0 1 1.06.44l1.19 1.2a3 3 0 0 1-.62 4.72" />
+          </svg>
+          Game store
+          {needsYou && <span className="h-2 w-2 rounded-full bg-sky-400" aria-label="An install needs you" />}
+        </Link>
+      )}
+    </div>
+  )
+}
+
 /** Games: streaming from the server (Wolf) and the games library (RomM), whichever this server has. */
 export default function GamesPage() {
   const { info } = useFinesse()
@@ -116,7 +141,7 @@ export default function GamesPage() {
   if (library) return <GamesLibrary top={streaming ? <StreamingSection /> : null} />
   return (
     <div className="px-4 sm:px-6 lg:px-12 py-6">
-      <h1 className="mb-5 page-title">Games</h1>
+      <GamesTitle className="mb-5" />
       {streaming && <StreamingSection />}
     </div>
   )
@@ -167,7 +192,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       {top ? (
         // Streaming first; the search belongs to the library below it.
         <>
-          <h1 className="page-title mb-5">Games</h1>
+          <GamesTitle className="mb-5" />
           {top}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
             <h2 className="row-title text-white">Games library</h2>
@@ -176,7 +201,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         </>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
-          <h1 className="page-title">Games</h1>
+          <GamesTitle />
           {searchBox}
         </div>
       )}

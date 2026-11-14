@@ -20,6 +20,7 @@ import { ActionMenu } from './Menu'
 import { useFriendMusic } from './FriendAlbums'
 import { beginServerUpdate, useServerUpdate } from '../lib/appUpdate'
 import { SparkIcon, UpdatePill, shortVersion } from './Update'
+import { gameStoreMode } from '../api/gameStore'
 
 const NAV_COLLECTIONS = new Set(['movies', 'tvshows'])
 
@@ -65,7 +66,7 @@ export function useOptionalLibraries(): { hasAnime: boolean; hasGames: boolean }
     queryFn: () => getItems({ recursive: true, tags: 'anime', includeItemTypes: 'Movie,Series', limit: 1, enableImages: false }),
     staleTime: 30 * 60_000,
   })
-  return { hasAnime: (anime?.TotalRecordCount ?? 0) > 0, hasGames: loading ? false : info ? Boolean(info.features.games || info.features.streaming) : true }
+  return { hasAnime: (anime?.TotalRecordCount ?? 0) > 0, hasGames: loading ? false : info ? Boolean(info.features.games || info.features.streaming || gameStoreMode(info)) : true }
 }
 
 export default function NavBar() {

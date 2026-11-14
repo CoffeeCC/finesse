@@ -1,0 +1,35 @@
+== 04-pages  (1 file(s), 29M)
+   tier 1 unpack:  exit 0 in 0s, 4 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
+   tier 2 silent:  HUNG: no progress for 120s, so everything in the sandbox was stopped
+                   last lines of the installer's log:
+                     Message box (OK):
+/e/src/run-pipeline.sh: line 76: /tmp/prefix-t2-04-pages/drive_c/Games/04-pages/player.ini: No such file or directory
+   tier 2 choices: player.ini says '', HD textures: 0, soundtrack: 0
+   tier 1 choices: HD textures: 1, soundtrack: 1, player.ini: 0
+== 05-refuses-silent  (1 file(s), 1.4M)
+   tier 1 unpack:  exit 0 in 0s, 2 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
+   tier 2 silent:  exit 1 in 6s, 0 files
+                   last lines of the installer's log:
+                     This installer refuses to run silently.
+                     InitializeSetup returned False; aborting.
+                     Got EAbort exception.
+== 06-runtime  (1 file(s), 1.4M)
+   tier 1 unpack:  exit 0 in 1s, 3 files (app tmp )
+   tier 1 game:    won't start: exit 3 (the runtime it needs isn't installed)
+   tier 2 silent:  exit 0 in 9s, 4 files
+   tier 2 game:    STARTS (still running after 10 s)
+== 07-needs-internet  (1 file(s), 1.4M)
+   tier 1 unpack:  exit 0 in 1s, 2 files (app )
+   tier 1 game:    STARTS (still running after 10 s)
+   tier 2 silent:  exit 7 in 8s, 0 files
+                   last lines of the installer's log:
+                     Defaulting to OK for suppressed message box (OK):
+                     Couldn't download the extra content: Error sending data: (12007) 
+                     Got EAbort exception.
+== 08-broken-game  (1 file(s), 1.4M)
+   tier 1 unpack:  exit 0 in 0s, 2 files (app )
+   tier 1 game:    won't start: exit 1
+   tier 2 silent:  exit 0 in 9s, 4 files
+   tier 2 game:    won't start: exit 1

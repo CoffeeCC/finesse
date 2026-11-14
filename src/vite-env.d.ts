@@ -8,3 +8,8 @@ declare const __WEBOS__: boolean
 // Version of the currently-running bundle, baked in at build time from
 // package.json. Used by the OTA self-updater to compare against GitHub releases.
 declare const __APP_VERSION__: string
+
+interface ImportMetaEnv {
+  /** "demo" builds in the demo game store (made-up downloads), for testing the UI. */
+  readonly VITE_GAME_STORE?: string
+}

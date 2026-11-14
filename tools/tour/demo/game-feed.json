@@ -1,0 +1,329 @@
+{
+ "games": [
+  {
+   "title": "0 A.D.",
+   "developer": "Wildfire Games",
+   "year": 2024,
+   "genres": [
+    "Strategy",
+    "History"
+   ],
+   "modes": [
+    "single",
+    "online"
+   ],
+   "popularity": 95,
+   "summary": "Lead an ancient civilisation from a village to an empire.",
+   "description": "Lead an ancient civilisation from a village to an empire. A free, open-source game.",
+   "license": "GPL-2.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "nsis",
+     "sizeBytes": 1572864000,
+     "version": "0.28.0",
+     "url": "https://example.org/demo/windows/0.28.0"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "archive",
+     "sizeBytes": 1468006400,
+     "version": "0.28.0",
+     "url": "https://example.org/demo/linux/0.28.0"
+    }
+   ]
+  },
+  {
+   "title": "Warzone 2100",
+   "developer": "Warzone 2100 Project",
+   "year": 1999,
+   "genres": [
+    "Strategy",
+    "Sci-fi"
+   ],
+   "modes": [
+    "single",
+    "online"
+   ],
+   "popularity": 90,
+   "summary": "Command the forces of The Project in a battle to rebuild the world.",
+   "description": "Command the forces of The Project in a battle to rebuild the world. A free, open-source game.",
+   "license": "GPL-2.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "inno",
+     "sizeBytes": 209715200,
+     "version": "4.5.5",
+     "url": "https://example.org/demo/windows/4.5.5"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "archive",
+     "sizeBytes": 199229440,
+     "version": "4.5.5",
+     "url": "https://example.org/demo/linux/4.5.5"
+    }
+   ]
+  },
+  {
+   "title": "OpenTTD",
+   "developer": "OpenTTD Team",
+   "year": 2004,
+   "genres": [
+    "Simulation",
+    "Strategy"
+   ],
+   "modes": [
+    "single",
+    "online"
+   ],
+   "popularity": 88,
+   "summary": "Build a transport empire of trains, ships, lorries and planes.",
+   "description": "Build a transport empire of trains, ships, lorries and planes. A free, open-source game.",
+   "license": "GPL-2.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "nsis",
+     "sizeBytes": 62914560,
+     "version": "14.1",
+     "url": "https://example.org/demo/windows/14.1"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "archive",
+     "sizeBytes": 57671680,
+     "version": "14.1",
+     "url": "https://example.org/demo/linux/14.1"
+    }
+   ]
+  },
+  {
+   "title": "SuperTuxKart",
+   "developer": "SuperTuxKart Team",
+   "year": 2007,
+   "genres": [
+    "Racing"
+   ],
+   "modes": [
+    "single",
+    "local",
+    "online"
+   ],
+   "popularity": 85,
+   "summary": "Kart racing with the mascots of free software.",
+   "description": "Kart racing with the mascots of free software. A free, open-source game.",
+   "license": "GPL-3.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "nsis",
+     "sizeBytes": 681574400,
+     "version": "1.4",
+     "url": "https://example.org/demo/windows/1.4"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "archive",
+     "sizeBytes": 629145600,
+     "version": "1.4",
+     "url": "https://example.org/demo/linux/1.4"
+    }
+   ]
+  },
+  {
+   "title": "Mindustry",
+   "developer": "Anuke",
+   "year": 2019,
+   "genres": [
+    "Strategy",
+    "Simulation"
+   ],
+   "modes": [
+    "single",
+    "online"
+   ],
+   "popularity": 82,
+   "summary": "Factory-building tower defence.",
+   "description": "Factory-building tower defence. A free, open-source game.",
+   "license": "GPL-3.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "archive",
+     "sizeBytes": 94371840,
+     "version": "146",
+     "url": "https://example.org/demo/windows/146"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "archive",
+     "sizeBytes": 94371840,
+     "version": "146",
+     "url": "https://example.org/demo/linux/146"
+    }
+   ]
+  },
+  {
+   "title": "SuperTux",
+   "developer": "SuperTux Team",
+   "year": 2003,
+   "genres": [
+    "Platformer"
+   ],
+   "modes": [
+    "single"
+   ],
+   "popularity": 80,
+   "summary": "Run and jump through icy worlds as Tux the penguin.",
+   "description": "Run and jump through icy worlds as Tux the penguin. A free, open-source game.",
+   "license": "GPL-3.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "msi",
+     "sizeBytes": 157286400,
+     "version": "0.7.0",
+     "url": "https://example.org/demo/windows/0.7.0"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "linux",
+     "sizeBytes": 167772160,
+     "version": "0.7.0",
+     "url": "https://example.org/demo/linux/0.7.0"
+    }
+   ]
+  },
+  {
+   "title": "Veloren",
+   "developer": "Veloren Team",
+   "year": 2018,
+   "genres": [
+    "Role-playing",
+    "Adventure"
+   ],
+   "modes": [
+    "single",
+    "online"
+   ],
+   "popularity": 78,
+   "summary": "A multiplayer voxel role-playing game in a vast open world.",
+   "description": "A multiplayer voxel role-playing game in a vast open world. A free, open-source game.",
+   "license": "GPL-3.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "archive",
+     "sizeBytes": 734003200,
+     "version": "0.16.0",
+     "url": "https://example.org/demo/windows/0.16.0"
+    },
+    {
+     "id": "lin",
+     "platform": "linux",
+     "installer": "archive",
+     "sizeBytes": 734003200,
+     "version": "0.16.0",
+     "url": "https://example.org/demo/linux/0.16.0"
+    }
+   ]
+  },
+  {
+   "title": "The Battle for Wesnoth",
+   "developer": "The Battle for Wesnoth Project",
+   "year": 2005,
+   "genres": [
+    "Strategy",
+    "Fantasy"
+   ],
+   "modes": [
+    "single",
+    "local",
+    "online"
+   ],
+   "popularity": 75,
+   "summary": "Turn-based tactics in a high fantasy world.",
+   "description": "Turn-based tactics in a high fantasy world. A free, open-source game.",
+   "license": "GPL-2.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "nsis",
+     "sizeBytes": 524288000,
+     "version": "1.18.2",
+     "url": "https://example.org/demo/windows/1.18.2"
+    }
+   ]
+  },
+  {
+   "title": "Xonotic",
+   "developer": "Team Xonotic",
+   "year": 2011,
+   "genres": [
+    "Shooter"
+   ],
+   "modes": [
+    "single",
+    "online"
+   ],
+   "popularity": 70,
+   "summary": "A fast arena shooter with crisp movement.",
+   "description": "A fast arena shooter with crisp movement. A free, open-source game.",
+   "license": "GPL-3.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "archive",
+     "sizeBytes": 1258291200,
+     "version": "0.8.6",
+     "url": "https://example.org/demo/windows/0.8.6"
+    }
+   ]
+  },
+  {
+   "title": "Hedgewars",
+   "developer": "Hedgewars Project",
+   "year": 2006,
+   "genres": [
+    "Strategy",
+    "Party"
+   ],
+   "modes": [
+    "single",
+    "local",
+    "online"
+   ],
+   "popularity": 60,
+   "summary": "Turn-based artillery chaos with pink hedgehogs.",
+   "description": "Turn-based artillery chaos with pink hedgehogs. A free, open-source game.",
+   "license": "GPL-2.0-or-later",
+   "downloads": [
+    {
+     "id": "win",
+     "platform": "windows",
+     "installer": "nsis",
+     "sizeBytes": 188743680,
+     "version": "1.0.2",
+     "url": "https://example.org/demo/windows/1.0.2"
+    }
+   ]
+  }
+ ]
+}
