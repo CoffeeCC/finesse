@@ -338,6 +338,7 @@ test('finding the game’s program', () => {
 
 test('answering windows, and reading why an installer failed', () => {
   assert.deepEqual(answerWindow(box('Setup', 'License Agreement', ['I &Agree', 'Cancel'])), { do: 'click', button: 'I &Agree' })
+  assert.deepEqual(answerWindow(box('Setup', 'License Agreement', ['&Next >', 'I &accept the agreement', 'I do &not accept the agreement', 'Cancel'])), { do: 'click', button: 'I &accept the agreement' })
   assert.deepEqual(answerWindow(box('Setup', 'Ready', ['< &Back', '&Install', 'Cancel'])), { do: 'click', button: '&Install' })
   assert.equal(answerWindow(box('Setup', 'Setup was not completed. Exit?', ['Cancel'])).do, 'ask', 'never Cancel')
   assert.equal(answerWindow(box('Setup', 'Enter your serial number', ['&Next >'], { wantsInput: true })).do, 'ask')

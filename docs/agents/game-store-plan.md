@@ -72,9 +72,11 @@ what differs.
 | Request status words | `src/lib/gameRequestStatus.ts` | Built (pure) |
 | Installer type from bytes (Inno, NSIS, MSI, WiX, InstallShield, self-extractors, archives, ISO, ELF, AppImage, Makeself) | `server/src/installerSniff.ts` + test | Built, 11 tests |
 | Checksum lists (`.md5`/`.sha1`/`.sha256`, subfolders, store hashes) | `server/src/downloadCheck.ts` + test | Built, 5 tests |
-| Installer lab: 8 worst-case Inno installers (sources), a stand-in game and runtime, scripts, results | `tools/installer-lab/` | Built and run on the dev NAS; WS8 makes it repo-relative and puts it in CI |
-| Prototype sandbox image | `tools/installer-lab/prototype/Dockerfile` | Prototype; replace (WS4) |
-| Hands-off prototype (`plan.ts` + `auto-install.sh`, `try-install.sh`) | `tools/installer-lab/src/`, `prototype/` | Prototype; the logic moves into the server (WS3) |
+| Installer lab: 8 worst-case Inno installers (sources), a stand-in game and runtime, scripts | `tools/installer-lab/` | Built. `run-sandbox.ts` runs the cases and the free games through the real sandbox. WS8 builds the installers in CI and fails on a changed outcome |
+| Linux install sandbox | `docker/installer/` (`finesse-sandbox`, Wine 11, innoextract at a pinned commit, 7-Zip 26.06, msitools, winhelper, x11vnc, vcrun2022, d3dx9, d3dcompiler_47, xact). Image `ghcr.io/coffeecc/finesse-installer:1.0.0` in `catalog.ts` | Built (WS4). CI builds it; a release pushes the version tag. Pinning that image by digest is a release decision |
+| Docker sandbox for a request | `server/src/gamestore/sandbox.ts`, screen at `/api/games/store/requests/:id/screen` | Built (WS4). One container per job, no network, removed when done; "Needs you" is the installer's screen in the browser |
+| Prototype sandbox image | `tools/installer-lab/prototype/Dockerfile` | Earlier experiment. The server uses `docker/installer/` |
+| Hands-off prototype (`plan.ts` + `auto-install.sh`, `try-install.sh`) | `tools/installer-lab/src/`, `prototype/` | Earlier experiment. The engine is `server/src/gamestore/install.ts` (WS3) |
 
 ## What the tests showed (build on these)
 

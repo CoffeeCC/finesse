@@ -2,6 +2,7 @@
 // orchestrator needs: images, containers, networks, logs, stats.
 
 import { request, type IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { logger } from '../log.ts'
 
 const log = logger('docker')
@@ -367,6 +368,50 @@ export class Docker {
     }
   }
 
+  /**
+   * Starts a command inside a container and hands over its connection: what's written to it is
+   * the command's stdin (with `stdin`), and what comes back is Docker's framed stdout/stderr
+   * (read it with `demuxExec`). The command's exit code is at `execExitCode(id)` once it ends.
+   */
+  async execAttach(nameOrId: string, cmd: string[], opts: { stdin?: boolean; user?: string; env?: string[] } = {}): Promise<{ id: string; stream: Duplex }> {
+    const ex = await this.call<{ Id: string }>('POST', `/containers/${encodeURIComponent(nameOrId)}/exec`, {
+      Cmd: cmd,
+      AttachStdin: Boolean(opts.stdin),
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+      ...(opts.user ? { User: opts.user } : {}),
+      ...(opts.env ? { Env: opts.env } : {}),
+    })
+    const id = ex!.Id
+    const body = Buffer.from(JSON.stringify({ Detach: false, Tty: false }))
+    return new Promise((resolve, reject) => {
+      const req = request({
+        socketPath: this.socketPath,
+        method: 'POST',
+        path: `/exec/${id}/start`,
+        headers: { Host: 'docker', 'Content-Type': 'application/json', 'Content-Length': String(body.length), Connection: 'Upgrade', Upgrade: 'tcp' },
+      })
+      req.on('upgrade', (_res, socket, head) => {
+        if (head.length) socket.unshift(head)
+        resolve({ id, stream: socket })
+      })
+      req.on('response', (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (c: Buffer) => chunks.push(c))
+        res.on('end', () => reject(new DockerError(res.statusCode ?? 0, Buffer.concat(chunks).toString().trim() || `Docker didn't attach (${res.statusCode})`)))
+      })
+      req.on('error', (e) => reject(new DockerError(0, `Docker isn't reachable (${(e as NodeJS.ErrnoException).code ?? e.message})`)))
+      req.end(body)
+    })
+  }
+
+  /** The exit code of an exec started with execAttach, or null while it runs. */
+  async execExitCode(id: string): Promise<number | null> {
+    const info = await this.call<{ ExitCode: number | null; Running: boolean }>('GET', `/exec/${id}/json`)
+    return info && !info.Running ? info.ExitCode : null
+  }
+
   /** Runs a command inside a container; resolves with its combined output + exit code. */
   async exec(nameOrId: string, cmd: string[], opts: { user?: string } = {}): Promise<{ code: number; output: string }> {
     const ex = await this.call<{ Id: string }>('POST', `/containers/${encodeURIComponent(nameOrId)}/exec`, {
@@ -389,4 +434,23 @@ export class Docker {
     const info = await this.call<{ ExitCode: number }>('GET', `/exec/${ex!.Id}/json`)
     return { code: info?.ExitCode ?? -1, output }
   }
+}
+
+/**
+ * Reads Docker's framed exec output (8-byte header: stream 1 stdout / 2 stderr, then a 32-bit
+ * length) as it arrives, handing each piece to its stream's callback.
+ */
+export function demuxExec(stream: NodeJS.ReadableStream, out: (b: Buffer) => void, err?: (b: Buffer) => void): void {
+  let pending = Buffer.alloc(0)
+  stream.on('data', (c: Buffer) => {
+    pending = pending.length ? Buffer.concat([pending, c]) : c
+    while (pending.length >= 8) {
+      const size = pending.readUInt32BE(4)
+      if (pending.length < 8 + size) break
+      const body = pending.subarray(8, 8 + size)
+      if (pending[0] === 2) err?.(body)
+      else out(body)
+      pending = pending.subarray(8 + size)
+    }
+  })
 }

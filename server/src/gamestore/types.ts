@@ -226,6 +226,8 @@ export interface WindowInfo {
   buttons: string[]
   /** It has a box to type in or a list to choose from. */
   wantsInput: boolean
+  /** The sandbox's handle for it (winhelper's hwnd), for clicking. */
+  hwnd?: string
 }
 
 export interface RunResult {

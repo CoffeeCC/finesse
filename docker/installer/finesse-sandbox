@@ -1,0 +1,323 @@
+#!/bin/bash
+# finesse-sandbox: what Finesse asks of an install sandbox, one command per `docker exec`
+# (server/src/gamestore/sandbox.ts is the other side). The container has no network; /job/download
+# is the download (read-only) and /job/install the only folder anything is written to.
+#
+#   serve                          the container's main process: a fresh Wine prefix and a screen
+#   list <tool> <file>             what's inside an installer or archive, one path per line
+#   unpack <tool> <file> <into>    unpack with innoextract, 7z, msiextract or tar (or copy)
+#   install <hang-s> -- <cmd...>   run an installer; <dir> and <log> are filled in
+#   files <dir>                    every file under a folder: path, size, mode (tab-separated)
+#   clear <dir>                    empty a folder of the job
+#   launch <program> <wait-s>      start the game and report what's on screen
+#   windows                        the windows on screen (winhelper list)
+#   click <hwnd> <label>           press a button by its label
+#   stop                           stop everything started in the sandbox
+#   screen                         VNC on stdin/stdout, for "Needs you"
+#
+# Progress goes out as "@progress <bytes>" lines and the outcome as one "@result <json>" line;
+# anything else is log. Paths are relative to /job and never leave it.
+set -u
+export DISPLAY=:1
+JOB=/job
+STATE=/tmp/finesse
+WINEPREFIX=${WINEPREFIX:-$HOME/prefix}
+export WINEPREFIX
+# Start-menu entries are not part of the install, and winemenubuilder stays running after one.
+case "${WINEDLLOVERRIDES:-}" in
+  *winemenubuilder.exe*) ;;
+  '') export WINEDLLOVERRIDES="winemenubuilder.exe=d" ;;
+  *) export WINEDLLOVERRIDES="${WINEDLLOVERRIDES};winemenubuilder.exe=d" ;;
+esac
+WINEHELPER=/opt/finesse/winhelper.exe
+GAME_DIR=install/game
+SANDBOX_DIR=install/.sandbox
+
+say_result() { echo "@result $1"; }
+json_str() { # a string as JSON
+  local s=${1//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\t'/ }
+  s=${s//$'\r'/}
+  s=${s//$'\n'/\\n}
+  printf '"%s"' "$s"
+}
+
+# A job path: relative, inside download/ or install/, no "..".
+job_path() {
+  case "$1" in
+    download|download/*|install|install/*) ;;
+    *) echo "not a job path: $1" >&2; exit 64 ;;
+  esac
+  case "/$1/" in */../*) echo "not a job path: $1" >&2; exit 64 ;; esac
+  printf '%s/%s' "$JOB" "$1"
+}
+# Windows' name for a path under /job (drive Z: is the container's root).
+win_path() { local p=${1//\//\\}; printf 'Z:%s' "$p"; }
+
+wait_ready() { for _ in $(seq 1 300); do [ -f "$STATE/ready" ] && return 0; sleep 0.2; done; echo "the sandbox didn't start" >&2; exit 70; }
+
+bytes_in() { du -sb "$1" 2>/dev/null | cut -f1; }
+# CPU used so far by everything this user runs, apart from the screen and this script's own helpers.
+cpu_ticks() {
+  local total=0 f fields
+  for f in /proc/[0-9]*/stat; do
+    read -r -a fields < "$f" 2>/dev/null || continue
+    case "${fields[1]}" in "(Xvfb)"|"(finesse-sandbox)"|"(sleep)"|"(du)"|"(tini)") continue ;; esac
+    total=$((total + fields[13] + fields[14]))
+  done
+  echo "$total"
+}
+
+# Wine keeps a session up after an installer exits (everything under C:\windows, plus wineserver).
+# That session is not the installer. msiexec and a few system tools are, because an MSI runs as them.
+# A program already under the game folder is the installed game, not the installer still working.
+installer_alive() {
+  local stat line low
+  while IFS= read -r stat line; do
+    case "$stat" in Z*) continue ;; esac
+    low=$(printf "%s" "$line" | tr "[:upper:]" "[:lower:]")
+    case "$low" in
+      *wineserver*|*wine-preloader*|*wine64-preloader*|*wineboot*) continue ;;
+      *\\windows\\*|*'/windows/'*)
+        case "$low" in
+          *msiexec*|*\\cmd.exe*|*\\cscript.exe*|*\\wscript.exe*|*\\regsvr32.exe*) return 0 ;;
+        esac
+        continue
+        ;;
+      *\\job\\install\\*|*'/job/install/'*) continue ;;
+    esac
+    case "$low" in
+      *.exe*|*.tmp*|*.msi*) return 0 ;;
+    esac
+  done << EOF
+$(ps -u "$(id -u)" -o stat=,args= 2>/dev/null)
+EOF
+  return 1
+}
+
+# ---------- serve ----------
+cmd_serve() {
+  mkdir -p "$STATE" "$HOME"
+  # Wine won't use a prefix another user owns: each job starts from its own copy of the base.
+  [ -d "$WINEPREFIX" ] || cp -r /opt/prefix "$WINEPREFIX"
+  Xvfb :1 -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+  local xvfb=$!
+  for _ in $(seq 1 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done
+  touch "$STATE/ready"
+  wait "$xvfb"
+}
+
+# ---------- list / unpack ----------
+cmd_list() {
+  local tool=$1 file; file=$(job_path "$2")
+  wait_ready
+  case "$tool" in
+    innoextract) innoextract --list --quiet "$file" 2>/dev/null | sed -n 's/^ - "\(.*\)".*/\1/p' ;;
+    7z) 7zz l -slt -ba "$file" 2>/dev/null | sed -n 's/^Path = //p' ;;
+    msiextract) msiextract -l "$file" 2>/dev/null ;;
+    tar) tar -tf "$file" 2>/dev/null ;;
+  esac
+  say_result '{"ok":true}'
+}
+
+cmd_unpack() {
+  local tool=$1 file into; file=$(job_path "$2"); into=$(job_path "$3")
+  wait_ready
+  mkdir -p "$into"
+  ( while sleep 2; do echo "@progress $(bytes_in "$into")"; done ) &
+  local ticker=$! rc log=$STATE/unpack.log
+  case "$tool" in
+    innoextract) innoextract --silent --extract --output-dir "$into" "$file" >"$log" 2>&1 ;;
+    7z) 7zz x -y -bso0 -bsp0 -o"$into" "$file" >"$log" 2>&1 ;;
+    msiextract) msiextract -C "$into" "$file" >"$log" 2>&1 ;;
+    tar) tar -xf "$file" -C "$into" >"$log" 2>&1 ;;
+    copy) if [ -d "$file" ]; then cp -r "$file"/. "$into"/; else cp "$file" "$into"/; fi >"$log" 2>&1 ;;
+    *) echo "unknown tool: $tool" >"$log"; false ;;
+  esac
+  rc=$?
+  kill "$ticker" 2>/dev/null
+  echo "@progress $(bytes_in "$into")"
+  tail -n 20 "$log"
+  say_result "{\"exit\":$rc,\"hung\":false}"
+}
+
+# ---------- install ----------
+cmd_install() {
+  local hang=$1; shift
+  [ "${1:-}" = "--" ] && shift
+  wait_ready
+  mkdir -p "$JOB/$GAME_DIR" "$JOB/$SANDBOX_DIR"
+  local log_file="$JOB/$SANDBOX_DIR/installer.log" out=$STATE/install.out
+  rm -f "$log_file"
+  local first=$1 native=0
+  # A Linux installer (a Makeself script) runs as itself; everything else through Wine.
+  if [ -f "$JOB/$first" ] && head -c 4 "$JOB/$first" | grep -q $'^\x7fELF\|^#!'; then native=1; fi
+  local args=() a
+  for a in "$@"; do
+    if [ "$native" = 1 ]; then
+      a=${a//<dir>/$JOB/$GAME_DIR}; a=${a//<log>/$log_file}
+    else
+      a=${a//<dir>/$(win_path "$JOB/$GAME_DIR")}; a=${a//<log>/$(win_path "$log_file")}
+      case "$a" in download/*|install/*) [ -e "$JOB/$a" ] && a=$(win_path "$JOB/$a") ;; esac
+    fi
+    args+=("$a")
+  done
+  touch "$STATE/install.mark"
+  cd "$JOB" || exit 70
+  if [ "$native" = 1 ]; then
+    chmod +x "$JOB/$first" 2>/dev/null
+    "${args[@]}" >"$out" 2>&1 &
+  else
+    wine "${args[@]}" >"$out" 2>&1 &
+  fi
+  local pid=$! rc=null hung=false
+  # Hung = nothing written and no CPU used for the limit; then everything in the sandbox stops.
+  local last_bytes=-1 last_cpu=-1 idle=0 now_bytes now_cpu launcher_done=0
+  while :; do
+    sleep 3
+    if [ "$launcher_done" = 0 ] && ! kill -0 "$pid" 2>/dev/null; then
+      wait "$pid"; rc=$?; launcher_done=1
+    fi
+    # The launcher can be gone while the installer itself (setup.tmp) still runs.
+    if [ "$launcher_done" = 1 ] && { [ "$native" = 1 ] || ! installer_alive; }; then break; fi
+    now_bytes=$(bytes_in "$JOB/install"); now_cpu=$(cpu_ticks)
+    if [ "$now_bytes" != "$last_bytes" ] || [ $((now_cpu - last_cpu)) -gt 2 ]; then idle=0; echo "@progress $now_bytes"; else idle=$((idle + 3)); fi
+    last_bytes=$now_bytes; last_cpu=$now_cpu
+    if [ "$hang" -gt 0 ] && [ "$idle" -ge "$hang" ]; then
+      echo "Still running when the installer was stopped:"
+      ps -u "$(id -u)" -o args= 2>/dev/null || true
+      hung=true
+      wineserver -k 2>/dev/null; kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rc=null
+      break
+    fi
+  done
+  # wineserver -w waits for the session processes too, and those never exit.
+  [ "$native" = 1 ] || timeout 20 wineserver -w 2>/dev/null || true
+  # An installer that ignored the folder it was given: take what it put in Program Files.
+  local dir=""
+  if [ "$hung" = false ] && [ -z "$(ls -A "$JOB/$GAME_DIR" 2>/dev/null)" ] && [ "$native" = 0 ]; then
+    local found
+    found=$(find "$WINEPREFIX/drive_c/Program Files" "$WINEPREFIX/drive_c/Program Files (x86)" "$WINEPREFIX/drive_c/Games" -mindepth 1 -maxdepth 2 -type d -newer "$STATE/install.mark" 2>/dev/null \
+      | grep -viE '/(common files|windows nt|internet explorer|windows media player|microsoft\.net)' | head -1)
+    if [ -n "$found" ]; then cp -r "$found"/. "$JOB/$GAME_DIR"/ && dir=$GAME_DIR && echo "The installer used its own folder ($found); its files were copied to the game folder."; fi
+  fi
+  echo "@progress $(bytes_in "$JOB/install")"
+  if [ -s "$log_file" ]; then tr -d '\r' < "$log_file" | tail -n 40; else tail -n 30 "$out"; fi
+  say_result "{\"exit\":$rc,\"hung\":$hung$([ -n "$dir" ] && printf ',"dir":%s' "$(json_str "$dir")")}"
+}
+
+# ---------- files / clear ----------
+cmd_files() {
+  local dir; dir=$(job_path "$1")
+  [ -d "$dir" ] && find "$dir" -path "$JOB/$SANDBOX_DIR" -prune -o -type f -printf '%P\t%s\t%m\n'
+  say_result '{"ok":true}'
+}
+
+cmd_clear() {
+  local dir; dir=$(job_path "$1")
+  case "$1" in install/*) ;; *) echo "only install/ can be cleared" >&2; exit 64 ;; esac
+  rm -rf "$dir" && mkdir -p "$dir"
+  say_result '{"ok":true}'
+}
+
+# ---------- the screen ----------
+list_windows() { wine "$WINEHELPER" list 2>/dev/null | tr -d "\r\n"; }
+# Mapped X windows bigger than an icon: how a Linux game shows it has a window.
+x_windows() { xwininfo -root -children 2>/dev/null | grep -cE '[0-9]+x[0-9]+\+' ; }
+
+screenshot() { # $1 = job path of the .png; prints whether it's blank
+  local png; png=$(job_path "$1")
+  mkdir -p "$(dirname "$png")"
+  import -silent -window root "$png" 2>/dev/null || { echo blank; return; }
+  local sd; sd=$(convert "$png" -colorspace gray -format '%[fx:standard_deviation]' info: 2>/dev/null || echo 0)
+  awk -v s="$sd" 'BEGIN { print (s + 0 < 0.004) ? "blank" : "picture" }'
+}
+
+cmd_launch() {
+  local program=$1 wait_s=$2 file; file=$(job_path "$program")
+  wait_ready
+  mkdir -p "$JOB/$SANDBOX_DIR"
+  local out=$STATE/launch.out elf=0
+  head -c 4 "$file" | grep -q $'^\x7fELF' && elf=1
+  cd "$(dirname "$file")" || exit 70
+  if [ "$elf" = 1 ]; then chmod +x "$file" 2>/dev/null; "$file" >"$out" 2>&1 & else wine "$file" >"$out" 2>&1 & fi
+  local pid=$! exited=null waited=0 seen=0
+  echo "$pid" >> "$STATE/launched.pids"
+  while [ "$waited" -lt "$wait_s" ]; do
+    sleep 2; waited=$((waited + 2))
+    if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; exited=$?; [ "$elf" = 1 ] && break; fi
+    if [ "$elf" = 1 ]; then [ "$(x_windows)" -gt 0 ] && seen=$((seen + 1)); else [ "$(list_windows)" != "[]" ] && seen=$((seen + 1)); fi
+    # Give a window a few seconds to draw before looking at it.
+    [ "$seen" -ge 3 ] && break
+    # Wine's launcher can exit while the game runs on: only stop once nothing is left.
+    if [ "$exited" != null ] && [ "$elf" = 0 ] && ! pgrep -u "$(id -u)" -f '\.exe' >/dev/null; then break; fi
+  done
+  local windows shot="" picture
+  if [ "$elf" = 1 ]; then
+    windows=$([ "$(x_windows)" -gt 0 ] && echo '[{"title":"","class":"x11","text":"","buttons":[],"wantsInput":false}]' || echo '[]')
+  else windows=$(list_windows); [ -n "$windows" ] || windows='[]'; fi
+  picture=$(screenshot "$SANDBOX_DIR/start.png")
+  [ "$picture" = picture ] && shot=$SANDBOX_DIR/start.png
+  # A game still running has no exit code yet.
+  kill -0 "$pid" 2>/dev/null && exited=null
+  tail -n 20 "$out" | grep -v '^fixme:'
+  say_result "{\"windows\":$windows,\"exited\":$exited$([ -n "$shot" ] && printf ',"screenshot":%s' "$(json_str "$shot")")}"
+}
+
+cmd_windows() {
+  wait_ready
+  local w; w=$(list_windows); [ -n "$w" ] || w='[]'
+  say_result "{\"windows\":$w}"
+}
+
+cmd_click() {
+  wait_ready
+  if wine "$WINEHELPER" click "$1" "$2" >/dev/null 2>&1; then say_result '{"ok":true}'; else say_result '{"ok":false}'; fi
+}
+
+cmd_stop() {
+  wineserver -k 2>/dev/null
+  if [ -f "$STATE/launched.pids" ]; then
+    while read -r p; do kill -9 "$p" 2>/dev/null; done < "$STATE/launched.pids"
+    rm -f "$STATE/launched.pids"
+  fi
+  say_result '{"ok":true}'
+}
+
+# VNC copied between the browser's pipe and x11vnc on localhost. -inetd wants a TCP socket
+# (it drops a pipe: "non TCP socket"), and docker exec is a pipe, so it listens and this bridges.
+cmd_screen() {
+  wait_ready
+  if ! (exec 3<>/dev/tcp/127.0.0.1/5900) 2>/dev/null; then
+    x11vnc -display "$DISPLAY" -localhost -rfbport 5900 -nopw -forever -shared -quiet -noxdamage -nodpms -o /dev/null >/dev/null 2>&1 &
+    local i
+    for i in $(seq 1 50); do
+      (exec 3<>/dev/tcp/127.0.0.1/5900) 2>/dev/null && break
+      sleep 0.1
+    done
+  fi
+  exec 3<>/dev/tcp/127.0.0.1/5900 || { echo "the screen didn't open" >&2; exit 70; }
+  # A pipe buffers a screen's worth of bytes before the browser sees any of it.
+  stdbuf -o0 cat <&3 &
+  local copier=$!
+  trap 'kill "$copier" 2>/dev/null' EXIT
+  stdbuf -o0 cat >&3
+  kill "$copier" 2>/dev/null
+}
+
+what=${1:-}; shift || true
+case "$what" in
+  serve) cmd_serve ;;
+  list) cmd_list "$@" ;;
+  unpack) cmd_unpack "$@" ;;
+  install) cmd_install "$@" ;;
+  files) cmd_files "$@" ;;
+  clear) cmd_clear "$@" ;;
+  launch) cmd_launch "$@" ;;
+  windows) cmd_windows ;;
+  click) cmd_click "$@" ;;
+  stop) cmd_stop ;;
+  screen) cmd_screen ;;
+  *) echo "finesse-sandbox: unknown command '$what'" >&2; exit 64 ;;
+esac

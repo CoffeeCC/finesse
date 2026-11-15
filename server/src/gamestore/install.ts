@@ -329,6 +329,17 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
           const key = `${w.title}|${w.text}|${a.button}`
           const times = (pressed.get(key) ?? 0) + 1
           pressed.set(key, times)
+          // A licence choice stays on the page after it's made. Next is what moves on, and it
+          // only becomes available once that choice is pressed.
+          if (times > 1) {
+            const next = w.buttons.find((b) => /^next\b/i.test(b.replace(/&/g, '').trim()))
+            if (next && (await runner.click(w, next))) {
+              say(`Pressed “${next.replace(/&/g, '')}”${w.title ? ` in “${w.title}”` : ''}.`)
+              acted = true
+              stuckMs = 0
+              break
+            }
+          }
           // Pressing the same button on the same page over and over means it isn't moving on.
           if (times > 3) {
             ask = w

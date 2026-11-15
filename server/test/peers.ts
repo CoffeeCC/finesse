@@ -141,6 +141,8 @@ export async function fakeJellyfin(serverName: string, people: { name: string; t
   return { url, server, users, calls, libs, movie, privateMovie, rated, titles, failing, opts }
 }
 
+import { noInstaller } from '../src/gamestore/wiring.ts'
+
 export async function finesse(name: string, jf: { url: string }, serviceKey: string, publicUrl?: string) {
   const dir = tmp()
   const config = join(dir, 'config')
@@ -155,7 +157,7 @@ export async function finesse(name: string, jf: { url: string }, serviceKey: str
   )
   const paths = { configDir: config, settingsFile: join(config, 'finesse.json'), invitesDb: join(config, 'invites.db'), bakedWeb: join(dir, 'web'), updatedWeb: join(config, 'web'), previews: join(config, 'previews'), backups: join(config, 'backups') }
   const { createApp } = await import('../src/app.ts')
-  const app = createApp({ paths })
+  const app = createApp({ paths, installer: noInstaller })
   return { app: app.server, settings: app.deps.settings, deps: app.deps, url: await listen(app.server) }
 }
 

@@ -1,7 +1,8 @@
 // Plugs the request pipeline into a running server: magnets through the bundled qBittorrent
-// behind the VPN, https downloads fetched directly, both into the data folder. What installs a
-// finished download (the engine in a sandbox: install.ts + a SandboxRunner) is handed in by the
-// host; until one exists, a request downloads, is checked, and stops there saying so.
+// behind the VPN, https downloads fetched directly, both into the data folder. A finished, checked
+// download is installed by the engine (install.ts) in a sandbox: on Linux a container with no
+// network (sandbox.ts). Windows hosts get theirs later (WS5); until then a request there
+// downloads, is checked, and stops saying so, keeping the download for "Try again".
 
 import { randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
@@ -11,13 +12,16 @@ import { pipeline as pump } from 'node:stream/promises'
 import { ApiError } from '../http/core.ts'
 import type { SettingsStore } from '../config.ts'
 import { fromApp, toApp } from '../stack/apppaths.ts'
+import { INSTALLER_IMAGE } from '../stack/catalog.ts'
+import { Docker } from '../stack/docker.ts'
 import { isNative } from '../stack/host.ts'
 import { DirectDownloader, safeFileName } from './direct.ts'
 import { Pipeline, type Installer } from './pipeline.ts'
 import { QbitDownloader } from './qbit.ts'
 import { YOURS, type GameStore } from './routes.ts'
+import { DockerInstaller } from './sandbox.ts'
 
-export const NO_SANDBOX = 'It’s downloaded and checked, but this server can’t install games yet. That arrives with a later update. The download is kept, so “Try again” then carries on from here.'
+export const NO_SANDBOX = 'It’s downloaded and checked, but Finesse can’t install games on Windows servers yet. That arrives with a later update. The download is kept, so “Try again” then carries on from here.'
 
 /** Stands in until this host has a sandbox to install in. */
 export const noInstaller: Installer = {
@@ -54,6 +58,25 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
     localPath: (p) => (stack() ? fromApp(stack()!.hostData, p) : null),
     savePath: () => (stack() ? toApp(stack()!.hostData, TORRENT_GAMES) : null),
   })
+  // Linux (Docker): installs run in the sandbox. A host can hand in its own (tests, Windows later).
+  // A caller that brought its own installer (the tests do) doesn't also get the Docker one.
+  const sandbox =
+    opts.installer !== undefined || isNative()
+      ? null
+      : new DockerInstaller({
+          docker: Object.assign(new Docker(), { instance: settings.get().instanceId }),
+          image: INSTALLER_IMAGE,
+          where: () => {
+            const st = stack()
+            return st ? { hostData: st.hostData, puid: st.puid, pgid: st.pgid } : null
+          },
+          instance: settings.get().instanceId,
+          log: opts.log,
+        })
+  // Containers from installs that a restart interrupted: their requests start over (or, waiting on a
+  // person, start a fresh sandbox when they're done).
+  if (sandbox && stack()) void sandbox.sweep().catch(() => {})
+  const installer = opts.installer ?? sandbox ?? noInstaller
   let direct: DirectDownloader | null = null
   // Made when first needed: a server that's still being set up gets its pipeline once setup is done.
   let pipeline: Pipeline | null = null
@@ -64,7 +87,7 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
       pipeline = new Pipeline({
         db: store.db,
         downloaderFor: (s) => (s.magnet ? torrents : files),
-        installer: opts.installer ?? noInstaller,
+        installer,
         freeBytes: async () => {
           const f = await statfs(stack()?.hostData ?? '/')
           return f.bavail * f.bsize
@@ -101,6 +124,7 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
     store.db.putGame(game, [source])
     return p.adopt(id, game, source, user, folder)
   }
-  store.installs = Boolean(opts.installer)
+  store.installs = installer !== noInstaller
+  if (sandbox) store.screen = (r) => sandbox.screen(r)
   get()
 }

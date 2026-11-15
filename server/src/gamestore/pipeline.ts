@@ -140,10 +140,12 @@ export class Pipeline implements RequestPipeline {
   async retry(r: StoredRequest): Promise<StoredRequest> {
     if (!r.source) throw new ApiError(409, 'That game isn’t in the store any more, so it can’t be tried again.')
     await this.deps.installer.remove(r)
-    // A download that finished is kept: only what came after it is done again.
-    const status = r.added ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
-    const have = status?.state === 'done'
-    if (!have && r.source.local) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
+    // A finished download is kept. A file an administrator added was never fetched, so it has
+    // no `added` record with the downloader: `r.added || r.source.local` is the file already
+    // here, and it is reused rather than fetched again.
+    if (r.source.local && !r.folder) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
+    const status = r.added && !r.source.local ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
+    const have = Boolean((r.added || r.source.local) && (r.source.local || status?.state === 'done'))
     if (!have) {
       const ready = await this.deps.downloaderFor(r.source).available()
       if (!ready.ok) throw new ApiError(503, ready.why)
