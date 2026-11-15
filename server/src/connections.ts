@@ -27,6 +27,18 @@ export interface ConnCheck {
   problems: string[]
   /** Something an administrator can put right in one click (Settings → Server). */
   fix?: { label: string; gpu: string }
+  /** Repairs Finesse can make in the app itself (connectionFixes.ts), one click each. */
+  fixes?: ConnFix[]
+  /** Worth knowing, but nothing's wrong (a newer version of someone's own app). */
+  notes?: string[]
+}
+
+/** A repair: POST /api/system/connections/fix { app: check id, fix: id }. */
+export interface ConnFix {
+  id: 'sab-hostname' | 'remote-paths'
+  label: string
+  /** What the click changes, said before it's clicked. */
+  detail: string
 }
 
 export interface ConnReport {
@@ -36,10 +48,15 @@ export interface ConnReport {
 }
 
 /** GET/POST returning parsed JSON, or throwing an Error whose message is a plain reason. */
-export type ConnFetch = (url: string | URL, init: { method?: string; headers?: Record<string, string> }) => Promise<{ status: number; json: unknown }>
+export type ConnFetch = (
+  url: string | URL,
+  init: { method?: string; headers?: Record<string, string>; body?: unknown },
+) => Promise<{ status: number; json: unknown; text?: string }>
 
-const liveFetch: ConnFetch = async (url, init) => {
-  const r = await fetch(url, { method: init.method ?? 'GET', headers: init.headers, signal: AbortSignal.timeout(10000) })
+export const liveFetch: ConnFetch = async (url, init) => {
+  const body = init.body === undefined ? undefined : JSON.stringify(init.body)
+  const headers = body ? { 'content-type': 'application/json', ...init.headers } : init.headers
+  const r = await fetch(url, { method: init.method ?? 'GET', headers, body, signal: AbortSignal.timeout(10000) })
   const text = await r.text()
   let json: unknown = null
   try {
@@ -47,10 +64,10 @@ const liveFetch: ConnFetch = async (url, init) => {
   } catch {
     json = null
   }
-  return { status: r.status, json }
+  return { status: r.status, json, text: text.slice(0, 2000) }
 }
 
-const ARRS = [
+export const ARRS = [
   { id: 'radarr', name: 'Radarr', api: '/api/v3', clients: true },
   { id: 'sonarr', name: 'Sonarr', api: '/api/v3', clients: true },
   { id: 'lidarr', name: 'Lidarr', api: '/api/v1', clients: true },
@@ -67,6 +84,12 @@ export function unreachable(name: string, e: unknown): string {
   return `Can’t reach ${name} (${msg.slice(0, 80)}). Check it’s running and the address is right.`
 }
 
+/** "download client qBittorrent places downloads in /data/Torrents but this directory does not appear to exist inside the container" (and older wordings). */
+export const REMOTE_PATH = /download client (.+?) (?:places downloads|reports files) in (.+?) but this directory does not appear to exist/i
+
+/** Their own "a newer version is out": not a fault, and on a server Finesse set up it's Finesse's to bring. */
+const isUpdateNotice = (item: ArrHealthItem) => item.source === 'UpdateCheck' || /^new update is available/i.test(item.message ?? '')
+
 interface ArrHealthItem {
   source?: string
   type?: string
@@ -78,7 +101,7 @@ interface ArrTest {
   validationFailures?: { errorMessage?: string }[]
 }
 
-async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetch): Promise<ConnCheck> {
+async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetch, mode: Settings['mode']): Promise<ConnCheck> {
   const headers = { 'x-api-key': svc.apiKey ?? '' }
   const url = (p: string) => joinUrl(svc.url!, `${def.api}/${p}`)
   const out: ConnCheck = { id: def.id, name: def.name, ok: true, summary: 'Working', problems: [] }
@@ -96,6 +119,18 @@ async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetc
     const h = await get(url('health'), { headers })
     for (const item of Array.isArray(h.json) ? (h.json as ArrHealthItem[]) : []) {
       if (!item?.message) continue
+      if (isUpdateNotice(item)) {
+        // Finesse pins the versions it runs; someone's own app updates the way they installed it.
+        if (mode === 'adopt') (out.notes ??= []).push(`${item.message.trim().replace(/^New update is available/i, 'A newer version is out')}. Update ${def.name} the way you installed it.`)
+        continue
+      }
+      if (REMOTE_PATH.test(item.message) && !out.fixes?.some((f) => f.id === 'remote-paths')) {
+        ;(out.fixes ??= []).push({
+          id: 'remote-paths',
+          label: 'Fix the folder mapping',
+          detail: `Finesse works out where the download client’s folder is inside ${def.name} and adds a remote path mapping for it.`,
+        })
+      }
       if (item.type === 'error') out.ok = false
       else if (item.type === 'warning' && out.ok) out.ok = null
       else if (item.type !== 'error' && item.type !== 'warning') continue
@@ -120,7 +155,8 @@ async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetc
   } catch {
     /* the list itself was checked above; a failing test call isn't a verdict */
   }
-  if (out.problems.length) out.summary = out.ok === false ? `${out.problems.length} problem${out.problems.length > 1 ? 's' : ''}: open ${def.name} to fix ${out.problems.length > 1 ? 'them' : 'it'}` : 'Working, with warnings'
+  const n = out.problems.length
+  if (n) out.summary = out.ok === false ? `${n} problem${n > 1 ? 's' : ''}: ${out.fixes ? (n > 1 ? 'Finesse can fix some of them here' : 'Finesse can fix it here') : `open ${def.name} to fix ${n > 1 ? 'them' : 'it'}`}` : 'Working, with warnings'
   return out
 }
 
@@ -132,6 +168,16 @@ async function checkSab(svc: Endpoint, get: ConnFetch): Promise<ConnCheck> {
     r = await get(q('queue'), {})
   } catch (e) {
     return { ...out, ok: false, summary: unreachable('SABnzbd', e) }
+  }
+  if (r.status === 403 && /hostname verification/i.test(r.text ?? '')) {
+    const host = new URL(svc.url!).hostname
+    return {
+      ...out,
+      ok: false,
+      summary: `SABnzbd won’t answer to the name “${host}”: its hostname check turns Finesse away.`,
+      problems: [`SABnzbd only answers to names on its list (Config → Special → host_whitelist). Add “${host}” there, or let Finesse do it.`],
+      fixes: [{ id: 'sab-hostname', label: `Add “${host}” to SABnzbd`, detail: `Finesse adds “${host}” to SABnzbd’s list of allowed names. Nothing else changes.` }],
+    }
   }
   const j = (r.json ?? {}) as { error?: string; queue?: { paused?: boolean; status?: string } }
   if (r.status >= 400 || j.error) {
@@ -182,7 +228,7 @@ export async function checkConnections(s: Settings, get: ConnFetch = liveFetch):
   const jobs: Promise<ConnCheck>[] = []
   for (const def of ARRS) {
     const e = svc[def.id]
-    if (e?.url && e.apiKey) jobs.push(checkArr(def, e, get))
+    if (e?.url && e.apiKey) jobs.push(checkArr(def, e, get, s.mode))
   }
   if (svc.sabnzbd?.url && svc.sabnzbd.apiKey) jobs.push(checkSab(svc.sabnzbd, get))
   if (svc.qbittorrent?.url) jobs.push(checkQbit(svc.qbittorrent, get))

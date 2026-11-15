@@ -60,7 +60,7 @@ test('doctor --json: one object, connected apps inside, and the exit code counts
     assert.match(plain.out, /1 problem found/)
     // Jellyfin on the CPU beside a card: said, with where the one-click fix is (a warning, not a problem).
     assert.match(plain.out, /Jellyfin video conversion.*converts video on the CPU, but this server has an NVIDIA GeForce RTX 3060/)
-    assert.match(plain.out, /One click fixes it: Settings → Server → Connected apps → “Use the RTX 3060”/)
+    assert.match(plain.out, /One click fixes it: Settings → Health → Connected apps → “Use the RTX 3060”/)
     // Preview clips: why none are made (a warning, not a problem).
     assert.match(plain.out, /Preview clips.*0 of 924 titles have clips.*can’t write to its previews folder/)
   } finally {

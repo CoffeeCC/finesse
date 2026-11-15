@@ -70,7 +70,7 @@ function LibraryPicker({ libraries, picked, onChange }: { libraries: GroupsOverv
   )
 }
 
-/** Settings → Server → Groups: share libraries with friends who run Finesse too, and watch theirs. */
+/** Settings → People → Friends’ servers: share libraries with friends who run Finesse too, and watch theirs. */
 export default function GroupsAdmin() {
   const toast = useToast()
   const qc = useQueryClient()

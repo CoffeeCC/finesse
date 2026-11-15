@@ -640,7 +640,7 @@ export function IndexersStep({ d, set, info, report }: StepProps) {
       )}
       {!anyTorrentSite && !anyUsenetSite && (
         <Callout tone="warn" title="Requests won’t find anything yet">
-          Without a search site, pressing Request has nowhere to look. {d.torrents && builtin.length > 0 ? 'Tick a free site above, or add your own below.' : 'Add one below.'} You can also add them later from Settings → Server → Downloads &amp; away from home.
+          Without a search site, pressing Request has nowhere to look. {d.torrents && builtin.length > 0 ? 'Tick a free site above, or add your own below.' : 'Add one below.'} You can also add them later from Settings → Downloads.
         </Callout>
       )}
       {shown.map((ix) => (
@@ -895,7 +895,7 @@ function ConsolePicker({ d, set }: Pick<StepProps, 'd' | 'set'>) {
         })}
       </ul>
       <p className="text-[13px] text-ink-400">
-        {d.consoles.length ? `About ${total} MB, downloaded in the background — setup doesn’t wait for it. ` : 'No consoles: you can add them later in Settings → Server → Game streaming. '}
+        {d.consoles.length ? `About ${total} MB, downloaded in the background — setup doesn’t wait for it. ` : 'No consoles: you can add them later in Settings → Games → Game streaming. '}
         Settings shows each console’s progress, and the folder to put your files in.
       </p>
     </div>

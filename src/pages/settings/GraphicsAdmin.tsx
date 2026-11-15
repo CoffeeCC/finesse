@@ -1,4 +1,4 @@
-// Settings → Server → Graphics (administrators): the graphics cards on this
+// Settings → Media → Graphics (administrators): the graphics cards on this
 // server, each with what its test conversion said, and which card Jellyfin and
 // game streaming use, in plain words (server/src/stack/graphics.ts). On servers
 // Finesse set up, an administrator can pick the cards; the choice is kept and

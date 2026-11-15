@@ -278,7 +278,8 @@ async function doctor(argv: string[]): Promise<number> {
     for (const a of conns.apps) {
       line(a.ok, a.name, a.ok === true ? '' : a.summary)
       if (!argv.includes('--json')) for (const p of a.problems) console.log(`      ${dim(p)}`)
-      if (!argv.includes('--json') && a.fix) console.log(`      ${dim(`One click fixes it: Settings → Server → Connected apps → “${a.fix.label}”.`)}`)
+      if (!argv.includes('--json') && a.fix) console.log(`      ${dim(`One click fixes it: Settings → Health → Connected apps → “${a.fix.label}”.`)}`)
+      if (!argv.includes('--json')) for (const f of a.fixes ?? []) console.log(`      ${dim(`One click fixes it: Settings → Health → Connected apps → “${f.label}”.`)}`)
     }
     if (conns.vpn) line(conns.vpn.ok, conns.vpn.source === 'gluetun' ? 'VPN' : 'VPN (guessed from the apps)', conns.vpn.summary)
   } else if (!argv.includes('--json')) {

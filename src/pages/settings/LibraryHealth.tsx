@@ -1,4 +1,4 @@
-// Settings → Server → Library health: duplicate copies, titles Radarr/Sonarr don't
+// Settings → Health → Library health: duplicate copies, titles Radarr/Sonarr don't
 // follow, files that look cut short, and episodes without numbers. Read-only: it
 // says what it found and where; nothing is changed, moved or deleted from here.
 
