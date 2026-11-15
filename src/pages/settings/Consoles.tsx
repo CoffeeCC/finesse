@@ -1,4 +1,4 @@
-// Settings → Server → Game streaming → Consoles: add or remove a console, and
+// Settings → Games → Game streaming → Consoles: add or remove a console, and
 // see plainly where each one stands: ready, downloading, or what's still
 // missing and the folder to put it in (with a copy button). It looks again on
 // its own every few seconds, so a file you drop in shows up without a restart.

@@ -509,7 +509,7 @@ function Emulators() {
   )
 }
 
-/** Settings → Server → Game streaming: pair Moonlight devices with Wolf, and remove them. */
+/** Settings → Games → Game streaming: pair Moonlight devices with Wolf, and remove them. */
 export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
   const toast = useToast()
   const qc = useQueryClient()

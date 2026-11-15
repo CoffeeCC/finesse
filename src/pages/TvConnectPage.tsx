@@ -38,7 +38,7 @@ export default function TvConnectPage() {
         </h1>
         <p className="mt-6 text-2xl text-ink-200">Connect to your server</p>
         <p className="mt-3 text-base leading-relaxed text-ink-400">
-          Enter the address of the computer running Finesse — for example <span className="text-ink-200">192.168.1.50:8080</span>. You’ll find it on the setup-complete screen or in Settings → Server.
+          Enter the address of the computer running Finesse — for example <span className="text-ink-200">192.168.1.50:8080</span>. You’ll find it on the setup-complete screen or in Settings → Other devices.
         </p>
         <input
           value={address}

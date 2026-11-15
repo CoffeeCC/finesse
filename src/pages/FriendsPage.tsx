@@ -66,7 +66,7 @@ export default function FriendsPage() {
             {session?.isAdmin ? ' Add one with the code they send you.' : ' Ask whoever runs this server to add one.'}
           </p>
           {session?.isAdmin && (
-            <Link to="/settings#settings-groups" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors">
+            <Link to="/settings?s=people&at=groups" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors">
               Set up Groups
             </Link>
           )}

@@ -319,7 +319,7 @@ const serverStore: GameStoreApi = {
   },
 }
 
-// ---------- Settings → Server → Game store (administrators) ----------
+// ---------- Settings → Games → Game store (administrators) ----------
 
 /** How a source's last read went. */
 export interface FeedStatus {

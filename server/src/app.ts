@@ -4,7 +4,7 @@
 import { createServer, type Server } from 'node:http'
 import { Auth, ensureSetupCode, tokenFrom } from './auth.ts'
 import { SettingsStore, type Paths, type Settings } from './config.ts'
-import { ApiError, Router, sendError, sendJson } from './http/core.ts'
+import { ApiError, readJson, Router, sendError, sendJson } from './http/core.ts'
 import { safeFile, sendFile, serveWeb, WebRoot } from './http/static.ts'
 import { registerGroups } from './groups.ts'
 import { registerMoments } from './moments.ts'
@@ -35,6 +35,7 @@ import { registerGameStore, type GameStore } from './gamestore/routes.ts'
 import { plugPipeline } from './gamestore/wiring.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
 import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
+import { FixError, runConnectionFix } from './connectionFixes.ts'
 import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
@@ -193,6 +194,22 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
       report.catch(() => (conns = null))
     }
     sendJson(res, 200, await conns.report)
+  })
+  // One-click repairs for what that finds (connectionFixes.ts).
+  router.post('/api/system/connections/fix', async ({ req, res }) => {
+    await auth.requireAdmin(req)
+    const { app, fix } = await readJson<{ app?: string; fix?: string }>(req)
+    if (!app || !fix) throw new ApiError(400, 'Say which app and which fix')
+    try {
+      const message = await runConnectionFix(settings.get(), app, fix, { docker: new Docker() })
+      log.info(`connections: ${fix} for ${app}`)
+      sendJson(res, 200, { message })
+    } catch (e) {
+      if (e instanceof FixError) throw new ApiError(409, e.message)
+      throw e
+    } finally {
+      conns = null // the next look is a fresh one
+    }
   })
   // Library health: read-only (libraryHealth.ts). It reads whole libraries, so at most every 5 minutes unless asked.
   let libHealth: { at: number; report: Promise<LibraryHealth> } | null = null
