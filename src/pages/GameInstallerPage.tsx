@@ -3,7 +3,7 @@
 // clicks through it; Finesse notices when the installer closes. "I've finished" is there for
 // when it doesn't. The demo store draws a pretend setup wizard instead.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useGameRequestActions, useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 import { installerScreenUrl } from '../api/gameStore'
@@ -93,14 +93,56 @@ export default function GameInstallerPage() {
   )
 }
 
-/** The real installer's screen. Waits for the server side: the noVNC client connects here. */
+/** The real installer's screen: noVNC over the server's websocket. */
 function InstallerScreen({ url }: { url: string | null }) {
+  const host = useRef<HTMLDivElement>(null)
+  const [status, setStatus] = useState(url ? 'Connecting…' : 'This server can’t show installer screens yet.')
+
+  useEffect(() => {
+    if (!url || !host.current) return
+    const el = host.current
+    let gone = false
+    let client: { disconnect: () => void } | null = null
+    void import('@novnc/novnc/lib/rfb.js')
+      .then(({ default: RFB }) => {
+        if (gone) return
+        const rfb = new RFB(el, url, { wsProtocols: ['binary'] })
+        rfb.scaleViewport = true
+        rfb.focusOnClick = true
+        rfb.addEventListener('connect', () => {
+          if (!gone) setStatus('')
+        })
+        rfb.addEventListener('disconnect', (ev: Event) => {
+          if (gone) return
+          const clean = (ev as CustomEvent<{ clean?: boolean }>).detail?.clean === true
+          setStatus(clean ? 'The screen closed.' : 'The screen didn’t connect.')
+        })
+        client = rfb
+      })
+      .catch(() => {
+        if (!gone) setStatus('The screen didn’t connect.')
+      })
+    return () => {
+      gone = true
+      try {
+        client?.disconnect()
+      } catch {
+        /* already closed */
+      }
+    }
+  }, [url])
+
   return (
-    <div className="grid h-full place-items-center p-6 text-center">
-      <div>
-        <p className="font-semibold text-white">The installer’s screen appears here</p>
-        <p className="mt-1 text-sm text-ink-400">{url ? 'Connecting…' : 'This server can’t show installer screens yet.'}</p>
-      </div>
+    <div className="relative h-full w-full bg-black">
+      <div ref={host} className="h-full w-full" />
+      {status && (
+        <div className="absolute inset-0 grid place-items-center p-6 text-center">
+          <div>
+            <p className="font-semibold text-white">The installer’s screen appears here</p>
+            <p className="mt-1 text-sm text-ink-400">{status}</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

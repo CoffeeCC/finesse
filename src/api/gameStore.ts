@@ -4,7 +4,7 @@
 // GameStoreApi: the Finesse server's (below) or the demo one (gameStore.demo.ts), so the
 // server side can land later without touching a page.
 
-import { mediaBrowserAuthHeader } from './client'
+import { mediaBrowserAuthHeader, withToken } from './client'
 import { finesseApi, type FinesseInfo } from '../lib/finesseServer'
 
 // ---------- what the store shows ----------
@@ -315,7 +315,8 @@ const serverStore: GameStoreApi = {
   installerScreenUrl: (id) => {
     const u = new URL(finesseApi(`/api/games/store/requests/${encodeURIComponent(id)}/screen`), window.location.href)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
-    return u.toString()
+    // A websocket can't send the Authorization header the rest of the app uses.
+    return withToken(u.toString())
   },
 }
 
