@@ -99,9 +99,10 @@ EOF
 # ---------- serve ----------
 cmd_serve() {
   mkdir -p "$STATE" "$HOME"
+  # 1024×768: installer windows (about 500×400) fill a good part of it in the browser, and games still fit.
   # Wine won't use a prefix another user owns: each job starts from its own copy of the base.
   [ -d "$WINEPREFIX" ] || cp -r /opt/prefix "$WINEPREFIX"
-  Xvfb :1 -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+  Xvfb :1 -screen 0 1024x768x24 -nolisten tcp >/dev/null 2>&1 &
   local xvfb=$!
   for _ in $(seq 1 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done
   touch "$STATE/ready"

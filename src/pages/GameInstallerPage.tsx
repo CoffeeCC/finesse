@@ -46,7 +46,7 @@ export default function GameInstallerPage() {
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-12">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-7xl">
         <Link to="/games/store/requests" className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-300 hover:text-white">
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
@@ -70,7 +70,8 @@ export default function GameInstallerPage() {
           </div>
         )}
 
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-black ring-1 ring-white/10 sm:aspect-video">
+        {/* The sandbox's screen is 4:3 (1024×768): as big as the page allows, never taller than the window. */}
+        <div className="relative mx-auto aspect-[4/3] w-full max-w-[calc(var(--vh)*104)] overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
           {!waiting ? (
             <div className="grid h-full place-items-center p-6 text-center text-sm text-ink-300">The installer has closed. Finesse is taking it from here.</div>
           ) : mode === 'demo' ? (
@@ -97,6 +98,12 @@ export default function GameInstallerPage() {
 function InstallerScreen({ url }: { url: string | null }) {
   const host = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState(url ? 'Connecting…' : 'This server can’t show installer screens yet.')
+  // Fitted to the box, or pixel for pixel (scroll to move around) when small text is hard to read.
+  const [actual, setActual] = useState(false)
+  const rfbRef = useRef<{ scaleViewport: boolean } | null>(null)
+  useEffect(() => {
+    if (rfbRef.current) rfbRef.current.scaleViewport = !actual
+  }, [actual])
 
   useEffect(() => {
     if (!url || !host.current) return
@@ -107,7 +114,8 @@ function InstallerScreen({ url }: { url: string | null }) {
       .then(({ default: RFB }) => {
         if (gone) return
         const rfb = new RFB(el, url, { wsProtocols: ['binary'] })
-        rfb.scaleViewport = true
+        rfb.scaleViewport = !actual
+        rfbRef.current = rfb
         rfb.focusOnClick = true
         rfb.addEventListener('connect', () => {
           if (!gone) setStatus('')
@@ -130,11 +138,22 @@ function InstallerScreen({ url }: { url: string | null }) {
         /* already closed */
       }
     }
+    // The size choice is applied live (above); reconnecting for it would restart the screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
   return (
     <div className="relative h-full w-full bg-black">
-      <div ref={host} className="h-full w-full" />
+      <div ref={host} className={`h-full w-full ${actual ? 'overflow-auto' : ''}`} />
+      {!status && (
+        <button
+          type="button"
+          onClick={() => setActual((v) => !v)}
+          className="absolute right-3 top-3 z-10 inline-flex h-8 items-center rounded-full bg-black/70 px-3 text-[12.5px] font-semibold text-white ring-1 ring-white/20 hover:bg-black/90"
+        >
+          {actual ? 'Fit to window' : 'Actual size'}
+        </button>
+      )}
       {status && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center">
           <div>
