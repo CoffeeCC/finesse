@@ -242,7 +242,7 @@ export class Pipeline implements RequestPipeline {
         if (!this.deps.db.request(r.id)) return
         const v = describeChecks(checks)
         if (!v.ok) return this.fail(r.id, v.text)
-        this.deps.db.advance(r.id, 'installing', { detail: undefined, progress: undefined }, v.text)
+        this.deps.db.advance(r.id, 'installing', { detail: 'Installing in a sealed sandbox on the server. Big games can take a while: unpacking and the first start run without a graphics card.', progress: undefined }, v.text)
       })
       .catch((e) => this.fail(r.id, 'Finesse couldn’t read the downloaded files to check them.', e))
       .finally(() => {
@@ -277,7 +277,7 @@ export class Pipeline implements RequestPipeline {
     if (out.state === 'failed') return this.fail(id, out.reason)
     if (out.state === 'needs-you') return void db.advance(id, 'needs-you', { detail: out.why, waitingOn: out.waitingOn }, out.why)
     db.advance(id, 'finishing', { installDir: out.dir, program: out.program, screenshot: out.screenshot, waitingOn: undefined, detail: undefined }, 'Installed, and it starts.')
-    db.advance(id, 'ready', { readyAt: this.now() }, 'Ready to play.')
+    db.advance(id, 'ready', { readyAt: this.now(), ...(out.warning ? { detail: out.warning } : {}) }, out.warning ?? 'Ready to play.')
     // A direct download has done its job; a torrent is shared back for a while first (seeded()).
     if (r.source && !r.source.magnet) void this.dropDownload(db.request(id)!)
   }

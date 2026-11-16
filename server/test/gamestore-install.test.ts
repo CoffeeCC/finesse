@@ -211,7 +211,9 @@ test('07 an installer that wants the internet (when it can’t be unpacked): its
 test('08 a game that’s broken: unpacked, then installed, and it still won’t start: didn’t work, with why', async () => {
   const s = sandbox({ sniff: { 'setup.exe': inno() }, launch: () => ({ windows: [], exited: 1, log: 'fixme:ntdll nothing\nmissing level data' }) })
   const out = await install(s.job(setup))
-  assert.deepEqual([out.state, out.state === 'failed' && out.reason], ['failed', 'The game doesn’t start. It closed straight away: missing level data'])
+  // Installed cleanly, but it won't start in the sandbox: installed, with why it couldn't be tested.
+  assert.equal(out.state, 'ready')
+  assert.match(out.state === 'ready' ? out.warning ?? '' : '', /couldn’t be test-started.*The game doesn’t start\. It closed straight away: missing level data/)
   assert.deepEqual(s.did.filter((d) => /^(unpack|silent|shown)/.test(d)).map((d) => d.split(' ')[0]), ['unpack', 'silent'], 'clicking through the same installer wouldn’t help')
 })
 
@@ -246,8 +248,8 @@ test('0 A.D. (NSIS the unpacker can’t open): silent install, /D= last; a crash
 
   const crash = sandbox({ ...script, launch: () => ({ windows: [box('Program Error', 'Much to our regret we must report the program has encountered an error.', ['OK'])], screenshot: 'shot.png' }) })
   const bad = await install(crash.job([{ path: '0ad-0.28.0-win64.exe', size: 1500 * MIB }]))
-  assert.equal(bad.state, 'failed')
-  assert.match(bad.state === 'failed' ? bad.reason : '', /^The game doesn’t start\. Program Error: Much to our regret/)
+  assert.equal(bad.state, 'ready')
+  assert.match(bad.state === 'ready' ? bad.warning ?? '' : '', /The game doesn’t start\. Program Error: Much to our regret/)
 })
 
 test('OpenTTD (NSIS that opens): ready by unpacking; the installer’s own folder is ignored', async () => {
@@ -296,9 +298,9 @@ test('nothing to install; a start with no window; a blank screen', async () => {
   assert.deepEqual([none.state, none.state === 'failed' && none.reason], ['failed', 'There’s no installer, archive or game program in this download.'])
   const silentOnly = (launch: Script['launch']) => install(sandbox({ sniff: { 'setup.exe': inno() }, launch }).job(setup))
   const noWindow = await silentOnly(() => ({ windows: [] }))
-  assert.match(noWindow.state === 'failed' ? noWindow.reason : '', /never opened a window/)
+  assert.match(((o: { state: string; warning?: string; reason?: string }) => (o.state === 'ready' ? o.warning ?? '' : o.reason ?? ''))(noWindow as never), /never opened a window/)
   const blank = await silentOnly(() => ({ windows: [win('Game')] }))
-  assert.match(blank.state === 'failed' ? blank.reason : '', /screen stayed blank/)
+  assert.match(((o: { state: string; warning?: string; reason?: string }) => (o.state === 'ready' ? o.warning ?? '' : o.reason ?? ''))(blank as never), /screen stayed blank/)
 })
 
 // ---------- the pure parts ----------

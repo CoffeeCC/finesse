@@ -27,7 +27,8 @@ const EXPECTED: Record<string, Expect> = {
   // It runs a runtime installer of its own (tmp/), so the installer is run, not unpacked.
   '06-runtime': { state: 'ready', by: 'silent' },
   '07-needs-internet': { state: 'ready', by: 'unpack' },
-  '08-broken-game': { state: 'failed', why: /doesn’t start/ },
+  // It installs fine and crashes at start: installed, with a warning that it couldn’t be test-started.
+  '08-broken-game': { state: 'ready', by: 'unpack' },
   // Free games: SuperTux's MSI unpacks; Warzone 2100's Inno 6.7 is too new to unpack, so it's run.
   supertux: { state: 'ready', by: 'unpack' },
   warzone2100: { state: 'ready', by: 'silent' },

@@ -196,7 +196,7 @@ function reasonOrCode(log: string, exit: number): string {
 
 // ---------- 4. run ----------
 
-type Tried = { state: 'ready'; program: FoundProgram; dir: string; screenshot?: string } | { state: 'no'; why: string }
+type Tried = { state: 'ready'; program: FoundProgram; dir: string; screenshot?: string } | { state: 'no'; why: string; program?: FoundProgram; dir?: string }
 
 /** After files are in place: find the program and start it. */
 async function prove(job: InstallJob, dir: string, installer: string | null, say: (t: string) => void): Promise<Tried> {
@@ -207,7 +207,7 @@ async function prove(job: InstallJob, dir: string, installer: string | null, say
   const started = await startCheck(job, `${dir}/${program.path}`)
   if (!started.ok) {
     say(`It doesn’t start: ${started.why}`)
-    return { state: 'no', why: `The game doesn’t start. ${started.why}` }
+    return { state: 'no', why: `The game doesn’t start. ${started.why}`, program, dir }
   }
   say('It starts.')
   return { state: 'ready', program, dir, screenshot: started.screenshot }
@@ -237,6 +237,17 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
   // The best explanation so far, should nothing work: an installer's own words beat a guess.
   let reason = ''
   const ready = (t: Extract<Tried, { state: 'ready' }>, by: Tier): InstallOutcome => ({ state: 'ready', by, program: t.program.path, dir: t.dir, ...(t.screenshot ? { screenshot: t.screenshot } : {}), log })
+  // The sandbox has no graphics card: many games (DirectX 11/12, Unreal Engine) can't start there
+  // even when they're installed fine. Installed cleanly but not started = installed, with a warning.
+  let untested: { program: FoundProgram; dir: string; by: Tier; why: string } | null = null
+  const installedUntested = (u: NonNullable<typeof untested>): InstallOutcome => ({
+    state: 'ready',
+    by: u.by,
+    program: u.program.path,
+    dir: u.dir,
+    warning: `Installed, but it couldn’t be test-started on the server (the install sandbox has no graphics card). It gets a real try when you press Play. ${u.why}`,
+    log,
+  })
 
   for (const step of plan.steps) {
     say(step.why, step.tier)
@@ -269,6 +280,7 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
       }
       const t = await prove(job, into, installer.path, say)
       if (t.state === 'ready') return ready(t, 'unpack')
+      if (t.program && t.dir && !untested) untested = { program: t.program, dir: t.dir, by: 'unpack', why: t.why }
       reason ||= t.why
       continue
     }
@@ -291,6 +303,7 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
       if (t.state === 'ready') return ready(t, 'silent')
       // It installed without complaint and the game still won't start: clicking through the same
       // installer won't change that.
+      if (t.program && t.dir) return installedUntested({ program: t.program, dir: t.dir, by: 'silent', why: t.why })
       return { state: 'failed', reason: t.why, log }
     }
 
@@ -378,9 +391,11 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
       }
       const t = await prove(job, r.dir ?? INSTALLED, installer.path, say)
       if (t.state === 'ready') return ready(t, 'auto-click')
+      if (t.program && t.dir) return installedUntested({ program: t.program, dir: t.dir, by: 'auto-click', why: t.why })
       return { state: 'failed', reason: t.why, log }
     }
   }
+  if (untested) return installedUntested(untested)
   return { state: 'failed', reason: reason || 'Finesse couldn’t install this one.', log }
 }
 
