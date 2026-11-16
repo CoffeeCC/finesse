@@ -83,6 +83,11 @@ export class GameStoreDb {
         text TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS game_request_event_request ON game_request_event(request_id, at);
+      CREATE TABLE IF NOT EXISTS play_choice (
+        user_id TEXT PRIMARY KEY,
+        way TEXT NOT NULL,
+        target TEXT NOT NULL
+      );
     `)
   }
 
@@ -183,6 +188,17 @@ export class GameStoreDb {
 
   events(id: string): RequestEvent[] {
     return this.db.prepare('SELECT at, state, text FROM game_request_event WHERE request_id = ? ORDER BY at').all(id) as unknown as RequestEvent[]
+  }
+
+  /** The last way this person started a game, so the next Play opens with it selected. */
+  playChoice(userId: string): { way: 'server' | 'stream'; target: string } | null {
+    const r = this.db.prepare('SELECT way, target FROM play_choice WHERE user_id = ?').get(userId) as { way: string; target: string } | undefined
+    if (!r || (r.way !== 'server' && r.way !== 'stream')) return null
+    return { way: r.way, target: r.target }
+  }
+
+  rememberPlay(userId: string, way: 'server' | 'stream', target: string) {
+    this.db.prepare('INSERT OR REPLACE INTO play_choice (user_id, way, target) VALUES (?, ?, ?)').run(userId, way, target)
   }
 }
 

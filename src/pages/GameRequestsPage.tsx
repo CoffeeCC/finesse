@@ -7,6 +7,7 @@ import { useGameRequestActions, useGameRequests, useStoreMode } from '../api/gam
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { GameRequestStatusView } from '../components/gamestore/GameRequestStatus'
+import PlayChoice from '../components/gamestore/PlayChoice'
 import { StoreThumb, storeGameHref } from '../components/gamestore/StoreCards'
 import { StoreHeader } from '../components/gamestore/StoreHeader'
 
@@ -66,6 +67,7 @@ function RequestRow({ r }: { r: GameRequest }) {
   const actions = useGameRequestActions()
   const toast = useToast()
   const [confirm, setConfirm] = useState(false)
+  const [play, setPlay] = useState(false)
   const facts = [PLATFORM_LABEL[r.platform], formatSize(r.sizeBytes), r.requestedBy ? `requested by ${r.requestedBy}` : null].filter(Boolean).join(' · ')
   const fail = (e: unknown) => toast(e instanceof Error ? e.message : 'That didn’t work', 'error')
   return (
@@ -102,9 +104,9 @@ function RequestRow({ r }: { r: GameRequest }) {
           </button>
         )}
         {r.state === 'ready' && (
-          <Link to="/games" className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/20">
+          <button type="button" onClick={() => setPlay(true)} className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/20">
             Play
-          </Link>
+          </button>
         )}
         <button type="button" onClick={() => setConfirm(true)} className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-ink-300 hover:bg-white/10 hover:text-white">
           {r.state === 'ready' ? 'Uninstall' : r.state === 'failed' ? 'Remove' : 'Cancel'}
@@ -124,6 +126,7 @@ function RequestRow({ r }: { r: GameRequest }) {
             : 'The download stops and what was downloaded is deleted. You can request it again later.'}
         </ConfirmDialog>
       )}
+      {play && <PlayChoice request={r} onClose={() => setPlay(false)} />}
     </li>
   )
 }

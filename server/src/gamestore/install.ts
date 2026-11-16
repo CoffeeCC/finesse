@@ -240,14 +240,7 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
   // The sandbox has no graphics card: many games (DirectX 11/12, Unreal Engine) can't start there
   // even when they're installed fine. Installed cleanly but not started = installed, with a warning.
   let untested: { program: FoundProgram; dir: string; by: Tier; why: string } | null = null
-  const installedUntested = (u: NonNullable<typeof untested>): InstallOutcome => ({
-    state: 'ready',
-    by: u.by,
-    program: u.program.path,
-    dir: u.dir,
-    warning: `Installed, but it couldn’t be test-started on the server (the install sandbox has no graphics card). It gets a real try when you press Play. ${u.why}`,
-    log,
-  })
+  const installedUntested = (u: NonNullable<typeof untested>): InstallOutcome => untestedReady(u, log)
 
   for (const step of plan.steps) {
     say(step.why, step.tier)
@@ -399,7 +392,19 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
   return { state: 'failed', reason: reason || 'Finesse couldn’t install this one.', log }
 }
 
-/** A person finished the installer on its screen ("Needs you"): find the game and start it. */
+/** Installed, and the sandbox could not start it. Play is the real start. */
+function untestedReady(u: { program: { path: string }; dir: string; by: Tier; why: string }, log: string[]): InstallOutcome {
+  return {
+    state: 'ready',
+    by: u.by,
+    program: u.program.path,
+    dir: u.dir,
+    warning: `Installed, but it couldn’t be test-started on the server (the install sandbox has no graphics card). It gets a real try when you press Play. ${u.why}`,
+    log,
+  }
+}
+
+/** A person finished the installer on its screen ("Needs you"): find the game. Starting it here is not required. */
 export async function finishAfterPerson(job: InstallJob): Promise<InstallOutcome> {
   const log: string[] = []
   const say = (text: string) => {
@@ -409,5 +414,7 @@ export async function finishAfterPerson(job: InstallJob): Promise<InstallOutcome
   await job.runner.stop()
   const t = await prove(job, INSTALLED, job.installerHint ?? null, say)
   if (t.state === 'ready') return { state: 'ready', by: 'needs-you', program: t.program.path, dir: t.dir, ...(t.screenshot ? { screenshot: t.screenshot } : {}), log }
+  // The program is on disk. The sandbox has no graphics card, so a failed start check is not a failed install.
+  if (t.program && t.dir) return untestedReady({ program: t.program, dir: t.dir, by: 'needs-you', why: t.why }, log)
   return { state: 'failed', reason: t.why, log }
 }

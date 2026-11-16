@@ -96,7 +96,10 @@ export function useGameRequestActions() {
     cancel: useMutation({
       mutationFn: async (id: string) => (await api(mode)).cancel(id),
       onSuccess: (_, id) => qc.setQueryData<GameRequest[]>(key, (list) => (list ?? []).filter((x) => x.id !== id)),
-      onSettled: refresh,
+      onSettled: () => {
+        refresh()
+        void qc.invalidateQueries({ queryKey: ['gameStore', mode, 'library'] })
+      },
     }),
     retry: useMutation({
       mutationFn: async (id: string) => (await api(mode)).retry(id),
@@ -121,4 +124,25 @@ export function useGameRequestActions() {
       onSettled: refresh,
     }),
   }
+}
+
+/** Installed store games. Hidden until there is one. */
+export function useLibrary() {
+  const mode = useStoreMode()
+  return useQuery({
+    queryKey: ['gameStore', mode, 'library'],
+    enabled: Boolean(mode),
+    queryFn: async () => (await api(mode)).library(),
+    refetchInterval: 30_000,
+  })
+}
+
+/** How this installed game can be started, including the last choice. */
+export function usePlayOptions(id: string | null) {
+  const mode = useStoreMode()
+  return useQuery({
+    queryKey: ['gameStore', mode, 'play', id],
+    enabled: Boolean(mode && id),
+    queryFn: async () => (await api(mode)).playOptions(id!),
+  })
 }

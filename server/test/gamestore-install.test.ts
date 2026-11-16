@@ -167,6 +167,16 @@ test('04 a page that must be filled in: unpacking gets there; when it can’t, t
   assert.deepEqual([done.state, done.state === 'ready' && done.by], ['ready', 'needs-you'])
 })
 
+test('a person finished the installer, and the sandbox could not start the game: installed anyway', async () => {
+  const t = sandbox({ sniff: { 'setup.exe': inno() }, launch: () => ({ windows: [box('Game', 'Click OK', ['OK'])] }) })
+  t.folders.set(INSTALLED, [{ path: 'game.exe', size: 5 * MIB }])
+  const done = await finishAfterPerson(t.job(setup))
+  assert.equal(done.state, 'ready')
+  assert.equal(done.state === 'ready' && done.by, 'needs-you')
+  assert.equal(done.state === 'ready' && done.program, 'game.exe')
+  assert.match(done.state === 'ready' ? done.warning ?? '' : '', /couldn’t be test-started.*closed after its first window/)
+})
+
 test('05 an installer that refuses to run silently (when it can’t be unpacked): clicked through', async () => {
   const s = sandbox({
     sniff: { 'setup.exe': inno('6.7.0') },
