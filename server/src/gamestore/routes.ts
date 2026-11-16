@@ -3,8 +3,9 @@
 // checking, installing: WS2–WS5 of docs/agents/game-store-plan.md); until one is plugged in they
 // answer 501 in plain words. Nothing here ever sends where a download comes from.
 
-import { readdirSync, readFileSync } from 'node:fs'
-import type { IncomingMessage } from 'node:http'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { basename, join } from 'node:path'
 import type { Auth } from '../auth.ts'
@@ -18,6 +19,7 @@ import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
 import { cleanFeedConfig, feedProvider, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
+import type { StorePlay } from './play.ts'
 import type { CatalogueGame, CatalogueSource, GameMode, GamePlatform, StoreGameDetail, StoreQuery, StoreSort } from './types.ts'
 
 /** What turns a request into an installed game. WS2 onwards provide it. */
@@ -58,6 +60,8 @@ export interface GameStore {
   installs?: boolean
   /** The installer's screen as VNC, for a request waiting on a person (sandbox.ts); null when there's none. */
   screen?: (r: StoredRequest) => Promise<Duplex | null>
+  /** Starting an installed game (play.ts). Absent only before wiring runs. */
+  play?: StorePlay
 }
 
 const SORTS: StoreSort[] = ['popular', 'new', 'name', 'year']
@@ -358,6 +362,8 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
 
   router.delete('/api/games/store/requests/:id', async ({ req, res, params }) => {
     const r = await mine(req, params.id)
+    // The stream app goes first, while the game folder is still there to name it.
+    await store.play?.forget(r).catch(() => {})
     await pipeline().cancel(r)
     db.removeRequest(r.id)
     // A game that only existed as that file goes with it.
@@ -403,6 +409,56 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     sendJson(res, 200, publicRequest(await pipeline().installerDone(r)))
   })
 
+  const play = (): StorePlay => {
+    if (!store.play) throw new ApiError(501, 'Playing installed games isn’t available on this server yet.')
+    return store.play
+  }
+
+  // Installed games for Games → Your games. Same audience as the request list: no disk paths.
+  router.get('/api/games/store/library', async ({ req, res }) => {
+    await auth.requireUser(req)
+    on()
+    const games = db.requests().filter((r) => r.state === 'ready').map((r) => {
+      const file = store.play?.shot(r)
+      return { ...publicRequest(r), shot: Boolean(file && existsSync(file)) }
+    })
+    sendJson(res, 200, games)
+  })
+
+  // The start-check picture. An <img> can't send the Authorization header, so the token may be in the query.
+  router.get('/api/games/store/requests/:id/shot', async ({ req, res, params, url }) => {
+    const user = await auth.requireUser(req, { query: url.searchParams })
+    if (user.Id === 'service') throw new ApiError(403, 'Sign in as a person')
+    on()
+    const r = requestOr404(params.id)
+    await sendShot(res, r.state === 'ready' ? store.play?.shot(r) : null)
+  })
+
+  router.get('/api/games/store/requests/:id/play', async ({ req, res, params }) => {
+    const user = await auth.requirePerson(req)
+    on()
+    const r = requestOr404(params.id)
+    if (!user.admin && r.userId !== user.id) throw new ApiError(403, 'Only whoever asked for it, or an administrator, can change this request.')
+    sendJson(res, 200, await play().options(r, user.id))
+  })
+
+  router.post('/api/games/store/requests/:id/play', async ({ req, res, params }) => {
+    const user = await auth.requirePerson(req)
+    on()
+    const r = requestOr404(params.id)
+    if (!user.admin && r.userId !== user.id) throw new ApiError(403, 'Only whoever asked for it, or an administrator, can change this request.')
+    const body = await readJson<{ way?: unknown; target?: unknown }>(req)
+    if (body.way !== 'server' && body.way !== 'stream') throw new ApiError(400, 'Choose Play on the server, or Stream.')
+    const target = typeof body.target === 'string' ? body.target.slice(0, 80) : ''
+    try {
+      const started = await play().start(r, user.id, body.way, target)
+      sendJson(res, 200, { ok: true, ...started })
+    } catch (e) {
+      if (e instanceof ApiError) throw e
+      throw new ApiError(409, (e as Error).message || 'That didn’t start.')
+    }
+  })
+
   // The installer's screen ("Needs you") is a websocket (storeScreenUpgrade below); a plain request
   // to it says so instead of falling through to the app's page.
   router.get('/api/games/store/requests/:id/screen', async ({ req, params }) => {
@@ -413,6 +469,21 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   })
 
   return store
+}
+
+const SHOT_MAX = 8 * 1024 * 1024
+
+/** The start-check picture, or 404 when there isn't one. png and jpeg only. */
+async function sendShot(res: ServerResponse, file: string | null | undefined): Promise<void> {
+  if (!file || !existsSync(file)) throw new ApiError(404, 'There’s no picture of this game yet.')
+  const info = await stat(file).catch(() => null)
+  if (!info?.isFile() || info.size < 8 || info.size > SHOT_MAX) throw new ApiError(404, 'There’s no picture of this game yet.')
+  const buf = await readFile(file)
+  const png = buf[0] === 0x89 && buf[1] === 0x50
+  const jpeg = buf[0] === 0xff && buf[1] === 0xd8
+  if (!png && !jpeg) throw new ApiError(404, 'There’s no picture of this game yet.')
+  res.writeHead(200, { 'Content-Type': png ? 'image/png' : 'image/jpeg', 'Content-Length': String(buf.length), 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' })
+  res.end(buf)
 }
 
 /**

@@ -162,6 +162,35 @@ export interface GameStoreApi {
   resume?(requestId: string): Promise<GameRequest>
   /** The installer's screen (a noVNC websocket), or null where there isn't one (the demo). */
   installerScreenUrl(requestId: string): string | null
+  /** Installed games (ready requests) for Games → Your games. */
+  library(): Promise<LibraryGame[]>
+  /** Which ways this game can start right now, and the last one this person used. */
+  playOptions(requestId: string): Promise<PlayChoiceOptions>
+  /** Start it the chosen way. Stream returns the Wolf app id the browser and Moonlight use. */
+  play(requestId: string, way: PlayWay, target: string): Promise<{ ok: true; appId?: string }>
+  /** The start-check picture, with the sign-in token an image tag can carry. */
+  shotUrl(requestId: string): string
+}
+
+export type PlayWay = 'server' | 'stream'
+
+export interface PlayWayInfo {
+  way: PlayWay
+  ok: boolean
+  /** Why this way is greyed out, when it can't be used. */
+  why?: string
+}
+
+export interface PlayChoiceOptions {
+  serverName: string
+  last: { way: PlayWay; target: string } | null
+  ways: PlayWayInfo[]
+  appId?: string
+}
+
+/** A ready request, plus whether its start-check picture can be shown. */
+export interface LibraryGame extends GameRequest {
+  shot: boolean
 }
 
 /** "server" when the Finesse server has the store; "demo" for building the UI (dev server, or a
@@ -185,6 +214,11 @@ export function gameStoreApi(mode: StoreMode): Promise<GameStoreApi> {
 /** The installer screen's websocket for a "needs-you" request (server only; the demo draws its own). */
 export function installerScreenUrl(mode: StoreMode, requestId: string): string | null {
   return mode === 'server' ? serverStore.installerScreenUrl(requestId) : null
+}
+
+/** The start-check picture for an installed game (server only; the demo has none). */
+export function libraryShotUrl(mode: StoreMode, requestId: string): string {
+  return mode === 'server' ? serverStore.shotUrl(requestId) : ''
 }
 
 // ---------- helpers shared by pages, the demo and the server ----------
@@ -318,6 +352,10 @@ const serverStore: GameStoreApi = {
     // A websocket can't send the Authorization header the rest of the app uses.
     return withToken(u.toString())
   },
+  library: () => call('GET', '/library'),
+  playOptions: (id) => call('GET', `/requests/${encodeURIComponent(id)}/play`),
+  play: (id, way, target) => call('POST', `/requests/${encodeURIComponent(id)}/play`, { way, target }),
+  shotUrl: (id) => withToken(finesseApi(`/api/games/store/requests/${encodeURIComponent(id)}/shot`)),
 }
 
 // ---------- Settings → Server → Game store (administrators) ----------

@@ -7,6 +7,7 @@ import { useMoonlightApp } from '../components/MoonlightPlay'
 import StreamingSection from '../components/StreamingSection'
 import { useFinesse } from '../lib/finesseServer'
 import { useGameRequests, useStoreMode } from '../api/gameStoreQueries'
+import YourGames from '../components/gamestore/YourGames'
 
 function GameCard({ rom }: { rom: RommRom }) {
   // RomM's cover, unless it didn't load: then SteamGridDB's, then the tile.
@@ -142,6 +143,7 @@ export default function GamesPage() {
   return (
     <div className="px-4 sm:px-6 lg:px-12 py-6">
       <GamesTitle className="mb-5" />
+      <YourGames />
       {streaming && <StreamingSection />}
     </div>
   )
@@ -193,6 +195,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         // Streaming first; the search belongs to the library below it.
         <>
           <GamesTitle className="mb-5" />
+          <YourGames />
           {top}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
             <h2 className="row-title text-white">Games library</h2>
@@ -203,6 +206,9 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
           <GamesTitle />
           {searchBox}
+          <div className="basis-full">
+            <YourGames />
+          </div>
         </div>
       )}
 
