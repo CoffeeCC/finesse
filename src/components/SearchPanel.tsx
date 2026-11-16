@@ -282,7 +282,18 @@ export default function SearchPanel({
           </button>
         )}
         {mode === 'overlay' && (
-          <kbd className="hidden sm:flex h-6 px-2 items-center rounded border border-white/15 text-[11px] font-sans text-ink-400">Esc</kbd>
+          // A real button: the Esc hint on a keyboard, a ✕ on phones (which have no Esc).
+          <button
+            type="button"
+            onClick={() => onClose?.()}
+            aria-label="Close search"
+            className="shrink-0 flex h-8 items-center justify-center rounded-lg border border-white/15 px-2 text-ink-300 hover:bg-white/10 hover:text-white"
+          >
+            <span className="hidden sm:inline text-[11px] font-sans">Esc</span>
+            <svg className="h-4 w-4 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
         )}
       </div>
 

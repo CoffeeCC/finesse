@@ -182,7 +182,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search games"
         aria-label="Search the games library"
-        className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-ink-400"
+        className="search-field min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-ink-400"
       />
     </label>
   )
