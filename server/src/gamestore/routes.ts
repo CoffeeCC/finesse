@@ -4,10 +4,16 @@
 // answer 501 in plain words. Nothing here ever sends where a download comes from.
 
 import { readdirSync, readFileSync } from 'node:fs'
+import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { basename, join } from 'node:path'
 import type { Auth } from '../auth.ts'
 import type { SettingsStore } from '../config.ts'
 import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
+import { acceptWebSocket } from '../http/websocket.ts'
+import { demuxExec } from '../stack/docker.ts'
+import { NO_SEEDING } from './pipeline.ts'
+import { hostResources, sandboxLimits } from './sandbox.ts'
 import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
@@ -50,6 +56,8 @@ export interface GameStore {
   upload?: Upload
   /** There's a sandbox to install in too; without one a request stops after its download is checked. */
   installs?: boolean
+  /** The installer's screen as VNC, for a request waiting on a person (sandbox.ts); null when there's none. */
+  screen?: (r: StoredRequest) => Promise<Duplex | null>
 }
 
 const SORTS: StoreSort[] = ['popular', 'new', 'name', 'year']
@@ -178,8 +186,15 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     return r
   }
 
-  const seeding = () => settings.get().gameStore?.seeding ?? { ratio: 1, days: 7 }
-  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length, seeding: seeding() })
+  const seeding = () => settings.get().gameStore?.seeding ?? NO_SEEDING
+  // The install sandbox's share of the server: chosen (null = automatic), what automatic gives, and the most there is.
+  const sandbox = () => {
+    const chosen = settings.get().gameStore?.sandbox
+    const host = hostResources()
+    const l = sandboxLimits(chosen, host)
+    return { cpus: chosen?.cpus ?? null, memoryGb: chosen?.memoryGb ?? null, auto: l.auto, max: host, using: { cpus: l.cpus, memoryGb: l.memoryGb } }
+  }
+  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length, seeding: seeding(), sandbox: sandbox() })
 
   // On or off (administrators). Off is the default: Finesse ships no game sources.
   router.get('/api/games/store/settings', async ({ req, res }) => {
@@ -188,9 +203,23 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   })
   router.put('/api/games/store/settings', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    const body = await readJson<{ enabled?: unknown; seeding?: { ratio?: unknown; days?: unknown } }>(req)
+    const body = await readJson<{ enabled?: unknown; seeding?: { ratio?: unknown; days?: unknown }; sandbox?: { cpus?: unknown; memoryGb?: unknown } }>(req)
     if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw new ApiError(400, 'enabled is true or false')
-    if (body.enabled === undefined && body.seeding === undefined) throw new ApiError(400, 'Nothing to change')
+    if (body.enabled === undefined && body.seeding === undefined && body.sandbox === undefined) throw new ApiError(400, 'Nothing to change')
+    let box = settings.get().gameStore?.sandbox
+    if (body.sandbox !== undefined) {
+      const host = hostResources()
+      // null (or leaving it out) is automatic; a number is kept within what the server has.
+      const one = (v: unknown, max: number, what: string) => {
+        if (v === null || v === undefined) return undefined
+        const n = Number(v)
+        if (!Number.isInteger(n) || n < 1 || n > max) throw new ApiError(400, `Choose between 1 and ${max} ${what}.`)
+        return n
+      }
+      const cpus = one(body.sandbox?.cpus, host.cpus, 'cores')
+      const memoryGb = one(body.sandbox?.memoryGb, host.memoryGb, 'GB')
+      box = cpus || memoryGb ? { ...(cpus ? { cpus } : {}), ...(memoryGb ? { memoryGb } : {}) } : undefined
+    }
     const enabled = body.enabled ?? gameStoreEnabled(settings)
     let share = seeding()
     if (body.seeding !== undefined) {
@@ -200,7 +229,8 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
       share = { ratio, days }
     }
     settings.update((s) => {
-      s.gameStore = { ...(s.gameStore ?? {}), enabled, seeding: share }
+      s.gameStore = { ...(s.gameStore ?? {}), enabled, seeding: share, sandbox: box }
+      if (!box) delete s.gameStore.sandbox
     })
     // Turned on: read the feeds straight away, so the store isn't empty until the next round.
     if (body.enabled === true) await store.sync()
@@ -373,12 +403,54 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     sendJson(res, 200, publicRequest(await pipeline().installerDone(r)))
   })
 
-  // The installer's screen ("Needs you") is a websocket the sandbox runner serves (WS4); a plain
-  // request to it says so instead of falling through to the app's page.
+  // The installer's screen ("Needs you") is a websocket (storeScreenUpgrade below); a plain request
+  // to it says so instead of falling through to the app's page.
   router.get('/api/games/store/requests/:id/screen', async ({ req, params }) => {
-    await mine(req, params.id)
-    throw new ApiError(501, 'Finishing an installer from here isn’t available on this server yet.')
+    const r = await mine(req, params.id)
+    if (!store.screen) throw new ApiError(501, 'Finishing an installer from here isn’t available on this server yet.')
+    if (r.state !== 'needs-you') throw new ApiError(409, 'That installer isn’t waiting for anyone.')
+    throw new ApiError(426, 'The installer’s screen opens as a websocket.')
   })
 
   return store
+}
+
+/**
+ * The installer's screen for "Needs you": a websocket carrying VNC from the request's sandbox
+ * (sandbox.ts screen()), signed in like everything else (a browser's websocket can't send
+ * headers, so the token may come as ?api_key=), for whoever asked or an administrator, and only
+ * while the request waits on a person. True when the upgrade was this one.
+ */
+export function storeScreenUpgrade(store: GameStore, auth: Auth): (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean {
+  return (req, socket, head) => {
+    const url = new URL(req.url ?? '/', 'http://x')
+    const m = /^\/(?:finesse\/)?api\/games\/store\/requests\/([^/]+)\/screen$/.exec(url.pathname)
+    if (!m) return false
+    const refuse = (status: string) => {
+      try {
+        socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+      } catch {
+        socket.destroy()
+      }
+    }
+    socket.on('error', () => socket.destroy())
+    void (async () => {
+      const user = await auth.requireUser(req, { query: url.searchParams })
+      if (user.Id === 'service' || !/^[0-9a-f]{32}$/i.test(user.Id)) return refuse('403 Forbidden')
+      const r = store.db.request(decodeURIComponent(m[1]!))
+      if (!r) return refuse('404 Not Found')
+      if (user.Policy?.IsAdministrator !== true && r.userId !== user.Id.toLowerCase()) return refuse('403 Forbidden')
+      if (r.state !== 'needs-you') return refuse('409 Conflict')
+      const vnc = store.screen ? await store.screen(r) : null
+      if (!vnc) return refuse('409 Conflict')
+      const ws = acceptWebSocket(req, socket, head, { protocols: ['binary'] })
+      if (!ws) return void vnc.destroy()
+      demuxExec(vnc, (b) => ws.send(b))
+      ws.onMessage((b) => vnc.write(b))
+      ws.onClose(() => vnc.destroy())
+      vnc.on('close', () => ws.close())
+      vnc.on('error', () => ws.close())
+    })().catch((e) => refuse(e instanceof ApiError && e.status === 401 ? '401 Unauthorized' : '502 Bad Gateway'))
+    return true
+  }
 }

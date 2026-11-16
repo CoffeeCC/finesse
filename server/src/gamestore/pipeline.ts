@@ -35,6 +35,9 @@ export interface PipelineDeps {
 
 /** Download + unpacked + installed, at worst. */
 const ROOM_NEEDED = 3
+
+/** Sharing a finished torrent back is off unless an administrator turns it on (Settings → Games): the download goes once the game is installed. */
+export const NO_SEEDING = { ratio: 0, days: 0 }
 const GB = 1024 ** 3
 const ACTIVE: GameRequestState[] = ['queued', 'downloading', 'paused', 'checking', 'installing', 'finishing']
 
@@ -140,10 +143,12 @@ export class Pipeline implements RequestPipeline {
   async retry(r: StoredRequest): Promise<StoredRequest> {
     if (!r.source) throw new ApiError(409, 'That game isn’t in the store any more, so it can’t be tried again.')
     await this.deps.installer.remove(r)
-    // A download that finished is kept: only what came after it is done again.
-    const status = r.added ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
-    const have = status?.state === 'done'
-    if (!have && r.source.local) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
+    // A finished download is kept. A file an administrator added was never fetched, so it has
+    // no `added` record with the downloader: `r.added || r.source.local` is the file already
+    // here, and it is reused rather than fetched again.
+    if (r.source.local && !r.folder) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
+    const status = r.added && !r.source.local ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
+    const have = Boolean((r.added || r.source.local) && (r.source.local || status?.state === 'done'))
     if (!have) {
       const ready = await this.deps.downloaderFor(r.source).available()
       if (!ready.ok) throw new ApiError(503, ready.why)
@@ -237,7 +242,7 @@ export class Pipeline implements RequestPipeline {
         if (!this.deps.db.request(r.id)) return
         const v = describeChecks(checks)
         if (!v.ok) return this.fail(r.id, v.text)
-        this.deps.db.advance(r.id, 'installing', { detail: undefined, progress: undefined }, v.text)
+        this.deps.db.advance(r.id, 'installing', { detail: 'Installing in a sealed sandbox on the server. Big games can take a while: unpacking and the first start run without a graphics card.', progress: undefined }, v.text)
       })
       .catch((e) => this.fail(r.id, 'Finesse couldn’t read the downloaded files to check them.', e))
       .finally(() => {
@@ -272,7 +277,7 @@ export class Pipeline implements RequestPipeline {
     if (out.state === 'failed') return this.fail(id, out.reason)
     if (out.state === 'needs-you') return void db.advance(id, 'needs-you', { detail: out.why, waitingOn: out.waitingOn }, out.why)
     db.advance(id, 'finishing', { installDir: out.dir, program: out.program, screenshot: out.screenshot, waitingOn: undefined, detail: undefined }, 'Installed, and it starts.')
-    db.advance(id, 'ready', { readyAt: this.now() }, 'Ready to play.')
+    db.advance(id, 'ready', { readyAt: this.now(), ...(out.warning ? { detail: out.warning } : {}) }, out.warning ?? 'Ready to play.')
     // A direct download has done its job; a torrent is shared back for a while first (seeded()).
     if (r.source && !r.source.magnet) void this.dropDownload(db.request(id)!)
   }
@@ -285,7 +290,7 @@ export class Pipeline implements RequestPipeline {
   /** A finished torrent is removed once it's been shared back enough, or for long enough. */
   private async seeded(r: StoredRequest) {
     if (r.downloadRemoved || !r.source?.magnet || !r.readyAt) return
-    const limit = this.deps.seeding?.() ?? { ratio: 1, days: 7 }
+    const limit = this.deps.seeding?.() ?? NO_SEEDING
     const days = ((this.deps.now?.() ?? Date.now()) - Date.parse(r.readyAt)) / 86_400_000
     const s = days >= limit.days ? null : await this.deps.downloaderFor(r.source).status(r.id)
     if (s && s.state !== 'missing' && (s.ratio ?? 0) < limit.ratio) return

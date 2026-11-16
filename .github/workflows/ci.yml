@@ -31,3 +31,21 @@ jobs:
         run: npm run server:build
       - name: Installer syntax
         run: bash -n install.sh
+
+  # The game-store install sandbox (docker/installer/). Pushing it is a release
+  # (release.yml); the catalog pins the version tag, and a digest pin is a release decision.
+  installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the install sandbox
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/installer/Dockerfile
+          push: false
+          tags: finesse-installer:ci
+          cache-from: type=gha,scope=installer
+          cache-to: type=gha,mode=max,scope=installer

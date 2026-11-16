@@ -89,10 +89,22 @@ static BOOL CALLBACK each_child(HWND h, LPARAM lp) {
       }
     } else if (kind == BS_GROUPBOX) {
       append_text(c, text);
+    } else if (kind == BS_RADIOBUTTON || kind == BS_AUTORADIOBUTTON) {
+      // "I accept the agreement" is a radio, not a push button. It's still something to press.
+      if (enabled && text[0] && c->button_count < MAX_BUTTONS) {
+        wcsncpy(c->buttons[c->button_count], text, 127);
+        c->buttons[c->button_count][127] = 0;
+        c->button_hwnds[c->button_count++] = h;
+      }
     } else {
-      // A check box or a choice between options: something a person decides.
+      // A check box: something a person decides. Its label is text, not a button to press.
       append_text(c, text);
-      if (enabled && (kind == BS_RADIOBUTTON || kind == BS_AUTORADIOBUTTON)) c->wants_input = 1;
+    }
+  } else if (!_wcsicmp(cls, L"TNewRadioButton") || !_wcsicmp(cls, L"TRadioButton")) {
+    if (enabled && text[0] && c->button_count < MAX_BUTTONS) {
+      wcsncpy(c->buttons[c->button_count], text, 127);
+      c->buttons[c->button_count][127] = 0;
+      c->button_hwnds[c->button_count++] = h;
     }
   } else if (!_wcsicmp(cls, L"Edit") || !_wcsicmp(cls, L"TEdit") || !_wcsicmp(cls, L"TNewEdit") || !_wcsicmp(cls, L"TPasswordEdit")) {
     // A read-only box (a licence, a log) is text to read, not something to fill in.
@@ -170,9 +182,44 @@ static int cmd_click(const wchar_t *hwnd_arg, const wchar_t *label) {
   for (int i = 0; i < c->button_count; i++) {
     plain(c->buttons[i], have, 128);
     if (_wcsicmp(want, have)) continue;
-    // BM_CLICK presses it the way a person would, without needing the window in front.
+    HWND b = c->button_hwnds[i];
+    wchar_t bcls[64] = L"";
+    GetClassNameW(b, bcls, 64);
     DWORD_PTR got = 0;
-    LRESULT sent = SendMessageTimeoutW(c->button_hwnds[i], BM_CLICK, 0, 0, SMTO_ABORTIFHUNG, 3000, &got);
+    LRESULT sent;
+    // Inno's controls are VCL, not the Win32 button class. BM_CLICK and a sent WM_LBUTTON
+    // never reach them: VCL reads the real cursor and button state. A cursor click does.
+    if (wcsstr(bcls, L"Radio") || wcsstr(bcls, L"Check") || !_wcsnicmp(bcls, L"T", 1)) {
+      RECT r;
+      HWND top = GetAncestor(b, GA_ROOT);
+      DWORD tid = GetWindowThreadProcessId(b, NULL);
+      DWORD me = GetCurrentThreadId();
+      int attached = me != tid && AttachThreadInput(me, tid, TRUE);
+      if (top) {
+        ShowWindow(top, SW_RESTORE);
+        SetForegroundWindow(top);
+        BringWindowToTop(top);
+      }
+      SetFocus(b);
+      if (GetWindowRect(b, &r) && r.right > r.left && r.bottom > r.top) {
+        int x = (r.left + r.right) / 2;
+        int y = (r.top + r.bottom) / 2;
+        int sx = GetSystemMetrics(SM_CXSCREEN);
+        int sy = GetSystemMetrics(SM_CYSCREEN);
+        if (sx < 2) sx = 2;
+        if (sy < 2) sy = 2;
+        SetCursorPos(x, y);
+        mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, (DWORD)((x * 65535L) / (sx - 1)), (DWORD)((y * 65535L) / (sy - 1)), 0, 0);
+        Sleep(40);
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        Sleep(40);
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+        sent = 1;
+      } else sent = 0;
+      if (attached) AttachThreadInput(me, tid, FALSE);
+    } else {
+      sent = SendMessageTimeoutW(b, BM_CLICK, 0, 0, SMTO_ABORTIFHUNG, 3000, &got);
+    }
     free(c);
     puts(sent ? "{\"ok\":true}" : "{\"ok\":false,\"why\":\"the window didn't answer\"}");
     return sent ? 0 : 1;

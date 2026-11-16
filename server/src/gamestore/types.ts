@@ -226,6 +226,8 @@ export interface WindowInfo {
   buttons: string[]
   /** It has a box to type in or a list to choose from. */
   wantsInput: boolean
+  /** The sandbox's handle for it (winhelper's hwnd), for clicking. */
+  hwnd?: string
 }
 
 export interface RunResult {
@@ -283,7 +285,8 @@ export interface SandboxRunner {
 }
 
 export type InstallOutcome =
-  | { state: 'ready'; by: Tier; program: string; dir: string; screenshot?: string; log: string[] }
+  /** warning: installed cleanly, but the start check couldn't start it in the sandbox (no graphics card there); Play gets the real try. */
+  | { state: 'ready'; by: Tier; program: string; dir: string; screenshot?: string; warning?: string; log: string[] }
   | { state: 'needs-you'; waitingOn?: string; why: string; log: string[] }
   | { state: 'failed'; reason: string; log: string[] }
 

@@ -140,9 +140,11 @@ test('off by default: nothing to browse, and the app isn’t told there’s a st
 
 test('turned on: the front page, search, filters and a game, with nothing about where it comes from', async () => {
   const on = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { enabled: true })
-  assert.deepEqual(on.data, { enabled: true, canDownload: false, canInstall: false, games: 0, seeding: { ratio: 1, days: 7 } })
+  const { sandbox: _box, ...on1 } = on.data as Record<string, unknown>
+  assert.deepEqual(on1, { enabled: true, canDownload: false, canInstall: false, games: 0, seeding: { ratio: 0, days: 0 } }, 'sharing back is off unless turned on')
   seed()
-  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data, { enabled: true, canDownload: false, canInstall: false, games: 5, seeding: { ratio: 1, days: 7 } })
+  const { sandbox: _box2, ...on2 } = (await call(F.url, 'GET', `${S}/settings`, 't-admin')).data as Record<string, unknown>
+  assert.deepEqual(on2, { enabled: true, canDownload: false, canInstall: false, games: 5, seeding: { ratio: 0, days: 0 } })
   assert.equal(((await call(F.url, 'GET', '/api/finesse')).data.features as Record<string, boolean>).gameStore, true)
 
   const h = await call(F.url, 'GET', `${S}/home`, 't-robin')

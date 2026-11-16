@@ -10,7 +10,9 @@ name: Release
 #                            server and the app (FinesseSetup.exe installs it;
 #                            Windows installs update to it)
 # and pushes the multi-arch server image ghcr.io/<owner>/finesse:<v> (+ :latest),
-# which installs and self-updates use, and attaches FinesseSetup.exe (the Windows installer;
+# which installs and self-updates use, plus the install sandbox
+# ghcr.io/<owner>/finesse-installer:<docker/installer/VERSION> (amd64; the catalog pins that
+# version tag — pinning it by digest is a release decision), and attaches FinesseSetup.exe (the Windows installer;
 # releases/latest/download/FinesseSetup.exe always points at the newest).
 # The newest Finesse for Android APK (from <owner>/finesse-android's latest release) is
 # attached too, so every download is in one place.
@@ -166,6 +168,52 @@ jobs:
             org.opencontainers.image.description=Your own streaming service — Jellyfin, the *arrs, Usenet and a VPN, set up for you
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # The game-store install sandbox. Its tag is docker/installer/VERSION, not Finesse's version.
+  # Already published: left as it is. The catalog pins the tag; a digest pin is a release decision.
+  installer-image:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image name
+        id: img
+        run: |
+          version=$(tr -d '[:space:]' < docker/installer/VERSION)
+          repo="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/finesse-installer"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          if docker manifest inspect "$repo:$version" >/dev/null 2>&1; then
+            echo "Image $repo:$version already published."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push the install sandbox (amd64)
+        if: steps.img.outputs.needed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/installer/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.img.outputs.repo }}:${{ steps.img.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.img.outputs.version }}
+            org.opencontainers.image.title=Finesse installer
+            org.opencontainers.image.description=Finesse game install sandbox — Wine, unpackers and a virtual screen, run with no network
+          cache-from: type=gha,scope=installer
+          cache-to: type=gha,mode=max,scope=installer
 
   windows:
     needs: release

@@ -31,7 +31,8 @@ import { logger } from './log.ts'
 import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
-import { registerGameStore, type GameStore } from './gamestore/routes.ts'
+import { registerGameStore, storeScreenUpgrade, type GameStore } from './gamestore/routes.ts'
+import type { Installer } from './gamestore/pipeline.ts'
 import { plugPipeline } from './gamestore/wiring.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
 import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
@@ -102,7 +103,7 @@ function features(s: Settings) {
   }
 }
 
-export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { server: Server; deps: AppDeps } {
+export function createApp(opts: { paths?: Paths; plugins?: Plugin[]; installer?: Installer } = {}): { server: Server; deps: AppDeps } {
   const settings = new SettingsStore(opts.paths)
   settings.ensureSaved()
   const jf = new Jellyfin(settings)
@@ -176,7 +177,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerDeletions(router, { deleter: new Deleter(settings), auth })
   registerRequestDefaults(router, { settings, auth })
   deps.gameStore = registerGameStore(router, { settings, auth })
-  plugPipeline(deps.gameStore, settings, { log: (t) => log.warn(t) })
+  plugPipeline(deps.gameStore, settings, { log: (t) => log.warn(t), ...(opts.installer ? { installer: opts.installer } : {}) })
   registerAlbumRequests(router, { settings, auth, parental })
   // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
   let conns: { at: number; report: Promise<ConnReport> } | null = null
@@ -308,8 +309,9 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
     }
   })
 
+  const storeScreen = deps.gameStore ? storeScreenUpgrade(deps.gameStore, auth) : () => false
   server.on('upgrade', (req, socket, head) => {
-    if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head, parental)) socket.destroy()
+    if (!play.upgrade(req, socket, head) && !(deps.gameStore && storeScreen(req, socket, head)) && !handleUpgrade(settings, req, socket, head, parental)) socket.destroy()
   })
 
   // Keep-alive sockets shouldn't hold shutdown open for long.

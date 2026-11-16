@@ -191,6 +191,30 @@ test('a damaged download fails with what’s wrong; retry keeps a good download 
   assert.deepEqual([finished.state, finished.program, finished.waitingOn], ['ready', 'game.exe', undefined])
 })
 
+test('try again reuses a file an administrator added and never downloads it', async () => {
+  const w = await world()
+  const { db, pipeline } = w.boot()
+  w.setOutcome(() => ({ state: 'failed', reason: 'The installer said: Not enough disk space.', log: [] }))
+  w.setVpn({ ok: false, why: 'The VPN isn’t set up.' })
+  const folder = join(w.dir, 'added')
+  mkdirSync(folder, { recursive: true })
+  writeFileSync(join(folder, 'setup.exe'), 'the installer')
+  writeFileSync(join(folder, 'setup.sha256'), `${createHash('sha256').update('the installer').digest('hex')}  setup.exe\n`)
+  const source: CatalogueSource = { id: 's-local', gameId: 'g-local', platform: 'windows', installer: 'unknown', sizeBytes: 13, local: true }
+  const adopted = pipeline.adopt('adopted01', { ...game, id: 'g-local' }, source, user, folder)
+  assert.equal(await w.settle(pipeline, db, adopted.id), 'failed')
+  // What retry used to require: a downloader record. An adopted file has none.
+  const stored = db.request(adopted.id)!
+  const { added: _added, ...without } = stored
+  db.saveRequest(without)
+  assert.equal(db.request(adopted.id)!.added, undefined)
+  assert.equal((await pipeline.retry(db.request(adopted.id)!)).state, 'checking')
+  assert.equal(w.qbit.torrents.length, 0, 'the file is reused, never fetched')
+  assert.equal(await w.settle(pipeline, db, adopted.id), 'failed')
+  assert.equal(db.request(adopted.id)!.detail, 'The installer said: Not enough disk space.')
+  assert.ok(w.installed.includes(folder))
+})
+
 test('cancel stops the download and removes its files; a downloader error and a vanished download fail in words; no room is said up front', async () => {
   const w = await world()
   const { db, pipeline } = w.boot()
@@ -348,8 +372,8 @@ test('on a server Finesse set up, a request over the API downloads through the V
   assert.equal((await call(F.url, 'DELETE', `${S}/requests/${id}`, 't-robin')).status, 200)
   assert.deepEqual([qbit.torrents.length, (await call(F.url, 'GET', `${S}/requests`, 't-robin')).data], [0, []])
 
-  // How long a finished torrent is shared back is a setting.
-  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data.seeding, { ratio: 1, days: 7 })
+  // Sharing back is off unless an administrator turns it on; how much and how long is a setting.
+  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data.seeding, { ratio: 0, days: 0 })
   assert.equal((await call(F.url, 'PUT', `${S}/settings`, 't-admin', { seeding: { ratio: 99, days: 1 } })).status, 400)
   const set = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { seeding: { ratio: 2, days: 14 } })
   assert.deepEqual([set.data.enabled, set.data.seeding], [true, { ratio: 2, days: 14 }])
