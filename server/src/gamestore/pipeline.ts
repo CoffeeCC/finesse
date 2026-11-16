@@ -35,6 +35,9 @@ export interface PipelineDeps {
 
 /** Download + unpacked + installed, at worst. */
 const ROOM_NEEDED = 3
+
+/** Sharing a finished torrent back is off unless an administrator turns it on (Settings → Games): the download goes once the game is installed. */
+export const NO_SEEDING = { ratio: 0, days: 0 }
 const GB = 1024 ** 3
 const ACTIVE: GameRequestState[] = ['queued', 'downloading', 'paused', 'checking', 'installing', 'finishing']
 
@@ -287,7 +290,7 @@ export class Pipeline implements RequestPipeline {
   /** A finished torrent is removed once it's been shared back enough, or for long enough. */
   private async seeded(r: StoredRequest) {
     if (r.downloadRemoved || !r.source?.magnet || !r.readyAt) return
-    const limit = this.deps.seeding?.() ?? { ratio: 1, days: 7 }
+    const limit = this.deps.seeding?.() ?? NO_SEEDING
     const days = ((this.deps.now?.() ?? Date.now()) - Date.parse(r.readyAt)) / 86_400_000
     const s = days >= limit.days ? null : await this.deps.downloaderFor(r.source).status(r.id)
     if (s && s.state !== 'missing' && (s.ratio ?? 0) < limit.ratio) return

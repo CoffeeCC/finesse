@@ -350,12 +350,21 @@ export interface StoreSettings {
   games: number
   /** How long a finished torrent is shared back before its download is removed. */
   seeding: { ratio: number; days: number }
+  /** The install sandbox's share of the server: chosen (null = automatic), what automatic gives, the most there is, and what installs use now. */
+  sandbox?: { cpus: number | null; memoryGb: number | null; auto: SandboxShare; max: SandboxShare; using: SandboxShare }
+}
+
+export interface SandboxShare {
+  cpus: number
+  memoryGb: number
 }
 
 export const gameStoreAdmin = {
   settings: () => call<StoreSettings>('GET', '/settings'),
   setEnabled: (enabled: boolean) => call<StoreSettings>('PUT', '/settings', { enabled }),
   setSeeding: (seeding: { ratio: number; days: number }) => call<StoreSettings>('PUT', '/settings', { seeding }),
+  /** null = automatic. */
+  setSandbox: (sandbox: { cpus: number | null; memoryGb: number | null }) => call<StoreSettings>('PUT', '/settings', { sandbox }),
   /** Adds a game from an installer or archive on this device. `onProgress` gets 0–100 as it's sent. */
   upload: (file: File, title: string, onProgress?: (pct: number) => void) =>
     new Promise<GameRequest>((resolve, reject) => {

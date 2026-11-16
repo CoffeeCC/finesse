@@ -101,26 +101,27 @@ function RequestRow({ r }: { r: GameRequest }) {
             Carry on
           </button>
         )}
-        {r.state === 'ready' ? (
+        {r.state === 'ready' && (
           <Link to="/games" className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/20">
             Play
           </Link>
-        ) : (
-          <button type="button" onClick={() => setConfirm(true)} className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-ink-300 hover:bg-white/10 hover:text-white">
-            {r.state === 'failed' ? 'Remove' : 'Cancel'}
-          </button>
         )}
+        <button type="button" onClick={() => setConfirm(true)} className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-ink-300 hover:bg-white/10 hover:text-white">
+          {r.state === 'ready' ? 'Uninstall' : r.state === 'failed' ? 'Remove' : 'Cancel'}
+        </button>
       </div>
       {confirm && (
         <ConfirmDialog
-          title={r.state === 'failed' ? `Remove “${r.title}”?` : `Cancel “${r.title}”?`}
-          confirmLabel={r.state === 'failed' ? 'Remove' : 'Cancel the request'}
+          title={r.state === 'ready' ? `Uninstall “${r.title}”?` : r.state === 'failed' ? `Remove “${r.title}”?` : `Cancel “${r.title}”?`}
+          confirmLabel={r.state === 'ready' ? 'Uninstall' : r.state === 'failed' ? 'Remove' : 'Cancel the request'}
           cancelLabel="Keep it"
           busy={actions.cancel.isPending}
           onCancel={() => setConfirm(false)}
           onConfirm={() => actions.cancel.mutate(r.id, { onError: fail, onSettled: () => setConfirm(false) })}
         >
-          The download stops and what was downloaded is deleted. You can request it again later.
+          {r.state === 'ready'
+            ? 'The game is deleted from the server, with anything left of its download. You can request it again later.'
+            : 'The download stops and what was downloaded is deleted. You can request it again later.'}
         </ConfirmDialog>
       )}
     </li>

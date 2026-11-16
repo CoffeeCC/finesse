@@ -16,10 +16,10 @@ import { INSTALLER_IMAGE } from '../stack/catalog.ts'
 import { Docker } from '../stack/docker.ts'
 import { isNative } from '../stack/host.ts'
 import { DirectDownloader, safeFileName } from './direct.ts'
-import { Pipeline, type Installer } from './pipeline.ts'
+import { NO_SEEDING, Pipeline, type Installer } from './pipeline.ts'
 import { QbitDownloader } from './qbit.ts'
 import { YOURS, type GameStore } from './routes.ts'
-import { DockerInstaller } from './sandbox.ts'
+import { DockerInstaller, hostResources, sandboxLimits } from './sandbox.ts'
 
 export const NO_SANDBOX = 'It’s downloaded and checked, but Finesse can’t install games on Windows servers yet. That arrives with a later update. The download is kept, so “Try again” then carries on from here.'
 
@@ -71,6 +71,7 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
             return st ? { hostData: st.hostData, puid: st.puid, pgid: st.pgid } : null
           },
           instance: settings.get().instanceId,
+          limits: () => sandboxLimits(settings.get().gameStore?.sandbox, hostResources()),
           log: opts.log,
         })
   // Containers from installs that a restart interrupted: their requests start over (or, waiting on a
@@ -92,7 +93,7 @@ export function plugPipeline(store: GameStore, settings: SettingsStore, opts: { 
           const f = await statfs(stack()?.hostData ?? '/')
           return f.bavail * f.bsize
         },
-        seeding: () => settings.get().gameStore?.seeding ?? { ratio: 1, days: 7 },
+        seeding: () => settings.get().gameStore?.seeding ?? NO_SEEDING,
         log: opts.log,
       })
       pipeline.run()

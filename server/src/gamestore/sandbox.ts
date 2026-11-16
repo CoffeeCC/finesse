@@ -16,6 +16,7 @@
 // the request pipeline calls (pipeline.ts: Installer).
 
 import { mkdir, rm, chown } from 'node:fs/promises'
+import { availableParallelism, totalmem } from 'node:os'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { sniffFile } from '../installerSniff.ts'
@@ -35,7 +36,34 @@ const MIB = 1024 * 1024
 const INNO_MAX_DEFAULT = '6.4.999'
 
 /** What a sandbox needs from Docker: the client's own methods, so tests can stand in for it. */
-export type SandboxDocker = Pick<Docker, 'execAttach' | 'execExitCode' | 'create' | 'start' | 'remove' | 'list' | 'imageExists' | 'pull' | 'imageInspect'>
+export type SandboxDocker = Pick<Docker, 'execAttach' | 'execExitCode' | 'create' | 'start' | 'remove' | 'list' | 'imageExists' | 'pull' | 'imageInspect'> & Partial<Pick<Docker, 'inspect'>>
+
+const GIB = 1024 * MIB
+
+export interface SandboxLimits {
+  cpus: number
+  memoryGb: number
+}
+
+/** What this server has to share. */
+export const hostResources = (): SandboxLimits => ({ cpus: availableParallelism(), memoryGb: Math.floor(totalmem() / GIB) })
+
+/**
+ * The install sandbox's share of the server: what an administrator chose (Settings → Games), else
+ * automatic: half the cores (at least 2) and half the memory, from 4 to 16 GB. Never more than
+ * the server has. Cores mostly speed up unpacking (7-Zip uses them all); memory decides whether a
+ * big installer finishes at all.
+ */
+export function sandboxLimits(chosen: Partial<SandboxLimits> | undefined, host: SandboxLimits): SandboxLimits & { auto: SandboxLimits } {
+  const auto = {
+    cpus: Math.max(1, Math.min(host.cpus, Math.max(2, Math.floor(host.cpus / 2)))),
+    memoryGb: Math.max(1, Math.min(host.memoryGb, Math.min(16, Math.max(4, Math.floor(host.memoryGb / 2))))),
+  }
+  const pick = (v: number | undefined, fallback: number, max: number) => (v && v > 0 ? Math.min(Math.floor(v), Math.max(1, max)) : fallback)
+  return { cpus: pick(chosen?.cpus, auto.cpus, host.cpus), memoryGb: pick(chosen?.memoryGb, auto.memoryGb, host.memoryGb), auto }
+}
+
+const OUT_OF_MEMORY = (gb: number) => `The installer ran out of memory (the install sandbox has ${gb} GB). Give it more in Settings → Games → Install sandbox, then try again.`
 
 interface Ran {
   /** Every line that wasn't progress or the result. */
@@ -186,9 +214,8 @@ export interface DockerInstallerDeps {
   where(): { hostData: string; puid: number; pgid: number } | null
   /** This Finesse's id: stamped on its containers so it only ever removes its own. */
   instance?: string
-  /** The container's limits. */
-  memoryBytes?: number
-  cpus?: number
+  /** The container's share of the server, looked up for each install (Settings can change it). */
+  limits?(): SandboxLimits
   log?(text: string): void
 }
 
@@ -199,6 +226,8 @@ export class DockerInstaller implements Installer {
   private readonly deps: DockerInstallerDeps
   /** Containers waiting on a person, by request. */
   private readonly waiting = new Map<string, DockerSandbox>()
+  /** The share each request's sandbox got (to say so when it ran out). */
+  private readonly gave = new Map<string, SandboxLimits>()
 
   constructor(deps: DockerInstallerDeps) {
     this.deps = deps
@@ -261,6 +290,8 @@ export class DockerInstaller implements Installer {
     const uid = where.puid > 0 ? where.puid : 1000
     const gid = where.pgid > 0 ? where.pgid : 1000
     await chown(root, uid, gid).catch(() => {})
+    const limits = this.deps.limits?.() ?? sandboxLimits(undefined, hostResources())
+    this.gave.set(r.id, limits)
     const mounts = [
       ...(downloadFolder ? [{ Type: 'bind', Source: downloadFolder, Target: '/job/download', ReadOnly: true }] : []),
       { Type: 'bind', Source: root, Target: '/job/install', ReadOnly: false },
@@ -274,9 +305,9 @@ export class DockerInstaller implements Installer {
       HostConfig: {
         NetworkMode: 'none',
         Mounts: mounts,
-        Memory: this.deps.memoryBytes ?? 4096 * MIB,
-        MemorySwap: this.deps.memoryBytes ?? 4096 * MIB,
-        NanoCpus: Math.round((this.deps.cpus ?? 2) * 1e9),
+        Memory: limits.memoryGb * GIB,
+        MemorySwap: limits.memoryGb * GIB,
+        NanoCpus: Math.round(limits.cpus * 1e9),
         PidsLimit: 1024,
         CapDrop: ['ALL'],
         SecurityOpt: ['no-new-privileges', 'label=disable'],
@@ -286,6 +317,16 @@ export class DockerInstaller implements Installer {
     })
     await this.deps.docker.start(id)
     return new DockerSandbox(this.deps.docker, id, await this.innoMax())
+  }
+
+  /**
+   * Whether a failed install ran out of memory: Docker saw the kernel stop something for it, or the
+   * installer said so. (Installers that unpack in memory often report it as "corrupted data".)
+   */
+  private async ranOutOfMemory(runner: DockerSandbox, out: Extract<InstallOutcome, { state: 'failed' }>): Promise<boolean> {
+    const info = (await this.deps.docker.inspect?.(runner.container).catch(() => null)) as { State?: { OOMKilled?: boolean } } | null
+    if (info?.State?.OOMKilled) return true
+    return /out of memory|not enough memory|insufficient memory|cannot allocate memory|std::bad_alloc/i.test([out.reason, ...out.log].join('\n'))
   }
 
   /** Removes the request's container, if it has one. */
@@ -330,7 +371,8 @@ export class DockerInstaller implements Installer {
     let keep = false
     try {
       const files = await runner.files('download')
-      const out = await install(this.job(r, runner, folder, files, onStep))
+      let out = await install(this.job(r, runner, folder, files, onStep))
+      if (out.state === 'failed' && (await this.ranOutOfMemory(runner, out))) out = { ...out, reason: OUT_OF_MEMORY(this.gave.get(r.id)?.memoryGb ?? 4) }
       if (out.state === 'needs-you') {
         keep = true
         this.waiting.set(r.id, runner)

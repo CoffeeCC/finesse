@@ -372,8 +372,8 @@ test('on a server Finesse set up, a request over the API downloads through the V
   assert.equal((await call(F.url, 'DELETE', `${S}/requests/${id}`, 't-robin')).status, 200)
   assert.deepEqual([qbit.torrents.length, (await call(F.url, 'GET', `${S}/requests`, 't-robin')).data], [0, []])
 
-  // How long a finished torrent is shared back is a setting.
-  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data.seeding, { ratio: 1, days: 7 })
+  // Sharing back is off unless an administrator turns it on; how much and how long is a setting.
+  assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data.seeding, { ratio: 0, days: 0 })
   assert.equal((await call(F.url, 'PUT', `${S}/settings`, 't-admin', { seeding: { ratio: 99, days: 1 } })).status, 400)
   const set = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { seeding: { ratio: 2, days: 14 } })
   assert.deepEqual([set.data.enabled, set.data.seeding], [true, { ratio: 2, days: 14 }])

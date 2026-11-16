@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import type { StoredRequest } from '../src/gamestore/db.ts'
-import { DockerInstaller, DockerSandbox, type SandboxDocker } from '../src/gamestore/sandbox.ts'
+import { DockerInstaller, DockerSandbox, sandboxLimits, type SandboxDocker } from '../src/gamestore/sandbox.ts'
 
 /** Docker's exec framing: an 8-byte header (stream, length) per piece. */
 const frame = (text: string, stream = 1) => {
@@ -256,5 +256,32 @@ test('no Docker: the request fails saying what to check, and keeps its download'
   assert.equal(out.state, 'failed')
   assert.match(out.state === 'failed' ? out.reason : '', /can’t reach Docker/)
   assert.deepEqual((await readdir(download)).sort(), ['game.zip', 'setup.exe'])
+  await rm(data, { recursive: true, force: true })
+})
+
+test('the sandbox’s share: automatic is half the server (2+ cores, 4–16 GB), a choice never exceeds what’s there', () => {
+  assert.deepEqual(sandboxLimits(undefined, { cpus: 16, memoryGb: 64 }), { cpus: 8, memoryGb: 16, auto: { cpus: 8, memoryGb: 16 } })
+  assert.deepEqual(sandboxLimits(undefined, { cpus: 4, memoryGb: 8 }), { cpus: 2, memoryGb: 4, auto: { cpus: 2, memoryGb: 4 } })
+  // A small box: never more than it has.
+  assert.deepEqual(sandboxLimits(undefined, { cpus: 1, memoryGb: 2 }), { cpus: 1, memoryGb: 2, auto: { cpus: 1, memoryGb: 2 } })
+  assert.deepEqual(sandboxLimits({ cpus: 12, memoryGb: 100 }, { cpus: 16, memoryGb: 64 }), { cpus: 12, memoryGb: 64, auto: { cpus: 8, memoryGb: 16 } })
+  assert.deepEqual(sandboxLimits({ memoryGb: 24 }, { cpus: 16, memoryGb: 64 }).cpus, 8, 'only memory chosen: cores stay automatic')
+})
+
+test('the chosen share is what the container gets, and running out of memory is said plainly', async () => {
+  const { data, download } = await lab()
+  const fake = fakeDocker((a) => {
+    if (a[0] === 'files' && a[1] === 'download') return 'game.zip\t4096\t644\n@result {"ok":true}\n'
+    if (a[0] === 'unpack') return 'ERROR: archive data corrupted (decompression fails)\n@result {"exit":2,"hung":false}\n'
+    return '@result {"ok":true}\n'
+  })
+  fake.docker.inspect = async () => ({ State: { OOMKilled: true } }) as never
+  const installer = new DockerInstaller({ docker: fake.docker, image: 'img', where: () => ({ hostData: data, puid: 568, pgid: 568 }), limits: () => ({ cpus: 6, memoryGb: 12 }) })
+  const out = await installer.install(request('r1'), download, () => {})
+  const host = fake.created[0]!.config.HostConfig as Record<string, number>
+  assert.equal(host.NanoCpus, 6e9)
+  assert.equal(host.Memory, 12 * 1024 ** 3)
+  assert.equal(out.state, 'failed')
+  assert.match(out.state === 'failed' ? out.reason : '', /ran out of memory \(the install sandbox has 12 GB\)\. Give it more in Settings → Games/)
   await rm(data, { recursive: true, force: true })
 })

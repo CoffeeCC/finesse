@@ -12,6 +12,8 @@ import type { SettingsStore } from '../config.ts'
 import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
 import { acceptWebSocket } from '../http/websocket.ts'
 import { demuxExec } from '../stack/docker.ts'
+import { NO_SEEDING } from './pipeline.ts'
+import { hostResources, sandboxLimits } from './sandbox.ts'
 import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
@@ -184,8 +186,15 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     return r
   }
 
-  const seeding = () => settings.get().gameStore?.seeding ?? { ratio: 1, days: 7 }
-  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length, seeding: seeding() })
+  const seeding = () => settings.get().gameStore?.seeding ?? NO_SEEDING
+  // The install sandbox's share of the server: chosen (null = automatic), what automatic gives, and the most there is.
+  const sandbox = () => {
+    const chosen = settings.get().gameStore?.sandbox
+    const host = hostResources()
+    const l = sandboxLimits(chosen, host)
+    return { cpus: chosen?.cpus ?? null, memoryGb: chosen?.memoryGb ?? null, auto: l.auto, max: host, using: { cpus: l.cpus, memoryGb: l.memoryGb } }
+  }
+  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length, seeding: seeding(), sandbox: sandbox() })
 
   // On or off (administrators). Off is the default: Finesse ships no game sources.
   router.get('/api/games/store/settings', async ({ req, res }) => {
@@ -194,9 +203,23 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   })
   router.put('/api/games/store/settings', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    const body = await readJson<{ enabled?: unknown; seeding?: { ratio?: unknown; days?: unknown } }>(req)
+    const body = await readJson<{ enabled?: unknown; seeding?: { ratio?: unknown; days?: unknown }; sandbox?: { cpus?: unknown; memoryGb?: unknown } }>(req)
     if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw new ApiError(400, 'enabled is true or false')
-    if (body.enabled === undefined && body.seeding === undefined) throw new ApiError(400, 'Nothing to change')
+    if (body.enabled === undefined && body.seeding === undefined && body.sandbox === undefined) throw new ApiError(400, 'Nothing to change')
+    let box = settings.get().gameStore?.sandbox
+    if (body.sandbox !== undefined) {
+      const host = hostResources()
+      // null (or leaving it out) is automatic; a number is kept within what the server has.
+      const one = (v: unknown, max: number, what: string) => {
+        if (v === null || v === undefined) return undefined
+        const n = Number(v)
+        if (!Number.isInteger(n) || n < 1 || n > max) throw new ApiError(400, `Choose between 1 and ${max} ${what}.`)
+        return n
+      }
+      const cpus = one(body.sandbox?.cpus, host.cpus, 'cores')
+      const memoryGb = one(body.sandbox?.memoryGb, host.memoryGb, 'GB')
+      box = cpus || memoryGb ? { ...(cpus ? { cpus } : {}), ...(memoryGb ? { memoryGb } : {}) } : undefined
+    }
     const enabled = body.enabled ?? gameStoreEnabled(settings)
     let share = seeding()
     if (body.seeding !== undefined) {
@@ -206,7 +229,8 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
       share = { ratio, days }
     }
     settings.update((s) => {
-      s.gameStore = { ...(s.gameStore ?? {}), enabled, seeding: share }
+      s.gameStore = { ...(s.gameStore ?? {}), enabled, seeding: share, sandbox: box }
+      if (!box) delete s.gameStore.sandbox
     })
     // Turned on: read the feeds straight away, so the store isn't empty until the next round.
     if (body.enabled === true) await store.sync()

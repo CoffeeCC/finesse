@@ -213,35 +213,84 @@ export default function GameStoreAdmin() {
                 <div className="space-y-2 border-t border-white/5 pt-4">
                   <div className="text-[13px] font-medium text-white">Sharing back</div>
                   <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-300">
-                    <span>After a torrent finishes, keep sharing it until it has given back</span>
+                    <span>After a torrent finishes,</span>
                     <select
                       aria-label="How much to share back"
                       className={`${field} w-auto`}
                       value={s.seeding.ratio}
-                      onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, ratio: Number(e.target.value) }), 'Saved')}
+                      onChange={(e) => {
+                        const ratio = Number(e.target.value)
+                        void act('seed', () => gameStoreAdmin.setSeeding({ ratio, days: ratio > 0 && s.seeding.days === 0 ? 7 : s.seeding.days }), 'Saved')
+                      }}
                     >
                       {[...new Set([0, 0.5, 1, 2, 3, s.seeding.ratio])].sort((a, b) => a - b).map((r) => (
                         <option key={r} value={r}>
-                          {r === 0 ? 'nothing' : r === 1 ? 'as much as it took' : `${r}× what it took`}
+                          {r === 0 ? 'don’t share it back' : r === 1 ? 'share back as much as it took' : `share back ${r}× what it took`}
                         </option>
                       ))}
                     </select>
-                    <span>or for</span>
-                    <select
-                      aria-label="How long to share back"
-                      className={`${field} w-auto`}
-                      value={s.seeding.days}
-                      onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, days: Number(e.target.value) }), 'Saved')}
-                    >
-                      {[...new Set([1, 3, 7, 14, 30, s.seeding.days])].sort((a, b) => a - b).map((d) => (
-                        <option key={d} value={d}>
-                          {d === 1 ? '1 day' : `${d} days`}
-                        </option>
-                      ))}
-                    </select>
-                    <span>, whichever comes first. Then the download is removed; the game stays.</span>
+                    {s.seeding.ratio > 0 && (
+                      <>
+                        <span>or for</span>
+                        <select
+                          aria-label="How long to share back"
+                          className={`${field} w-auto`}
+                          value={s.seeding.days}
+                          onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, days: Number(e.target.value) }), 'Saved')}
+                        >
+                          {[...new Set([1, 3, 7, 14, 30, s.seeding.days])].filter((d) => d > 0).sort((a, b) => a - b).map((d) => (
+                            <option key={d} value={d}>
+                              {d === 1 ? '1 day' : `${d} days`}
+                            </option>
+                          ))}
+                        </select>
+                        <span>, whichever comes first.</span>
+                      </>
+                    )}
+                    <span>{s.seeding.ratio > 0 ? 'Then the download is removed; the game stays.' : 'The download is removed once the game is installed; the game stays.'}</span>
                   </div>
                 </div>
+
+                {s.canInstall && s.sandbox && (
+                  <div className="space-y-2 border-t border-white/5 pt-4">
+                    <div className="text-[13px] font-medium text-white">Install sandbox</div>
+                    <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-300">
+                      <span>While installing, a game may use</span>
+                      <select
+                        aria-label="Cores for installing"
+                        className={`${field} w-auto`}
+                        value={s.sandbox.cpus ?? 0}
+                        onChange={(e) => act('box', () => gameStoreAdmin.setSandbox({ cpus: Number(e.target.value) || null, memoryGb: s.sandbox!.memoryGb }), 'Saved')}
+                      >
+                        <option value={0}>Automatic ({s.sandbox.auto.cpus} cores)</option>
+                        {Array.from({ length: s.sandbox.max.cpus }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>
+                            {n === 1 ? '1 core' : `${n} cores`}
+                          </option>
+                        ))}
+                      </select>
+                      <span>and</span>
+                      <select
+                        aria-label="Memory for installing"
+                        className={`${field} w-auto`}
+                        value={s.sandbox.memoryGb ?? 0}
+                        onChange={(e) => act('box', () => gameStoreAdmin.setSandbox({ cpus: s.sandbox!.cpus, memoryGb: Number(e.target.value) || null }), 'Saved')}
+                      >
+                        <option value={0}>Automatic ({s.sandbox.auto.memoryGb} GB)</option>
+                        {[...new Set([2, 4, 6, 8, 12, 16, 24, 32, 48, 64, s.sandbox.memoryGb ?? 4])]
+                          .filter((g) => g <= s.sandbox!.max.memoryGb)
+                          .sort((x, y) => x - y)
+                          .map((g) => (
+                            <option key={g} value={g}>
+                              {g} GB
+                            </option>
+                          ))}
+                      </select>
+                      <span>of this server’s {s.sandbox.max.cpus} cores and {s.sandbox.max.memoryGb} GB.</span>
+                    </div>
+                    <p className="text-[12.5px] leading-relaxed text-ink-400">More cores make unpacking faster. More memory lets big installers finish; if one runs out, its request says so. Playing a game isn’t limited by this.</p>
+                  </div>
+                )}
               </>
             )}
           </div>
