@@ -97,6 +97,8 @@ export interface Settings {
   maintenance?: { lastBackup?: string; lastStackUpdate?: string; lastGraphics?: string }
   /** Where new requests go, per app: setup's profile names, and choices from Settings → Downloads (requestDefaults.ts). */
   requests?: { profiles: Record<string, string>; defaults?: Partial<Record<'radarr' | 'sonarr' | 'lidarr', import('./requestDefaults.ts').RequestDefault>> }
+  /** Settings → Downloads → Quality (qualityRules.ts): each app's size caps (and preferred sizes) from before "big files" lifted them, by quality definition id. */
+  quality?: { sizeCaps?: Partial<Record<'radarr' | 'sonarr', Record<string, { max: number | null; preferred: number | null }>>> }
   /** Groups: libraries shared between Finesse servers (see groups.ts). */
   groups?: GroupsState
   /** Parental limits per profile (lower-case Jellyfin user id), see parental.ts. */

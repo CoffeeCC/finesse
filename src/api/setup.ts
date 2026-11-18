@@ -605,6 +605,38 @@ export const requestDefaultsApi = {
     call<{ apps: RequestAppConfig[] }>('PUT', '/api/requests/defaults', { app, profileId, ...(rootFolder ? { rootFolder } : {}) }),
 }
 
+// ---------- Quality, made easy (server/src/qualityRules.ts) ----------
+
+export type QualityApp = 'radarr' | 'sonarr'
+export type Picture = 480 | 720 | 1080 | 2160
+export type LanguageMode = 'original' | 'mine' | 'any'
+export interface QualityProfileView {
+  id: number
+  name: string
+  picture: Picture | null
+  /** custom: someone's own rules decide (named in otherRules). */
+  language: LanguageMode | 'custom'
+  /** Someone's own rules that hold other languages back in this profile. */
+  otherRules: string[]
+}
+export interface QualityAppView {
+  app: QualityApp
+  name: string
+  /** The household's language as the apps name it; null when they don't know it. */
+  household?: string | null
+  bigFiles?: { allowed: boolean; canRestore: boolean }
+  profiles?: QualityProfileView[]
+  /** Set when the app couldn't be read. */
+  error?: string
+}
+
+export const qualityApi = {
+  get: () => call<{ apps: QualityAppView[] }>('GET', '/api/quality'),
+  setProfile: (app: QualityApp, id: number, choice: { picture?: Picture; language?: LanguageMode }) =>
+    call<QualityAppView>('PUT', `/api/quality/${app}/profiles/${id}`, choice),
+  setBigFiles: (app: QualityApp, allowed: boolean) => call<QualityAppView>('PUT', `/api/quality/${app}/big-files`, { allowed }),
+}
+
 // ---------- Connected apps' own health (server/src/connections.ts) ----------
 
 export interface ConnCheck {
