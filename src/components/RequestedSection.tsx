@@ -5,6 +5,7 @@ import { requestStatus } from '../lib/requestStatus'
 import { RequestStatusView } from './RequestStatus'
 import { arrCancelRequest, arrSearchAgain, type ArrRequested } from '../api/arr'
 import ArrThumb from './ArrThumb'
+import WhyNothingModal from './WhyNothingModal'
 import { useToast } from './Toast'
 
 const KIND_LABEL = { movie: 'Movie', series: 'Show', artist: 'Artist' } as const
@@ -26,6 +27,7 @@ function Row({ r }: { r: ArrRequested }) {
   const [busy, setBusy] = useState(false)
   // Take back is two-tap: first tap arms, second within 4s confirms.
   const [armed, setArmed] = useState(false)
+  const [why, setWhy] = useState(false)
 
   const refresh = () => setTimeout(() => {
     qc.invalidateQueries({ queryKey: ['arrRequested'] })
@@ -79,6 +81,14 @@ function Row({ r }: { r: ArrRequested }) {
         </p>
         <RequestStatusView status={requestStatus({ requested: true, hasFile: false, available: r.available, failure: failures?.get(r.key) })} className="mt-1" />
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {r.available && r.kind !== 'artist' && (
+            <button
+              onClick={() => setWhy(true)}
+              className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
+            >
+              Why nothing yet?
+            </button>
+          )}
           {r.available && (
             <button
               onClick={again}
@@ -99,6 +109,7 @@ function Row({ r }: { r: ArrRequested }) {
           </button>
         </div>
       </div>
+      {why && r.kind !== 'artist' && <WhyNothingModal item={{ kind: r.kind, id: r.id, title: r.title, year: r.year }} onClose={() => setWhy(false)} />}
     </div>
   )
 }

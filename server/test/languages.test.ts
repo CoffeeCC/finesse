@@ -147,3 +147,16 @@ test('a language the apps don’t know: only the preference, never a block that 
     f.close()
   }
 })
+
+test('a score someone changed since (Settings → Downloads → Quality) survives re-running setup', async () => {
+  const f = await fakeArr([profile(1, 'HD-1080p')])
+  try {
+    await wireLanguages(f.arr, 'sonarr', 'en', () => {})
+    const block = f.state.cfs.find((c) => c.name === LANGUAGE_BLOCK)!
+    f.state.profiles[0]!.formatItems.find((i) => i.format === block.id)!.score = 0
+    await wireLanguages(f.arr, 'sonarr', 'en', () => {})
+    assert.equal(scores(f.state.profiles[0]!, f.state.cfs)[LANGUAGE_BLOCK], 0)
+  } finally {
+    f.close()
+  }
+})

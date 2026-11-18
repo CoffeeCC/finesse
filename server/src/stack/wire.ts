@@ -391,6 +391,8 @@ const ARR_LANGUAGE: Record<string, string> = {
 /** Custom formats Finesse owns (matched by name, so re-running updates them). */
 export const LANGUAGE_BLOCK = 'Finesse: not your languages'
 export const LANGUAGE_PREFER = 'Finesse: original language'
+/** Settings → Downloads → Quality's "only the household's language" (made only when someone picks it). */
+export const LANGUAGE_ONLY_MINE = 'Finesse: only your language'
 const BLOCK_SCORE = -10000
 const PREFER_SCORE = 10
 /** Sonarr/Radarr's own ids for "Original", "Unknown" and (Radarr's profile) "Any". */
@@ -406,31 +408,30 @@ type Profile = { id: number; name: string; language?: { id: number; name: string
 const shape = (cf: Pick<CustomFormat, 'specifications'>) =>
   JSON.stringify(cf.specifications.map((x) => [x.implementation, x.negate, x.required, x.fields.find((f) => f.name === 'value')?.value]).sort())
 
+/** A setup language code ("en", "pt-BR", "de-AT") as Sonarr and Radarr name it, if they know it. */
+export const languageName = (code: string): string | undefined => ARR_LANGUAGE[code] ?? ARR_LANGUAGE[code.split('-')[0]!]
+
 /**
- * Downloads come in the title's original language or the household's, never
- * in a language nobody at home speaks: a German release of an English show,
- * say (Sonarr v4 has no language setting of its own, so it would take one).
- * Releases without a language tag pass, so a missing tag never blocks
- * everything, and the original language (or dual audio) wins a tie. Radarr's
- * profiles go from "Original" to "Any" so English dubs of foreign films are
- * allowed the same way. Safe to re-run: only what differs is written.
+ * Finesse's language formats, made or brought up to date in one app: "original language"
+ * always; "not your languages" (and, with `onlyMine`, "only your language") when the apps know
+ * the household's language. `created` holds the ones made just now.
  */
-export async function wireLanguages(arr: Arr, app: 'sonarr' | 'radarr', household: string, step: (msg: string) => void) {
+export async function ensureLanguageFormats(arr: Arr, app: 'sonarr' | 'radarr', household: string, opts: { onlyMine?: boolean } = {}) {
   const title = app[0]!.toUpperCase() + app.slice(1)
   const schema = await arr.req<Spec[]>('GET', '/customformat/schema')
   const tpl = schema.find((x) => x.implementation === 'LanguageSpecification')
   if (!tpl) throw new WireError(`${title} has no language rules in this version`)
   const options = tpl.fields.find((f) => f.name === 'value')?.selectOptions ?? []
   const idOf = (name?: string) => (name ? (options.find((o) => o.name.toLowerCase() === name.toLowerCase())?.value as number | undefined) : undefined)
-  const langName = ARR_LANGUAGE[household] ?? ARR_LANGUAGE[household.split('-')[0]!]
+  const langName = languageName(household)
   const mine = idOf(langName)
-  step(`${title}: downloads in the original language${mine !== undefined ? ` or ${langName}` : ''}`)
 
   const spec = (name: string, value: number, negate: boolean, required: boolean): Spec => {
     const x = structuredClone(tpl)
     delete (x as { id?: number }).id
     return { ...x, name, negate, required, fields: x.fields.map((f) => (f.name === 'value' ? { ...f, value } : f)) }
   }
+  const existing = await arr.req<CustomFormat[]>('GET', '/customformat')
   const wanted: CustomFormat[] = [{ name: LANGUAGE_PREFER, includeCustomFormatWhenRenaming: false, specifications: [spec('Original language', ORIGINAL, false, false)] }]
   // Without a household language to allow, blocking would also block dubs in it.
   if (mine !== undefined) {
@@ -443,32 +444,66 @@ export async function wireLanguages(arr: Arr, app: 'sonarr' | 'radarr', househol
         spec('Language is known', UNKNOWN, true, true),
       ],
     })
+    // Once made, it follows the household's language like the others.
+    if (opts.onlyMine || existing.some((x) => x.name === LANGUAGE_ONLY_MINE)) {
+      wanted.push({
+        name: LANGUAGE_ONLY_MINE,
+        includeCustomFormatWhenRenaming: false,
+        specifications: [spec(`Not ${langName}`, mine, true, true), spec('Language is known', UNKNOWN, true, true)],
+      })
+    }
   }
 
-  const existing = await arr.req<CustomFormat[]>('GET', '/customformat')
   const ids: Record<string, number> = {}
+  const created = new Set<number>()
   for (const cf of wanted) {
     const have = existing.find((x) => x.name === cf.name)
-    if (!have) ids[cf.name] = (await arr.req<CustomFormat>('POST', '/customformat', cf)).id!
-    else {
+    if (!have) {
+      ids[cf.name] = (await arr.req<CustomFormat>('POST', '/customformat', cf)).id!
+      created.add(ids[cf.name]!)
+    } else {
       ids[cf.name] = have.id!
       if (shape(have) !== shape(cf)) await arr.req('PUT', `/customformat/${have.id}`, { ...cf, id: have.id })
     }
   }
-  // Household language changed to one we can't map: the old block would now be wrong.
-  const stale = mine === undefined ? existing.find((x) => x.name === LANGUAGE_BLOCK) : undefined
-  if (stale) await arr.req('DELETE', `/customformat/${stale.id}`)
+  // Household language changed to one we can't map: the old blocks would now be wrong.
+  if (mine === undefined) {
+    for (const stale of existing.filter((x) => x.name === LANGUAGE_BLOCK || x.name === LANGUAGE_ONLY_MINE)) await arr.req('DELETE', `/customformat/${stale.id}`)
+  }
+  return {
+    title,
+    langName: mine !== undefined ? langName : undefined,
+    created,
+    ids: { prefer: ids[LANGUAGE_PREFER]!, block: ids[LANGUAGE_BLOCK], onlyMine: ids[LANGUAGE_ONLY_MINE] },
+  }
+}
 
-  const scores: Record<number, number> = { [ids[LANGUAGE_PREFER]!]: PREFER_SCORE }
-  if (ids[LANGUAGE_BLOCK] !== undefined) scores[ids[LANGUAGE_BLOCK]] = BLOCK_SCORE
+/**
+ * Downloads come in the title's original language or the household's, never
+ * in a language nobody at home speaks: a German release of an English show,
+ * say (Sonarr v4 has no language setting of its own, so it would take one).
+ * Releases without a language tag pass, so a missing tag never blocks
+ * everything, and the original language (or dual audio) wins a tie. Radarr's
+ * profiles go from "Original" to "Any" so English dubs of foreign films are
+ * allowed the same way. Scores are set where the formats are new to a profile;
+ * a score someone has changed since (Settings → Downloads → Quality, or the app
+ * itself) is theirs, so re-running setup keeps it. Only what differs is written.
+ */
+export async function wireLanguages(arr: Arr, app: 'sonarr' | 'radarr', household: string, step: (msg: string) => void) {
+  const f = await ensureLanguageFormats(arr, app, household)
+  step(`${f.title}: downloads in the original language${f.langName ? ` or ${f.langName}` : ''}`)
+
+  const scores: Record<number, number> = { [f.ids.prefer]: PREFER_SCORE }
+  if (f.ids.block !== undefined) scores[f.ids.block] = BLOCK_SCORE
   for (const p of await arr.req<Profile[]>('GET', '/qualityprofile')) {
     let changed = false
-    for (const [format, score] of Object.entries(scores).map(([f, sc]) => [Number(f), sc] as const)) {
+    for (const [format, score] of Object.entries(scores).map(([fm, sc]) => [Number(fm), sc] as const)) {
       const item = p.formatItems.find((i) => i.format === format)
       if (!item) {
         p.formatItems.push({ format, score })
         changed = true
-      } else if (item.score !== score) {
+      } else if (f.created.has(format) && item.score !== score) {
+        // The app adds a new format to every profile at 0.
         item.score = score
         changed = true
       }
