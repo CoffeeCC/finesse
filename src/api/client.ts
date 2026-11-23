@@ -875,7 +875,9 @@ function buildDeviceProfile() {
     Container: 'ts',
     Type: 'Video',
     VideoCodec: 'h264',
-    AudioCodec: 'aac,mp3',
+    // AAC only. Given mp3 here, Jellyfin copies MP3 audio into the TS segments,
+    // which hls.js can't play in Chrome (old XviD/MP3 AVIs never started).
+    AudioCodec: 'aac',
     Protocol: 'hls',
     Context: 'Streaming',
     MaxAudioChannels: '2',
