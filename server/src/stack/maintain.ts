@@ -10,16 +10,16 @@
 // whose pinned version changed (a Finesse update bumps them) are updated in
 // the small hours.
 
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { gzipSync } from 'node:zlib'
 import type { Paths, Settings, SettingsStore } from '../config.ts'
 import { logger } from '../log.ts'
 import { stackContext } from '../setup/apply.ts'
 import { writeTarGz, type TarEntry } from '../tar.ts'
-import { applyPendingRestore, BACKUP_FILE, backupName, BIG_PARTS, databaseEntries, DEFAULT_PARTS, heldApps, partsOf, type BackupPart } from './backup.ts'
+import { applyPendingRestore, BACKUP_FILE, backupName, BIG_PARTS, copyDatabase, databaseEntries, DEFAULT_PARTS, heldApps, partsOf, type BackupPart } from './backup.ts'
 import { CATALOG, containerName, orderServices, type StackContext, type StackServiceId } from './catalog.ts'
 import type { StackHost } from './host.ts'
 import { Orchestrator } from './orchestrator.ts'
@@ -113,6 +113,7 @@ export class Maintainer {
   /** True while setup runs — the loop never fights it. */
   private readonly busy: () => boolean
   backupJob: BackupJob = { state: 'idle' }
+  private backupQueue: Promise<void> = Promise.resolve()
   health: SystemHealth = { checkedAt: null, docker: false, network: false, services: [], vpn: null, disks: [], backups: { last: null, files: [] }, events: [] }
   private timer: NodeJS.Timeout | null = null
   private ticking: Promise<SystemHealth> | null = null
@@ -452,8 +453,14 @@ export class Maintainer {
   }
 
   /** Asks each app for a database snapshot, then archives Finesse's state + app configs. */
-  async backupNow(reason: 'nightly' | 'manual' | 'before-update' = 'manual', wanted: BackupPart[] = DEFAULT_PARTS, onStep: (step: string) => void = () => {}): Promise<BackupFile> {
+  backupNow(reason: 'nightly' | 'manual' | 'before-update' = 'manual', wanted: BackupPart[] = DEFAULT_PARTS, onStep: (step: string) => void = () => {}): Promise<BackupFile> {
     const parts: BackupPart[] = ['settings', ...wanted.filter((p) => p !== 'settings')]
+    const run = this.backupQueue.then(() => this.runBackup(reason, parts, onStep))
+    this.backupQueue = run.then(() => {}, () => {})
+    return run
+  }
+
+  private async runBackup(reason: 'nightly' | 'manual' | 'before-update', parts: BackupPart[], onStep: (step: string) => void): Promise<BackupFile> {
     const s = this.settings.get()
     const snapshotErrors: string[] = []
     // 1. Apps snapshot their own databases into their config folders.
@@ -492,7 +499,10 @@ export class Maintainer {
 
     // RomM keeps its library, collections and play history in MariaDB: dump it
     // next to RomM's config (last 7 kept). Saves and states are files in config/romm/assets.
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const stampAt = (time: number) => new Date(time).toISOString().slice(0, -1).replace(/[:.]/g, '-')
+    let time = Date.now()
+    while (existsSync(join(this.paths.backups, backupName(stampAt(time), parts)))) time++
+    const stamp = stampAt(time)
     if (s.stack?.services.includes('romm-db') && this.orch instanceof Orchestrator) {
       const r = await this.orch.docker
         .exec(containerName('romm-db'), ['sh', '-c', 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --quick romm 2>/dev/null'])
@@ -509,7 +519,8 @@ export class Maintainer {
     // 2. Finesse's own archive, with the parts asked for.
     onStep('Collecting…')
     const entries: TarEntry[] = []
-    const scratch = join(this.paths.backups, `.scratch-${process.pid}-${Date.now()}`)
+    const runId = randomUUID()
+    const scratch = join(this.paths.backups, `.scratch-${runId}`)
     mkdirSync(this.paths.backups, { recursive: true })
     if (existsSync(this.paths.settingsFile)) entries.push({ path: 'finesse/finesse.json', data: readFileSync(this.paths.settingsFile) })
     // Invites, moments, lists (collections, queues) and the retro player's game saves:
@@ -517,12 +528,9 @@ export class Maintainer {
     // (saves.db is the big one; gameSaves.ts caps it) leaves the others in the backup.
     for (const [label, file] of [['invites', this.paths.invitesDb], ['moments', join(this.paths.configDir, 'moments.db')], ['lists', join(this.paths.configDir, 'lists.db')], ['saves', join(this.paths.configDir, 'saves.db')]] as const) {
       if (!existsSync(file)) continue
-      const tmp = join(this.paths.backups, `.${label}-${process.pid}.db`)
-      rmSync(tmp, { force: true })
+      const tmp = join(this.paths.backups, `.${label}-${runId}.db`)
       try {
-        const db = new DatabaseSync(file)
-        db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`)
-        db.close()
+        copyDatabase(file, tmp)
         entries.push({ path: `finesse/${label}.db`, data: readFileSync(tmp) })
       } catch (e) {
         snapshotErrors.push(`${label} (${(e as Error).message})`)

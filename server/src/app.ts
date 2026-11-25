@@ -230,19 +230,38 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
 
   // Whether a viewer may see an item, asked of Jellyfin with their own sign-in (its library rules apply).
   const seen = new Map<string, { ok: boolean; at: number }>()
+  const inFlight = new Map<string, Promise<boolean>>()
   const canSee = async (token: string, userId: string, itemId: string) => {
     const key = `${userId}:${itemId}`
     const hit = seen.get(key)
     if (hit && Date.now() - hit.at < 10 * 60000) return hit.ok
-    const ok = await jf.request(`/Items/${itemId}?userId=${userId}`, { token }).then(() => true, () => false)
-    if (seen.size > 20000) seen.clear()
-    seen.set(key, { ok, at: Date.now() })
-    return ok
+    let pending = inFlight.get(key)
+    if (!pending) {
+      pending = jf.request(`/Items/${itemId}?userId=${userId}`, { token })
+        .then(() => true, () => false)
+        .then((ok) => {
+          seen.delete(key)
+          if (seen.size >= 20000) {
+            const oldest = seen.keys().next()
+            if (!oldest.done) seen.delete(oldest.value)
+          }
+          seen.set(key, { ok, at: Date.now() })
+          return ok
+        })
+        .finally(() => inFlight.delete(key))
+      inFlight.set(key, pending)
+    }
+    return pending
   }
 
   const server = createServer(async (req, res) => {
     const started = Date.now()
-    const url = new URL(req.url ?? '/', 'http://localhost')
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost')
+    } catch {
+      return sendJson(res, 400, { error: 'Invalid request URL' })
+    }
     const raw = url.pathname
     // The app lives under /finesse/ (its build base). Bare "/" goes there.
     if (raw === '/' || raw === '') {
@@ -290,8 +309,8 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
           // A limited profile (parental.ts) doesn't get clips of titles over its limit.
           if (clip && !(await parental.allows(who.Id, clip[1]!))) throw new ApiError(404, 'Not found')
           const hit = safeFile(p.previews, path.slice('/previews'.length))
-          // Signed-in only: no shared cache (a proxy or CDN) may keep it and hand it to someone else.
-          if (hit) return void sendFile(req, res, hit.file, hit.stat, path, { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Authorization' })
+          // A browser may cache a clip for its signed-in viewer.
+          if (hit) return void sendFile(req, res, hit.file, hit.stat, path, { 'Cache-Control': clip ? 'private, max-age=86400' : 'private, no-store', Vary: 'Cookie, Authorization' })
           // No clips made yet (a fresh server): an empty list, not an error.
           if (path === '/previews/manifest.json') return void sendJson(res, 200, [])
           if (path === '/previews/manifest-hd.json') return void sendJson(res, 200, {})
@@ -309,7 +328,12 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   })
 
   server.on('upgrade', (req, socket, head) => {
-    if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head, parental)) socket.destroy()
+    socket.on('error', () => socket.destroy())
+    try {
+      if (!play.upgrade(req, socket, head) && !handleUpgrade(settings, req, socket, head, parental)) socket.destroy()
+    } catch {
+      socket.destroy()
+    }
   })
 
   // Keep-alive sockets shouldn't hold shutdown open for long.

@@ -298,7 +298,9 @@ describe('preview clips', () => {
   test('only of things the viewer can see, and never kept by a shared cache', async () => {
     const open = await rawGet(`/finesse/previews/${'a'.repeat(32)}.mp4?ApiKey=${USER_TOKEN}`)
     assert.equal(open.status, 200)
-    assert.equal(open.headers['cache-control'], 'private, no-store')
+    assert.equal(open.headers['cache-control'], 'private, max-age=86400')
+    assert.match(String(open.headers['vary'] ?? ''), /Cookie/i)
+    assert.match(String(open.headers['vary'] ?? ''), /Authorization/i)
     assert.equal((await rawGet(`/finesse/previews/${'b'.repeat(32)}.720.mp4?ApiKey=${USER_TOKEN}`)).status, 404)
     assert.equal((await rawGet(`/finesse/previews/${'b'.repeat(32)}.720.mp4?ApiKey=${ADMIN_TOKEN}`)).status, 200)
   })

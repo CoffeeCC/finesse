@@ -3,8 +3,8 @@
 // both directions (video, ROM downloads), hop-by-hop headers are dropped, and
 // callers decide which credentials to inject or strip.
 
-import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http'
-import { request as httpsRequest } from 'node:https'
+import { Agent as HttpAgent, request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http'
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https'
 import { connect as netConnect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
 import type { Duplex } from 'node:stream'
@@ -12,6 +12,9 @@ import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib'
 import { logger } from '../log.ts'
 
 const log = logger('proxy')
+const agentOptions = { keepAlive: true, keepAliveMsecs: 15_000, maxSockets: 64, maxFreeSockets: 16 }
+const httpAgent = new HttpAgent(agentOptions)
+const httpsAgent = new HttpsAgent(agentOptions)
 
 const HOP = new Set([
   'connection',
@@ -85,6 +88,7 @@ function downstreamHeaders(h: IncomingHttpHeaders, opts: ProxyOptions): Record<s
     .map((t) => t.trim().toLowerCase())
   for (const [k, v] of Object.entries(h)) {
     if (v === undefined || HOP.has(k) || connTokens.includes(k)) continue
+    if (opts.stripAuth && k === 'set-cookie') continue
     out[k] = v
   }
   const loc = out.location
@@ -94,11 +98,18 @@ function downstreamHeaders(h: IncomingHttpHeaders, opts: ProxyOptions): Record<s
   return out
 }
 
+function isTaggedJellyfinImage(req: IncomingMessage, target: URL): boolean {
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || !target.searchParams.get('tag')?.trim()) return false
+  const url = URL.parse(req.url ?? '/', 'http://localhost')
+  return Boolean(url && /^\/(?:finesse\/)?jellyfin\/items\/[^/]+\/images\/[^/]+(?:\/[^/]+)?\/?$/i.test(url.pathname))
+}
+
 /** Proxies one HTTP request. Resolves when the response has been fully sent. */
 export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: ProxyOptions): Promise<void> {
   return new Promise((resolve) => {
     const t = opts.target
-    const send = t.protocol === 'https:' ? httpsRequest : httpRequest
+    const secure = t.protocol === 'https:'
+    const send = secure ? httpsRequest : httpRequest
     const upstream = send(
       {
         protocol: t.protocol,
@@ -107,45 +118,57 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
         method: req.method,
         path: t.pathname + t.search,
         headers: upstreamHeaders(req, opts),
+        agent: secure ? httpsAgent : httpAgent,
         timeout: opts.timeoutMs ?? 30000,
       },
       (up) => {
-        // Streaming may legitimately take hours (a movie) — drop the timeout.
-        up.socket.setTimeout(0)
         const headers = downstreamHeaders(up.headers, opts)
+        if (up.statusCode === 200 && isTaggedJellyfinImage(req, t) && !/(?:^|,)\s*immutable\s*(?:,|$)/i.test(String(headers['cache-control'] ?? ''))) {
+          headers['cache-control'] = 'private, max-age=604800, immutable'
+        }
         const len = Number(up.headers['content-length'] ?? 0)
         // Text that must be rewritten (a token swapped out) is never passed on as it came: compressed
         // replies are unpacked first, and anything that can't be read or is too big is refused.
         if (opts.rewriteText && REWRITABLE.test(String(up.headers['content-type'] ?? ''))) {
+          const refuse = () => {
+            if (!res.destroyed && !res.writableEnded) {
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
+            }
+            resolve()
+          }
           const encoding = String(up.headers['content-encoding'] ?? 'identity').toLowerCase().trim()
           const cap = { maxOutputLength: REWRITE_MAX }
           const unpack: ((b: Buffer) => Buffer) | null =
             encoding === 'identity' || encoding === '' ? (b) => b : encoding === 'gzip' || encoding === 'x-gzip' ? (b) => gunzipSync(b, cap) : encoding === 'deflate' ? (b) => inflateSync(b, cap) : encoding === 'br' ? (b) => brotliDecompressSync(b, cap) : null
           if (!unpack || len > REWRITE_MAX) {
-            up.resume()
-            res.writeHead(502, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
-            return resolve()
+            up.destroy()
+            return refuse()
           }
+          const deadline = setTimeout(() => {
+            up.destroy()
+            refuse()
+          }, opts.timeoutMs ?? 30000)
+          deadline.unref()
+          up.once('close', () => clearTimeout(deadline))
           const chunks: Buffer[] = []
           let size = 0
           up.on('data', (c: Buffer) => {
             size += c.length
-            if (size <= REWRITE_MAX) chunks.push(c)
+            if (size > REWRITE_MAX) {
+              up.destroy()
+              refuse()
+              return
+            }
+            chunks.push(c)
           })
           up.on('end', () => {
-            if (size > REWRITE_MAX) {
-              res.destroy()
-              return resolve()
-            }
             let text: string
             try {
               const plain = unpack(Buffer.concat(chunks))
               text = plain.toString('utf8')
             } catch {
-              res.writeHead(502, { 'Content-Type': 'application/json' })
-              res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
-              return resolve()
+              return refuse()
             }
             Promise.resolve()
               .then(() => opts.rewriteText!(text))
@@ -158,20 +181,15 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
                   res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
                   res.end(out)
                 },
-                () => {
-                  // Couldn't be checked: nothing of it goes out.
-                  res.writeHead(502, { 'Content-Type': 'application/json' })
-                  res.end(JSON.stringify({ error: opts.rewriteRefusal ?? 'The friend’s server sent a reply Finesse can’t check' }))
-                },
+                refuse,
               )
               .finally(resolve)
           })
-          up.on('error', () => {
-            res.destroy()
-            resolve()
-          })
+          up.on('error', refuse)
           return
         }
+        // Streaming may legitimately take hours (a movie) — drop the timeout.
+        up.socket.setTimeout(0)
         res.writeHead(up.statusCode ?? 502, up.statusMessage, headers)
         up.pipe(res)
         up.on('end', resolve)
@@ -183,6 +201,7 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
     )
     upstream.on('timeout', () => upstream.destroy(new Error('upstream timeout')))
     upstream.on('error', (e) => {
+      if (res.destroyed || res.writableEnded) return resolve()
       log.warn(`${req.method} ${t.host}${t.pathname} failed: ${e.message}`)
       if (!res.headersSent) {
         const body = JSON.stringify({ error: `Couldn't reach ${t.host}`, reason: (e as NodeJS.ErrnoException).code ?? e.message })

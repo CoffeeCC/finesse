@@ -94,11 +94,11 @@ export function registerQueues(router: Router, deps: { auth: Auth; settings: Set
     const votes = db.prepare('SELECT user, key FROM queue_votes WHERE queue = ?').all(q.id) as { user: string; key: string }[]
     const mine = votes.find((v) => v.user === me)?.key ?? null
     const avail = new Map<string, Availability>()
-    await pooled(
-      items.flatMap((it) => who.map((u) => [it.item, u] as const)),
-      LOOKUPS_AT_ONCE,
-      async ([item, u]) => void avail.set(`${item}/${u}`, await access.availability(u, item)),
-    )
+    const itemIds = items.map((it) => it.item)
+    await pooled(who, LOOKUPS_AT_ONCE, async (u) => {
+      const perUser = await access.availabilityMany(u, itemIds)
+      for (const [item, state] of perUser) avail.set(`${item}/${u}`, state)
+    })
     const out = await Promise.all(
       items.map(async (it) => {
         const state = (u: string) => avail.get(`${it.item}/${u}`) ?? 'no'
@@ -150,7 +150,17 @@ export function registerQueues(router: Router, deps: { auth: Auth; settings: Set
 
   router.get('/api/queues', async ({ req, res }) => {
     const me = await auth.requirePerson(req)
-    const rows = db.prepare('SELECT q.* FROM queues q JOIN queue_members m ON m.queue = q.id WHERE m.user = ? ORDER BY q.archived, q.updated DESC').all(me.id) as unknown as QueueRow[]
+    const rows = db
+      .prepare(
+        `SELECT q.*,
+                (SELECT COUNT(*) FROM queue_members qm WHERE qm.queue = q.id) AS member_count,
+                (SELECT COUNT(*) FROM queue_items qi WHERE qi.queue = q.id) AS item_count
+         FROM queues q
+         JOIN queue_members m ON m.queue = q.id
+         WHERE m.user = ?
+         ORDER BY q.archived, q.updated DESC`,
+      )
+      .all(me.id) as unknown as (QueueRow & { member_count: number; item_count: number })[]
     const names = new Map((await people()).map((p) => [p.id, p.name]))
     sendJson(res, 200, {
       queues: rows.map((q) => ({
@@ -159,8 +169,8 @@ export function registerQueues(router: Router, deps: { auth: Auth; settings: Set
         host: names.get(q.host) ?? 'Someone',
         isHost: q.host === me.id,
         archived: q.archived === 1,
-        members: members(q.id).length,
-        items: (db.prepare('SELECT COUNT(*) AS n FROM queue_items WHERE queue = ?').get(q.id) as { n: number }).n,
+        members: q.member_count,
+        items: q.item_count,
         picked: q.picked !== null,
         updated: q.updated,
       })),

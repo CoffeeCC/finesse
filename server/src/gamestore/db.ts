@@ -44,8 +44,18 @@ const json = <T>(v: string | null | undefined, fallback: T): T => {
   }
 }
 
+/** Requests in these states are over: a new one for the same game may start. */
+const FINISHED_STATES = ['failed']
+
 export class GameStoreDb {
+  /** Writes to store_game must go through this class's methods, which keep games() in step. */
   readonly db: DatabaseSync
+  /**
+   * The catalogue as parsed objects. Every page of the store (home, search, filters, a game's
+   * similar titles, pictures) reads the whole catalogue; parsing every row's JSON each time was
+   * most of the cost. Dropped by every write to store_game; rebuilt on the next read.
+   */
+  private gameCache: CatalogueGame[] | null = null
 
   constructor(file: string) {
     if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })
@@ -108,17 +118,21 @@ export class GameStoreDb {
     } catch (err) {
       this.db.exec('ROLLBACK')
       throw err
+    } finally {
+      this.gameCache = null
     }
   }
 
   /** One game, added or replaced by itself (a file an administrator added). */
   putGame(game: CatalogueGame, sources: CatalogueSource[]) {
+    this.gameCache = null
     this.db.prepare('INSERT OR REPLACE INTO store_game (id, provider, title, popularity, added_at, data) VALUES (?, ?, ?, ?, ?, ?)').run(game.id, game.provider, game.title, game.popularity, game.addedAt, JSON.stringify(game))
     this.db.prepare('DELETE FROM store_source WHERE game_id = ?').run(game.id)
     for (const s of sources) this.db.prepare('INSERT OR REPLACE INTO store_source (id, game_id, data) VALUES (?, ?, ?)').run(s.id, game.id, JSON.stringify({ ...s, gameId: game.id }))
   }
 
   removeGame(id: string) {
+    this.gameCache = null
     this.db.prepare('DELETE FROM store_source WHERE game_id = ?').run(id)
     this.db.prepare('DELETE FROM store_game WHERE id = ?').run(id)
   }
@@ -129,8 +143,15 @@ export class GameStoreDb {
     for (const p of gone) this.replaceProvider(p, [])
   }
 
+  /** The whole catalogue. A fresh array each call (callers may sort or filter it); the games in it are shared, so treat them as read-only. */
   games(): CatalogueGame[] {
-    return (this.db.prepare('SELECT data FROM store_game').all() as { data: string }[]).map((r) => json<CatalogueGame | null>(r.data, null)).filter((g): g is CatalogueGame => g !== null)
+    this.gameCache ??= (this.db.prepare('SELECT data FROM store_game').all() as { data: string }[]).map((r) => json<CatalogueGame | null>(r.data, null)).filter((g): g is CatalogueGame => g !== null)
+    return this.gameCache.slice()
+  }
+
+  /** How many games the store has, without reading them. */
+  gameCount(): number {
+    return Number((this.db.prepare('SELECT COUNT(*) AS n FROM store_game').get() as { n: number | bigint }).n)
   }
 
   game(id: string): CatalogueGame | null {
@@ -158,6 +179,37 @@ export class GameStoreDb {
   request(id: string): StoredRequest | null {
     const r = this.db.prepare('SELECT data FROM game_request WHERE id = ?').get(id) as { data: string } | undefined
     return json<StoredRequest | null>(r?.data, null)
+  }
+
+  /** The request for this game that's still going (or done), newest first: anything but failed. */
+  activeRequest(gameId: string): StoredRequest | null {
+    const r = this.db
+      .prepare(`SELECT data FROM game_request WHERE game_id = ? AND state NOT IN (${FINISHED_STATES.map(() => '?').join(', ')}) ORDER BY created_at DESC LIMIT 1`)
+      .get(gameId, ...FINISHED_STATES) as { data: string } | undefined
+    return json<StoredRequest | null>(r?.data, null)
+  }
+
+  /**
+   * A new request, unless its game already has one going: the check and the insert are one
+   * write transaction, so two people asking at the same moment (or one asking twice) start
+   * one download, and both see it. `created` says which happened.
+   */
+  createRequest(r: StoredRequest, text: string): { request: StoredRequest; created: boolean } {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const going = this.activeRequest(r.gameId)
+      if (going) {
+        this.db.exec('COMMIT')
+        return { request: going, created: false }
+      }
+      this.saveRequest(r)
+      this.db.prepare('INSERT INTO game_request_event (request_id, at, state, text) VALUES (?, ?, ?, ?)').run(r.id, r.updatedAt, r.state, text)
+      this.db.exec('COMMIT')
+      return { request: r, created: true }
+    } catch (err) {
+      this.db.exec('ROLLBACK')
+      throw err
+    }
   }
 
   /** Newest first. */

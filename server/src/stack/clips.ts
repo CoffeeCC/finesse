@@ -97,8 +97,8 @@ export interface PruneState {
  * last listing too.
  */
 export function pruneOrphans(names: string[], ids: Set<string>, prev: PruneState): { remove: string[]; next: PruneState; skipped: boolean } {
+  if (prev.count && ids.size < prev.count * 0.9) return { remove: [], next: { count: prev.count, candidates: [] }, skipped: true }
   if (!ids.size) return { remove: [], next: prev, skipped: true }
-  if (prev.count && ids.size < prev.count * 0.9) return { remove: [], next: { ...prev, count: ids.size }, skipped: true }
   const orphans = orphanClips(names, ids)
   const missing = [...new Set(orphans.map((n) => CLIP_RE.exec(n)![1]!))]
   const before = new Set(prev.candidates ?? [])

@@ -54,6 +54,7 @@ export class Access {
   private groups: GroupsApi
   private seen = new Map<string, { at: number; yes: boolean }>()
   private titles = new Map<string, { at: number; title: TitleInfo | null }>()
+  private peopleCache: { at: number; users: { Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[] } | null = null
   /** Extra say over a person's access (parental limits); set once the limits are loaded. */
   limited: (userId: string) => boolean = () => false
   ratingAllows: (userId: string, raw: string) => Promise<boolean> = async () => true
@@ -61,6 +62,15 @@ export class Access {
   constructor(deps: { jf: Jellyfin; groups: GroupsApi; settings: SettingsStore }) {
     this.jf = deps.jf
     this.groups = deps.groups
+  }
+
+  private rememberSeen(key: string, yes: boolean, now = Date.now()) {
+    this.seen.delete(key)
+    if (this.seen.size >= 20000) {
+      const oldest = this.seen.keys().next()
+      if (!oldest.done) this.seen.delete(oldest.value)
+    }
+    this.seen.set(key, { at: now, yes })
   }
 
   friend(id: string): GroupFriend | undefined {
@@ -79,10 +89,68 @@ export class Access {
         .catch(() => null)
       if (r === null) return false
       yes = Boolean(r.Items?.some((i) => String(i.Id).toLowerCase() === raw))
-      if (this.seen.size > 20000) this.seen.clear()
-      this.seen.set(key, { at: Date.now(), yes })
+      this.rememberSeen(key, yes)
     }
     return yes && (await this.ratingAllows(userId, raw))
+  }
+
+  /**
+   * Batched availability for one user across many title ids: one Jellyfin query per chunk of
+   * uncached local ids instead of one request per title (turns 20×100 = 2,000 calls into ≤40).
+   */
+  async availabilityMany(userId: string, ids: string[]): Promise<Map<string, Availability>> {
+    const out = new Map<string, Availability>()
+    const now = Date.now()
+    const missingRaw: string[] = []
+    const checkRating: string[] = []
+    const uniq = [...new Set(ids)]
+    for (const id of uniq) {
+      const fp = friendPart(id)
+      if (fp) {
+        out.set(id, !this.friend(fp.friend) || this.limited(userId) ? 'no' : 'unknown')
+        continue
+      }
+      if (!RAW_ID.test(id)) {
+        out.set(id, 'no')
+        continue
+      }
+      const hit = this.seen.get(`${userId}/${id}`)
+      if (hit && now - hit.at < 120e3) {
+        if (hit.yes) checkRating.push(id)
+        else out.set(id, 'no')
+      } else {
+        missingRaw.push(id)
+      }
+    }
+    const CHUNK = 50
+    for (let i = 0; i < missingRaw.length; i += CHUNK) {
+      const slice = missingRaw.slice(i, i + CHUNK)
+      const r = await this.jf
+        .request<{ Items?: { Id: string }[] }>(
+          `/Users/${userId}/Items?Ids=${slice.join(',')}&Recursive=true&Limit=${slice.length}&EnableImages=false&EnableUserData=false`,
+          { timeoutMs: 15000 },
+        )
+        .catch(() => null)
+      if (r === null) {
+        for (const raw of slice) out.set(raw, 'no')
+        continue
+      }
+      const found = new Set((r.Items ?? []).map((it) => String(it.Id).toLowerCase()))
+      const at = Date.now()
+      for (const raw of slice) {
+        const yes = found.has(raw)
+        this.rememberSeen(`${userId}/${raw}`, yes, at)
+        if (yes) checkRating.push(raw)
+        else out.set(raw, 'no')
+      }
+    }
+    if (checkRating.length) {
+      const allowed = await Promise.all(checkRating.map((raw) => this.ratingAllows(userId, raw)))
+      for (let i = 0; i < checkRating.length; i++) {
+        out.set(checkRating[i]!, allowed[i] ? 'yes' : 'no')
+      }
+    }
+    return out
   }
 
   /**
@@ -130,10 +198,22 @@ export class Access {
     return it ? titleOf(it) : null
   }
 
-  /** People on this server: not friends' viewer accounts, not disabled ones. */
+  /** People on this server: not friends' viewer accounts, not disabled ones (cached 60s). */
   async people(viewers: Set<string>): Promise<{ id: string; name: string }[]> {
-    const users = await this.jf.request<{ Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[]>('/Users').catch(() => [])
-    return (Array.isArray(users) ? users : [])
+    const now = Date.now()
+    let users: { Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[]
+    if (this.peopleCache && now - this.peopleCache.at < 60_000) {
+      users = this.peopleCache.users
+    } else {
+      const res = await this.jf.request<{ Id: string; Name: string; Policy?: { IsDisabled?: boolean } }[]>('/Users').catch(() => null)
+      if (Array.isArray(res)) {
+        users = res
+        this.peopleCache = { at: now, users }
+      } else {
+        users = this.peopleCache?.users ?? []
+      }
+    }
+    return users
       .filter((u) => !viewers.has(u.Id) && !u.Policy?.IsDisabled && RAW_ID.test(String(u.Id).toLowerCase()))
       .map((u) => ({ id: String(u.Id).toLowerCase(), name: u.Name }))
       .sort((a, b) => a.name.localeCompare(b.name))

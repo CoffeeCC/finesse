@@ -179,7 +179,7 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   }
 
   const seeding = () => settings.get().gameStore?.seeding ?? { ratio: 1, days: 7 }
-  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.games().length, seeding: seeding() })
+  const state = () => ({ enabled: gameStoreEnabled(settings), canDownload: Boolean(store.pipeline), canInstall: Boolean(store.pipeline && store.installs), games: db.gameCount(), seeding: seeding() })
 
   // On or off (administrators). Off is the default: Finesse ships no game sources.
   router.get('/api/games/store/settings', async ({ req, res }) => {
@@ -303,6 +303,12 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     sendJson(res, 200, db.requests().map(publicRequest))
   })
 
+  // Requests being started right now, by game. Starting waits on the downloader and the disk, so a
+  // second ask for the same game (a double tap, two people at once) arriving meanwhile used to
+  // pass the "one at a time" check too and start a second download. It joins the first instead.
+  // (The pipeline's own insert is a transaction that refuses a second active request as well.)
+  const starting = new Map<string, Promise<StoredRequest>>()
+
   router.post('/api/games/store/requests', async ({ req, res }) => {
     const user = await auth.requirePerson(req)
     on()
@@ -312,9 +318,17 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     const source = db.source(body.sourceId)
     if (!game || !source || source.gameId !== game.id) throw new ApiError(404, 'That game isn’t in the store any more.')
     // One request per game at a time: asking again shows the one already going.
-    const going = db.requests().find((r) => r.gameId === game.id && r.state !== 'failed')
+    const going = db.activeRequest(game.id)
     if (going) return sendJson(res, 200, publicRequest(going))
-    sendJson(res, 201, publicRequest(await pipeline().start(game, source, { id: user.id, name: user.Name })))
+    const pending = starting.get(game.id)
+    if (pending) return sendJson(res, 200, publicRequest(await pending))
+    const p = pipeline().start(game, source, { id: user.id, name: user.Name })
+    starting.set(game.id, p)
+    try {
+      sendJson(res, 201, publicRequest(await p))
+    } finally {
+      if (starting.get(game.id) === p) starting.delete(game.id)
+    }
   })
 
   /** Whoever asked, or an administrator. */

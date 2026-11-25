@@ -100,9 +100,13 @@ export async function compressed(file: string, stat: Stats, enc: 'br' | 'gzip'):
         enc === 'br'
           ? await brotliAsync(raw, { params: { [zc.BROTLI_PARAM_QUALITY]: 9, [zc.BROTLI_PARAM_SIZE_HINT]: raw.length } })
           : await gzipAsync(raw, { level: 9 })
-      if (cacheBytes + body.length > CACHE_LIMIT) {
-        compressedCache.clear()
-        cacheBytes = 0
+      if (body.length > CACHE_LIMIT) return body
+      while (cacheBytes + body.length > CACHE_LIMIT) {
+        const oldest = compressedCache.entries().next()
+        if (oldest.done) break
+        const [oldKey, oldEntry] = oldest.value
+        compressedCache.delete(oldKey)
+        cacheBytes -= (oldEntry.br?.length ?? 0) + (oldEntry.gz?.length ?? 0)
       }
       const entry = compressedCache.get(key) ?? {}
       entry[slot] = body
@@ -136,6 +140,8 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
     'X-Content-Type-Options': 'nosniff',
     ...extra,
   }
+  const compressible = COMPRESSIBLE.has(extname(file).toLowerCase()) && stat.size > 512
+  if (compressible) headers.Vary = headers.Vary ? `${headers.Vary}, Accept-Encoding` : 'Accept-Encoding'
   // Pages can't be framed by another site (clickjacking the admin screens).
   if (type.startsWith('text/html')) {
     headers['X-Frame-Options'] = 'SAMEORIGIN'
@@ -167,17 +173,17 @@ export function sendFile(req: IncomingMessage, res: ServerResponse, file: string
     }
     res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${stat.size}`, 'Content-Length': String(end - start + 1) })
     if (head) return void res.end()
-    createReadStream(file, { start, end }).pipe(res)
+    createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res)
     return
   }
   const accept = String(req.headers['accept-encoding'] ?? '')
-  if (COMPRESSIBLE.has(extname(file).toLowerCase()) && stat.size > 512) {
+  if (compressible) {
     const enc = /\bbr\b/.test(accept) ? 'br' : /\bgzip\b/.test(accept) ? 'gzip' : null
     if (enc) {
       compressed(file, stat, enc).then(
         (body) => {
           if (res.headersSent || res.destroyed) return
-          res.writeHead(200, { ...headers, 'Content-Encoding': enc, 'Content-Length': String(body.length), Vary: 'Accept-Encoding' })
+          res.writeHead(200, { ...headers, 'Content-Encoding': enc, 'Content-Length': String(body.length) })
           res.end(head ? undefined : body)
         },
         () => {

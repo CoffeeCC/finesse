@@ -8,7 +8,55 @@ import { describeChecks, verifyDownload } from '../downloadCheck.ts'
 import { ApiError } from '../http/core.ts'
 import type { GameStoreDb, StoredRequest } from './db.ts'
 import type { RequestPipeline } from './routes.ts'
-import type { CatalogueGame, CatalogueSource, Downloader, GameRequestState, InstallOutcome } from './types.ts'
+import type { CatalogueGame, CatalogueSource, Downloader, DownloadStatus, GameRequestState, InstallOutcome } from './types.ts'
+
+/** A downloader that can say how many downloads are doing in one call (qbit.ts). */
+interface BatchDownloader extends Downloader {
+  statuses(ids: string[]): Promise<Map<string, DownloadStatus>>
+}
+const batches = (d: Downloader): d is BatchDownloader => typeof (d as Partial<BatchDownloader>).statuses === 'function'
+
+type Availability = { ok: true } | { ok: false; why: string }
+
+/**
+ * What one tick has already asked each downloader, so a tick over many requests asks once:
+ * whether it can take downloads, and (where it can answer in one call) every download's status.
+ */
+class TickLookups {
+  private readonly ready = new Map<Downloader, Promise<Availability>>()
+  private readonly status = new Map<string, DownloadStatus>()
+
+  available(d: Downloader): Promise<Availability> {
+    let p = this.ready.get(d)
+    if (!p) this.ready.set(d, (p = d.available()))
+    return p
+  }
+
+  /** One batched status call per downloader for these requests. One that fails leaves them to be asked one by one. */
+  async prefetch(wanted: { id: string; d: Downloader }[], log?: (text: string) => void) {
+    const byDownloader = new Map<BatchDownloader, string[]>()
+    for (const { id, d } of wanted) {
+      if (!batches(d)) continue
+      const ids = byDownloader.get(d) ?? []
+      ids.push(id)
+      byDownloader.set(d, ids)
+    }
+    for (const [d, ids] of byDownloader) {
+      try {
+        for (const [id, st] of await d.statuses(ids)) this.status.set(id, st)
+      } catch (e) {
+        log?.(`game downloads: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  }
+
+  /** The status this tick fetched (used once: a second look, after re-adding, asks again). */
+  take(id: string): DownloadStatus | undefined {
+    const st = this.status.get(id)
+    this.status.delete(id)
+    return st
+  }
+}
 
 /** What installs a finished download: the engine (install.ts) in this host's sandbox. */
 export interface Installer {
@@ -92,8 +140,10 @@ export class Pipeline implements RequestPipeline {
       createdAt: at,
       updatedAt: at,
     }
-    this.deps.db.saveRequest(r)
-    this.deps.db.advance(r.id, 'queued', {}, `${user.name} asked for it.`)
+    // The check for a request already going and the insert are one transaction: two asks that
+    // both got this far (the awaits above) start one download, and the second gets the first's.
+    const { request, created } = this.deps.db.createRequest(r, `${user.name} asked for it.`)
+    if (!created) return request
     void this.tick()
     return this.deps.db.request(r.id)!
   }
@@ -176,15 +226,22 @@ export class Pipeline implements RequestPipeline {
 
   private async once() {
     const { db } = this.deps
-    for (const r of db.requests().reverse()) {
+    const list = db.requests().reverse()
+    const look = new TickLookups()
+    // Every download this tick looks at, asked about together (one call to qBittorrent, not one per request).
+    await look.prefetch(
+      list.filter((r) => r.source && (r.state === 'downloading' || r.state === 'paused' || this.seedingNow(r))).map((r) => ({ id: r.id, d: this.deps.downloaderFor(r.source!) })),
+      this.deps.log,
+    )
+    for (const r of list) {
       try {
-        if (r.state === 'queued') await this.queued(r)
-        else if (r.state === 'downloading' || r.state === 'paused') await this.downloading(r)
+        if (r.state === 'queued') await this.queued(r, look)
+        else if (r.state === 'downloading' || r.state === 'paused') await this.downloading(r, look)
         else if (r.state === 'checking') this.check(r)
         else if (r.state === 'installing') this.install(r)
         // Interrupted between "installed" and "ready" by a restart: the game is there; check it again.
         else if (r.state === 'finishing' && !this.busy.has(r.id)) void this.installerDone(r)
-        else if (r.state === 'ready') await this.seeded(r)
+        else if (r.state === 'ready') await this.seeded(r, look)
       } catch (e) {
         // One request's trouble never stops the others; it's looked at again next time.
         this.deps.log?.(`game request ${r.id}: ${e instanceof Error ? e.message : String(e)}`)
@@ -197,20 +254,20 @@ export class Pipeline implements RequestPipeline {
     this.deps.db.advance(id, 'failed', { detail: reason, bytesPerSecond: undefined, etaSeconds: undefined }, reason)
   }
 
-  private async queued(r: StoredRequest) {
+  private async queued(r: StoredRequest, look?: TickLookups) {
     if (!r.source) return this.fail(r.id, 'That game isn’t in the store any more.')
     if (r.source.local) return this.fail(r.id, 'The file for this game isn’t on the server any more. Add it again from Settings.')
     const d = this.deps.downloaderFor(r.source)
-    const ready = await d.available()
+    const ready = await (look ? look.available(d) : d.available())
     // Waiting (for the VPN, say) isn't failing: it says why and tries again.
     if (!ready.ok) return void (r.detail !== ready.why && this.deps.db.advance(r.id, 'queued', { detail: ready.why }, ready.why))
     await d.add({ id: r.id, magnet: r.source.magnet, url: r.source.url, sizeBytes: r.source.sizeBytes })
     this.deps.db.advance(r.id, 'downloading', { added: true, progress: 0, detail: undefined }, 'The download started.')
   }
 
-  private async downloading(r: StoredRequest) {
+  private async downloading(r: StoredRequest, look?: TickLookups) {
     const d = this.deps.downloaderFor(r.source!)
-    let s = await d.status(r.id)
+    let s = look?.take(r.id) ?? (await d.status(r.id))
     // After a restart a direct download has to be picked up again; adding twice changes nothing.
     if (s.state === 'missing' || (s.state === 'paused' && r.state === 'downloading')) {
       await d.add({ id: r.id, magnet: r.source!.magnet, url: r.source!.url, sizeBytes: r.source!.sizeBytes }).catch(() => {})
@@ -282,12 +339,19 @@ export class Pipeline implements RequestPipeline {
     this.deps.db.advance(r.id, 'ready', { downloadRemoved: true, folder: undefined })
   }
 
+  /** A finished torrent still being shared back, inside its time limit: its status decides whether it's done. */
+  private seedingNow(r: StoredRequest): boolean {
+    if (r.state !== 'ready' || r.downloadRemoved || !r.source?.magnet || !r.readyAt) return false
+    const limit = this.deps.seeding?.() ?? { ratio: 1, days: 7 }
+    return ((this.deps.now?.() ?? Date.now()) - Date.parse(r.readyAt)) / 86_400_000 < limit.days
+  }
+
   /** A finished torrent is removed once it's been shared back enough, or for long enough. */
-  private async seeded(r: StoredRequest) {
+  private async seeded(r: StoredRequest, look?: TickLookups) {
     if (r.downloadRemoved || !r.source?.magnet || !r.readyAt) return
     const limit = this.deps.seeding?.() ?? { ratio: 1, days: 7 }
     const days = ((this.deps.now?.() ?? Date.now()) - Date.parse(r.readyAt)) / 86_400_000
-    const s = days >= limit.days ? null : await this.deps.downloaderFor(r.source).status(r.id)
+    const s = days >= limit.days ? null : (look?.take(r.id) ?? (await this.deps.downloaderFor(r.source).status(r.id)))
     if (s && s.state !== 'missing' && (s.ratio ?? 0) < limit.ratio) return
     await this.dropDownload(r)
   }

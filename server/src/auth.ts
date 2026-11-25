@@ -28,7 +28,13 @@ export function tokenFrom(req: IncomingMessage, opts: { cookie?: string; query?:
   if (opts.cookie && typeof h.cookie === 'string') {
     for (const part of h.cookie.split(';')) {
       const [k, ...v] = part.trim().split('=')
-      if (k === opts.cookie && v.length) return decodeURIComponent(v.join('='))
+      if (k === opts.cookie && v.length) {
+        try {
+          return decodeURIComponent(v.join('='))
+        } catch {
+          return null
+        }
+      }
     }
   }
   // Jellyfin's own form for media URLs a <video> loads (it can't send headers).
@@ -48,6 +54,7 @@ export function groupUserIds(s: Settings): Set<string> {
 
 export class Auth {
   private cache = new Map<string, { user: JfUser | null; at: number }>()
+  private inFlight = new Map<string, Promise<JfUser | null>>()
   private settings: SettingsStore
   private jf: Jellyfin
 
@@ -62,6 +69,15 @@ export class Auth {
     const hit = this.cache.get(key)
     const now = Date.now()
     if (hit && now - hit.at < (hit.user ? 30000 : 5000)) return hit.user
+    let pending = this.inFlight.get(key)
+    if (!pending) {
+      pending = this.loadUser(token, key, hit).finally(() => this.inFlight.delete(key))
+      this.inFlight.set(key, pending)
+    }
+    return pending
+  }
+
+  private async loadUser(token: string, key: string, hit: { user: JfUser | null; at: number } | undefined): Promise<JfUser | null> {
     let user: JfUser | null
     try {
       user = await this.jf.me(token)
@@ -69,13 +85,17 @@ export class Auth {
       if (e instanceof JfError) {
         // Jellyfin is restarting (an update, a repair): a sign-in it confirmed
         // in the last few hours still counts, so admins can watch it come back.
-        if (hit?.user && now - hit.at < 6 * 3600e3) return hit.user
+        if (hit?.user && Date.now() - hit.at < 6 * 3600e3) return hit.user
         throw new ApiError(502, "Couldn't reach Jellyfin to check your sign-in")
       }
       throw e
     }
-    if (this.cache.size > 5000) this.cache.clear()
-    this.cache.set(key, { user, at: now })
+    this.cache.delete(key)
+    if (this.cache.size >= 5000) {
+      const oldest = this.cache.keys().next()
+      if (!oldest.done) this.cache.delete(oldest.value)
+    }
+    this.cache.set(key, { user, at: Date.now() })
     return user
   }
 
@@ -169,6 +189,7 @@ export function clearSetupCode(settings: SettingsStore) {
 }
 
 const attempts = new Map<string, { n: number; since: number }>()
+const ATTEMPT_WINDOW_MS = 60000
 let totalFailures = 0
 
 /** Verifies the X-Finesse-Setup-Code header (rate-limited per client). */
@@ -184,8 +205,11 @@ export function requireSetupCode(settings: SettingsStore, req: IncomingMessage) 
 export function checkSetupCode(salt: string, codeHash: string, req: IncomingMessage) {
   const ip = req.socket.remoteAddress ?? '?'
   const now = Date.now()
+  for (const [address, attempt] of attempts) {
+    if (now - attempt.since >= ATTEMPT_WINDOW_MS) attempts.delete(address)
+  }
   const a = attempts.get(ip)
-  if (a && now - a.since < 60000 && a.n >= 10) throw new ApiError(429, 'Too many wrong setup codes — wait a minute')
+  if (a && a.n >= 10) throw new ApiError(429, 'Too many wrong setup codes — wait a minute')
   if (totalFailures > 200) throw new ApiError(429, 'Setup is locked after too many wrong codes — restart Finesse to try again')
   const given = String(req.headers['x-finesse-setup-code'] ?? '')
     .toUpperCase()
@@ -193,7 +217,7 @@ export function checkSetupCode(salt: string, codeHash: string, req: IncomingMess
   const ok = given.length === 8 && timingSafeEqual(scryptSync(given, salt, 32), Buffer.from(codeHash, 'hex'))
   if (!ok) {
     totalFailures++
-    const cur = a && now - a.since < 60000 ? a : { n: 0, since: now }
+    const cur = a ?? { n: 0, since: now }
     cur.n++
     attempts.set(ip, cur)
     log.warn(`wrong setup code from ${ip}`)

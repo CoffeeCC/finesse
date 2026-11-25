@@ -37,6 +37,8 @@ interface Torrent {
   ratio: number
   content_path?: string
   save_path?: string
+  /** Comma-separated ("a, b"). */
+  tags?: string
 }
 
 const DONE = new Set(['uploading', 'stalledUP', 'queuedUP', 'forcedUP', 'pausedUP', 'stoppedUP', 'checkingUP'])
@@ -122,7 +124,35 @@ export class QbitDownloader implements Downloader {
   }
 
   async status(id: string): Promise<DownloadStatus> {
-    const t = await this.torrent(id)
+    return this.toStatus(await this.torrent(id))
+  }
+
+  /**
+   * Many downloads' status in one call (the pipeline looks at every request every few seconds):
+   * every torrent in the games category, matched to its request by tag. A request whose torrent
+   * isn't in the category (someone moved it in qBittorrent) is looked up by its tag alone, so
+   * it's never wrongly reported missing.
+   */
+  async statuses(ids: string[]): Promise<Map<string, DownloadStatus>> {
+    const out = new Map<string, DownloadStatus>()
+    if (!ids.length) return out
+    const r = await this.call(`/torrents/info?category=${encodeURIComponent(GAMES_CATEGORY)}`)
+    if (!r.ok) throw new Error(`The downloader answered ${r.status}.`)
+    const byTag = new Map<string, Torrent>()
+    for (const t of (await r.json()) as Torrent[]) {
+      for (const name of (t.tags ?? '').split(',')) {
+        const k = name.trim()
+        if (k && !byTag.has(k)) byTag.set(k, t)
+      }
+    }
+    for (const id of ids) {
+      const t = byTag.get(tag(id))
+      out.set(id, t ? this.toStatus(t) : await this.status(id))
+    }
+    return out
+  }
+
+  private toStatus(t: Torrent | null): DownloadStatus {
     if (!t) return { state: 'missing', progress: 0 }
     const progress = Math.round(t.progress * 1000) / 10
     const path = t.content_path || t.save_path

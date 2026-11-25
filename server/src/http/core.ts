@@ -2,6 +2,7 @@
 // framework — the server's surface is small and every byte of it is ours.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 
 export class ApiError extends Error {
   readonly status: number
@@ -87,14 +88,46 @@ export class Router {
 
 export function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   if (res.headersSent) return
-  const data = Buffer.from(JSON.stringify(body))
+  let data = Buffer.from(JSON.stringify(body))
+  const extra = { ...headers }
+  const headerKey = (name: string) => Object.keys(extra).find((key) => key.toLowerCase() === name)
+
+  if (data.length >= 1024 && !headerKey('content-encoding') && !res.hasHeader('content-encoding')) {
+    const varyKey = headerKey('vary') ?? 'Vary'
+    const vary = new Map<string, string>()
+    for (const field of [res.getHeader('vary'), extra[varyKey], 'Accept-Encoding']) {
+      for (const part of String(field ?? '').split(',')) {
+        const value = part.trim()
+        if (value && !vary.has(value.toLowerCase())) vary.set(value.toLowerCase(), value)
+      }
+    }
+    extra[varyKey] = vary.has('*') ? '*' : [...vary.values()].join(', ')
+
+    const accepted = String(res.req?.headers['accept-encoding'] ?? '').toLowerCase().split(',').map((entry) => {
+      const [encoding, ...params] = entry.split(';').map((part) => part.trim())
+      const quality = params.find((part) => /^q\s*=/.test(part))
+      return quality === undefined || Number(quality.slice(quality.indexOf('=') + 1)) > 0 ? encoding : undefined
+    })
+    const encoding = accepted.includes('br') ? 'br' : accepted.includes('gzip') ? 'gzip' : null
+    if (encoding) {
+      const compressed = encoding === 'br'
+        ? brotliCompressSync(data, { params: { [constants.BROTLI_PARAM_QUALITY]: 4 } })
+        : gzipSync(data, { level: 4 })
+      if (compressed.length < data.length) {
+        data = compressed
+        extra['Content-Encoding'] = encoding
+      }
+    }
+  }
+
+  const lengthKey = headerKey('content-length') ?? 'Content-Length'
+  extra[lengthKey] = String(data.length)
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': String(data.length),
     'Cache-Control': 'no-store',
-    ...headers,
+    ...extra,
   })
-  res.end(data)
+  res.end(res.req?.method === 'HEAD' ? undefined : data)
 }
 
 export function sendError(res: ServerResponse, e: unknown) {

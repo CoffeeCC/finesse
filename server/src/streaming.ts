@@ -204,6 +204,7 @@ export interface StreamProfile {
 interface WolfProfileRaw {
   id?: unknown
   name?: unknown
+  pin?: unknown
   apps?: unknown
 }
 
@@ -465,16 +466,26 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
       .filter((p) => typeof p.pair_secret === 'string' && p.pair_secret)
       .map((p) => ({ secret: p.pair_secret as string, ip: String(p.client_ip ?? '') }))
 
+  type SteamPlace = { profile: RawProfile | null; app: RawApp }
+  /** Extracts Wolf's Steam apps and profiles from already-fetched lists (no extra Wolf socket calls). */
+  const steamPlacesFrom = (rawApps: WolfAppRaw[], rawProfiles: WolfProfileRaw[]): { places: SteamPlace[]; profiles: RawProfile[]; apps: RawApp[] } => {
+    const apps = rawApps as RawApp[]
+    const profiles = (rawProfiles as RawProfile[]).filter((p) => typeof p.id === 'string' && Array.isArray(p.apps))
+    const places: SteamPlace[] = [...profiles.flatMap((p) => p.apps.filter(isSteamApp).map((app) => ({ profile: p, app }))), ...apps.filter(isSteamApp).map((app) => ({ profile: null, app }))]
+    return { places, profiles, apps }
+  }
+
   /** Hidden apps, play history, what's running, and the launchers' last-played times (cached reads; never waits long). */
   async function appExtras(raw: WolfAppRaw[], profiles: WolfProfileRaw[]): Promise<AppExtras> {
     const st = settings.get().streaming
     const hidden = new Set((st?.hidden ?? []).map((t) => t.toLowerCase()))
     const socket = need()
     const all = [...(raw as RawApp[]), ...profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))]
+    const found = steamPlacesFrom(raw, profiles)
     const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]).catch(() => null)
     const [steamList, lutrisList, live] = await Promise.all([
-      all.some((a) => shortcutAppId(a) !== null) ? within(steamPlaces(socket).then((f) => steamGames(f.places, 5 * 60_000)), 4000) : null,
-      all.some((a) => lutrisShortcutId(a) !== null) ? within(steamPlaces(socket).then((f) => lutrisGames(f, 5 * 60_000)), 4000) : null,
+      all.some((a) => shortcutAppId(a) !== null) ? within(steamGames(found.places, 5 * 60_000), 4000) : null,
+      all.some((a) => lutrisShortcutId(a) !== null) ? within(lutrisGames(found, 5 * 60_000), 4000) : null,
       within(runningNow(socket, raw), 3000),
     ])
     const played = new Map<string, number>()
@@ -1103,7 +1114,7 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
 
   // Everyone at home: start a RomM game in an open Moonlight session, with its emulator.
   router.post('/api/streaming/play', async ({ req, res }) => {
-    await auth.requireUser(req)
+    const user = await auth.requireUser(req)
     const socket = need()
     const body = await readJson<{ rom?: unknown; session?: unknown; profile?: unknown }>(req)
     const e = settings.get().emulators
@@ -1120,15 +1131,25 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
     let list: WolfSession[]
     let lists: { raw: WolfAppRaw[]; profiles: WolfProfileRaw[] }
     try {
-      ;[list, lists] = await Promise.all([sessions(socket), wolfLists(socket)])
+      const [l, appsR, profR] = await Promise.all([
+        sessions(socket),
+        wolfJson<{ apps?: WolfAppRaw[] }>(socket, 'GET', '/api/v1/apps'),
+        wolfJson<{ profiles?: WolfProfileRaw[] }>(socket, 'GET', '/api/v1/profiles').catch(() => ({ profiles: [] as WolfProfileRaw[] })),
+      ])
+      list = l
+      lists = { raw: Array.isArray(appsR.apps) ? appsR.apps : [], profiles: Array.isArray(profR.profiles) ? profR.profiles : [] }
     } catch (err) {
       throw new ApiError(502, wolfProblem(err, socket))
     }
     const session = list.find((x) => sessionId(x.client_id as string) === String(body.session ?? ''))
     if (!session) throw new ApiError(404, 'That Moonlight session ended. Open Moonlight on the device, then try again.')
-    const profiles = lists.profiles.filter((p) => typeof p.id === 'string').map((p) => p.id as string)
+    const validProfiles = lists.profiles.filter((p) => typeof p.id === 'string')
+    const profiles = validProfiles.map((p) => p.id as string)
     const profile = typeof body.profile === 'string' && profiles.includes(body.profile) ? body.profile : profiles.length === 1 ? profiles[0]! : profiles.length ? null : 'shared'
     if (!profile) throw new ApiError(400, 'Whose saves? Pick a profile.')
+    const chosen = validProfiles.find((p) => p.id === profile)
+    if (chosen && Array.isArray(chosen.pin) && chosen.pin.length > 0 && !user.Policy?.IsAdministrator)
+      throw new ApiError(403, `${typeof chosen.name === 'string' && chosen.name ? chosen.name : 'That profile'} has a PIN. Start it in Moonlight, which asks for the PIN.`)
     const base = appBase([...(lists.raw as RawApp[]), ...lists.profiles.flatMap((p) => (Array.isArray(p.apps) ? (p.apps as RawApp[]) : []))])
     if (!base) throw new ApiError(502, 'Wolf has no app to copy its video settings from')
     const app = wolfApp(emu, { settings: e, profile, base, game })
@@ -1146,17 +1167,13 @@ export function registerStreaming(router: Router, deps: { settings: SettingsStor
   // ---------- Steam games as their own apps ----------
   // Administrators pick installed Steam games; each becomes a Wolf app that opens Steam straight into it.
 
-  type SteamPlace = { profile: RawProfile | null; app: RawApp }
   /** Wolf's Steam apps, and where each lives (a Wolf UI profile, or Moonlight's own list). */
   const steamPlaces = async (socket: string): Promise<{ places: SteamPlace[]; profiles: RawProfile[]; apps: RawApp[] }> => {
     const [appsR, profR] = await Promise.all([
-      wolfJson<{ apps?: RawApp[] }>(socket, 'GET', '/api/v1/apps'),
-      wolfJson<{ profiles?: RawProfile[] }>(socket, 'GET', '/api/v1/profiles').catch(() => ({ profiles: [] as RawProfile[] })),
+      wolfJson<{ apps?: WolfAppRaw[] }>(socket, 'GET', '/api/v1/apps'),
+      wolfJson<{ profiles?: WolfProfileRaw[] }>(socket, 'GET', '/api/v1/profiles').catch(() => ({ profiles: [] as WolfProfileRaw[] })),
     ])
-    const apps = Array.isArray(appsR.apps) ? appsR.apps : []
-    const profiles = (Array.isArray(profR.profiles) ? profR.profiles : []).filter((p) => typeof p.id === 'string' && Array.isArray(p.apps))
-    const places: SteamPlace[] = [...profiles.flatMap((p) => p.apps.filter(isSteamApp).map((app) => ({ profile: p, app }))), ...apps.filter(isSteamApp).map((app) => ({ profile: null, app }))]
-    return { places, profiles, apps }
+    return steamPlacesFrom(Array.isArray(appsR.apps) ? appsR.apps : [], Array.isArray(profR.profiles) ? profR.profiles : [])
   }
 
   let gamesCache: { at: number; games: SteamGame[] } | null = null
