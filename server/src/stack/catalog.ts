@@ -62,10 +62,21 @@ export interface GpuAssignment {
   accel: 'nvenc' | 'qsv' | 'vaapi' | 'none'
   uuid?: string
   renderNode?: string
+  /** Other NVIDIA cards the container needs beside it (graphics.ts `peers`). */
+  peers?: string[]
 }
 
-/** NVIDIA's container settings for one card, pinned by UUID (never "all"). */
-const nvidiaEnv = (uuid: string, caps: string) => ({ NVIDIA_VISIBLE_DEVICES: uuid, NVIDIA_DRIVER_CAPABILITIES: caps })
+/**
+ * NVIDIA's container settings for one card, pinned by UUID (never "all"). A card with peers gets
+ * them too, and CUDA_VISIBLE_DEVICES keeps the video on the card itself.
+ */
+const nvidiaEnv = (uuid: string, caps: string, peers: string[] = []): Record<string, string> => ({
+  NVIDIA_VISIBLE_DEVICES: [uuid, ...peers].join(','),
+  NVIDIA_DRIVER_CAPABILITIES: caps,
+  ...(peers.length ? { CUDA_VISIBLE_DEVICES: uuid } : {}),
+})
+/** The cards Docker hands the container for an NVIDIA assignment: the card, then its peers. */
+const nvidiaIds = (g: GpuAssignment): string[] => [g.uuid!, ...(g.peers ?? [])]
 
 export interface GamesConfig {
   dbPassword: string
@@ -188,7 +199,7 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     healthPath: '/jellyfin/System/Info/Public',
     env: (ctx) => {
       const g = ctx.graphics?.jellyfin
-      return { TZ: ctx.timezone, JELLYFIN_PublishedServerUrl: '', ...(g?.accel === 'nvenc' && g.uuid ? nvidiaEnv(g.uuid, 'compute,video,utility') : {}) }
+      return { TZ: ctx.timezone, JELLYFIN_PublishedServerUrl: '', ...(g?.accel === 'nvenc' && g.uuid ? nvidiaEnv(g.uuid, 'compute,video,utility', g.peers) : {}) }
     },
     binds: (ctx) => [`${cfg(ctx, 'jellyfin')}:/config`, `${cfg(ctx, 'jellyfin')}/cache:/cache`, `${ctx.hostData}/media:/data/media:ro`],
     ports: (ctx) => (ctx.exposeJellyfin ? [{ host: ctx.jellyfinPort, container: 8096 }] : []),
@@ -207,7 +218,7 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     },
     nvidia: (ctx) => {
       const g = ctx.graphics?.jellyfin
-      return g?.accel === 'nvenc' && g.uuid ? [g.uuid] : false
+      return g?.accel === 'nvenc' && g.uuid ? nvidiaIds(g) : false
     },
     dataDirs: ['media/movies', 'media/tv', 'media/music'],
   },
@@ -430,7 +441,7 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
     deviceCgroupRules: ['c 13:* rmw'],
     nvidia: (ctx) => {
       const g = ctx.graphics?.wolf
-      if (g) return g.accel === 'nvenc' && g.uuid ? [g.uuid] : false
+      if (g) return g.accel === 'nvenc' && g.uuid ? nvidiaIds(g) : false
       return Boolean(ctx.streaming?.nvidia)
     },
   },
@@ -440,7 +451,7 @@ export const CATALOG: Record<StackServiceId, ServiceDef> = {
 function wolfGpuEnv(ctx: StackContext): Record<string, string> {
   const g = ctx.graphics?.wolf
   if (!g) return ctx.streaming?.nvidia ? { NVIDIA_DRIVER_CAPABILITIES: 'all', NVIDIA_VISIBLE_DEVICES: 'all' } : {}
-  return { ...(g.accel === 'nvenc' && g.uuid ? nvidiaEnv(g.uuid, 'all') : {}), ...(g.renderNode ? { WOLF_RENDER_NODE: g.renderNode } : {}) }
+  return { ...(g.accel === 'nvenc' && g.uuid ? nvidiaEnv(g.uuid, 'all', g.peers) : {}), ...(g.renderNode ? { WOLF_RENDER_NODE: g.renderNode } : {}) }
 }
 
 function gluetunEnv(ctx: StackContext): Record<string, string> {

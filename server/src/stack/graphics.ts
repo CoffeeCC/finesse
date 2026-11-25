@@ -49,6 +49,11 @@ export interface Gpu {
   decode: string[]
   /** Failed tests in a row (kept while the card stays in use: it leaves after STRIKES). */
   strikes?: number
+  /**
+   * NVIDIA only: the other cards (UUIDs) its container must be given too, because its driver only
+   * converts video on it when they're there as well. Video stays on this card (CUDA_VISIBLE_DEVICES).
+   */
+  peers?: string[]
 }
 
 export interface Inventory {
@@ -77,6 +82,8 @@ export interface Assignment {
   accel: Accel
   uuid?: string
   renderNode?: string
+  /** The card's `peers`: given to the container too, with video kept on the card. */
+  peers?: string[]
 }
 
 export interface JellyfinPlan extends Assignment {
@@ -149,7 +156,7 @@ const accelOf = (g: Gpu): Accel => (g.vendor === 'nvidia' ? 'nvenc' : g.vendor =
 
 function assign(g: Gpu | null): Assignment {
   if (!g) return { gpu: null, name: null, vendor: null, accel: 'none' }
-  return { gpu: g.id, name: g.name, vendor: g.vendor, accel: accelOf(g), ...(g.uuid ? { uuid: g.uuid } : {}), ...(g.renderNode ? { renderNode: g.renderNode } : {}) }
+  return { gpu: g.id, name: g.name, vendor: g.vendor, accel: accelOf(g), ...(g.uuid ? { uuid: g.uuid } : {}), ...(g.renderNode ? { renderNode: g.renderNode } : {}), ...(g.peers?.length ? { peers: g.peers } : {}) }
 }
 
 /** Plans which card Jellyfin and Wolf use. */
@@ -218,6 +225,7 @@ export function planGraphics(inv: Inventory, opts: { streaming: boolean; overrid
   else if (shared) maxTranscodes = Math.min(2, jf.sessionLimit ?? 2)
   else maxTranscodes = jf.sessionLimit
   if (shared) jfWhy += ` While game streaming is on, Jellyfin converts at most ${maxTranscodes} videos at once.`
+  if (jf?.peers?.length) jfWhy += ` Its driver only converts video on it when Jellyfin can see the other NVIDIA ${jf.peers.length === 1 ? 'card' : 'cards'} too, so Jellyfin gets ${jf.peers.length === 1 ? 'it' : 'them'} as well and keeps video on ${jf.name}.`
   return {
     jellyfin: { ...assign(jf), decode: jf ? jf.decode : [], maxTranscodes, shared, why: jfWhy },
     wolf: { ...assign(wolf), why: wolfWhy },
@@ -227,8 +235,9 @@ export function planGraphics(inv: Inventory, opts: { streaming: boolean; overrid
 }
 
 /** What decides one app's container: the same key, no change. */
-export function assignKey(x: Pick<Assignment, 'gpu' | 'accel' | 'uuid' | 'renderNode'> | undefined | null): string {
-  return x ? [x.gpu ?? 'cpu', x.accel, x.uuid ?? '', x.renderNode ?? ''].join(',') : 'unplanned'
+export function assignKey(x: Pick<Assignment, 'gpu' | 'accel' | 'uuid' | 'renderNode' | 'peers'> | undefined | null): string {
+  // Peers only add to the key when there are some, so plans made before them keep their key.
+  return x ? [x.gpu ?? 'cpu', x.accel, x.uuid ?? '', x.renderNode ?? '', ...(x.peers?.length ? [`+${x.peers.join('+')}`] : [])].join(',') : 'unplanned'
 }
 
 /** What decides the containers: two plans with the same key need no change. */
@@ -264,10 +273,10 @@ export function settleInventory(
     else if (fresh && raw.encodes === true) delete failures[k]
     let g = raw
     // Not tested this time (Docker hiccuped, no test image): what was known stands.
-    if (g.encodes === null && before && before.encodes !== null) g = { ...g, encodes: before.encodes, decode: before.decode, ...(before.problem ? { problem: before.problem } : {}) }
+    if (g.encodes === null && before && before.encodes !== null) g = { ...g, encodes: before.encodes, decode: before.decode, ...(before.problem ? { problem: before.problem } : {}), ...(before.peers ? { peers: before.peers } : {}) }
     const n = failures[k] ?? 0
     if (g.encodes === false && n < STRIKES && used(g)) {
-      return { ...g, encodes: true, decode: before?.decode ?? g.decode, vramMiB: g.vramMiB ?? before?.vramMiB, strikes: n }
+      return { ...g, encodes: true, decode: before?.decode ?? g.decode, vramMiB: g.vramMiB ?? before?.vramMiB, ...(before?.peers ? { peers: before.peers } : {}), strikes: n }
     }
     return n ? { ...g, strikes: n } : g
   })

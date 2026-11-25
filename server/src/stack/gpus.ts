@@ -4,7 +4,8 @@
 //      short-lived probe container with both mounted read-only;
 //   2. each card is then tested: a 2-second test-pattern conversion in a
 //      short-lived container given only that card (NVIDIA: h264_nvenc through
-//      the NVIDIA runtime, pinned by UUID; Intel/AMD: h264_vaapi on its render
+//      the NVIDIA runtime, pinned by UUID, and once more with the other NVIDIA
+//      cards beside it if it fails alone; Intel/AMD: h264_vaapi on its render
 //      node), using Jellyfin's image, which has ffmpeg. A card can look fine
 //      and still fail here (a broken driver state, or a card containers
 //      can't use), and then nothing is given it. The same container then
@@ -182,26 +183,43 @@ export function decodedBy(output: string, always: string[]): string[] {
  * Tests one card with a 2-second conversion, then a decode of each codec, in a container given
  * only that card. A container Docker couldn't start for the card is a failed test; Docker not
  * answering is no test at all (encodes null).
+ *
+ * An NVIDIA card that fails alone is tried once more with the host's other NVIDIA cards
+ * (`others`, UUIDs) in the container too, and video still kept on it (CUDA_VISIBLE_DEVICES):
+ * some drivers only open an encoder on a second card when the first one's device is there as
+ * well ("unsupported device" otherwise). A card that passes that way records them as `peers`,
+ * and its apps are then given them too.
  */
-export async function testCard(docker: Docker, image: string, g: Gpu): Promise<Pick<Gpu, 'encodes' | 'problem' | 'vramMiB'> & { decode?: string[] }> {
+export async function testCard(docker: Docker, image: string, g: Gpu, others: string[] = []): Promise<Pick<Gpu, 'encodes' | 'problem' | 'vramMiB' | 'peers'> & { decode?: string[] }> {
   const src = '-f lavfi -i testsrc2=duration=2:size=1280x720:rate=30'
   const T = `T=; command -v timeout >/dev/null 2>&1 && T='timeout 45';`
   const failed = (e: unknown) => (e instanceof DockerError && e.status > 0 ? { code: -1, output: String((e as Error).message), data: null } : null)
   if (g.vendor === 'nvidia' && g.uuid) {
-    const script = `${T} if $T ${FFMPEG} -nostdin -hide_banner -loglevel error ${src} -c:v h264_nvenc -f null - ; then echo NVENC_OK; ${decodeScript('-hwaccel cuda -hwaccel_output_format cuda')}; fi; nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | sed 's/^/MEM /'; true`
-    const r = await docker
-      .runJob(image, ['sh', '-c', script], {
-        env: [`NVIDIA_VISIBLE_DEVICES=${g.uuid}`, 'NVIDIA_DRIVER_CAPABILITIES=compute,video,utility'],
-        host: { DeviceRequests: [{ Driver: 'nvidia', DeviceIDs: [g.uuid], Capabilities: [['gpu']] }] },
-        timeoutMs: 150000,
-        service: 'gpu-test',
-      })
-      .catch(failed)
-    if (!r) return { encodes: null }
+    const uuid = g.uuid
+    const script = `${T} if $T ${FFMPEG} -nostdin -hide_banner -loglevel error ${src} -c:v h264_nvenc -f null - ; then echo NVENC_OK; ${decodeScript('-hwaccel cuda -hwaccel_output_format cuda')}; fi; nvidia-smi -i ${uuid} --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | sed 's/^/MEM /'; true`
+    const run = (peers: string[]) =>
+      docker
+        .runJob(image, ['sh', '-c', script], {
+          env: [`NVIDIA_VISIBLE_DEVICES=${[uuid, ...peers].join(',')}`, 'NVIDIA_DRIVER_CAPABILITIES=compute,video,utility', ...(peers.length ? [`CUDA_VISIBLE_DEVICES=${uuid}`] : [])],
+          host: { DeviceRequests: [{ Driver: 'nvidia', DeviceIDs: [uuid, ...peers], Capabilities: [['gpu']] }] },
+          timeoutMs: 150000,
+          service: 'gpu-test',
+        })
+        .catch(failed)
+    const alone = await run([])
+    if (!alone) return { encodes: null }
+    const peers = others.filter((u) => u && u !== uuid)
+    const withPeers = !/NVENC_OK/.test(alone.output) && alone.code !== -1 && peers.length ? await run(peers) : null
+    const r = withPeers && /NVENC_OK/.test(withPeers.output) ? withPeers : alone
     const mem = /MEM (\d+)/.exec(r.output)
     const ok = /NVENC_OK/.test(r.output)
     // Every NVDEC card decodes MPEG-2 and VC-1; the rest only as tested.
-    return { encodes: ok, ...(ok ? { decode: decodedBy(r.output, ['h264', 'mpeg2video', 'vc1']) } : { problem: testProblem(r.output) }), ...(mem ? { vramMiB: Number(mem[1]) } : {}) }
+    return {
+      encodes: ok,
+      ...(ok ? { decode: decodedBy(r.output, ['h264', 'mpeg2video', 'vc1']) } : { problem: testProblem(r.output) }),
+      ...(mem ? { vramMiB: Number(mem[1]) } : {}),
+      ...(ok && r === withPeers ? { peers } : {}),
+    }
   }
   if ((g.vendor === 'intel' || g.vendor === 'amd') && g.renderNode) {
     const script = `${T} if $T ${FFMPEG} -nostdin -hide_banner -loglevel error -vaapi_device ${g.renderNode} ${src} -vf format=nv12,hwupload -c:v h264_vaapi -f null - ; then echo VAAPI_OK; ${decodeScript(`-hwaccel vaapi -hwaccel_device ${g.renderNode} -hwaccel_output_format vaapi`)}; fi; true`
@@ -236,7 +254,8 @@ export async function probeGpus(docker: Docker, opts: { probeImage: string; test
   if (opts.testImage) {
     for (const g of gpus) {
       if (g.vendor === 'nvidia' && !nvidiaRuntime) continue
-      Object.assign(g, await testCard(docker, opts.testImage, g))
+      const others = gpus.filter((x) => x.vendor === 'nvidia' && x.uuid && x !== g).map((x) => x.uuid!)
+      Object.assign(g, await testCard(docker, opts.testImage, g, others))
     }
   }
   return { checkedAt: new Date().toISOString(), gpus, nvidiaRuntime, complete: true }
