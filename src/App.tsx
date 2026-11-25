@@ -157,14 +157,19 @@ export default function App() {
     )
   }
 
+  const inFullBleedPlayer =
+    location.pathname.startsWith('/play/') ||
+    location.pathname.startsWith('/games/play/') ||
+    location.pathname.startsWith('/games/stream/')
+
   return (
     <>
       {__WEBOS__ && <TvBoot />}
       {__WEBOS__ && <TvPointer />}
-      {!IS_TV && <MoodWash />}
-      <FocusBackdrop />
+      {!IS_TV && !inFullBleedPlayer && <MoodWash />}
+      {!inFullBleedPlayer && <FocusBackdrop />}
       <Marquee />
-      <div className="grain" aria-hidden />
+      {!IS_TV && !inFullBleedPlayer && <div className="grain" aria-hidden />}
       <ControllerHint />
       <PageError key={location.pathname.startsWith('/play/') || location.pathname.startsWith('/games/') || location.pathname === '/setup' ? location.pathname : 'app'}>
       <Suspense fallback={<div className="fixed inset-0 bg-black" />}>
@@ -181,7 +186,7 @@ export default function App() {
           element={
             <>
               <NavBar />
-              <main className="pt-16 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+              <main className="pt-[calc(4rem+env(safe-area-inset-top))] pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-[env(safe-area-inset-bottom)]">
                 {/* Re-keying per path gives every page a rise-in entrance */}
                 <div key={location.pathname} className={enterClass}>
                   <PageError>

@@ -115,8 +115,10 @@ export function applyUiScale(scale = getPrefs().uiScale) {
     html.style.removeProperty('--vh')
     html.style.removeProperty('--vw')
   } else {
-    html.style.setProperty('--vh', `${(1 / scale).toFixed(5)}vh`)
-    html.style.setProperty('--vw', `${(1 / scale).toFixed(5)}vw`)
+    const unitH = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('height', '1dvh') ? 'dvh' : 'vh'
+    const unitW = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('width', '1dvw') ? 'dvw' : 'vw'
+    html.style.setProperty('--vh', `${(1 / scale).toFixed(5)}${unitH}`)
+    html.style.setProperty('--vw', `${(1 / scale).toFixed(5)}${unitW}`)
   }
 }
 

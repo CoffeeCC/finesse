@@ -1,5 +1,5 @@
 import { continueHereHref, positionNow } from '../../lib/transfer'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import * as api from '../../api/client'
 import { useClipManifest, useItem } from '../../api/queries'
@@ -35,8 +35,15 @@ const PlayIcon = () => (
 )
 
 /** Whether a title logo will read on a dark scene (some are dark lettering).
- *  null while it's being checked; remembered per logo. */
+ *  null while it's being checked; remembered per logo (bounded). */
 const logoVerdicts = new Map<string, boolean>()
+function rememberLogoVerdict(url: string, ok: boolean) {
+  if (logoVerdicts.size >= 200) {
+    const oldest = logoVerdicts.keys().next().value
+    if (oldest !== undefined) logoVerdicts.delete(oldest)
+  }
+  logoVerdicts.set(url, ok)
+}
 function useLogoReadable(url: string | null): boolean | null {
   // TVs load art from another origin (the app runs from file://), so it can't
   // be read back from a canvas: trust the logo there.
@@ -51,7 +58,7 @@ function useLogoReadable(url: string | null): boolean | null {
     const img = new Image()
     img.crossOrigin = 'anonymous'
     const done = (ok: boolean) => {
-      logoVerdicts.set(url, ok)
+      rememberLogoVerdict(url, ok)
       if (live) setVerdict({ url, ok })
     }
     img.onload = () => {
@@ -86,9 +93,19 @@ function useLogoReadable(url: string | null): boolean | null {
   return verdict.url === url ? verdict.ok : null
 }
 
-/** The details the stage shows for what you rest on (loaded once you rest there). */
+/** The details the stage shows for what you rest on (debounced so sweeping past tiles doesn't fire a fetch per tile). */
 function useChips(entry: NowEntry) {
-  const { data: full } = useItem(entry.item && entry.kind !== 'music' ? entry.item.Id : undefined)
+  const rawId = entry.item && entry.kind !== 'music' ? entry.item.Id : undefined
+  const [settledId, setSettledId] = useState<string | undefined>(rawId)
+  useEffect(() => {
+    if (!rawId) {
+      setSettledId(undefined)
+      return
+    }
+    const t = window.setTimeout(() => setSettledId(rawId), 220)
+    return () => window.clearTimeout(t)
+  }, [rawId])
+  const { data: full } = useItem(settledId)
   return useMemo(() => {
     const it = full ?? entry.item
     if (entry.kind === 'play') {
@@ -131,7 +148,7 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
           stays where it was (a long story or a missing progress bar moved it). */}
       <div className="os-name">
         {logoOk ? (
-          <img className="os-logo" src={entry.logo!} alt={entry.title} />
+          <img className="os-logo" src={entry.logo!} alt={entry.title} crossOrigin={IS_TV ? undefined : 'anonymous'} />
         ) : logoOk === false ? (
           <h1 className={`os-title ${entry.title.length > 14 ? 'long' : ''}`}>{entry.title}</h1>
         ) : null}
@@ -179,7 +196,7 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
   )
 }
 
-function Tile({
+const Tile = memo(function Tile({
   entry,
   on,
   onRest,
@@ -187,12 +204,13 @@ function Tile({
 }: {
   entry: NowEntry
   on: boolean
-  onRest: () => void
+  onRest: (key: string) => void
   onGo: (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null) => void
 }) {
   const timer = useRef(0)
   useEffect(() => () => window.clearTimeout(timer.current), [])
   const coverMode = Boolean(entry.cover) && !entry.tileArt
+  const rest = useCallback(() => onRest(entry.key), [onRest, entry.key])
   return (
     <Link
       to={entry.primary.to}
@@ -200,13 +218,13 @@ function Tile({
       style={{ '--t': entry.tint } as CSSProperties}
       aria-label={`${entry.title}: ${entry.sub}`}
       data-tile
-      onFocus={onRest}
+      onFocus={rest}
       // A real move only: scrolling the page under a resting pointer also
       // "enters" tiles, and must not steal the stage from the remote or controller.
       onPointerMove={(e) => {
         if (e.pointerType !== 'mouse' || (e.movementX === 0 && e.movementY === 0) || on) return
         window.clearTimeout(timer.current)
-        timer.current = window.setTimeout(onRest, HOVER_DWELL_MS)
+        timer.current = window.setTimeout(rest, HOVER_DWELL_MS)
       }}
       onPointerLeave={() => window.clearTimeout(timer.current)}
       onClick={(e) => onGo(entry, e, e.currentTarget.querySelector<HTMLElement>('.art'))}
@@ -247,12 +265,12 @@ function Tile({
       )}
     </Link>
   )
-}
+})
 
 /** Finesse 2.0's home: the art of what you rest on fills the screen, over a row
  *  of everything that's "now" in the house, with a live line underneath. */
 export default function NowStage() {
-  const artWidth = !IS_TV && typeof window !== 'undefined' && window.innerWidth > 1280 ? 1920 : 1280
+  const artWidth = useMemo(() => (!IS_TV && typeof window !== 'undefined' && window.innerWidth > 1280 ? 1920 : 1280), [])
   const { entries } = useNowEntries(artWidth)
   // Follows the title, not its place: the row fills in as data arrives, and
   // the house changes (someone starts playing) while you rest on something.
@@ -262,39 +280,59 @@ export default function NowStage() {
   }, [focusKey])
   const f = Math.max(0, entries.findIndex((e) => e.key === focusKey))
   const entry = entries[f]
-  const setFocus = useCallback((i: number) => setFocusKey(entries[i]?.key ?? null), [entries])
+  const entryKey = entry?.key ?? null
+  const entryTint = entry?.tint ?? null
+  const entryItemId = entry?.item?.Id
+  const entrySeriesId = entry?.item?.SeriesId
+  const setFocusByKey = useCallback((key: string) => {
+    startTransition(() => setFocusKey(key))
+  }, [])
+  const setFocus = useCallback((i: number) => {
+    const k = entries[i]?.key ?? null
+    startTransition(() => setFocusKey(k))
+  }, [entries])
   const navigate = useNavigate()
   const railRef = useRef<HTMLDivElement>(null)
   const lines = useLiveLines(entries)
 
-  // Only the art you've been near is loaded (and kept, so going back crossfades).
-  const [seen, setSeen] = useState<Set<string>>(() => new Set())
+  // Keep only the current backdrop, its immediate neighbors, and a small LRU tail
+  // so crossfades stay smooth without pinning 10+ 1920px bitmaps in GPU memory.
+  const [seen, setSeen] = useState<string[]>([])
   useEffect(() => {
     const near = entries.slice(Math.max(0, f - 1), f + 2).map((e) => e.key)
-    setSeen((s) => (near.every((k) => s.has(k)) ? s : new Set([...s, ...near])))
+    if (!near.length) return
+    setSeen((prev) => {
+      const merged = [...prev.filter((k) => !near.includes(k)), ...near]
+      const trimmed = merged.slice(-5)
+      if (trimmed.length === prev.length && trimmed.every((k, i) => k === prev[i])) return prev
+      return trimmed
+    })
   }, [entries, f])
+  const seenSet = useMemo(() => new Set(seen), [seen])
 
   // The whole app takes on the title's colour (nav, washes, loading states).
   useEffect(() => {
-    if (entry) setMood(entry.tint)
-  }, [entry])
+    if (entryTint) setMood(entryTint)
+  }, [entryTint])
 
   // Rest on a title for a moment and its preview clip plays behind the stage —
   // only while the stage is on screen: scrolled down the page, it pauses and starts nothing new.
   const [stageRef, stageInView] = useInView<HTMLElement>()
   const { data: manifest } = useClipManifest()
+  const entryClipUrl = useMemo(() => {
+    if (!entryItemId && !entrySeriesId) return null
+    const ids = [entryItemId, entrySeriesId].filter(Boolean) as string[]
+    return ids.map((id) => previewClipUrl(id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)).find(Boolean) ?? null
+  }, [entryItemId, entrySeriesId, manifest])
   const [clip, setClip] = useState<{ key: string; url: string; on: boolean } | null>(null)
   const stopClip = useCallback(() => setClip(null), [])
   useEffect(() => {
     setClip(null)
     // TVs: one video decoder is for the film itself, not a background loop.
-    if (!entry?.item || reducedMotion() || IS_TV || !stageInView) return
-    const ids = [entry.item.Id, entry.item.SeriesId].filter(Boolean) as string[]
-    const url = ids.map((id) => previewClipUrl(id, getPrefs().previewQuality, manifest ?? EMPTY_MANIFEST)).find(Boolean)
-    if (!url) return
-    const t = window.setTimeout(() => setClip({ key: entry.key, url, on: false }), CLIP_DWELL_MS)
+    if (!entryKey || !entryClipUrl || reducedMotion() || IS_TV || !stageInView) return
+    const t = window.setTimeout(() => setClip({ key: entryKey, url: entryClipUrl, on: false }), CLIP_DWELL_MS)
     return () => window.clearTimeout(t)
-  }, [entry, manifest, stageInView])
+  }, [entryKey, entryClipUrl, stageInView])
   useEffect(() => {
     if (!clip) return
     claimPreview(stopClip)
@@ -370,6 +408,8 @@ export default function NowStage() {
     (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to = e.primary.to) => {
       const h = e.primary.handoff
       if (h && e.item && to === e.primary.to) {
+        if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return
+        ev.preventDefault()
         // Continue here: where the other device is right now (the list can be 15 s old); it's
         // stopped by the player once this one is playing, not before.
         const item = e.item
@@ -392,7 +432,7 @@ export default function NowStage() {
     <section ref={stageRef} className="os-stage" aria-label="Now" style={{ '--tint-rgb': entry.tint } as CSSProperties}>
       <div className="os-scene" aria-hidden>
         {entries.map((e, i) => {
-          if (!seen.has(e.key)) return null
+          if (!seenSet.has(e.key)) return null
           const cls = i === f ? ' on' : ''
           if (e.gen) {
             return (
@@ -431,7 +471,7 @@ export default function NowStage() {
 
       <div ref={railRef} className="os-rail os-rail-at mt-8 sm:mt-10">
         {entries.map((e, i) => (
-          <Tile key={e.key} entry={e} on={i === f} onRest={() => setFocus(i)} onGo={go} />
+          <Tile key={e.key} entry={e} on={i === f} onRest={setFocusByKey} onGo={go} />
         ))}
       </div>
 

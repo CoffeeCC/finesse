@@ -1,24 +1,35 @@
 import { decode } from 'blurhash'
 
+const CACHE_LIMIT = 500
 const dataUrlCache = new Map<string, string>()
 const colorCache = new Map<string, [number, number, number]>()
+let sharedCanvas: HTMLCanvasElement | null = null
+
+function putBounded<V>(map: Map<string, V>, key: string, value: V) {
+  if (map.size >= CACHE_LIMIT) {
+    const oldest = map.keys().next().value
+    if (oldest !== undefined) map.delete(oldest)
+  }
+  map.set(key, value)
+}
 
 /** Decode a blurhash into a small data-URL (cached). Returns null on bad hashes. */
-export function blurhashToDataURL(hash: string | undefined, w = 32, h = 48): string | null {
+export function blurhashToDataURL(hash: string | undefined, w = 16, h = 24): string | null {
   if (!hash) return null
-  const cached = dataUrlCache.get(hash)
+  const key = `${hash}:${w}x${h}`
+  const cached = dataUrlCache.get(key)
   if (cached) return cached
   try {
     const pixels = decode(hash, w, h)
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
+    const canvas = (sharedCanvas ??= document.createElement('canvas'))
+    if (canvas.width !== w) canvas.width = w
+    if (canvas.height !== h) canvas.height = h
     const ctx = canvas.getContext('2d')!
     const img = ctx.createImageData(w, h)
     img.data.set(pixels)
     ctx.putImageData(img, 0, 0)
     const url = canvas.toDataURL()
-    dataUrlCache.set(hash, url)
+    putBounded(dataUrlCache, key, url)
     return url
   } catch {
     return null
@@ -42,7 +53,7 @@ export function blurhashAverageColor(hash: string | undefined): [number, number,
       b += px[i + 2]
     }
     const avg: [number, number, number] = [Math.round(r / n), Math.round(g / n), Math.round(b / n)]
-    colorCache.set(hash, avg)
+    putBounded(colorCache, hash, avg)
     return avg
   } catch {
     return null

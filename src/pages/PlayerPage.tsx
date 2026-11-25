@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import Hls from 'hls.js'
+import type Hls from 'hls.js'
 import * as api from '../api/client'
 import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
 import { adjacentEpisodes, episodeCode } from '../lib/episodes'
@@ -24,6 +24,22 @@ import { struggling, type FrameSample } from '../lib/frameDrops'
 import { useToast } from '../components/Toast'
 import { formatRuntime, secondsToTicks, ticksToSeconds } from '../api/types'
 import type { JfItem, JfMediaStream, JfTrickplayInfo } from '../api/types'
+
+// hls.js is most of the player's file, and direct play never uses it: it loads the first time
+// a stream is HLS. A failed load (offline for a moment) is tried again next time.
+let hlsModule: Promise<typeof import('hls.js')> | null = null
+function loadHls(): Promise<typeof import('hls.js')> {
+  if (!hlsModule) {
+    hlsModule = import('hls.js').catch((e: unknown) => {
+      hlsModule = null
+      throw e
+    })
+  }
+  return hlsModule
+}
+
+/** Fatal HLS errors: network ones are retried this many times before giving up on the stream. */
+const HLS_NETWORK_RETRIES = 3
 
 const IS_FIREFOX = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent)
 
@@ -183,17 +199,21 @@ function StatsOverlay({
   const aStream = stream?.mediaStreams.find((m) => m.Type === 'Audio')
   const q = video?.getVideoPlaybackQuality?.()
   // The total counts from when this stream started (seeks and menus included); the
-  // last 10 seconds say whether frames are being dropped now.
+  // last 10 seconds say whether frames are being dropped now. Sampled once per tick, after
+  // render (a render can run twice, and must not record twice).
   const samples = useRef<{ at: number; dropped: number; total: number }[]>([])
-  if (q) {
-    const now = performance.now()
+  const [recent, setRecent] = useState<{ dropped: number; total: number } | null>(null)
+  useEffect(() => {
+    const now = video?.getVideoPlaybackQuality?.()
+    if (!now) return
+    const at = performance.now()
     const list = samples.current
-    if (list.length && q.totalVideoFrames < list[list.length - 1]!.total) list.length = 0
-    list.push({ at: now, dropped: q.droppedVideoFrames, total: q.totalVideoFrames })
-    while (list.length > 2 && now - list[0]!.at > 10_000) list.shift()
-  }
-  const first = samples.current[0]
-  const recent = q && first && q.totalVideoFrames > first.total ? { dropped: q.droppedVideoFrames - first.dropped, total: q.totalVideoFrames - first.total } : null
+    if (list.length && now.totalVideoFrames < list[list.length - 1]!.total) list.length = 0
+    list.push({ at, dropped: now.droppedVideoFrames, total: now.totalVideoFrames })
+    while (list.length > 2 && at - list[0]!.at > 10_000) list.shift()
+    const first = list[0]!
+    setRecent(now.totalVideoFrames > first.total ? { dropped: now.droppedVideoFrames - first.dropped, total: now.totalVideoFrames - first.total } : null)
+  }, [tick, video])
   const level = hls && hls.currentLevel >= 0 ? hls.levels?.[hls.currentLevel] : undefined
   const rows: [string, string][] = [
     ['Title', item?.Name ?? '—'],
@@ -405,6 +425,8 @@ export default function PlayerPage() {
   menuRef.current = menu
   const pendingSeekRef = useRef<number | null>(null)
   const seekCommitTimer = useRef<number>(0)
+  /** After a seek: checks the engine really went there (else a new stream at the target). */
+  const seekCheckTimer = useRef<number>(0)
   const holdRef = useRef({ key: '', n: 0 })
   const lastTapRef = useRef<{ at: number; side: string } | null>(null)
   const singleTapTimer = useRef<number>(0)
@@ -573,11 +595,34 @@ export default function PlayerPage() {
     }
   }, [])
 
+  // The clock on screen moves in whole seconds: 'timeupdate' fires about four times a second
+  // (and hls.js adds one per buffered fragment), and each used to re-render the whole player.
+  const shownSecRef = useRef(-1)
+  const bufferedSecRef = useRef(-1)
+  const commitTime = useCallback((abs: number) => {
+    const sec = Math.floor(abs)
+    if (sec === shownSecRef.current) return
+    shownSecRef.current = sec
+    setAbsTime(abs)
+  }, [])
+  const commitBuffered = useCallback((abs: number) => {
+    const sec = Math.floor(abs)
+    if (sec === bufferedSecRef.current) return
+    bufferedSecRef.current = sec
+    setBufferedAbs(abs)
+  }, [])
+
+  /** A stream that failed for good gets one fresh start (new PlaybackInfo) per title before the error shows. */
+  const restartsLeft = useRef(1)
+  const loadStreamRef = useRef<(atTicks: number, audio?: number, sub?: number, opts?: { paused?: boolean }) => Promise<void>>(async () => {})
+
   const loadStream = useCallback(
     async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean } = {}) => {
       const video = videoRef.current
       if (!video || !itemId) return
       const gen = ++loadGenRef.current
+      /** Still the stream this call is loading, on the player's own <video> (not unmounted, not superseded). */
+      const current = () => gen === loadGenRef.current && videoRef.current === video
       // Replacing the stream of a paused video (quality, audio, subtitles) keeps it paused:
       // the new stream shows the same frame and waits. <video autoPlay> would start it.
       const stayPaused = opts.paused === true
@@ -598,7 +643,9 @@ export default function PlayerPage() {
         const subIdx = sub === undefined || sub === -1 ? undefined : sub
         burnedInSubRef.current = subIdx !== undefined
         const info = await api.getPlaybackInfo(itemId, atTicks, audio, subIdx, prevMediaSourceId)
-        if (gen !== loadGenRef.current) return // superseded (episode switched / track changed again)
+        // Superseded (episode switched / track changed again), or the player closed meanwhile:
+        // attaching now would play on a <video> nobody can see.
+        if (!current()) return
         const source = info.MediaSources[0]
         if (!source) throw new Error('This title has no playable file')
 
@@ -621,6 +668,12 @@ export default function PlayerPage() {
         if (subIdx !== undefined && transcoding && !/[?&]SubtitleStreamIndex=/.test(url)) {
           url += `&SubtitleStreamIndex=${subIdx}&SubtitleMethod=Encode&allowVideoStreamCopy=false`
         }
+
+        // HLS through Media Source Extensions: load hls.js now (its own file, fetched once).
+        // Engines with neither (old iOS) play the playlist natively below.
+        const hlsLib = url.includes('.m3u8') ? (await loadHls()).default : null
+        if (!current()) return
+        const Hls = hlsLib && hlsLib.isSupported() ? hlsLib : null
 
         // hls.js empties every text track on the video when it starts a stream
         // (and switches labelled ones off when the old one is torn down), so a
@@ -648,6 +701,7 @@ export default function PlayerPage() {
         setStreamGen((n) => n + 1)
 
         const applyResumeSeek = () => {
+          if (!current()) return
           if (resumeSec <= 0) {
             setAbsTime(0)
             return
@@ -665,7 +719,7 @@ export default function PlayerPage() {
           setAbsTime(resumeSec)
         }
 
-        if (url.includes('.m3u8') && Hls.isSupported()) {
+        if (Hls) {
           const hls = new Hls({
             maxBufferLength: 60,
             backBufferLength: 30,
@@ -675,17 +729,54 @@ export default function PlayerPage() {
           hlsRef.current = hls
           hls.loadSource(url)
           hls.attachMedia(video)
+          // Fatal errors, in order: a network one is retried (a Wi-Fi blip), a media one is
+          // recovered in place and then with the audio codec swapped, and only then is the
+          // stream negotiated again from scratch. The error shows when all of that failed.
+          let networkRetries = 0
+          let mediaRecoveries = 0
+          let lastMediaRecovery = 0
+          let retryTimer = 0
+          const live = () => current() && hlsRef.current === hls
+          hls.on(Hls.Events.DESTROYING, () => window.clearTimeout(retryTimer))
           hls.on(Hls.Events.ERROR, (_e, data) => {
-            if (data.fatal) {
-              setError(
-                data.details
-                  ? `Playback failed (${data.type}: ${data.details})`
-                  : `Playback failed (${data.type})`,
-              )
-              setBuffering(false)
+            if (!data.fatal || !live()) return
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < HLS_NETWORK_RETRIES) {
+              networkRetries++
+              setBuffering(true)
+              window.clearTimeout(retryTimer)
+              retryTimer = window.setTimeout(() => {
+                if (live()) hls.startLoad()
+              }, 1000 * networkRetries)
+              return
             }
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              // A media error long after the last recovery is a new problem, not the same one.
+              const now = performance.now()
+              if (now - lastMediaRecovery > 10_000) mediaRecoveries = 0
+              if (mediaRecoveries < 2) {
+                if (mediaRecoveries === 1) hls.swapAudioCodec()
+                mediaRecoveries++
+                lastMediaRecovery = now
+                setBuffering(true)
+                hls.recoverMediaError()
+                return
+              }
+            }
+            if (restartsLeft.current > 0) {
+              restartsLeft.current--
+              const at = secondsToTicks((streamRef.current?.offsetSec ?? 0) + video.currentTime) || lastTicks.current
+              void loadStreamRef.current(at, audio, subIdx, { paused: video.paused && !video.ended })
+              return
+            }
+            setError(
+              data.details
+                ? `Playback failed (${data.type}: ${data.details})`
+                : `Playback failed (${data.type})`,
+            )
+            setBuffering(false)
           })
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (!live()) return
             applyResumeSeek()
             repaintOverlay()
             setBuffering(false)
@@ -693,18 +784,27 @@ export default function PlayerPage() {
             if (!stayPaused) video.play().catch(() => {})
           })
           hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            // A fragment arrived: the connection works again, so a later blip gets fresh retries.
+            networkRetries = 0
             const s = streamRef.current
-            if (s && video) setAbsTime(s.offsetSec + video.currentTime)
+            if (s && live()) commitTime(s.offsetSec + video.currentTime)
           })
         } else {
           video.src = url
           repaintOverlay()
           if (resumeSec > 0) {
-            video.addEventListener('loadedmetadata', applyResumeSeek, { once: true })
-            video.addEventListener('canplay', applyResumeSeek, { once: true })
+            // Whichever comes first seeks, once; the other is removed. A stream replaced before
+            // either fired must not seek the new one to this one's resume point (current()).
+            const seekOnce = () => {
+              video.removeEventListener('loadedmetadata', seekOnce)
+              video.removeEventListener('canplay', seekOnce)
+              applyResumeSeek()
+            }
+            video.addEventListener('loadedmetadata', seekOnce)
+            video.addEventListener('canplay', seekOnce)
           }
           if (!stayPaused) await video.play().catch(() => {})
-          if (gen === loadGenRef.current) setBuffering(false)
+          if (current()) setBuffering(false)
           loaded()
         }
 
@@ -716,8 +816,9 @@ export default function PlayerPage() {
         setBuffering(false)
       }
     },
-    [itemId, report, teardownStream, applySubBlobFromRaw],
+    [itemId, report, teardownStream, applySubBlobFromRaw, commitTime],
   )
+  loadStreamRef.current = loadStream
 
   // Per-item state resets DURING render when the episode changes in place.
   // Resetting in an effect left one committed render where the new episode ran
@@ -760,6 +861,9 @@ export default function PlayerPage() {
     subVttRawRef.current = null
     revokeSubBlob()
     lastTicks.current = startTicks ?? 0
+    restartsLeft.current = 1
+    shownSecRef.current = -1
+    bufferedSecRef.current = -1
     loadStream(startTicks)
 
     const progressTimer = setInterval(
@@ -773,6 +877,10 @@ export default function PlayerPage() {
     )
 
     return () => {
+      // First: a stream still loading (PlaybackInfo or hls.js on its way) must not attach
+      // once the player has closed or moved to another episode.
+      loadGenRef.current++
+      window.clearTimeout(seekCheckTimer.current)
       alive = false
       clearInterval(progressTimer)
       const stopped = report(api.reportPlaybackStopped)
@@ -856,7 +964,7 @@ export default function PlayerPage() {
     const onTime = () => {
       const s = streamRef.current
       if (!s) return
-      setAbsTime(s.offsetSec + v.currentTime)
+      commitTime(s.offsetSec + v.currentTime)
       if (v.currentTime > 0) lastTicks.current = secondsToTicks(s.offsetSec + v.currentTime)
       // A firing 'timeupdate' means the media time actually advanced, i.e. we're
       // playing — the reliable "not buffering" signal. webOS Chromium 68 doesn't
@@ -865,7 +973,7 @@ export default function PlayerPage() {
       if (!v.paused) setBuffering(false)
       try {
         const b = v.buffered
-        if (b.length) setBufferedAbs(s.offsetSec + b.end(b.length - 1))
+        if (b.length) commitBuffered(s.offsetSec + b.end(b.length - 1))
       } catch {
         /* buffered can throw during teardown */
       }
@@ -906,7 +1014,7 @@ export default function PlayerPage() {
       v.removeEventListener('canplay', onPlaying)
       v.removeEventListener('ended', onEnded)
     }
-  }, [report, scheduleHide])
+  }, [report, scheduleHide, commitTime, commitBuffered])
 
   // Buffering watchdog — the spinner's source of truth. webOS Chromium drops or
   // misorders 'playing'/'canplay'/'timeupdate' often enough that event-driven
@@ -996,6 +1104,12 @@ export default function PlayerPage() {
       const v = videoRef.current
       const s = streamRef.current
       if (!v || !s) return
+      // A newer seek replaces the last one's check (and its target).
+      window.clearTimeout(seekCheckTimer.current)
+      const gen = loadGenRef.current
+      const forItem = s.itemId
+      /** The check still belongs to the stream and title this seek was made on. */
+      const same = () => gen === loadGenRef.current && streamRef.current?.itemId === forItem && itemId === forItem
       absSec = Math.max(0, Math.min(absSec, durationSec || absSec))
       setAbsTime(absSec)
       setEnded(false)
@@ -1018,10 +1132,10 @@ export default function PlayerPage() {
           return
         }
         if (absSec > 5) {
-          window.setTimeout(() => {
+          seekCheckTimer.current = window.setTimeout(() => {
             const vv = videoRef.current
             const ss = streamRef.current
-            if (!vv || !ss || ss.transcoding) return
+            if (!vv || !ss || ss.transcoding || !same()) return
             // Seek was ignored (common on some mkv remuxes) → new stream at target.
             if (Math.abs(vv.currentTime - absSec) > 5) {
               loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
@@ -1041,10 +1155,10 @@ export default function PlayerPage() {
         return
       }
       if (absSec > 5) {
-        window.setTimeout(() => {
+        seekCheckTimer.current = window.setTimeout(() => {
           const vv = videoRef.current
           const ss = streamRef.current
-          if (!vv || !ss) return
+          if (!vv || !ss || !same()) return
           const now = ss.offsetSec + vv.currentTime
           if (Math.abs(now - absSec) > 10) {
             loadStream(secondsToTicks(absSec), audioIndex, subArg, { paused: pausedNow() })
@@ -1052,7 +1166,7 @@ export default function PlayerPage() {
         }, 500)
       }
     },
-    [durationSec, loadStream, audioIndex, subIndex, pausedNow],
+    [durationSec, loadStream, audioIndex, subIndex, pausedNow, itemId],
   )
   const seekToRef = useRef(seekTo)
   seekToRef.current = seekTo
@@ -1102,6 +1216,11 @@ export default function PlayerPage() {
       await document.exitFullscreen().catch(() => {})
       return
     }
+    const doc = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void }
+    if (doc.webkitFullscreenElement) {
+      doc.webkitExitFullscreen?.()
+      return
+    }
     if (document.fullscreenEnabled && document.documentElement.requestFullscreen) {
       try {
         await document.documentElement.requestFullscreen()
@@ -1118,9 +1237,11 @@ export default function PlayerPage() {
     v?.webkitEnterFullscreen?.()
   }, [])
   useEffect(() => {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null }
     const onFs = () => {
-      setFullscreen(!!document.fullscreenElement)
-      if (!document.fullscreenElement) {
+      const on = !!(document.fullscreenElement ?? doc.webkitFullscreenElement)
+      setFullscreen(on)
+      if (!on) {
         try {
           screen.orientation?.unlock?.()
         } catch {
@@ -1128,8 +1249,21 @@ export default function PlayerPage() {
         }
       }
     }
+    // iPhone: the video's own full-screen player (webkitEnterFullscreen), which says so on the
+    // <video>, not the document. Older Safari names the document's events with a prefix.
+    const v = videoRef.current
+    const onBegin = () => setFullscreen(true)
+    const onEnd = () => setFullscreen(false)
     document.addEventListener('fullscreenchange', onFs)
-    return () => document.removeEventListener('fullscreenchange', onFs)
+    document.addEventListener('webkitfullscreenchange', onFs)
+    v?.addEventListener('webkitbeginfullscreen', onBegin)
+    v?.addEventListener('webkitendfullscreen', onEnd)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFs)
+      document.removeEventListener('webkitfullscreenchange', onFs)
+      v?.removeEventListener('webkitbeginfullscreen', onBegin)
+      v?.removeEventListener('webkitendfullscreen', onEnd)
+    }
   }, [])
 
   const langOfStream = (idx: number) =>
@@ -1773,16 +1907,26 @@ export default function PlayerPage() {
   }, [tapFx])
 
   // ---------- Media Session: lock screen / headset / notification controls ----------
+  // What's playing (title, show or year, art) and the buttons: play, pause, ±10 s or the
+  // amount the system asks for, seek to a point, previous / next episode, and stop.
   useEffect(() => {
     if (!('mediaSession' in navigator) || !item) return
     const ms = navigator.mediaSession
     try {
       if (typeof MediaMetadata !== 'undefined') {
-        const art = api.backdropUrl(item, 640) ?? api.posterUrl(item, 480)
+        const ep = item.Type === 'Episode'
+        const artwork: MediaImage[] = []
+        const still = ep ? api.episodeThumbUrl(item, 1280) : api.backdropUrl(item, 1280)
+        const wide = ep ? api.episodeThumbUrl(item, 640) : api.backdropUrl(item, 640)
+        const poster = api.posterUrl(item, 512)
+        if (wide) artwork.push({ src: wide, sizes: '640x360', type: 'image/jpeg' })
+        if (still) artwork.push({ src: still, sizes: '1280x720', type: 'image/jpeg' })
+        if (poster) artwork.push({ src: poster, sizes: '512x768', type: 'image/jpeg' })
         ms.metadata = new MediaMetadata({
-          title: item.Type === 'Episode' ? episodeLabel(item) : item.Name,
-          artist: item.Type === 'Episode' ? item.SeriesName ?? '' : String(item.ProductionYear ?? ''),
-          artwork: art ? [{ src: art, sizes: '640x360', type: 'image/jpeg' }] : [],
+          title: ep ? episodeLabel(item) : item.Name,
+          artist: ep ? item.SeriesName ?? '' : String(item.ProductionYear ?? ''),
+          album: ep ? (item.ParentIndexNumber != null ? `Season ${item.ParentIndexNumber}` : item.SeriesName ?? '') : '',
+          artwork,
         })
       }
     } catch {
@@ -1797,19 +1941,85 @@ export default function PlayerPage() {
     }
     set('play', () => videoRef.current?.play().catch(() => {}))
     set('pause', () => videoRef.current?.pause())
-    set('seekbackward', () => latest.current.nudgeSeek(-SEEK_STEP))
-    set('seekforward', () => latest.current.nudgeSeek(SEEK_STEP))
+    set('seekbackward', (d) => latest.current.nudgeSeek(-(d.seekOffset && d.seekOffset > 0 ? d.seekOffset : SEEK_STEP)))
+    set('seekforward', (d) => latest.current.nudgeSeek(d.seekOffset && d.seekOffset > 0 ? d.seekOffset : SEEK_STEP))
+    set('seekto', (d) => {
+      if (typeof d.seekTime === 'number' && Number.isFinite(d.seekTime)) latest.current.seekTo(Math.max(0, d.seekTime))
+    })
     set('previoustrack', prevEp ? () => playEpisode(prevEp) : null)
     set('nexttrack', nextEp ? () => playEpisode(nextEp) : null)
+    set('stop', () => latest.current.exitPlayer())
     return () => {
-      for (const a of ['play', 'pause', 'seekbackward', 'seekforward', 'previoustrack', 'nexttrack'] as const) set(a, null)
+      for (const a of ['play', 'pause', 'seekbackward', 'seekforward', 'seekto', 'previoustrack', 'nexttrack', 'stop'] as const) set(a, null)
       try {
         ms.metadata = null
+        ms.playbackState = 'none'
+        ms.setPositionState?.()
       } catch {
         /* ignore */
       }
     }
   }, [item, prevEp, nextEp, playEpisode])
+
+  // The lock screen's play/pause button and its progress bar follow the player (absTime moves
+  // once a second). setPositionState throws on a position past the duration or a non-finite
+  // number, so everything is clamped first, and a title with no length yet sends none.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const ms = navigator.mediaSession
+    try {
+      ms.playbackState = playing && !ended ? 'playing' : 'paused'
+    } catch {
+      /* older engines */
+    }
+    if (typeof ms.setPositionState !== 'function') return
+    const duration = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0
+    if (!duration) return
+    const rate = videoRef.current?.playbackRate
+    try {
+      ms.setPositionState({
+        duration,
+        playbackRate: rate && Number.isFinite(rate) && rate > 0 ? rate : 1,
+        position: Math.min(duration, Math.max(0, Number.isFinite(absTime) ? absTime : 0)),
+      })
+    } catch {
+      /* an engine stricter still */
+    }
+  }, [playing, ended, absTime, durationSec])
+
+  // ---------- Screen Wake Lock: the screen stays on while a video plays ----------
+  // Released on pause, at the end, on an error and on leaving; the browser drops it itself when
+  // the tab is hidden, so it's asked for again on coming back. Engines without it (the LG TV's
+  // Chromium 68, older Safari) simply carry on.
+  const wantWake = playing && !ended && !error
+  useEffect(() => {
+    type Sentinel = { released?: boolean; release(): Promise<void> }
+    const wl = (navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<Sentinel> } }).wakeLock
+    if (!wantWake || !wl) return
+    let lock: Sentinel | null = null
+    let live = true
+    const acquire = async () => {
+      if (!live || document.visibilityState !== 'visible' || (lock && !lock.released)) return
+      try {
+        const got = await wl.request('screen')
+        if (live) lock = got
+        else void got.release().catch(() => {})
+      } catch {
+        /* refused (battery saver, not allowed here) */
+      }
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void acquire()
+    }
+    void acquire()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      live = false
+      document.removeEventListener('visibilitychange', onVisible)
+      if (lock && !lock.released) void lock.release().catch(() => {})
+      lock = null
+    }
+  }, [wantWake])
 
   // ---------- Trickplay scrub preview ----------
   const trickplay: JfTrickplayInfo | undefined = useMemo(() => {
@@ -2009,7 +2219,7 @@ export default function PlayerPage() {
         <button
           ref={skipBtnRef}
           onClick={() => seekTo(ticksToSeconds(activeIntro.EndTicks))}
-          className="absolute bottom-32 right-4 sm:right-8 z-30 rounded-lg bg-white/90 hover:bg-white text-ink-950 px-5 py-2.5 text-sm font-semibold shadow-2xl active:scale-95 transition-all"
+          className={`absolute bottom-32 ${SAFE_RIGHT_SKIP} z-30 rounded-lg bg-white/90 hover:bg-white text-ink-950 px-5 py-2.5 text-sm font-semibold shadow-2xl active:scale-95 transition-all`}
         >
           Skip Intro
         </button>
@@ -2054,7 +2264,7 @@ export default function PlayerPage() {
       <div
         ref={topBarRef}
         data-hidden={!controlsVisible}
-        className={`absolute top-0 inset-x-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-2 sm:px-4 pt-2 sm:pt-3 pb-10 flex items-center gap-2 sm:gap-3 ${chromeClass}`}
+        className={`absolute top-0 inset-x-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent ${SAFE_X_TOP} pt-2 sm:pt-3 pb-10 flex items-center gap-2 sm:gap-3 ${chromeClass}`}
         style={TOUCH_UI ? { paddingTop: 'max(0.5rem, env(safe-area-inset-top))' } : undefined}
       >
         <button onClick={exitPlayer} className={iconBtn} aria-label="Back">
@@ -2121,7 +2331,7 @@ export default function PlayerPage() {
       <div
         ref={bottomBarRef}
         data-hidden={!controlsVisible}
-        className={`absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-3 sm:px-6 pt-20 pb-2 sm:pb-4 ${chromeClass}`}
+        className={`absolute bottom-0 inset-x-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent ${SAFE_X_BOTTOM} pt-20 pb-2 sm:pb-4 ${chromeClass}`}
         style={TOUCH_UI ? { paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' } : undefined}
       >
         <div className="flex items-center gap-3">
@@ -2694,6 +2904,19 @@ function AmbientGlow({ videoRef, onStruggle }: { videoRef: React.RefObject<HTMLV
 
 const SHORT_SCREEN = '(max-height: 520px)'
 
+// Phones held sideways: the notch or camera hole sits at the left or right edge. On touch
+// screens each edge keeps its usual spacing, or the safe area's when that's larger (zero on
+// screens without one). Written out whole so Tailwind sees each class. TVs and computers keep
+// the plain spacing (the TV's Chromium 68 knows neither env() nor max()).
+const SAFE_X_TOP = TOUCH_UI
+  ? 'pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))]'
+  : 'px-2 sm:px-4'
+const SAFE_X_BOTTOM = TOUCH_UI
+  ? 'pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]'
+  : 'px-3 sm:px-6'
+const SAFE_RIGHT_SKIP = TOUCH_UI ? 'right-[max(1rem,env(safe-area-inset-right))] sm:right-[max(2rem,env(safe-area-inset-right))]' : 'right-4 sm:right-8'
+const SAFE_RIGHT_CARD = TOUCH_UI ? 'right-[max(0.75rem,env(safe-area-inset-right))] sm:right-[max(2rem,env(safe-area-inset-right))]' : 'right-3 sm:right-8'
+
 /** End-of-episode card: the next episode's teaser clip (or still), its synopsis,
  *  and Play now (with the auto-play countdown filling it) / Cancel. */
 function UpNextCard({
@@ -2726,7 +2949,7 @@ function UpNextCard({
   const still = api.episodeThumbUrl(ep, 640)
   const runtime = formatRuntime(ep.RunTimeTicks)
   return (
-    <div className="absolute bottom-28 sm:bottom-32 right-3 sm:right-8 z-30 w-[26rem] max-w-[calc(var(--vw)*100_-_1.5rem)] overflow-hidden rounded-2xl bg-ink-900/95 border border-white/10 shadow-2xl toast-in">
+    <div className={`absolute bottom-28 sm:bottom-32 ${SAFE_RIGHT_CARD} z-30 w-[26rem] max-w-[calc(var(--vw)*100_-_1.5rem)] overflow-hidden rounded-2xl bg-ink-900/95 border border-white/10 shadow-2xl toast-in`}>
       {/* Media — skipped on short landscape phones so the card never covers the video */}
       <div className="relative aspect-video bg-ink-800 [@media(max-height:520px)]:hidden">
         {still && <img src={still} alt="" className="absolute inset-0 h-full w-full object-cover" />}

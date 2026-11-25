@@ -142,7 +142,8 @@ function run(update: () => Promise<void>) {
   html.classList.add('vt-active')
   let vt: ViewTransition | null = null
   const done = () => {
-    if (current === vt) current = null
+    if (current !== vt) return
+    current = null
     active = false
     html.classList.remove('vt-active')
     clearNames()

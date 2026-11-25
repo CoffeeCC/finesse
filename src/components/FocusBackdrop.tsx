@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 /** Living backdrop ("lean-back mode"): rest focus — or the pointer — on any
  *  card for a moment and the page background crossfades to that title's
@@ -8,6 +9,11 @@ import { useEffect, useState } from 'react'
  *  Opacity-only animation on one dimmed layer = composited and TV-cheap. */
 export default function FocusBackdrop() {
   const [layer, setLayer] = useState<{ url: string; key: number } | null>(null)
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    setLayer(null)
+  }, [pathname])
 
   useEffect(() => {
     let timer = 0

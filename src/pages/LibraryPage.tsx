@@ -251,6 +251,7 @@ export default function LibraryPage() {
         fields: 'PrimaryImageAspectRatio,ProductionYear',
       }),
   })
+  const availableLetters = useMemo(() => new Set(index?.letters ?? []), [index])
   const searchCount = searchResults ? (searchResults.TotalRecordCount ?? searchResults.Items.length) : undefined
   const narrowed = Boolean(filtersParam || genresParam)
 
@@ -410,7 +411,7 @@ export default function LibraryPage() {
 
           {index && isNameSort && index.letters.length > 1 && (
             <AlphabetRail
-              available={new Set(index.letters)}
+              available={availableLetters}
               active={activeLetter}
               onJump={jumpToLetter}
             />

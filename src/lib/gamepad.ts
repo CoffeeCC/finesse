@@ -194,9 +194,33 @@ export function giveControllerToGame(): () => void {
 }
 // A steady timer, not animation frames: frames slow down while the page is busy
 // drawing (and on a TV's CPU), and a quick tap would slip between two of them.
+// Quick while the controller is in use; after a couple of idle seconds, slower (fewer wakeups
+// on a TV that's busy playing video). The first press after a pause still lands: a press is
+// held far longer than one slow tick, and it switches straight back to the quick rate.
 let timer = 0
+let pollMs = 0
 const POLL_MS = 16
+const IDLE_POLL_MS = 50
+const IDLE_AFTER_MS = 2000
+let lastInput = 0
 const held = new Map<string, { since: number; last: number }>()
+
+function pollEvery(ms: number) {
+  if (timer && pollMs === ms) return
+  window.clearInterval(timer)
+  pollMs = ms
+  timer = window.setInterval(poll, ms)
+}
+
+/** Back off to the idle rate after a quiet spell; back to the quick rate on any input. */
+function pace(now: number, active: boolean) {
+  if (active) {
+    lastInput = now
+    pollEvery(POLL_MS)
+  } else if (now - lastInput > IDLE_AFTER_MS) {
+    pollEvery(IDLE_POLL_MS)
+  }
+}
 
 function poll() {
   // Only real controllers: a USB microphone or headset shows up as a "gamepad" too, and its
@@ -206,14 +230,17 @@ function poll() {
     held.clear()
     window.clearInterval(timer)
     timer = 0
-    return
-  }
-  if (inEmulator() || document.hidden || held_by_game > 0) {
-    held.clear()
+    pollMs = 0
     return
   }
   const now = performance.now()
+  if (inEmulator() || document.hidden || held_by_game > 0) {
+    held.clear()
+    pace(now, false)
+    return
+  }
   const down = new Set<string>()
+  let scrolling = false
   for (const p of pads) {
     const b = (i: number) => Boolean(p.buttons[i]?.pressed)
     const ax = p.axes[0] ?? 0
@@ -224,7 +251,10 @@ function poll() {
     if (b(RIGHT) || ax > STICK) down.add('right')
     for (const i of [A, B, X, Y, LB, RB, LT, RT, MENU]) if (b(i)) down.add(`b${i}`)
     const ry = p.axes[3] ?? 0
-    if (Math.abs(ry) > 0.25) window.scrollBy(0, ry * 18)
+    if (Math.abs(ry) > 0.25) {
+      scrolling = true
+      window.scrollBy(0, ry * 18)
+    }
     if (down.size && (!current || current.kind !== padKind(p.id))) {
       current = { kind: padKind(p.id), at: Date.now() }
       emit()
@@ -243,6 +273,7 @@ function poll() {
       key(...ARROWS[k])
     }
   }
+  pace(now, down.size > 0 || scrolling)
 }
 
 /** Start listening for controllers (once). */
@@ -250,7 +281,9 @@ export function initGamepad(): void {
   if (started || typeof window === 'undefined' || !('getGamepads' in navigator)) return
   started = true
   const run = () => {
-    if (!timer) timer = window.setInterval(poll, POLL_MS)
+    if (timer) return
+    lastInput = performance.now()
+    pollEvery(POLL_MS)
   }
   window.addEventListener('gamepadconnected', ((e: GamepadEvent) => {
     if (!isRealPad(e.gamepad)) return

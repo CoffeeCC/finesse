@@ -28,4 +28,16 @@ test('phones, tablets and computers keep their names', () => {
   assert.equal(deviceNameFor('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'), 'Safari on iPhone')
   assert.equal(deviceNameFor(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${CHROME} Safari/537.36 Edg/120.0.0.0`), 'Edge on Windows')
   assert.equal(deviceNameFor('anything', true), 'LG TV')
+  // iPadOS sends a desktop Mac UA with maxTouchPoints > 1.
+  assert.equal(
+    deviceNameFor('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15', false, 5),
+    'Safari on iPad',
+  )
+})
+
+test('consoles, handhelds, and Apple TV get clean names', () => {
+  assert.equal(deviceNameFor('Mozilla/5.0 (PlayStation; PlayStation 5/8.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15'), 'PlayStation 5')
+  assert.equal(deviceNameFor(`Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox Series X) ${CHROME} Safari/537.36 Edg/120.0`), 'Xbox')
+  assert.equal(deviceNameFor(`Mozilla/5.0 (X11; Linux x86_64) ${CHROME} Safari/537.36 Valve Steam Client/1700000000`), 'Steam Deck')
+  assert.equal(deviceNameFor('AppleTV11,1/17.0'), 'Apple TV')
 })

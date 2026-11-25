@@ -36,6 +36,30 @@ function enterSpatialMode() {
   document.documentElement.dataset.navMode = 'spatial'
 }
 
+// One getBoundingClientRect per element per key press: picking a target used to read every
+// candidate's rect two or three times (visibility, scoring, the on-screen check). The map
+// lives only while a press decides where to go; focusing and scrolling move things, so it's
+// dropped before either (endPress).
+let pressRects: Map<HTMLElement, DOMRect> | null = null
+
+function rectOf(el: HTMLElement): DOMRect {
+  if (!pressRects) return el.getBoundingClientRect()
+  let r = pressRects.get(el)
+  if (!r) {
+    r = el.getBoundingClientRect()
+    pressRects.set(el, r)
+  }
+  return r
+}
+
+function beginPress() {
+  pressRects = new Map()
+}
+
+function endPress() {
+  pressRects = null
+}
+
 function isVisible(el: HTMLElement): boolean {
   // Exclude display:none / visibility:hidden / content-visibility, but deliberately
   // NOT opacity:0 — rows animate in from opacity 0 (.reveal) and only get revealed
@@ -47,7 +71,7 @@ function isVisible(el: HTMLElement): boolean {
   } else if (el.offsetParent === null) {
     return false
   }
-  const r = el.getBoundingClientRect()
+  const r = rectOf(el)
   return r.width > 0 && r.height > 0
 }
 
@@ -63,8 +87,23 @@ export function invalidateNavCache() {
   cachedEls = null
 }
 
+// Scrolling invalidates the cache once it settles, not on every scroll event: each D-pad
+// press scrolls the page itself (scrollIntoView), which used to throw the cache away before
+// the next press could use it. Cards that mount on scroll render a frame or more later anyway.
+const SCROLL_SETTLE_MS = 120
+let scrollSettle = 0
+function invalidateAfterScroll() {
+  window.clearTimeout(scrollSettle)
+  scrollSettle = window.setTimeout(invalidateNavCache, SCROLL_SETTLE_MS)
+}
+
 function candidates(): HTMLElement[] {
-  if (__WEBOS__ && cachedEls && performance.now() - cachedAt < 400) return cachedEls
+  if (__WEBOS__ && cachedEls && performance.now() - cachedAt < 400) {
+    // A card unmounted since (a row re-rendered): never a target.
+    if (cachedEls.every((el) => el.isConnected)) return cachedEls
+    cachedEls = cachedEls.filter((el) => el.isConnected)
+    return cachedEls
+  }
   const els = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisible)
   if (__WEBOS__) {
     cachedEls = els
@@ -78,11 +117,28 @@ function candidates(): HTMLElement[] {
  *  68) reports rects unzoomed while scrolling and innerWidth stay in screen
  *  pixels, so a rect distance must be multiplied by the zoom to scroll it.
  *  Newer engines report both zoomed (factor 1). */
+let zoomCache: { key: string; k: number } | null = null
+
+/** Forget the cached factor (the window resized). */
+function invalidateZoom() {
+  zoomCache = null
+}
+
 function screenPerRectPx(): number {
-  const zoom = parseFloat(getComputedStyle(document.documentElement).zoom || '1') || 1
-  if (zoom === 1) return 1
-  const k = window.innerWidth / document.documentElement.getBoundingClientRect().width
-  return Math.abs(k - zoom) < 0.05 ? zoom : 1
+  // Read on every focus change and several times per key press; getComputedStyle there
+  // forced a style pass each time. The UI zoom is an inline style on <html>
+  // (lib/settings applyUiScale), so that string plus the window width says when to recompute.
+  const html = document.documentElement
+  const key = `${(html.style as unknown as Record<string, string>).zoom ?? ''}|${window.innerWidth}`
+  if (zoomCache && zoomCache.key === key) return zoomCache.k
+  const zoom = parseFloat(getComputedStyle(html).zoom || '1') || 1
+  let k = 1
+  if (zoom !== 1) {
+    const ratio = window.innerWidth / html.getBoundingClientRect().width
+    k = Math.abs(ratio - zoom) < 0.05 ? zoom : 1
+  }
+  zoomCache = { key, k }
+  return k
 }
 
 function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], currentEl: Element | null): HTMLElement | null {
@@ -106,11 +162,11 @@ function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], current
   let nearest = Infinity
   const slack = Math.max(64, 0.75 * (dir === 'up' || dir === 'down' ? current.height : current.width))
   const viewW = window.innerWidth / screenPerRectPx()
-  const scored: { el: HTMLElement; primary: number; cross: number; overlap: number }[] = []
+  const scored: { el: HTMLElement; r: DOMRect; primary: number; cross: number; overlap: number }[] = []
 
   for (const el of els) {
     if (el === currentEl) continue
-    const r = el.getBoundingClientRect()
+    const r = rectOf(el)
     const dx = r.left + r.width / 2 - cx
     const dy = r.top + r.height / 2 - cy
     let primary = 0 // distance between facing edges along the direction of travel
@@ -147,13 +203,12 @@ function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], current
     if (dir === 'right' && dx <= 0) continue
     if (dir === 'left' && dx >= 0) continue
     nearest = Math.min(nearest, Math.max(0, primary))
-    scored.push({ el, primary: Math.max(0, primary), cross, overlap })
+    scored.push({ el, r, primary: Math.max(0, primary), cross, overlap })
   }
 
-  for (const { el, primary, cross, overlap } of scored) {
+  for (const { el, r, primary, cross, overlap } of scored) {
     // Unaligned fallbacks must be on screen: at the end of a row, Right used to
     // jump to a card scrolled out of view in some other row.
-    const r = el.getBoundingClientRect()
     const onScreen = r.left + r.width / 2 >= 0 && r.left + r.width / 2 <= viewW
     if (overlap > 4 && primary <= nearest + slack) {
       // Aligned: nearest edge wins; centre alignment only breaks ties.
@@ -178,7 +233,7 @@ function bestInDirection(current: DOMRect, dir: Dir, els: HTMLElement[], current
  *  page scrolls, content above the screen used to count as "above" the navbar,
  *  and a row tucked under the navbar lost to it on Up). */
 function pick(from: HTMLElement, dir: Dir, els: HTMLElement[]): HTMLElement | null {
-  const rect = from.getBoundingClientRect()
+  const rect = rectOf(from)
   const trap = from.closest<HTMLElement>('[role="menu"], [role="listbox"], [role="dialog"], [aria-modal="true"]')
   if (trap) return bestInDirection(rect, dir, els.filter((el) => trap.contains(el)), from)
   const header = document.querySelector('header')
@@ -187,7 +242,7 @@ function pick(from: HTMLElement, dir: Dir, els: HTMLElement[]): HTMLElement | nu
     if (dir === 'up') return null
     if (dir !== 'down') return bestInDirection(rect, dir, els.filter(inHeader), from)
     const below = header!.getBoundingClientRect().bottom
-    return bestInDirection(rect, dir, els.filter((el) => !inHeader(el) && el.getBoundingClientRect().bottom > below), from)
+    return bestInDirection(rect, dir, els.filter((el) => !inHeader(el) && rectOf(el).bottom > below), from)
   }
   const content = els.filter((el) => !inHeader(el))
   const next = bestInDirection(rect, dir, content, from)
@@ -233,7 +288,7 @@ function nearLastFocus(els: HTMLElement[]): HTMLElement | null {
   let bestD = Infinity
   const k = screenPerRectPx()
   for (const el of els) {
-    const r = el.getBoundingClientRect()
+    const r = rectOf(el)
     const d = Math.hypot(r.left + r.width / 2 + window.scrollX / k - lastFocus.x, r.top + r.height / 2 + window.scrollY / k - lastFocus.y)
     if (d < bestD) {
       bestD = d
@@ -333,6 +388,17 @@ function backToOpener(els: HTMLElement[]): HTMLElement | null {
 }
 
 function onKeyDown(e: KeyboardEvent) {
+  beginPress()
+  try {
+    navigate(e)
+  } finally {
+    endPress()
+  }
+}
+
+// Rects read after this press focuses or scrolls (keepClear, rememberFocus) are read fresh:
+// they call getBoundingClientRect directly, not rectOf.
+function navigate(e: KeyboardEvent) {
   if (e.altKey || e.ctrlKey || e.metaKey) return
   const dir = dirFor(e)
   if (!dir) return
@@ -416,13 +482,23 @@ function onKeyDown(e: KeyboardEvent) {
   playNav(next)
 }
 
+// During jumpRow: each node's scroller, so cards in the same row share one walk up the tree
+// (it read getComputedStyle on every ancestor of every card, once per card and again per row).
+let scrollerMemo: WeakMap<HTMLElement, HTMLElement | null> | null = null
+
+/** The nearest horizontal scroller at or above `n` (stopping at <body> / <main>). */
+function scrollerFrom(n: HTMLElement | null): HTMLElement | null {
+  if (!n || n === document.body || n.tagName === 'MAIN') return null
+  if (scrollerMemo?.has(n)) return scrollerMemo.get(n)!
+  const ox = getComputedStyle(n).overflowX
+  const found = ox === 'auto' || ox === 'scroll' ? n : scrollerFrom(n.parentElement)
+  scrollerMemo?.set(n, found)
+  return found
+}
+
 /** The horizontal scroller (a row of cards) an element sits in, if any. */
 function scrollerOf(el: HTMLElement): HTMLElement | null {
-  for (let n: HTMLElement | null = el.parentElement; n && n !== document.body && n.tagName !== 'MAIN'; n = n.parentElement) {
-    const ox = getComputedStyle(n).overflowX
-    if (ox === 'auto' || ox === 'scroll') return n
-  }
-  return null
+  return scrollerFrom(el.parentElement)
 }
 
 /** A card's row: the section (title, "See all", cards) its scroller sits in, or the scroller itself. */
@@ -448,13 +524,13 @@ function rowOfFocused(el: HTMLElement): HTMLElement | null {
 function nearestX(pool: HTMLElement[], cx: number): HTMLElement {
   const viewW = window.innerWidth / screenPerRectPx()
   const onScreen = pool.filter((el) => {
-    const r = el.getBoundingClientRect()
+    const r = rectOf(el)
     return r.right > 0 && r.left < viewW
   })
   let next = (onScreen.length ? onScreen : pool)[0]
   let nd = Infinity
   for (const el of onScreen.length ? onScreen : pool) {
-    const r = el.getBoundingClientRect()
+    const r = rectOf(el)
     const d = Math.abs(r.left + r.width / 2 - cx)
     if (d < nd) {
       nd = d
@@ -471,12 +547,23 @@ function nearestX(pool: HTMLElement[], cx: number): HTMLElement {
  * as they come near, so with none rendered yet it scrolls on and the next press lands.
  */
 export function jumpRow(dir: 'up' | 'down') {
+  beginPress()
+  scrollerMemo = new WeakMap()
+  try {
+    jump(dir)
+  } finally {
+    scrollerMemo = null
+    endPress()
+  }
+}
+
+function jump(dir: 'up' | 'down') {
   enterSpatialMode()
   const els = candidates().filter((el) => !el.closest('header'))
   if (!els.length) return
   const active = document.activeElement as HTMLElement | null
   const from = active && active !== document.body && els.includes(active) ? active : nearLastFocus(els) ?? els[0]
-  const fr = from.getBoundingClientRect()
+  const fr = rectOf(from)
   const cx = fr.left + fr.width / 2
   const k = screenPerRectPx()
   const viewH = window.innerHeight / k
@@ -484,12 +571,12 @@ export function jumpRow(dir: 'up' | 'down') {
   const curRow = rowOfFocused(from)
   if (curRow) {
     // Rows of cards: the nearest other row that way, and only its cards.
-    const cur = curRow.getBoundingClientRect()
+    const cur = rectOf(curRow)
     const rows = new Map<HTMLElement, HTMLElement[]>()
     for (const el of els) {
       const row = rowOf(el)
       if (!row || row === curRow || !scrollerOf(el)) continue
-      const r = row.getBoundingClientRect()
+      const r = rectOf(row)
       if (dir === 'down' ? r.top < cur.bottom - 4 : r.bottom > cur.top + 4) continue
       const list = rows.get(row) ?? []
       list.push(el)
@@ -498,7 +585,7 @@ export function jumpRow(dir: 'up' | 'down') {
     let best: HTMLElement[] | null = null
     let edge = dir === 'down' ? Infinity : -Infinity
     for (const [row, list] of rows) {
-      const r = row.getBoundingClientRect()
+      const r = rectOf(row)
       if (dir === 'down' ? r.top < edge : r.bottom > edge) {
         edge = dir === 'down' ? r.top : r.bottom
         best = list
@@ -509,22 +596,22 @@ export function jumpRow(dir: 'up' | 'down') {
     // A grid: the line about a screen away (or the last one that way).
     const reach = viewH * 0.8
     const way = els.filter((el) => {
-      const r = el.getBoundingClientRect()
+      const r = rectOf(el)
       return dir === 'down' ? r.top > fr.bottom - 4 : r.bottom < fr.top + 4
     })
     if (way.length) {
       const target = dir === 'down' ? fr.top + reach : fr.top - reach
-      let lineTop = way[0].getBoundingClientRect().top
+      let lineTop = rectOf(way[0]).top
       let ld = Infinity
       for (const el of way) {
-        const t = el.getBoundingClientRect().top
+        const t = rectOf(el).top
         const d = Math.abs(t - target)
         if (d < ld) {
           ld = d
           lineTop = t
         }
       }
-      next = nearestX(way.filter((el) => Math.abs(el.getBoundingClientRect().top - lineTop) < 8), cx)
+      next = nearestX(way.filter((el) => Math.abs(rectOf(el).top - lineTop) < 8), cx)
     }
   }
   if (!next) {
@@ -591,7 +678,11 @@ export function useSpatialNavigation() {
   useEffect(() => {
     const opts: AddEventListenerOptions = { capture: true }
     const scrollOpts: AddEventListenerOptions = { capture: true, passive: true }
-    const onScroll = () => invalidateNavCache()
+    const onScroll = () => invalidateAfterScroll()
+    const onResize = () => {
+      invalidateZoom()
+      invalidateNavCache()
+    }
     // Pointer / programmatic focus counts too (Magic Remote clicks, routeMemory).
     const onFocusIn = (e: FocusEvent) => {
       if (e.target instanceof HTMLElement && e.target !== document.body) rememberFocus(e.target)
@@ -602,12 +693,15 @@ export function useSpatialNavigation() {
     // Any scroll (window or a horizontal row) can mount/unmount virtualized
     // cards — a stale cached candidate list is what made held-key nav skip them.
     window.addEventListener('scroll', onScroll, scrollOpts)
+    window.addEventListener('resize', onResize)
     // Landing focus on each page (TV) is handled by lib/routeMemory.
     return () => {
       window.removeEventListener('keydown', onKeyDown, opts)
       window.removeEventListener('focusin', onFocusIn, opts)
       window.removeEventListener('focusout', keepFocusThroughRerenders, opts)
       window.removeEventListener('scroll', onScroll, scrollOpts)
+      window.removeEventListener('resize', onResize)
+      window.clearTimeout(scrollSettle)
     }
   }, [])
 }

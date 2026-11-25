@@ -372,7 +372,14 @@ export default function NowPlaying() {
     `h-9 px-4 rounded-full text-sm font-semibold transition-colors ${active ? 'bg-white text-ink-950' : 'text-white/70 hover:text-white hover:bg-white/10'}`
 
   const topBar = (
-      <div className="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 sm:px-6 pt-4" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
+      <div
+        className="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 sm:px-6 pt-4"
+        style={{
+          paddingTop: 'max(1rem, env(safe-area-inset-top))',
+          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        }}
+      >
         <button
           onClick={() => setExpanded(false)}
           className="h-10 w-10 shrink-0 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center transition-colors"

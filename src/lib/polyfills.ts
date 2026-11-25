@@ -57,6 +57,19 @@ if (typeof Array.prototype.flatMap !== 'function') {
   })
 }
 
+// Chromium 92 — Array.prototype.at (frame-drop sampling, setup's SMTP presets).
+if (typeof Array.prototype.at !== 'function') {
+  Object.defineProperty(Array.prototype, 'at', {
+    configurable: true,
+    writable: true,
+    value: function at(this: unknown[], index: number): unknown {
+      const n = Math.trunc(Number(index)) || 0
+      const i = n < 0 ? this.length + n : n
+      return i < 0 || i >= this.length ? undefined : this[i]
+    },
+  })
+}
+
 // Chromium 85.
 if (typeof String.prototype.replaceAll !== 'function') {
   Object.defineProperty(String.prototype, 'replaceAll', {

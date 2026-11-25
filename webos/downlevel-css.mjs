@@ -148,7 +148,27 @@ export function spaceYYieldsToChildMargins(css) {
   })
 }
 
+// One inlined font file in a src: list: url(data:font/woff;base64,…) format("woff").
+const WOFF_SRC = String.raw`url\(\s*["']?data:font\/woff;base64,[^)"']*["']?\s*\)\s*format\(\s*["']?woff["']?\s*\)`
+
+/**
+ * Every webOS TV reads woff2 (Chromium 36+), so a @font-face that inlines both a woff2 and a
+ * woff copy carries the woff one as dead weight (a few hundred kB of base64 in app.css, parsed
+ * on every launch). Drop the woff entries wherever a woff2 one sits in the same @font-face.
+ */
+export function dropWoffFallbacks(css) {
+  return css.replace(/@font-face\s*\{[^}]*\}/g, (block) => {
+    if (!/data:font\/woff2|format\(\s*["']?woff2["']?\s*\)/.test(block)) return block
+    return block
+      .replace(new RegExp(`\\s*,\\s*${WOFF_SRC}`, 'g'), '')
+      .replace(new RegExp(`${WOFF_SRC}\\s*,\\s*`, 'g'), '')
+  })
+}
+
 export function downlevelCss(css) {
+  // 0. Inlined woff fonts next to their woff2 twins: never used on a TV.
+  css = dropWoffFallbacks(css)
+
   // 1. Drop `@layer a, b, c;` ordering statements.
   css = css.replace(/@layer[^{};]*;/g, '')
 

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as api from '../api/client'
 import { secondsToTicks } from '../api/types'
 import type { JfItem } from '../api/types'
@@ -350,13 +350,75 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [current, prev, next, startPlayback])
 
+  // Keep OS lock-screen / media-control playback state and scrubber in sync.
+  useEffect(() => {
+    const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined
+    if (!ms) return
+    try {
+      ms.playbackState = !current ? 'none' : playing ? 'playing' : 'paused'
+    } catch {
+      /* ignore */
+    }
+  }, [current, playing])
+
+  const lastPosSyncRef = useRef(-1)
+  useEffect(() => {
+    const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined
+    if (!ms || typeof ms.setPositionState !== 'function' || !current) return
+    if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(position)) return
+    const whole = Math.floor(position)
+    if (whole === lastPosSyncRef.current) return
+    lastPosSyncRef.current = whole
+    try {
+      ms.setPositionState({
+        duration,
+        playbackRate: 1,
+        position: Math.max(0, Math.min(position, duration)),
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [current, position, duration])
+
+  // Keep the screen awake while full-screen Now Playing / Lyric Video is active.
+  useEffect(() => {
+    if (!expanded || !playing || typeof navigator === 'undefined') return
+    const wl = (navigator as Navigator & { wakeLock?: { request(t: 'screen'): Promise<{ release(): Promise<void> }> } }).wakeLock
+    if (!wl) return
+    let sentinel: { release(): Promise<void> } | null = null
+    let active = true
+    const acquire = () => {
+      if (!active || document.visibilityState !== 'visible') return
+      wl.request('screen').then(
+        (s) => {
+          if (!active) void s.release().catch(() => {})
+          else sentinel = s
+        },
+        () => {},
+      )
+    }
+    acquire()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') acquire()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVis)
+      void sentinel?.release().catch(() => {})
+    }
+  }, [expanded, playing])
+
+  const value = useMemo<AudioState>(
+    () => ({
+      queue, index, current, playing, position, duration, expanded, setExpanded, getAnalyser,
+      playQueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat,
+    }),
+    [queue, index, current, playing, position, duration, expanded, getAnalyser, playQueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat],
+  )
+
   return (
-    <Ctx.Provider
-      value={{
-        queue, index, current, playing, position, duration, expanded, setExpanded, getAnalyser,
-        playQueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat,
-      }}
-    >
+    <Ctx.Provider value={value}>
       {children}
       <audio
         ref={audioRef}

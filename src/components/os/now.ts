@@ -153,12 +153,13 @@ function sessionEntry(s: JfSession, artWidth: number): NowEntry | null {
   }
 }
 
-/** Everyone's sessions this account can see (administrators see the whole house). */
+/** Everyone's sessions this account can see (administrators see the whole house).
+ *  Polls briskly (15s) while something is playing; relaxes to 45s when the house is quiet. */
 export function useHouse() {
   return useQuery({
     queryKey: ['house'],
     queryFn: () => api.getSessions(),
-    refetchInterval: 15_000,
+    refetchInterval: (q) => (q.state.data?.some((s) => s.NowPlayingItem) ? 15_000 : 45_000),
     refetchOnWindowFocus: true,
     staleTime: 5_000,
     retry: false,

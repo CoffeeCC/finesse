@@ -78,7 +78,7 @@ function buildRows(
 const PAD = 'px-4 sm:px-6 lg:px-12'
 
 function RowFrame({
-  desc, customizing, collapsed, hidden, empty, first, last, onMove, onToggleCollapse, onToggleHide, onCustomize, onEmpty,
+  desc, customizing, collapsed, hidden, empty, first, last, move, toggle, onHideRow, onCustomize, onEmpty,
 }: {
   desc: RowDesc
   customizing: boolean
@@ -88,11 +88,14 @@ function RowFrame({
   hidden: boolean
   first: boolean
   last: boolean
-  onMove: (dir: number) => void
-  onToggleCollapse: () => void
-  onToggleHide: () => void
+  move: (key: string, dir: number) => void
+  toggle: (list: keyof HomeLayout, key: string) => void
+  onHideRow: (desc: RowDesc) => void
   onCustomize: () => void
 }) {
+  const onMove = useCallback((dir: number) => move(desc.key, dir), [move, desc.key])
+  const onToggleCollapse = useCallback(() => toggle('collapsed', desc.key), [toggle, desc.key])
+  const onToggleHide = useCallback(() => onHideRow(desc), [onHideRow, desc])
   const controls = useMemo(
     () => ({
       onHide: onToggleHide,
@@ -289,21 +292,36 @@ export default function HomePage() {
   const orderedRows = orderedKeys.map((k) => byKey.get(k)!).filter(Boolean)
   const visibleRows = customizing ? orderedRows : orderedRows.filter((r) => !layout.hidden.includes(r.key))
 
-  const move = (key: string, dir: number) => {
-    const keys = orderedKeys.slice()
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
+  const orderedKeysRef = useRef(orderedKeys)
+  orderedKeysRef.current = orderedKeys
+
+  const move = useCallback((key: string, dir: number) => {
+    const keys = orderedKeysRef.current.slice()
     const i = keys.indexOf(key)
     const j = i + dir
     if (j < 0 || j >= keys.length) return
     ;[keys[i], keys[j]] = [keys[j], keys[i]]
-    setDraft({ ...layout, order: keys })
-  }
-  const toggle = (list: keyof HomeLayout, key: string) => {
-    const cur = layout[list] as string[]
+    setDraft({ ...layoutRef.current, order: keys })
+  }, [])
+  const toggle = useCallback((list: keyof HomeLayout, key: string) => {
+    const cur = layoutRef.current[list] as string[]
     const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]
-    setDraft({ ...layout, [list]: next })
-  }
+    setDraft({ ...layoutRef.current, [list]: next })
+  }, [])
+  const openCustomize = useCallback(() => {
+    setCustomizing(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
   const addGenre = (g: string) => setDraft({ ...layout, added: [...layout.added, g] })
   const resetLayout = () => setDraft({ hidden: [], collapsed: [], order: [], added: [] })
+
+  const onHideRow = useCallback((r: RowDesc) => {
+    const hiding = !layoutRef.current.hidden.includes(r.key)
+    toggle('hidden', r.key)
+    if (hiding && !customizing) toast(`Hid “${r.title}”. Bring it back from Customize Home.`)
+  }, [toggle, customizing, toast])
 
   const availableGenres = allGenres.filter((g) => !shownGenres.includes(g))
 
@@ -332,17 +350,10 @@ export default function HomePage() {
             onEmpty={onRowEmpty}
             first={i === 0}
             last={i === visibleRows.length - 1}
-            onMove={(dir) => move(r.key, dir)}
-            onToggleCollapse={() => toggle('collapsed', r.key)}
-            onToggleHide={() => {
-              const hiding = !layout.hidden.includes(r.key)
-              toggle('hidden', r.key)
-              if (hiding && !customizing) toast(`Hid “${r.title}”. Bring it back from Customize Home.`)
-            }}
-            onCustomize={() => {
-              setCustomizing(true)
-              window.scrollTo({ top: 0, behavior: 'smooth' })
-            }}
+            move={move}
+            toggle={toggle}
+            onHideRow={onHideRow}
+            onCustomize={openCustomize}
           />
         ))}
 

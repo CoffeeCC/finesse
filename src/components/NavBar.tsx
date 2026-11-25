@@ -165,15 +165,22 @@ export default function NavBar() {
     <header
       // No bottom border: a transparent one repeated the fade's dark top row as a
       // hairline under the bar. The scrolled bar's shadow separates it instead.
-      className={`vt-nav fixed top-0 inset-x-0 z-50 h-16 transition-all duration-500 ${
+      className={`vt-nav fixed top-0 inset-x-0 z-50 transition-all duration-500 ${
         scrolled
           ? lux
             ? 'bg-ink-950/55 backdrop-blur-2xl backdrop-saturate-150 shadow-lg shadow-black/25'
             : 'bg-ink-950/70 backdrop-blur-xl shadow-lg shadow-black/20'
           : 'bg-gradient-to-b from-ink-950/70 to-transparent'
       }`}
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <div className={`h-full max-w-[1800px] mx-auto px-4 sm:px-6 flex items-center ${lux ? 'gap-2 lg:px-12' : 'gap-2'}`}>
+      <div
+        className={`h-16 max-w-[1800px] mx-auto px-4 sm:px-6 flex items-center ${lux ? 'gap-2 lg:px-12' : 'gap-2'}`}
+        style={{
+          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        }}
+      >
         {lux ? (
           <Link to="/" className="font-display italic text-[30px] leading-none tracking-tight text-white mr-5 shrink-0">
             Finesse<span style={{ color: 'rgb(var(--mood-rgb, 117, 137, 216))', transition: 'color 1s ease' }}>.</span>

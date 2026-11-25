@@ -154,6 +154,22 @@ export default defineConfig(({ mode }) => {
             },
           },
         }
-      : {}),
+      : {
+          build: {
+            rollupOptions: {
+              output: {
+                // Libraries in files of their own: a release that only changes the app
+                // leaves them cached, so an update downloads the app, not React again.
+                manualChunks(id: string) {
+                  if (!id.includes('/node_modules/')) return undefined
+                  if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react'
+                  if (/\/node_modules\/(react-router|react-router-dom|@remix-run\/router|cookie|set-cookie-parser)\//.test(id)) return 'vendor-router'
+                  if (/\/node_modules\/@tanstack\//.test(id)) return 'vendor-tanstack'
+                  return undefined
+                },
+              },
+            },
+          },
+        }),
   }
 })

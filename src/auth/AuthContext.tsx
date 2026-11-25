@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
 import type { Session } from '../api/client'
+import { resetPreviewState } from '../lib/preview'
 
 interface AuthState {
   session: Session | null
@@ -15,18 +16,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<Session | null>(api.getSession())
   const queryClient = useQueryClient()
 
-  const login = async (server: string, username: string, password: string) => {
+  const login = useCallback(async (server: string, username: string, password: string) => {
     const s = await api.login(server.replace(/\/+$/, ''), username, password)
     setSessionState(s)
-  }
+  }, [])
 
-  const logout = () => {
+  const logout = useCallback(() => {
     api.logout()
+    resetPreviewState()
     setSessionState(null)
     queryClient.clear()
-  }
+  }, [queryClient])
 
-  return <AuthContext.Provider value={{ session, login, logout }}>{children}</AuthContext.Provider>
+  const value = useMemo(() => ({ session, login, logout }), [session, login, logout])
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthState {

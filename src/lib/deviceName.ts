@@ -1,6 +1,6 @@
 // How a device shows up in Jellyfin's session list, and so in Remote and every "Play on…" menu.
-// TVs first: Android TV, Google TV, Fire TV and Shield all say "Android" too, and used to be
-// called an Android tablet (or phone). ASCII only: it goes in an HTTP header.
+// TVs and consoles first: Android TV, Google TV, Fire TV and Shield all say "Android" too, and
+// used to be called an Android tablet (or phone). ASCII only: it goes in an HTTP header.
 
 const TVS: [RegExp, string][] = [
   [/Web0S|webOS|NetCast/, 'LG TV'],
@@ -16,16 +16,26 @@ const TVS: [RegExp, string][] = [
   [/CrKey|Chromecast/, 'Chromecast'],
   [/GoogleTV|Google TV/, 'Google TV'],
   [/Android TV|AndroidTV/, 'Android TV'],
+  [/AppleTV/, 'Apple TV'],
+  [/Roku/, 'Roku TV'],
+  [/PlayStation 5/, 'PlayStation 5'],
+  [/PlayStation 4/, 'PlayStation 4'],
+  [/PlayStation/, 'PlayStation'],
+  [/Xbox/, 'Xbox'],
+  [/Steam Deck|Valve Steam|SteamOS/, 'Steam Deck'],
+  [/Nintendo Switch/, 'Nintendo Switch'],
   [/SMART-TV|SmartTV|HbbTV|Opera TV|OPR\/[\d.]+ TV/, 'Smart TV'],
 ]
 
-export function deviceNameFor(ua: string, webos = false): string {
+export function deviceNameFor(ua: string, webos = false, maxTouchPoints = 0): string {
   if (webos) return 'LG TV'
   const tv = TVS.find(([re]) => re.test(ua))
   if (tv) return tv[1]
+  // Modern iPadOS sends a desktop Macintosh UA; maxTouchPoints > 1 distinguishes it from a Mac.
+  const isIpadDesktopUa = /Macintosh/.test(ua) && maxTouchPoints > 1
   const device = /iPhone/.test(ua)
     ? 'iPhone'
-    : /iPad|Macintosh.*Mobile/.test(ua)
+    : /iPad|Macintosh.*Mobile/.test(ua) || isIpadDesktopUa
       ? 'iPad'
       : /Android/.test(ua)
         ? /Mobile/.test(ua) ? 'Android phone' : 'Android tablet'

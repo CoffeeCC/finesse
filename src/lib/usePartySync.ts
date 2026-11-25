@@ -32,11 +32,19 @@ export function usePartySync(
     done.current = false
     let stopped = false
     let fails = 0
+    // One heartbeat at a time: on a slow link, overlapping beats answered out of order
+    // steered playback back to an older clock.
+    let beating = false
+    // The newest server clock seen; an older reply (a slow beat, a control answer) is ignored.
+    let newest = -Infinity
     const t0 = Date.now()
     const take = (v: PartyView, sent: number) => {
+      if (v.serverNow < newest) return false
+      newest = v.serverNow
       offset.current = clockOffset(sent, Date.now(), v.serverNow)
       viewRef.current = v
       setState((s) => ({ ...s, view: v }))
+      return true
     }
     const follow = () => {
       const v = viewRef.current
@@ -57,20 +65,20 @@ export function usePartySync(
           setState({ view: null, error: 'That party is watching something else.', lost: null })
           return
         }
-        take(v, t0)
-        follow()
+        if (take(v, t0)) follow()
       },
       (e: Error) => !stopped && setState({ view: null, error: e.message, lost: null }),
     )
     const timer = window.setInterval(async () => {
-      if (!viewRef.current || done.current) return
+      if (!viewRef.current || done.current || beating) return
+      beating = true
       const sent = Date.now()
       try {
         const v = await beatParty(partyId, live.current.position(), live.current.buffering)
-        if (stopped) return
+        // Left (or the party ended) while this beat was out: don't bring it back.
+        if (stopped || done.current) return
         fails = 0
-        take(v, sent)
-        follow()
+        if (take(v, sent)) follow()
       } catch (e) {
         if (++fails >= 5 || /over|not invited|join/i.test((e as Error).message)) {
           done.current = true
@@ -78,6 +86,8 @@ export function usePartySync(
           if (live.current.videoRef.current) live.current.videoRef.current.playbackRate = 1
           setState((s) => ({ ...s, view: null, lost: /over|not invited/i.test((e as Error).message) ? 'The watch party is over. Carrying on here on your own.' : 'Lost touch with the watch party. Carrying on here on your own.' }))
         }
+      } finally {
+        beating = false
       }
     }, 1000)
 
@@ -85,7 +95,13 @@ export function usePartySync(
     const video = o.videoRef.current
     const send = (action: 'play' | 'pause' | 'seek', position?: number) => {
       if (!viewRef.current || done.current || Date.now() < quietUntil.current) return
-      controlParty(partyId, action, position).then((v) => take(v, Date.now()), () => {})
+      const sent = Date.now()
+      controlParty(partyId, action, position).then(
+        (v) => {
+          if (!stopped && !done.current) take(v, sent)
+        },
+        () => {},
+      )
     }
     const onPlay = () => send('play')
     const onPause = () => {

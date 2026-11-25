@@ -33,10 +33,11 @@
 html {
   background: var(--color-ink-950);
   color-scheme: dark;
-  /* Phones: no grey flash on every tap, no text inflation in landscape. */
+  /* Phones: no grey flash on every tap, no text inflation in landscape, no rubber-band bounce. */
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  overscroll-behavior-y: none;
 }
 
 /* ---------- Keyboard / TV-remote focus ---------- */
@@ -182,23 +183,22 @@ video[data-cues-hidden]::-webkit-media-text-track-container {
   width: 55vw;
   height: 55vw;
   border-radius: 9999px;
-  filter: blur(90px);
   will-change: transform;
 }
 .aurora > div:nth-child(1) {
-  background: radial-gradient(circle, rgba(98, 121, 205, 0.16), transparent 65%);
+  background: radial-gradient(circle, rgba(98, 121, 205, 0.14), rgba(98, 121, 205, 0.05) 38%, transparent 70%);
   top: -18vw;
   left: -10vw;
   animation: drift-a 46s ease-in-out infinite alternate;
 }
 .aurora > div:nth-child(2) {
-  background: radial-gradient(circle, rgba(146, 90, 191, 0.11), transparent 65%);
+  background: radial-gradient(circle, rgba(146, 90, 191, 0.10), rgba(146, 90, 191, 0.03) 38%, transparent 70%);
   bottom: -22vw;
   right: -12vw;
   animation: drift-b 58s ease-in-out infinite alternate;
 }
 .aurora > div:nth-child(3) {
-  background: radial-gradient(circle, rgba(56, 130, 196, 0.09), transparent 65%);
+  background: radial-gradient(circle, rgba(56, 130, 196, 0.08), rgba(56, 130, 196, 0.025) 38%, transparent 70%);
   top: 30vh;
   left: 35vw;
   animation: drift-c 70s ease-in-out infinite alternate;
@@ -281,9 +281,8 @@ html.tv .ambilight {
 .tilt {
   transform-style: preserve-3d;
   /* Transform only: the compositor runs it at the display's own rate (120 Hz
-     and up) without repainting the poster. */
+     and up) without repainting the poster. Avoid permanent will-change on 100+ cards. */
   transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: transform;
 }
 /* Mouse hover: a small, fixed lift — the card doesn't chase the pointer. */
 @media (hover: hover) and (pointer: fine) {
@@ -680,6 +679,12 @@ html[data-motion="reduce"] .hero-scroll {
   --vh: 1vh;
   --vw: 1vw;
 }
+@supports (height: 100dvh) {
+  :root {
+    --vh: 1dvh;
+    --vw: 1dvw;
+  }
+}
 
 /* D-pad navigation positions rows itself. Snapping and smooth scrolling fight
    it: each press interrupted the last smooth scroll, then proximity snapping
@@ -1035,14 +1040,12 @@ html.tv .lv-line.leaving {
 .os-orb {
   position: absolute;
   border-radius: 9999px;
-  filter: blur(110px);
-  mix-blend-mode: screen;
   pointer-events: none;
-  background-color: rgb(var(--tint-rgb));
-  transition: background-color 1.2s ease;
+  background: radial-gradient(closest-side, rgba(var(--tint-rgb), 0.72), rgba(var(--tint-rgb), 0.24) 48%, transparent 75%);
+  will-change: transform;
 }
-.os-orb.a { width: 62vw; height: 40vw; left: -14vw; bottom: -24vw; opacity: 0.4; animation: os-orb-a 18s ease-in-out infinite alternate; }
-.os-orb.b { width: 46vw; height: 32vw; right: -12vw; top: -18vw; opacity: 0.22; animation: os-orb-b 23s ease-in-out infinite alternate; }
+.os-orb.a { width: 68vw; height: 46vw; left: -16vw; bottom: -24vw; opacity: 0.44; animation: os-orb-a 18s ease-in-out infinite alternate; }
+.os-orb.b { width: 52vw; height: 38vw; right: -14vw; top: -18vw; opacity: 0.24; animation: os-orb-b 23s ease-in-out infinite alternate; }
 @keyframes os-orb-a { to { transform: translate(14vw, -4vw) scale(1.18); } }
 @keyframes os-orb-b { to { transform: translate(-10vw, 5vw) scale(0.86); } }
 
@@ -1156,15 +1159,30 @@ html.tv .lv-line.leaving {
 .os-btn:hover { transform: translateY(-1px); }
 .os-btn:active { transform: scale(0.97); }
 @media (min-width: 640px) { .os-btn { height: 56px; padding: 0 28px; font-size: 17px; } }
-.os-btn.primary { background: #f5f3ee; color: #08090e; animation: os-breathe 3.4s ease-in-out infinite; }
+.os-btn.primary {
+  position: relative;
+  background: #f5f3ee;
+  color: #08090e;
+  box-shadow: 0 18px 50px -14px rgba(var(--tint-rgb), 0.9);
+}
+.os-btn.primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.2), 0 22px 64px -8px rgba(var(--tint-rgb), 0.95);
+  opacity: 0;
+  animation: os-breathe 3.4s ease-in-out infinite;
+}
 .os-btn.primary:hover { background: #fff; }
 .os-btn.icon { width: 48px; padding: 0; }
 @media (min-width: 640px) { .os-btn.icon { width: 56px; } }
 /* Start over next to Resume: a round icon on a phone (the row is full there), words from sm up. */
 @media (max-width: 639px) { .os-btn.os-restart { width: 48px; padding: 0; } .os-btn.os-restart > span { display: none; } }
 @keyframes os-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4), 0 18px 50px -14px rgba(var(--tint-rgb), 0.95); }
-  50% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0), 0 22px 70px -8px rgba(var(--tint-rgb), 0.95); }
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 .os-prog { height: 5px; width: min(460px, 100%); border-radius: 9999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
 .os-prog > i { display: block; height: 100%; border-radius: 9999px; background: linear-gradient(90deg, #f5f3ee, rgb(var(--tint-rgb))); }
@@ -1199,27 +1217,24 @@ html.tv .lv-line.leaving {
   text-align: left;
   scroll-snap-align: start;
   opacity: 0.72;
-  filter: saturate(0.85) brightness(0.9);
+  transform: scale(1);
+  transform-origin: center bottom;
   box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.85);
-  -webkit-box-reflect: below 10px linear-gradient(transparent 76%, rgba(255, 255, 255, 0.13));
-  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease, filter 0.4s ease, box-shadow 0.6s ease;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease;
 }
-@media (min-width: 768px) { .os-tile { width: clamp(220px, 19vw, 330px); border-radius: 20px; } }
+@media (min-width: 768px) { .os-tile { width: clamp(232px, 20vw, 356px); border-radius: 20px; } }
 .os-tile.on {
-  width: clamp(240px, 74vw, 300px);
+  z-index: 2;
   opacity: 1;
-  filter: none;
+  transform: scale(1.06);
   box-shadow:
     0 0 0 3px #f5f3ee,
     0 0 0 9px rgba(255, 255, 255, 0.1),
-    0 30px 90px -20px rgba(var(--t), 0.95),
-    0 0 150px -30px rgba(var(--t), 0.9);
+    0 24px 68px -18px rgba(var(--t), 0.9);
 }
-@media (min-width: 768px) { .os-tile.on { width: clamp(270px, 24vw, 424px); } }
 /* Touch: the row is scrolled by hand and the stage follows it, so the chosen
-   tile keeps its size (a growing tile would shift the row under the finger). */
-@media (hover: none) { .os-tile.on { width: clamp(208px, 64vw, 260px); } }
-@media (hover: none) and (min-width: 768px) { .os-tile.on { width: clamp(220px, 19vw, 330px); } }
+   tile keeps its scale (a growing tile would crowd neighbors under the finger). */
+@media (hover: none) { .os-tile.on { transform: scale(1); } }
 .os-tile:focus-visible { outline: none; }
 .os-tile .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 1.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .os-tile.on .art { transform: scale(1.07); }
@@ -1296,10 +1311,10 @@ html.tv .lv-line.leaving {
 @keyframes os-tgrid { to { background-position: 0 30px, 0 0; } }
 .os-tile .tgen .word { position: absolute; left: 14px; top: 12px; font-family: var(--font-display); font-style: italic; font-size: 32px; line-height: 1; text-shadow: 0 0 24px rgb(var(--t)); }
 .os-eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 11px; }
-.os-eq > i { width: 2.5px; background: currentColor; border-radius: 2px; animation: os-eq 1s ease-in-out infinite alternate; }
+.os-eq > i { width: 2.5px; height: 11px; background: currentColor; border-radius: 2px; transform-origin: bottom; animation: os-eq 1s ease-in-out infinite alternate; }
 .os-eq > i:nth-child(2) { animation-delay: 0.2s; }
 .os-eq > i:nth-child(3) { animation-delay: 0.45s; }
-@keyframes os-eq { from { height: 2px; } to { height: 11px; } }
+@keyframes os-eq { from { transform: scaleY(0.2); } to { transform: scaleY(1); } }
 
 /* ---- What's happening (the ticker under the rail) ---- */
 .os-live { display: flex; align-items: center; gap: 14px; padding: 0 var(--os-pad) 18px; }
@@ -1324,9 +1339,14 @@ html.tv .lv-line.leaving {
   80%, 100% { box-shadow: 0 0 0 10px rgba(91, 227, 141, 0); }
 }
 
+html[data-overlay='open'] .os-scene *,
+html[data-overlay='open'] .aurora > div {
+  animation-play-state: paused !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .os-bd.on, .os-bd.soft.on, .os-orb, .os-gen .sun, .os-gen .floor, .os-hero > *,
-  .os-btn.primary, .os-tile::after, .os-tile .tgen .tfloor, .os-eq > i, .os-live .run,
+  .os-btn.primary, .os-btn.primary::after, .os-tile::after, .os-tile .tgen .tfloor, .os-eq > i, .os-live .run,
   .os-sheet-in, .os-fade-in, .os-stripes, .os-ping {
     animation: none !important;
   }
@@ -1337,9 +1357,13 @@ html.tv .lv-line.leaving {
    Chromium 68 on the LG CX has no aspect-ratio, clamp() or flex gap, and its
    SoC can't afford live blurs, glows, reflections or animated layouts. Same
    art, type and layout; plain fades instead of the expensive effects. */
+html.tv .grain { display: none !important; }
 html.tv .os-stage { min-height: calc(var(--vh) * 100); }
 html.tv .os-orb,
 html.tv .os-tile::after { display: none; }
+html.tv .os-live .run,
+html.tv .os-eq > i,
+html.tv .os-stripes { animation: none !important; }
 html.tv .os-bd { transition: opacity 0.6s ease; transform: none; }
 html.tv .os-bd.on { animation: none; transform: none; }
 html.tv .os-bd.soft { filter: brightness(0.45) saturate(1.2); transform: scale(1.1); }
@@ -1383,9 +1407,11 @@ html.tv .os-live > * + * { margin-left: 14px; }
 html.tv .os-live .run > * + * { margin-left: 44px; }
 html.tv .os-live .ev > * + * { margin-left: 9px; }
 html.tv .os-eq > * + * { margin-left: 2px; }
-/* No blur to frost it, so the TV's glass is solid (art showing through reads as noise). */
-html.tv .os-glass { background: #161925; }
-html.tv .os-menu { background: #161925; }
+/* No blur to frost it, so the TV's glass is solid (art showing through reads as noise).
+   Explicitly disable backdrop-filter too so newer webOS 6+ TVs (Chromium 79+) stay fast. */
+html.tv .os-glass { background: #161925; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+html.tv .os-menu { background: #161925; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+html.tv [class*="backdrop-blur"] { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 html.tv .os-qm-scrim { background: rgba(0, 0, 0, 0.72); }
 /* Ten-foot fit: at the TV's zoom the stage (hero, row, live line) has to sit
    on one screen, with no scrolling to reach the row. */

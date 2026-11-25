@@ -1,7 +1,7 @@
 import { useQuery, useQueries, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import * as api from './client'
 import { arrFailures, arrLookup, arrQueue, arrRequested, type ArrResult } from './arr'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { markRequested } from '../lib/requestState'
 import { isSameTitle, lookupTitles, matchesTerm } from '../lib/discovery'
 import { sabStatus } from './sab'
@@ -38,15 +38,17 @@ export function useResume() {
   return useQuery({ queryKey: ['resume'], queryFn: () => api.getResume() })
 }
 
-/** Detect another of the user's devices currently playing something → handoff. */
+/** Detect another of the user's devices currently playing something → handoff.
+ *  Shares the ['house'] sessions cache so we never double-poll /Sessions. */
 export function useHandoff() {
   const me = api.getSession()
   return useQuery({
-    queryKey: ['handoff'],
-    refetchInterval: 20_000,
+    queryKey: ['house'],
+    refetchInterval: (q) => (q.state.data?.some((s) => s.NowPlayingItem) ? 15_000 : 45_000),
     refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const sessions = await api.getSessions()
+    staleTime: 5_000,
+    queryFn: () => api.getSessions(),
+    select: (sessions) => {
       const cand = sessions
         .filter(
           (s) =>
@@ -109,12 +111,14 @@ export function useClipManifest() {
     queryFn: async (): Promise<ClipManifest> => {
       // The sign-in rides in a header, not the address.
       const init: RequestInit = { cache: 'no-cache', headers: { Authorization: api.mediaBrowserAuthHeader() } }
-      const base = await fetch(`${CONTENT_BASE}previews/manifest.json`, init)
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => [])
-      const hdRaw = await fetch(`${CONTENT_BASE}previews/manifest-hd.json`, init)
-        .then((r) => (r.ok ? r.json() : {}))
-        .catch(() => ({}))
+      const [base, hdRaw] = await Promise.all([
+        fetch(`${CONTENT_BASE}previews/manifest.json`, init)
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []),
+        fetch(`${CONTENT_BASE}previews/manifest-hd.json`, init)
+          .then((r) => (r.ok ? r.json() : {}))
+          .catch(() => ({})),
+      ])
       const has = new Set<string>(Array.isArray(base) ? base : [])
       const hd = new Map<string, number[]>()
       if (hdRaw && typeof hdRaw === 'object') {
@@ -524,12 +528,16 @@ export function useItemPages(
     })),
   })
 
-  const map = new Map<number, JfItem>()
-  results.forEach((res, i) => {
-    const base = pageIndexes[i] * PAGE_SIZE
-    res.data?.Items.forEach((item, j) => map.set(base + j, item))
-  })
-  return map
+  const dataSignature = results.map((r) => r.dataUpdatedAt).join(',')
+  return useMemo(() => {
+    const map = new Map<number, JfItem>()
+    results.forEach((res, i) => {
+      const base = pageIndexes[i] * PAGE_SIZE
+      res.data?.Items.forEach((item, j) => map.set(base + j, item))
+    })
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstPage, lastPage, dataSignature])
 }
 
 // ---------- Home browse rows ----------
@@ -561,12 +569,13 @@ export function useItemsRow(label: string, query: api.ItemsQuery | null) {
 
 /** "Because you watched X" — most recent resume item (or last played), then Similar. */
 export function useBecauseYouWatched() {
+  const { data: resumeData, isLoading: resumeLoading } = useResume()
+  const resumeFirst = resumeData?.Items[0]
   const lastPlayed = useQuery({
     queryKey: ['lastPlayed'],
+    enabled: !resumeLoading && !resumeFirst,
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      const resume = await api.getResume()
-      if (resume.Items.length) return resume.Items[0]
       const played = await api.getItems({
         recursive: true,
         includeItemTypes: 'Movie,Series',
@@ -581,7 +590,7 @@ export function useBecauseYouWatched() {
   })
 
   // Episodes should seed from their series for better similarity
-  const seed = lastPlayed.data
+  const seed = resumeFirst ?? lastPlayed.data
   const seedId = seed ? (seed.Type === 'Episode' ? seed.SeriesId ?? seed.Id : seed.Id) : undefined
   const seedName = seed ? (seed.Type === 'Episode' ? seed.SeriesName ?? seed.Name : seed.Name) : ''
 
@@ -592,7 +601,7 @@ export function useBecauseYouWatched() {
     queryFn: () => api.getSimilar(seedId!),
   })
 
-  return { seedName, items: similar.data?.Items, loading: lastPlayed.isLoading || similar.isLoading }
+  return { seedName, items: similar.data?.Items, loading: resumeLoading || (!resumeFirst && lastPlayed.isLoading) || similar.isLoading }
 }
 
 export function useSearch(term: string) {

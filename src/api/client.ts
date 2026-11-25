@@ -1,6 +1,7 @@
 import type { JfAuthResult, JfItem, JfItemsResult, JfPlaybackInfo } from './types'
 import { deviceNameFor } from '../lib/deviceName'
 import { getPrefs } from '../lib/settings'
+import { buildDeviceProfile as buildMediaProfile } from '../lib/mediaCaps'
 import { peerBase, peerOf, tagAnswer, untag } from '../lib/peers'
 
 const STORAGE_KEY = 'finesse.session'
@@ -61,7 +62,11 @@ const CLIENT_VERSION = __APP_VERSION__
 /** How this device shows up in Jellyfin's session list — and so in every "Play
  *  on…" menu. Every Finesse used to call itself "Web", so a phone couldn't tell
  *  the TV from the laptop. ASCII only (it goes in an HTTP header). */
-export const DEVICE_NAME = deviceNameFor(typeof navigator !== 'undefined' ? navigator.userAgent : '', __WEBOS__)
+export const DEVICE_NAME = deviceNameFor(
+  typeof navigator !== 'undefined' ? navigator.userAgent : '',
+  __WEBOS__,
+  typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0,
+)
 
 let session: Session | null = loadSession()
 
@@ -869,61 +874,9 @@ export function getEpisodes(seriesId: string, seasonId: string) {
 
 // Built per-request so the user's bitrate cap (from settings) is applied.
 // A cap forces the server to transcode down to fit; 0 = unlimited/direct.
+/** What this device plays (lib/mediaCaps: probed once), at the bitrate cap the person chose. */
 function buildDeviceProfile() {
-  const cap = getPrefs().maxBitrate
-  const videoTranscode: Record<string, unknown> = {
-    Container: 'ts',
-    Type: 'Video',
-    VideoCodec: 'h264',
-    AudioCodec: 'aac,mp3',
-    Protocol: 'hls',
-    Context: 'Streaming',
-    MaxAudioChannels: '2',
-    MinSegments: 1,
-    BreakOnNonKeyFrames: true,
-  }
-  return {
-    MaxStreamingBitrate: cap > 0 ? cap : 120_000_000,
-    MusicStreamingTranscodingBitrate: 320_000,
-    DirectPlayProfiles: [
-      { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,flac,opus' },
-      { Container: 'webm', Type: 'Video', VideoCodec: 'vp8,vp9,av1', AudioCodec: 'vorbis,opus' },
-    ],
-    TranscodingProfiles: [
-      videoTranscode,
-      { Container: 'mp3', Type: 'Audio', AudioCodec: 'mp3', Protocol: 'http', Context: 'Streaming' },
-    ],
-    SubtitleProfiles: [
-      // Encode first so PlaybackInfo can burn-in when SubtitleMethod=Encode.
-      { Format: 'vtt', Method: 'Encode' },
-      { Format: 'subrip', Method: 'Encode' },
-      { Format: 'srt', Method: 'Encode' },
-      { Format: 'ass', Method: 'Encode' },
-      { Format: 'ssa', Method: 'Encode' },
-      { Format: 'pgssub', Method: 'Encode' },
-      { Format: 'dvdsub', Method: 'Encode' },
-      // External for direct-play + blob <track> path.
-      { Format: 'vtt', Method: 'External' },
-      { Format: 'subrip', Method: 'External' },
-      { Format: 'srt', Method: 'External' },
-      { Format: 'ass', Method: 'External' },
-      { Format: 'ssa', Method: 'External' },
-    ],
-    // 10-bit H.264 ("High 10", common in anime encodes) decodes almost nowhere: not in
-    // browsers, phones or the LG TV. Without this, Jellyfin passes it through untouched
-    // and the player can't show it, so it converts those to 8-bit instead.
-    CodecProfiles: [
-      {
-        Type: 'Video',
-        Codec: 'h264',
-        Conditions: [
-          { Condition: 'LessThanEqual', Property: 'VideoBitDepth', Value: '8', IsRequired: false },
-          { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline|progressive high|constrained high', IsRequired: false },
-        ],
-      },
-    ],
-    ResponseProfiles: [],
-  }
+  return buildMediaProfile(getPrefs().maxBitrate)
 }
 
 export async function getPlaybackInfo(

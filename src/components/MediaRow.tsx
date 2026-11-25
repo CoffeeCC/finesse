@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import MediaCard, { WideCard } from './MediaCard'
 import { CardSkeleton, WideSkeleton } from './Skeletons'
@@ -36,9 +36,26 @@ interface Props {
   headerExtra?: ReactNode
 }
 
-// Posters: a touch narrower on phones so ~2.5 cards show (the peek says "scroll me").
-const CARD_W = typeof window !== 'undefined' && window.innerWidth < 640 ? 144 : 176
-/** Top 10 posters run a little narrower to make room for the numerals. */
+// Posters: narrower on phones (~2.5 cards show so the peek says "scroll me"),
+// reactive to orientation changes, foldables, and split-screen resizes.
+const NARROW_Q = '(max-width: 639px)'
+function subscribeNarrow(fn: () => void) {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {}
+  const mql = window.matchMedia(NARROW_Q)
+  if (typeof mql.addEventListener === 'function') {
+    mql.addEventListener('change', fn)
+    return () => mql.removeEventListener('change', fn)
+  }
+  mql.addListener?.(fn)
+  return () => mql.removeListener?.(fn)
+}
+const getNarrow = () =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(NARROW_Q).matches
+    : typeof window !== 'undefined' && window.innerWidth < 640
+function useCardWidth(): number {
+  return useSyncExternalStore(subscribeNarrow, getNarrow, () => false) ? 144 : 176
+}
 
 const ARROW = 'h-8 w-8 rounded-full bg-ink-800 hover:bg-ink-700 flex items-center justify-center text-ink-200 transition-colors'
 
@@ -151,6 +168,7 @@ export default function MediaRow({
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [sectionRef, visible] = useRevealOnce<HTMLElement>()
+  const cardW = useCardWidth()
   const reportEmpty = useContext(RowEmptyContext)
   const empty = !loading && (!items || items.length === 0 || items.length < minItems)
   useEffect(() => {
@@ -174,15 +192,15 @@ export default function MediaRow({
       >
         {loading
           ? Array.from({ length: variant === 'wide' ? 5 : 8 }).map((_, i) =>
-              variant === 'wide' ? <WideSkeleton key={i} /> : <CardSkeleton key={i} width={CARD_W} />,
+              variant === 'wide' ? <WideSkeleton key={i} /> : <CardSkeleton key={i} width={cardW} />,
             )
           : items!.map((item, i) =>
               variant === 'wide' ? (
                 <WideCard key={item.Id} item={item} onDismiss={dismissFor(item)} />
               ) : variant === 'ranked' ? (
-                <MediaCard key={item.Id} item={item} width={CARD_W} rank={i + 1} />
+                <MediaCard key={item.Id} item={item} width={cardW} rank={i + 1} />
               ) : (
-                <MediaCard key={item.Id} item={item} width={CARD_W} onDismiss={dismissFor(item)} />
+                <MediaCard key={item.Id} item={item} width={cardW} onDismiss={dismissFor(item)} />
               ),
             )}
       </div>

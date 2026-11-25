@@ -20,7 +20,16 @@ export function Sheet({ title, children, onClose, wide = false }: { title: strin
     [onClose],
   )
   return createPortal(
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[80] grid place-items-center bg-black/60 p-4"
+      style={{
+        paddingTop: 'max(1rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+      }}
+      onClick={onClose}
+    >
       <div
         ref={ref}
         role="dialog"
@@ -39,7 +48,7 @@ export function Sheet({ title, children, onClose, wide = false }: { title: strin
             </svg>
           </button>
         </div>
-        <div className="min-h-0 overflow-y-auto px-5 pb-5 pt-1">{children}</div>
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-5 pb-5 pt-1">{children}</div>
       </div>
     </div>,
     document.body,

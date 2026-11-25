@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { memo, useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { backdropUrl, episodeThumbUrl, getItem, imageUrl, posterUrl, trickplayTileUrl } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
@@ -19,8 +19,6 @@ import { formatRuntime } from '../api/types'
 import { playChoice } from '../lib/playChoice'
 import type { JfItem } from '../api/types'
 
-const REDUCED_MOTION = typeof window !== 'undefined' && reducedMotion()
-
 function progressPct(item: JfItem): number | null {
   const ud = item.UserData
   if (!ud?.PlaybackPositionTicks || !item.RunTimeTicks) return null
@@ -37,7 +35,7 @@ function subtitle(item: JfItem): string {
   return item.ProductionYear ? String(item.ProductionYear) : ''
 }
 
-export default function MediaCard({
+const MediaCard = memo(function MediaCard({
   item,
   width,
   onDismiss,
@@ -76,8 +74,9 @@ export default function MediaCard({
   // streams moves over many cards), but a *deliberate* D-pad focus dwell is one
   // card at a time — so the TV gets previews on dwell instead. Reduced-motion
   // opts out of both.
-  const canHoverPreview = !__WEBOS__ && !REDUCED_MOTION
-  const canFocusPreview = __WEBOS__ && !REDUCED_MOTION
+  const motionReduced = reducedMotion()
+  const canHoverPreview = !__WEBOS__ && !motionReduced
+  const canFocusPreview = __WEBOS__ && !motionReduced
 
   // No clip for this title? Its scrub (trickplay) thumbnails flip by instead — Jellyfin makes those on any server.
   const thumbsOk = canHoverPreview && getPrefs().thumbPreviews && /^(Movie|Episode|Video|MusicVideo)$/.test(item.Type) && !item.Id.startsWith('f-')
@@ -287,7 +286,8 @@ export default function MediaCard({
       </div>
     </Link>
   )
-}
+})
+export default MediaCard
 
 /** Where "play" should start for an item: its resume point, unless finished. */
 export function playHref(item: JfItem): string {
@@ -298,7 +298,7 @@ export function playHref(item: JfItem): string {
  *  still or the film's backdrop instead of a cropped poster, and selecting it
  *  plays straight away — resuming where you left off. A small ⓘ opens details
  *  (pointer only; on a remote OK plays, like the big streaming apps). */
-export function WideCard({
+export const WideCard = memo(function WideCard({
   item,
   onDismiss,
 }: {
@@ -406,7 +406,7 @@ export function WideCard({
       )}
     </div>
   )
-}
+})
 
 /** A flip-book of the title's scrub (trickplay) thumbnails, for cards with no preview clip.
  *  Steps evenly through the film (skipping the opening), cropped to fill the card. */

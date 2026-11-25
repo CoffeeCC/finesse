@@ -80,12 +80,26 @@ const queue: string[] = []
 let inFlight = 0
 const MAX_CONCURRENT = 2
 
+/** Reset module-level preview cache and expire the scoped media cookie on sign-out. */
+export function resetPreviewState(): void {
+  cookieFor = ''
+  warmed.clear()
+  queue.length = 0
+  if (typeof document !== 'undefined') {
+    const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+    const path = new URL(`${CONTENT_BASE}previews/`, window.location.href).pathname
+    document.cookie = `finesse_media_token=; path=${path}; Max-Age=0; SameSite=Strict${secure}`
+    document.cookie = `finesse_play_token=; path=/; Max-Age=0; SameSite=Strict${secure}`
+  }
+}
+
 function pump(): void {
   while (inFlight < MAX_CONCURRENT && queue.length) {
     const url = queue.shift()!
     inFlight++
     // A plain GET populates the HTTP cache; the <video> then starts instantly.
-    fetch(url, { credentials: 'omit' })
+    // Same-origin clips authenticate via the scoped finesse_media_token cookie.
+    fetch(url, { credentials: 'same-origin' })
       .catch(() => {})
       .finally(() => {
         inFlight--

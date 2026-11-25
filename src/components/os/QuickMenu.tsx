@@ -218,10 +218,15 @@ export default function QuickMenu() {
   useEffect(() => closeQuickMenu(), [pathname])
   useEffect(() => {
     if (!open) return
-    return pushBackHandler(() => {
+    document.documentElement.dataset.overlay = 'open'
+    const popBack = pushBackHandler(() => {
       closeQuickMenu()
       return true
     })
+    return () => {
+      delete document.documentElement.dataset.overlay
+      popBack()
+    }
   }, [open])
 
   if (!open) return null
@@ -230,7 +235,7 @@ export default function QuickMenu() {
     // taller than what's visible, toolbars and all). Its header stays put while
     // the cards scroll underneath.
     <div className="fixed inset-0 z-[70] flex flex-col justify-end px-3 pb-3 pt-14 sm:px-6 sm:pb-6 sm:pt-20 lg:px-12 lg:pb-10">
-      <button type="button" aria-label="Close the quick menu" className="os-qm-scrim absolute inset-0 h-full w-full bg-black/45 backdrop-blur-md os-fade-in cursor-default" onClick={closeQuickMenu} />
+      <button type="button" aria-label="Close the quick menu" className="os-qm-scrim absolute inset-0 h-full w-full bg-black/65 os-fade-in cursor-default" onClick={closeQuickMenu} />
       <section
         ref={sheet}
         role="dialog"
