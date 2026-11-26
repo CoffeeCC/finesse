@@ -147,7 +147,7 @@ export default function RequestMoviePage() {
               ) : inRadarr && status ? (
                 <RequestStatusView status={status} size="lg" className="sm:pt-2.5" />
               ) : (
-                <button type="button" className={PLAY_BTN} onClick={request} disabled={requested === 'adding'} autoFocus={IS_TV}>
+                <button type="button" className={`request-seal-action ${PLAY_BTN}`} onClick={request} disabled={requested === 'adding'} aria-busy={requested === 'adding'} autoFocus={IS_TV}>
                   <PlusIcon /> {requested === 'adding' ? 'Adding…' : 'Request'}
                 </button>
               )}

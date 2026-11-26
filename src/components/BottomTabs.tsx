@@ -1,4 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { useTheme } from '../lib/theme'
+const ArcaneNavArt = __WEBOS__ ? null : lazy(() => import('./ArcaneNavArt'))
 
 const ICONS = {
   home: 'M2.25 12 11.2 3a1.13 1.13 0 0 1 1.6 0l8.95 9M4.5 9.75V21h5.25v-5.25a1.5 1.5 0 0 1 3 0V21h5.25V9.75',
@@ -14,10 +17,11 @@ const LIBRARY_PATHS = ['/libraries', '/library/', '/browse', '/music', '/album',
 
 export default function BottomTabs() {
   const { pathname } = useLocation()
+  const arcane = useTheme() === 'card-table' && !!ArcaneNavArt
   const inLibrary = LIBRARY_PATHS.some((p) => pathname.startsWith(p))
 
   const tabs = [
-    { to: '/', label: 'Home', icon: ICONS.home, end: true },
+    { to: '/', label: 'Home', icon: ICONS.home, end: true, forceActive: pathname === '/dashboard' },
     { to: '/search', label: 'Search', icon: ICONS.search, end: false },
     { to: '/libraries', label: 'Library', icon: ICONS.library, end: false, forceActive: inLibrary },
     { to: '/mylist', label: 'My List', icon: ICONS.mylist, end: false },
@@ -27,7 +31,7 @@ export default function BottomTabs() {
     // A floating glass bar (2.0), clear of the screen's edges and the home indicator.
     <nav
       aria-label="Tabs"
-      className="vt-tabs md:hidden fixed inset-x-3 z-50 rounded-[26px] os-glass bg-ink-950/50"
+      className={`vt-tabs md:hidden fixed inset-x-3 z-50 rounded-[26px] os-glass bg-ink-950/50 ${arcane ? 'arcane-object-tabs' : ''}`}
       style={{ bottom: 'max(10px, env(safe-area-inset-bottom))' }}
     >
       <div className="grid grid-cols-4">
@@ -45,7 +49,7 @@ export default function BottomTabs() {
           >
             {({ isActive }) => (
               <>
-                <svg
+                {arcane && ArcaneNavArt ? <Suspense fallback={<span className="h-6 w-6" />}><ArcaneNavArt kind={tab.to === '/' ? 'home' : tab.to === '/search' ? 'search' : tab.to === '/mylist' ? 'mylist' : 'library'} /></Suspense> : <svg
                   className="h-6 w-6"
                   fill={(isActive || tab.forceActive) && tab.icon !== ICONS.search ? 'currentColor' : 'none'}
                   fillOpacity={0.15}
@@ -55,7 +59,7 @@ export default function BottomTabs() {
                   aria-hidden
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d={tab.icon} />
-                </svg>
+                </svg>}
                 {tab.label}
               </>
             )}

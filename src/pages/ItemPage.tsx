@@ -1,7 +1,10 @@
 import MomentComposer from '../components/moments/MomentComposer'
 import { useMomentsOn } from '../api/moments'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useTheme } from '../lib/theme'
 import TitleLogo from '../components/TitleLogo'
+import ThemePageBanner from '../components/ThemePageBanner'
+const ArcaneDetailEnvironment = __WEBOS__ ? null : lazy(() => import('../components/ArcaneDetailEnvironment'))
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons } from '../api/queries'
@@ -145,7 +148,7 @@ function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: bool
       : 0
   // Missing episodes (known to Jellyfin, no file) can't play — show, don't link.
   const missing = ep.LocationType === 'Virtual'
-  const rowClass = `group flex gap-3 sm:gap-4 rounded-xl p-2 sm:p-3 transition-colors ${
+  const rowClass = `finesse-episode-row group flex gap-3 sm:gap-4 rounded-xl p-2 sm:p-3 transition-colors ${
     missing ? 'opacity-45' : 'hover:bg-white/5'
   } ${upNext ? 'bg-white/[0.04] ring-1 ring-accent-400/30' : ''}`
   const body = (
@@ -361,7 +364,8 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
   )
 }
 
-export default function ItemPage() {
+export default function ItemPage({ projection = false }: { projection?: boolean }) {
+  const arcane = useTheme() === 'card-table' && !__WEBOS__
   const { itemId } = useParams()
   const { data: item, isLoading, isError, error, refetch, isFetching } = useItem(itemId)
   // Back from here morphs into the card that opened this page.
@@ -417,13 +421,13 @@ export default function ItemPage() {
   // Skipped on the TV build: video decode + the page UI fight for the TV SoC.
   useEffect(() => {
     stopPreview()
-    if (!previewKind || __WEBOS__) return
+    if (!previewKind || __WEBOS__ || projection) return
     const t = setTimeout(() => {
       setPreviewAuto(true)
       setPreviewOn(true)
     }, 6000)
     return () => clearTimeout(t)
-  }, [previewKind, itemId, stopPreview])
+  }, [previewKind, itemId, stopPreview, projection])
 
   if (!item) {
     // Loading, or it failed / isn't there: then say so, with Back and Try again.
@@ -530,7 +534,7 @@ export default function ItemPage() {
   ]
 
   return (
-    <div className="pb-16" style={gradeStyle}>
+    <div data-theme-surface="detail" data-arcane-scene={arcane ? 'detail' : undefined} className="pb-16" style={gradeStyle}>
       {recommending && (
         <MomentComposer item={item.Id} title={item.Type === 'Episode' ? `${item.SeriesName ?? ''} · ${item.Name ?? ''}` : (item.Name ?? '')} onClose={() => setRecommending(false)} />
       )}
@@ -548,7 +552,7 @@ export default function ItemPage() {
         </div>
       )}
 
-      <div ref={heroRef} className="relative -mt-16">
+      <div ref={heroRef} className={`relative -mt-16 ${arcane ? 'arcane-detail-stage' : ''}`}>
         {/* An in-app Back everywhere but TVs (their remote has one): phones and the
             installed app have no browser Back, and on a computer it's easier to
             find than the browser's. It plays the reverse morph into the card you came from. */}
@@ -594,17 +598,22 @@ export default function ItemPage() {
         {/* Own transition layer (vt-detail-head): fades in above the morphing
             hero instead of hiding under it. z-10 keeps its menus (Cast to…)
             above the sections below — the depth transform makes it a stacking context. */}
-        <div className="vt-detail-head depth-front relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
+        <div className={`vt-detail-head depth-front relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end ${arcane ? 'arcane-detail-inspection' : ''}`}>
+          {arcane && !projection && ArcaneDetailEnvironment && <Suspense fallback={null}><ArcaneDetailEnvironment /></Suspense>}
           {poster && (
+            <div className="arcane-poster-wrap hidden md:block w-52 shrink-0">
             <img
               src={poster}
               alt={item.Name}
               data-vt-static="vt-poster"
               style={{ boxShadow: `0 25px 60px -12px rgba(${accentRgb}, 0.35)` }}
-              className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0"
+              className="block w-full rounded-xl ring-1 ring-white/10"
             />
+            <span className="arcane-media-frame" aria-hidden="true" />
+            </div>
           )}
           <div className="min-w-0 pb-2">
+            <ThemePageBanner label="Title details" compact />
             {logo ? (
               <TitleLogo
                 src={logo}

@@ -58,7 +58,7 @@ export default function SearchOverlay() {
         if (e.target === e.currentTarget) closeSearch()
       }}
     >
-      <div className="os-glass mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[28px] toast-in">
+      <div data-theme-surface="search-dialog" className="os-glass mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[28px] toast-in">
         <SearchPanel mode="overlay" initialQuery={query} onClose={closeSearch} />
       </div>
     </div>,

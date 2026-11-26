@@ -1,18 +1,22 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getItems } from '../api/client'
+import { withHandDeadline } from './tableDeal'
 
 /** "Surprise me": open a random title — unwatched first, anything as a fallback.
  *  Scope it to a library / item types (the Library page passes its own). */
 export function useSurprise() {
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  const pending = useRef<AbortController | null>(null)
+  useEffect(() => () => { pending.current?.abort();pending.current=null }, [])
 
-  const surprise = async (scope: { parentId?: string; includeItemTypes?: string } = {}) => {
-    if (busy) return
+  const surprise = async (scope: { parentId?: string; includeItemTypes?: string } = {}, navigationState?: unknown) => {
+    if (pending.current) return false
+    const request=new AbortController();pending.current=request
     setBusy(true)
     try {
-      const pick = async (filters?: string) =>
+      const pick = async (filters: string | undefined, signal: AbortSignal) =>
         (
           await getItems({
             includeItemTypes: scope.includeItemTypes ?? 'Movie',
@@ -22,14 +26,15 @@ export function useSurprise() {
             limit: 1,
             filters,
             fields: '',
-          })
+          },signal)
         ).Items[0]
-      const item = (await pick('IsUnplayed')) ?? (await pick())
-      if (item) navigate(`/item/${item.Id}`)
+      const item = await withHandDeadline(async signal => (await pick('IsUnplayed',signal)) ?? (await pick(undefined,signal)),request.signal)
+      if (item && !request.signal.aborted) { navigate(`/item/${item.Id}`,{state:navigationState});return true }
+      return false
     } catch {
-      /* offline or no titles — nothing to open */
+      return false
     } finally {
-      setBusy(false)
+      if(pending.current===request){pending.current=null;setBusy(false)}
     }
   }
 

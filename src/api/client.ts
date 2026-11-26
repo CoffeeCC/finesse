@@ -127,7 +127,7 @@ export class ApiError extends Error {
 
 async function request<T>(
   path: string,
-  opts: { method?: string; body?: unknown; server?: string; token?: string; peer?: string } = {},
+  opts: { method?: string; body?: unknown; server?: string; token?: string; peer?: string; signal?: AbortSignal } = {},
 ): Promise<T> {
   // A friend's title (tagged id) goes to the friend's server, through ours.
   let body = opts.body !== undefined ? JSON.stringify(opts.body) : undefined
@@ -142,6 +142,7 @@ async function request<T>(
   const base = peer ? peerBase(peer) : (opts.server ?? session?.server)
   if (!base) throw new ApiError(0, 'Not connected to a server')
   const res = await fetch(`${base}${path}`, {
+    signal: opts.signal,
     method: opts.method ?? 'GET',
     headers: {
       Authorization: authHeader(opts.token ?? session?.token),
@@ -276,13 +277,16 @@ export interface ItemsQuery {
   peer?: string
 }
 
-export async function getItems(q: ItemsQuery): Promise<JfItemsResult> {
+export async function getItems(q: ItemsQuery, signal?: AbortSignal): Promise<JfItemsResult> {
   // My List can hold titles from friends' servers too: ask each server for its own.
   const ids = q.ids?.split(',').filter(Boolean) ?? []
   const servers = new Map<string | null, string[]>()
   for (const id of ids) servers.set(peerOf(id), [...(servers.get(peerOf(id)) ?? []), id])
   if (servers.size > 1) {
-    const parts = await Promise.all([...servers.values()].map((group) => getItems({ ...q, ids: group.join(',') }).catch(() => ({ Items: [] as JfItem[], TotalRecordCount: 0 }))))
+    const parts = await Promise.all([...servers.values()].map((group) => getItems({ ...q, ids: group.join(',') }, signal).catch((error) => {
+      if (signal?.aborted) throw error
+      return { Items: [] as JfItem[], TotalRecordCount: 0 }
+    })))
     const byId = new Map(parts.flatMap((r) => r.Items).map((i) => [i.Id, i]))
     const Items = ids.map((id) => byId.get(id)).filter((i): i is JfItem => Boolean(i))
     return { Items, TotalRecordCount: Items.length } as JfItemsResult
@@ -312,7 +316,7 @@ export async function getItems(q: ItemsQuery): Promise<JfItemsResult> {
         EnableTotalRecordCount: true,
         ImageTypeLimit: 1,
       }),
-    { peer: q.peer },
+    { peer: q.peer, signal },
   )
 }
 

@@ -12,10 +12,11 @@ function focusables(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement)
 }
 
-export function useOverlayFocus(open: boolean, ref: RefObject<HTMLElement | null>): void {
+export function useOverlayFocus(open: boolean, ref: RefObject<HTMLElement | null>, returnFocus?: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     if (!open) return
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    // A modal that makes its background inert must capture this before shielding it.
+    const opener = returnFocus?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     // After the overlay has rendered.
     const t = window.setTimeout(() => {
       const root = ref.current
@@ -47,5 +48,5 @@ export function useOverlayFocus(open: boolean, ref: RefObject<HTMLElement | null
       const lost = !now || now === document.body || !now.isConnected || Boolean(ref.current?.contains(now))
       if (opener?.isConnected && lost) opener.focus({ preventScroll: true })
     }
-  }, [open, ref])
+  }, [open, ref, returnFocus])
 }

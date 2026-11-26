@@ -1,0 +1,294 @@
+/* Rendered materials are separate from live media, text and focus targets. */
+html[data-theme="card-table"] {
+  --color-ink-950: #0b111a;
+  --color-ink-900: #121d29;
+  --color-ink-800: #20303d;
+  --color-ink-700: #354954;
+  --color-ink-400: #b8b4aa;
+  --color-ink-200: #eee4ce;
+}
+html[data-theme="card-table"] body { background: #0b111a; }
+html[data-theme="card-table"] .vt-tabs.os-glass { background: #161b20f5; border-color: #bc945755; }
+.card-table-page { max-width: 1700px; padding: 22px 2% 36px; --table-muted: #bdb6a9; }
+.table-intro { align-items: center; padding: 0 12px 20px; }
+.table-intro h1 { font-size: 34px; margin-top: 2px; }
+.table-intro .table-kicker { font-size: 8px; }
+.table-tools { color: #c7bcaa; gap: 22px; }
+.celestial-table.table-stage {
+  height: clamp(680px, calc(var(--vw, 1vw) * 55), 880px); min-height: 680px; max-height: none;
+  background: #102132 var(--arcane-table) center / 100% 100% no-repeat;
+  border-radius: 18px; overflow: hidden;
+  --deck-back: var(--arcane-back);
+}
+.celestial-table.table-stage[data-deck-kind="tvshows"] { --deck-back: var(--arcane-back); }
+.celestial-table .mat-library-selector { left: 8%; top: 8%; max-width: 64%; }
+.celestial-table .deck-list { gap: 25px; }
+.celestial-table .library-deck { font-size: 16px; min-height: 44px; color: #d9ccb5; }
+.celestial-table .library-deck.deck-selected { color: #fff2d3; }
+.celestial-table .mat-heading { left: 8%; top: 19%; max-width: 61%; }
+.celestial-table .mat-heading > .table-kicker { display: none; }
+.celestial-table .mat-heading h2 { font-size: clamp(32px,3vw,52px); margin: 0; line-height: 1.08; text-shadow: 0 2px 5px #000b; }
+.selected-card-meta { margin-top: 8px; color: #dcc7a4; font-size: 13px; letter-spacing: .06em; }
+.celestial-table .mat-pick-link, .celestial-table .deal-action {
+  display: inline-flex; align-items: center; justify-content: center; gap: 20px; min-height: 46px;
+  margin-top: 14px; padding: 8px 24px; color: #f7e2b5; font-family: var(--font-display); font-size: 23px;
+  border: 2px solid #ac7f40; border-radius: 12px 5px 12px 5px;
+  background: linear-gradient(150deg,#533720,#211b17 70%); box-shadow: inset 0 0 0 2px #1b1914,inset 0 0 0 3px #9b723655,0 4px 9px #0008;
+  text-decoration: none;
+}
+.celestial-table .mat-pick-link:hover, .celestial-table .deal-action:not(:disabled):hover { filter: brightness(1.17); text-decoration: none; }
+.celestial-table .draw-station { right: 9%; top: 11%; width: 150px; }
+.celestial-table .draw-pile { width: 120px; height: 180px; border-radius: 9px; }
+.celestial-table .stock-card { border: 0; background: var(--deck-back) center / 100% 100% no-repeat; border-radius: 9px; box-shadow: 2px 3px 1px #ab804a; }
+.celestial-table .stock-card:last-child { box-shadow: none; }
+.celestial-table .stock-label { margin-top: 12px; font-size: 9px; }
+.celestial-table .deal-action { font-size: 18px; min-height: 44px; margin-top: 6px; padding: 4px 14px; white-space: nowrap; }
+.celestial-table .deal-action:disabled { opacity: .7; cursor: wait; }
+.celestial-table .movie-hand { left: 12%; right: 12%; bottom: 20%; padding: 0; align-items: flex-end; }
+.celestial-table .hand-card { flex: 0 1 24%; max-width: 260px; margin: 0 -1.5%; border-radius: 16px; }
+.celestial-table .card-flight { width: 100%; margin: 0; }
+.celestial-table .playing-card {
+  /* Padding preserves card height on Chromium 68, which lacks aspect-ratio. */
+  aspect-ratio: auto; padding: 150% 0 0; border: 0; border-radius: 15px; background: transparent;
+  box-shadow: none; filter: drop-shadow(3px 10px 6px #000a);
+  transform: translateY(var(--card-rise)) rotate(var(--card-angle));
+}
+.celestial-table .playing-card::after {
+  inset: 0; border: 0; border-radius: 0; z-index: 2;
+  background: var(--arcane-frame) center / 100% 100% no-repeat;
+}
+.celestial-table .card-art { position: absolute; inset: 12% 8% 12%; border: 0; border-radius: 5%; aspect-ratio: auto; background: #101a26; }
+.celestial-table .card-art img { object-fit: cover; }
+.celestial-table .card-no-art { background: radial-gradient(ellipse at 30% 20%,#29465a,#101b29); }
+.celestial-table .card-corner, .celestial-table .card-edition, .celestial-table .card-sigil, .celestial-table .card-caption { display: none; }
+.celestial-table .card-reverse { border-radius: 15px; background: var(--deck-back) center / 100% 100% no-repeat; box-shadow: none; }
+.celestial-table .hand-card:not(:disabled):hover .playing-card,
+.celestial-table .hand-card:not(:disabled):focus-visible .playing-card,
+.celestial-table .hand-card.card-selected .playing-card { transform: translateY(-20px) rotate(0deg) scale(1.06); box-shadow: none; filter: drop-shadow(4px 17px 9px #000b); }
+.celestial-table .hand-card:focus-visible .playing-card,
+html[data-theme="card-table"][data-nav-mode="spatial"] .celestial-table .hand-card:focus .playing-card { outline: 3px solid #c8e5ed; outline-offset: 3px; }
+.celestial-table .mat-status { bottom: 10%; left: 15%; right: 15%; color: #dfd2bb; font-size: 12px; }
+.celestial-table .mat-bottomline { bottom: 3%; left: 8%; right: 8%; font-size: 12px; }
+.celestial-table .table-message { top: 47%; }
+.hand-pager { display: none; }
+.table-deal-status { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 12px 0; color: #c8baa3; font-size: 12px; text-align: center; }
+.theme-scene[data-preview="card-table"] { background-image: var(--arcane-table); }
+.theme-scene[data-preview="card-table"] > span { background-image: var(--arcane-back); }
+html[data-theme="card-table"] .library-deck-tile,
+html[data-theme="card-table"] .library-deck-tile::before,
+html[data-theme="card-table"] .library-deck-tile::after,
+html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"],
+html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::before,
+html[data-theme="card-table"] .library-deck-tile[data-deck-kind="tvshows"]::after { background-image: var(--arcane-back); background-color: #142333; }
+@media (max-width: 1000px) and (min-width: 701px) {
+  .celestial-table.table-stage { min-height: 650px; height: calc(var(--vw, 1vw) * 75); }
+  .celestial-table .draw-station { right: 9%; top: 10%; width: 110px; }
+  .celestial-table .draw-pile { width: 84px; height: 126px; }
+  .celestial-table .movie-hand { left: 12%; right: 12%; bottom: 23%; }
+  .celestial-table .mat-heading { max-width: 58%; }
+}
+@media (max-width: 700px) {
+  .card-table-page { padding: 12px 8px 28px; }
+  .table-intro { padding: 0 8px 12px; }
+  .table-intro h1 { font-size: 29px; }
+  .table-tools { gap: 8px; flex-wrap: wrap; justify-content: flex-start; font-size: 10px; }
+  .celestial-table.table-stage { height: 780px; height: clamp(680px,calc(var(--vw, 1vw) * 185),900px); min-height: 680px; border-radius: 12px; background-image: var(--arcane-phone); }
+  .celestial-table .mat-library-selector { top: 6%; left: 9%; max-width: 67%; }
+  .celestial-table .mat-library-selector > .table-kicker { font-size: 7px; }
+  .celestial-table .deck-list { gap: 16px; }
+  .celestial-table .library-deck { font-size: 13px; max-width: 135px; }
+  .celestial-table .mat-heading { left: 9%; top: 18%; max-width: 65%; }
+  .celestial-table .mat-heading h2 { font-size: 31px; }
+  .selected-card-meta { font-size: 11px; }
+  .celestial-table .mat-pick-link { margin-top: 10px; padding: 5px 15px; font-size: 20px; }
+  .celestial-table .draw-station { right: 7%; top: 7%; width: 57px; }
+  .celestial-table .draw-pile { width: 45px; height: 68px; }
+  .celestial-table .stock-label { display: none; }
+  .celestial-table .movie-hand { left: 22%; right: 22%; bottom: 29%; }
+  .celestial-table .hand-card { flex: 0 0 62%; margin: 0 -14%; max-width: 190px; order: var(--mobile-order); }
+  .celestial-table .hand-card.mobile-outside { display: none; }
+  .celestial-table .playing-card { transform: translateY(12px) rotate(var(--mobile-angle)); }
+  .celestial-table .hand-card.card-selected .playing-card { transform: translateY(-10px) rotate(0) scale(1.06); }
+  .hand-pager { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 16px; top: 77%; left: 14%; right: 14%; }
+  .hand-pager button { width: 48px; height: 44px; border: 1px solid #c39c5c77; border-radius: 12px; background: #101a24c9; font-size: 27px; }
+  .hand-pager > span { min-width: 40px; text-align: center; font-size: 12px; color: #d4bea0; }
+  .celestial-table .deal-action { position: static; font-family: inherit; margin-top: 10px; padding: 5px 8px; width: auto; min-width: 55px; font-size: 10px; gap: 3px; }
+  .celestial-table .mat-status { top: auto; bottom: 15%; left: 12%; right: 12%; text-align: center; justify-content: center; font-size: 10px; }
+  .celestial-table .mat-bottomline { bottom: 7%; justify-content: center; font-size: 11px; }
+  .celestial-table .table-message { top: 43%; left: 12%; right: 12%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .celestial-table .playing-card { transition: none; }
+}
+.no-table-motion .playing-card { transition: none; }
+
+/* Sculpted navigation objects retain readable names and stationary hit targets. */
+.table-object-nav { position: relative; display: flex; align-items: center; gap: 28px; min-height: 190px; padding: 2px 8% 26px; }
+.table-object { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 100px; min-height: 150px; color: #ead5ae; border-radius: 18px; }
+.table-object:disabled { opacity: .6; cursor: wait; }
+.table-object img { user-select: none; pointer-events: none; -webkit-user-drag: none; }
+.search-object { flex: 0 0 180px; }
+.scrying-orb-art { position: relative; display: block; width: 170px; height: 170px; pointer-events: none; }
+.scrying-orb-art > img, .scrying-orb-art > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scrying-orb-art > canvas { opacity: 0; transition: opacity .25s ease; }
+.scrying-orb-art.orb-live > canvas { opacity: 1; }
+.scrying-orb-art.orb-live > img { visibility: hidden; }
+.object-label { position: relative; display: block; max-width: 180px; padding: 6px 12px; border-radius: 9px; text-align: center; font-family: var(--font-display); font-size: 23px; line-height: 1.1; overflow-wrap: anywhere; }
+.object-label small { display: block; margin-top: 5px; font-family: var(--font-sans); font-size: 10px; letter-spacing: .03em; color: #b4a58e; }
+.table-deck-boxes { display: flex; flex: 1; align-items: flex-end; justify-content: center; gap: 22px; overflow-x: auto; padding: 14px 10px; scrollbar-width: thin; }
+.deck-box-object { flex: 0 0 145px; }
+.deck-box-object > img { width: 125px; height: 125px; object-fit: contain; transform: rotate(var(--object-angle)); filter: drop-shadow(3px 8px 5px #0009); transition: transform .3s ease, filter .3s ease; }
+.deck-box-object:nth-child(even) { padding-top: 12px; }
+.deck-box-object.object-selected .object-label { color: #fff0cf; background: #a57a3424; box-shadow: inset 0 -1px #be9c60; }
+.deck-box-object:not(:disabled):hover > img, .deck-box-object:not(:disabled):focus-visible > img { transform: translateY(-5px) rotate(var(--object-angle)); filter: drop-shadow(3px 12px 7px #000b) brightness(1.1); }
+.search-object:hover .object-label, .search-object:focus-visible .object-label { color: #c6e7ff; }
+.table-other-spaces { display: flex; flex: 0 0 110px; flex-direction: column; gap: 2px; font-size: 12px; color: #c7b797; }
+.table-other-spaces > a { display: flex; align-items: center; min-height: 44px; padding: 4px 10px; border-bottom: 1px solid #ac87482b; }
+@media (max-width: 700px) {
+  .table-object-nav { flex-wrap: wrap; justify-content: center; padding: 0 6px 16px; gap: 6px; }
+  .search-object { flex: 0 0 100px; min-width: 90px; min-height: 132px; }
+  .scrying-orb-art { width: 115px; height: 115px; }
+  .table-deck-boxes { flex: 1; gap: 4px; padding: 10px 3px; }
+  .deck-box-object { flex: 0 0 84px; min-width: 84px; min-height: 130px; }
+  .deck-box-object > img { width: 82px; height: 82px; }
+  .object-label { font-size: 19px; max-width: 110px; padding: 6px; }
+  .object-label small { font-size: 9px; }
+  .table-other-spaces { flex: 1 0 100%; flex-direction: row; justify-content: center; flex-wrap: wrap; gap: 3px 12px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .deck-box-object > img, .scrying-orb-art > canvas { transition: none; } }
+.no-table-motion .deck-box-object > img { transition: none; }
+
+/* The navigation props rest on the same board as the hand. Keep a clear rim. */
+.celestial-table .table-object-nav { position: absolute; z-index: 8; top: 5%; left: 7%; right: 26%; height: 170px; min-height: 0; padding: 0; gap: 16px; }
+.celestial-table .search-object { flex-basis: 145px; min-height: 150px; }
+.celestial-table .scrying-orb-art { width: 145px; height: 145px; }
+.celestial-table .deck-box-object { flex-basis: 135px; }
+.celestial-table .deck-box-object > img { width: 110px; height: 110px; }
+.celestial-table .table-deck-boxes { justify-content: flex-start; gap: 18px; }
+.celestial-table .mat-heading { top: 31%; max-width: 61%; }
+.celestial-table .mat-heading h2 { -webkit-line-clamp: 1; }
+.celestial-table .table-open-title { position: absolute; z-index: 7; top: 42%; left: 8%; margin: 0; }
+.celestial-table .movie-hand { bottom: 19%; }
+@media (min-width: 701px) and (max-width: 1000px) {
+  .celestial-table .table-object-nav { left: 7%; right: 27%; gap: 4px; }
+  .celestial-table .search-object { flex-basis: 110px; min-width: 100px; }
+  .celestial-table .scrying-orb-art { width: 120px; height: 120px; }
+  .celestial-table .deck-box-object { flex-basis: 100px; min-width: 90px; }
+  .celestial-table .deck-box-object > img { width: 90px; height: 90px; }
+  .celestial-table .table-deck-boxes { gap: 8px; }
+  .celestial-table .table-open-title { top: 43%; }
+}
+@media (max-width: 700px) {
+  .celestial-table .table-object-nav { top: 5%; left: 7%; right: 7%; height: 130px; gap: 3px; flex-wrap: nowrap; align-items: flex-start; }
+  .celestial-table .search-object { flex: 0 0 85px; min-width: 80px; min-height: 120px; }
+  .celestial-table .scrying-orb-art { width: 100px; height: 100px; }
+  .celestial-table .table-deck-boxes { padding: 4px 3px 10px; gap: 3px; }
+  .celestial-table .deck-box-object { flex: 0 0 70px; min-width: 70px; min-height: 112px; }
+  .celestial-table .deck-box-object > img { width: 70px; height: 70px; }
+  .celestial-table .object-label { font-size: 18px; padding: 6px 4px; }
+  .celestial-table .object-label small { font-size: 8px; }
+  .celestial-table .mat-heading { top: 28%; left: 10%; max-width: 80%; }
+  .celestial-table .draw-station { top: auto; bottom: 16%; right: 9%; width: 90px; }
+  .celestial-table .draw-pile { display: none; }
+  .celestial-table .deal-action { min-height: 44px; font-size: 12px; padding: 6px 9px; }
+  .celestial-table .movie-hand { bottom: 36%; }
+  .celestial-table .hand-pager { top: 69%; }
+  .celestial-table .table-open-title { top: auto; bottom: 16%; left: 9%; min-height: 44px; margin: 0; font-size: 20px; }
+  .celestial-table .mat-bottomline { bottom: 6%; }
+}
+.celestial-table > .deal-action { position: absolute; z-index: 7; right: 9%; bottom: 5%; margin: 0; }
+@media (min-width: 701px) {
+  .celestial-table.table-stage { min-height: 820px; }
+  .celestial-table .table-object-nav { top: 4%; }
+  .celestial-table .search-object { min-height: 130px; }
+  .celestial-table .scrying-orb-art { width: 115px; height: 115px; }
+  .celestial-table .deck-box-object > img { width: 100px; height: 100px; }
+  .celestial-table .mat-heading { top: 27%; }
+  .celestial-table .movie-hand { bottom: 22%; }
+  .celestial-table .table-open-title { top: auto; bottom: 5%; }
+  .celestial-table .mat-bottomline { bottom: 1%; justify-content: center; }
+}
+@media (min-width: 701px) and (max-width: 1000px) {
+  .celestial-table.table-stage { min-height: 740px; }
+  .celestial-table .mat-heading { top: 30%; }
+}
+@media (max-width: 700px) { .celestial-table > .deal-action { bottom: 16%; } }
+
+.deck-trinket-art { display: block; position: relative; pointer-events: none; }
+.deck-trinket-art > img, .deck-trinket-art > canvas, .deck-trinket-art > .deck-trinket-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.deck-trinket-art > canvas { opacity: 0; transition: opacity .2s ease; }
+.deck-trinket-art.deck-live > canvas { opacity: 1; }
+.deck-trinket-art.deck-live > .deck-trinket-art { visibility: hidden; }
+.celestial-table .deck-box-object > .deck-trinket-art { width: 125px; height: 125px; transform: rotate(var(--object-angle)); }
+@media (min-width: 701px) and (max-width: 1000px) { .celestial-table .deck-box-object > .deck-trinket-art { width: 105px; height: 105px; } }
+@media (max-width: 700px) {
+  .celestial-table .deck-box-object > .deck-trinket-art { width: 70px; height: 82px; }
+  .celestial-table .table-object-nav, .celestial-table .table-deck-boxes { gap: 8px; }
+  .celestial-table .scrying-orb-art { width: 90px; height: 100px; }
+}
+@media (prefers-reduced-motion: reduce) { .deck-trinket-art > canvas { transition: none; } }
+
+/* Give the scrying orb the presence of a centerpiece and each box its own space. */
+.celestial-table .table-object-nav{right:22%;gap:24px}
+.celestial-table .search-object{flex:0 0 170px;min-height:180px}
+.celestial-table .scrying-orb-art{width:170px;height:180px}
+.celestial-table .table-deck-boxes{gap:32px}
+@media(min-width:701px) and (max-width:1000px){
+  .celestial-table .table-object-nav{left:5%;right:24%;gap:18px}
+  .celestial-table .search-object{flex-basis:135px;min-width:135px}
+  .celestial-table .scrying-orb-art{width:135px;height:150px}
+  .celestial-table .table-deck-boxes{gap:24px}
+}
+@media(max-width:700px){
+  .celestial-table.table-stage{min-height:760px}
+  .celestial-table .table-object-nav{left:4%;right:4%;gap:8px}
+  .celestial-table .search-object{flex:0 0 98px;min-width:98px;min-height:138px}
+  .celestial-table .scrying-orb-art{width:112px;height:125px}
+  .celestial-table .table-deck-boxes{gap:15px;padding-left:4px;padding-right:4px}
+  .celestial-table .mat-heading{top:225px;max-width:58%}
+  .celestial-table .mat-heading h2{font-size:clamp(26px,4.7vw,32px)}
+  .celestial-table .hand-pager{left:7%;right:32%;gap:8px}
+}
+
+/* Riffle the draw stock without moving its native hit target or taking over a deal. */
+.celestial-table .stock-card { transition: transform .38s cubic-bezier(.2,.7,.25,1); }
+.celestial-table.phase-idle .draw-pile:not(:disabled):hover .stock-card,
+.celestial-table.phase-idle .draw-pile:not(:disabled):focus-visible .stock-card {
+  transform: translate(calc(var(--layer) * 2px - 3px),calc(var(--layer) * -3px - 3px)) rotate(calc(2deg + var(--layer) * 1.5deg));
+}
+.celestial-table.phase-idle .draw-pile:not(:disabled):hover .stock-card:last-child,
+.celestial-table.phase-idle .draw-pile:not(:disabled):focus-visible .stock-card:last-child {
+  transform: translate(-5px,-24px) rotate(-5deg);
+  animation: stock-hover-settle .65s cubic-bezier(.2,.7,.25,1) both;
+}
+@keyframes stock-hover-settle {
+  0% { transform: translate(2.8px,-8px) rotate(5deg); }
+  65% { transform: translate(-6px,-28px) rotate(-6deg); }
+  100% { transform: translate(-5px,-24px) rotate(-5deg); }
+}
+.celestial-table .card-selected .playing-card::before {
+  content: ''; position: absolute; z-index: 4; top: 5%; left: 35%; width: 30%; height: 8%; pointer-events: none;
+  border-radius: 50%; background: radial-gradient(ellipse,#fff7dbb3, #f1c57b33 32%, transparent 68%);
+  opacity: 0; animation: crest-catchlight .9s .12s ease-out both;
+}
+.celestial-table.phase-idle .mat-heading { animation: selected-title-arrive .24s ease-out both; }
+@keyframes crest-catchlight {
+  0% { opacity: 0; transform: translateX(-14px) scale(.45); }
+  35% { opacity: .65; }
+  100% { opacity: 0; transform: translateX(12px) scale(1); }
+}
+@keyframes selected-title-arrive { from { opacity: .25; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.no-table-motion .celestial-table .playing-card::before, .no-table-motion .celestial-table .mat-heading { animation: none; }
+.no-table-motion .celestial-table .stock-card { transition: none; }
+.no-table-motion .celestial-table.phase-idle .draw-pile .stock-card {
+  animation: none !important;
+  transform: translate(calc(var(--layer) * .7px),calc(var(--layer) * -2px)) rotate(5deg) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .celestial-table .playing-card::before, .celestial-table .mat-heading { animation: none; }
+  .celestial-table .stock-card { transition: none; }
+  .celestial-table.phase-idle .draw-pile .stock-card {
+    animation: none !important;
+    transform: translate(calc(var(--layer) * .7px),calc(var(--layer) * -2px)) rotate(5deg) !important;
+  }
+}

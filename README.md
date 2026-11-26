@@ -221,3 +221,8 @@ Tailscale or Cloudflare. It installs their official images and relies on their g
 
 [MIT](LICENSE). The demo media in the tour and screenshots has its own licenses, listed in
 [docs/media/CREDITS.md](docs/media/CREDITS.md).
+
+
+## Optional themes
+
+Choose Finesse, Midnight Cinema, or Arcane Table in **Settings → Themes**. Arcane Table adds a responsive movie/show discovery table with live Blender trinkets and static fallbacks. [Theme overview](docs/THEMES.md) · [Make a theme](docs/THEME-AUTHORING.md) · [Community pack plan](docs/THEME-SYSTEM-PLAN.md).

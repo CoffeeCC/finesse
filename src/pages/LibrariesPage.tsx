@@ -4,6 +4,11 @@ import { useLatest, useViews } from '../api/queries'
 import { backdropUrl, imageUrl } from '../api/client'
 import { useSecondaryDestinations } from '../components/NavBar'
 import { DiceIcon, useSurprise } from '../lib/surprise'
+import { useTheme } from '../lib/theme'
+import ThemePageBanner from '../components/ThemePageBanner'
+import { lazy, Suspense } from 'react'
+import { useArcaneWorkspace } from '../lib/arcaneSceneLayout'
+const ArcaneVault=__WEBOS__?null:lazy(()=>import('../components/ArcaneLibraryVault'))
 
 // The phone's Library tab: every place to browse, one tap away (on desktop and
 // TV these live in the navbar and its More menu).
@@ -15,6 +20,8 @@ interface Tile {
   /** The library, whose newest title lends its artwork. */
   viewId?: string
   hue: number
+  deck?: boolean
+  kind?: 'movies' | 'tvshows'
 }
 
 /**
@@ -36,6 +43,13 @@ function TileArt({ viewId, music }: { viewId: string; music: boolean }) {
 }
 
 export default function LibrariesPage() {
+  const arcane=useTheme()==='card-table'&&Boolean(ArcaneVault)
+  useArcaneWorkspace(arcane)
+  if(arcane&&ArcaneVault)return <Suspense fallback={null}><ArcaneVault /></Suspense>
+  return <StandardLibrariesPage />
+}
+function StandardLibrariesPage() {
+  const theme = useTheme()
   const { data: views } = useViews()
   const { surprise, busy } = useSurprise()
   const limits = useMyLimits()
@@ -48,29 +62,42 @@ export default function LibrariesPage() {
   const HUE: Record<string, number> = { Anime: 320, Music: 28, Games: 140, Friends: 170, Collections: 262, 'Smart collections': 290, 'Watch together': 12, Moments: 340 }
 
   const tiles: Tile[] = [
-    ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 222 })),
-    ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 190 })),
+    ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 222, deck: true, kind: 'movies' as const })),
+    ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 190, deck: true, kind: 'tvshows' as const })),
     ...secondary.map((d) => ({ key: d.to, label: d.label, to: d.to, viewId: d.to === '/music' ? musicView?.Id : undefined, hue: HUE[d.label] ?? 230 })),
   ]
 
+  const renderTile = (t: Tile) => {
+    const deck = theme === 'card-table' && t.deck
+    return (
+      <Link
+        key={t.key}
+        data-deck-kind={t.kind}
+        to={t.to}
+        className={`${deck ? 'library-deck-tile ' : ''}group relative h-28 sm:h-36 rounded-2xl overflow-hidden flex items-end p-4 ring-1 ring-white/5 hover:ring-white/20 transition-all active:scale-[0.98]`}
+        style={deck ? undefined : { background: `hsl(${t.hue}, 32%, 24%)` }}
+      >
+        <span aria-hidden className="absolute -right-6 -top-6 h-24 w-24 rounded-full" style={{ background: `hsla(${(t.hue + 170) % 360}, 45%, 66%, 0.3)` }} />
+        {t.viewId && <TileArt viewId={t.viewId} music={t.to === '/music'} />}
+        <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+        <span className={`${deck ? 'deck-tile-label ' : ''}relative text-lg font-semibold text-white`}>{t.label}</span>
+      </Link>
+    )
+  }
+
   return (
-    <div className="pb-16 px-4 sm:px-6 lg:px-12 py-6">
+    <div data-theme-surface="libraries" className="table-deck-hub pb-16 px-4 sm:px-6 lg:px-12 py-6">
+      <ThemePageBanner label="Your library vault" />
       <h1 className="page-title mb-5">Library</h1>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-        {tiles.map((t) => (
-          <Link
-            key={t.key}
-            to={t.to}
-            className="group relative h-28 sm:h-36 rounded-2xl overflow-hidden flex items-end p-4 ring-1 ring-white/5 hover:ring-white/20 transition-all active:scale-[0.98]"
-            style={{ background: `hsl(${t.hue}, 32%, 24%)` }}
-          >
-            <span aria-hidden className="absolute -right-6 -top-6 h-24 w-24 rounded-full" style={{ background: `hsla(${(t.hue + 170) % 360}, 45%, 66%, 0.3)` }} />
-            {t.viewId && <TileArt viewId={t.viewId} music={t.to === '/music'} />}
-            <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-            <span className="relative text-lg font-semibold text-white">{t.label}</span>
-          </Link>
-        ))}
-      </div>
+      {theme === 'card-table' ? <>
+        <section aria-label="Movie and show decks">
+          <h2 className="text-sm text-ink-400 mb-4">Your movie &amp; show decks</h2>
+          <div className="library-deck-grid grid gap-4">{tiles.filter((t) => t.deck).map(renderTile)}</div>
+        </section>
+        <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+          {tiles.filter((t) => !t.deck).map(renderTile)}
+        </div>
+      </> : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">{tiles.map(renderTile)}</div>}
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button

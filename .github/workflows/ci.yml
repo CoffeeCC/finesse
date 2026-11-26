@@ -25,6 +25,8 @@ jobs:
           npm run server:test
       - name: Web app
         run: npm run build
+      - name: Theme request lifecycle
+        run: npm run theme:test
       - name: TV app
         run: npm run build:webos
       - name: Server bundle

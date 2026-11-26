@@ -1,0 +1,2 @@
+html[data-theme=card-table] .arcane-fullscreen-main{padding:0;height:calc(var(--vh,1vh)*100);overflow:hidden}
+.arcane-fullscreen-main>div{height:100%;transform:none!important;animation:none!important}

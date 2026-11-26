@@ -163,6 +163,7 @@ export default function QualityModal({
       ref={dialogRef}
       className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-6"
       role="dialog"
+      data-theme-surface="quality-dialog"
       aria-modal="true"
       aria-label={`Quality for ${item.title}`}
     >
