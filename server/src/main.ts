@@ -55,6 +55,8 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
 
   // The game store reads its feeds now and twice a day (only when it's on and has any).
   deps.gameStore?.start()
+  deps.downloadRescue?.start()
+  deps.connectionRepairs?.start()
 
   // Wolf games in Finesse's page: Moonlight-Web, on a port of its own (it needs a whole address).
   let stream: HttpsServer | null = null
@@ -106,6 +108,8 @@ export async function main(ref: StackRef = {}, plugins: Plugin[] = defaultPlugin
     if (stopping) return
     stopping = true
     log.info(`${sig} — shutting down`)
+    deps.downloadRescue?.stop()
+    deps.connectionRepairs?.stop()
     secure?.close()
     stream?.close()
     // Windows: the apps are Finesse's own children; they close first, cleanly.

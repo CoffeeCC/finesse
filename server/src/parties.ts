@@ -40,23 +40,31 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
   /** A party the person is invited to or in; anything else is "not found". */
   const find = (id: string, me: string): Party => {
     const p = parties.get(id)
-    if (!p || p.ended || !(p.invited.includes(me) || p.members.some((m) => m.id === me))) throw new ApiError(404, 'That watch party is over, or you’re not invited')
+    if (!p || p.ended || now() - p.created > KEEP_MS || !(p.invited.includes(me) || p.members.some((m) => m.id === me))) throw new ApiError(404, 'That watch party is over, or you’re not invited')
     return p
   }
   const member = (p: Party, me: string) => {
     if (!p.members.some((m) => m.id === me)) throw new ApiError(409, 'Join the party first')
+  }
+  const activeMember = async (id: string, me: string) => {
+    const p = find(id, me)
+    member(p, me)
+    if (!(await access.mayOpen(me, p.item))) throw new ApiError(403, 'Your profile can’t open this party’s title')
+    member(find(id, me), me)
+    return p
   }
 
   /** The title as this person may see it: theirs to open, or nothing about it (their access can change after the invitation). */
   const titleSeen = async (p: Party, me: string) => ((await access.mayOpen(me, p.item)) ? { item: p.item as string | null, title: p.title } : { item: null, title: HIDDEN_TITLE })
 
   const view = async (p: Party, me: string) => {
+    const title = await titleSeen(p, me)
     const t = now()
     tick(p, t)
     const names = new Map(p.members.map((m) => [m.id, m.name]))
     return {
       id: p.id,
-      ...(await titleSeen(p, me)),
+      ...title,
       host: { id: p.host, name: names.get(p.host) ?? 'Someone' },
       isHost: p.host === me,
       joined: p.members.some((m) => m.id === me),
@@ -71,7 +79,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
 
   router.post('/api/parties', async ({ req, res }) => {
     const me = await auth.requirePerson(req)
-    const body = await readJson<{ item?: unknown; invite?: unknown; position?: unknown }>(req)
+    const body = (await readJson<{ item?: unknown; invite?: unknown; position?: unknown } | null>(req, 16384)) ?? {}
     const item = String(body.item ?? '').toLowerCase()
     if (!RAW_ID.test(item)) throw new ApiError(400, 'Watch parties work with titles on this server for now')
     const t = await access.titleFor({ id: me.id, name: me.Name }, item)
@@ -83,15 +91,15 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     const invited = Array.isArray(body.invite) ? [...new Set(body.invite.map((x) => String(x).toLowerCase()).filter((x) => ok.has(x) && x !== me.id))] : []
     if (!invited.length) throw new ApiError(400, 'Invite at least one person')
     if (invited.length + 1 > MAX_MEMBERS) throw new ApiError(400, `A watch party is up to ${MAX_MEMBERS} people`)
-    sweep()
-    const going = [...parties.values()].filter((x) => !x.ended)
-    if (going.filter((x) => x.host === me.id).length >= PARTY_LIMITS.perHost) throw new ApiError(429, `You have ${PARTY_LIMITS.perHost} watch parties going. End one first.`)
-    if (going.length >= PARTY_LIMITS.all) throw new ApiError(503, 'There are too many watch parties going on this server right now. Try again later.')
     // An invitation names the title: only to people who can open it.
     const cant: string[] = []
     for (const u of invited) if (!(await access.mayOpen(u, item))) cant.push(people.find((x) => x.id === u)?.name ?? 'Someone')
     if (cant.length) throw new ApiError(400, `${cant.join(', ')} can’t open this title, so they can’t be invited`)
-    const at = Number(body.position)
+    sweep()
+    const going = [...parties.values()].filter((x) => !x.ended)
+    if (going.filter((x) => x.host === me.id).length >= PARTY_LIMITS.perHost) throw new ApiError(429, `You have ${PARTY_LIMITS.perHost} watch parties going. End one first.`)
+    if (going.length >= PARTY_LIMITS.all) throw new ApiError(503, 'There are too many watch parties going on this server right now. Try again later.')
+    const at = body.position
     const p: Party = {
       id: randomBytes(9).toString('base64url'),
       item,
@@ -100,7 +108,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
       // The host too, so they can come back after a dropped connection.
       invited: [me.id, ...invited],
       members: [],
-      clock: { playing: false, position: Number.isFinite(at) && at > 0 ? at : 0, at: now(), waiting: false, rev: 0 },
+      clock: { playing: false, position: typeof at === 'number' && at > 0 && at < 24 * 3600 ? at : 0, at: now(), waiting: false, rev: 0 },
       created: now(),
       ended: false,
     }
@@ -129,6 +137,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
     const p = find(String(params.id), me.id)
     // Checked for this person: being invited doesn't make a title watchable.
     if (!(await access.mayOpen(me.id, p.item))) throw new ApiError(403, 'Your profile can’t open this title, so you can’t join this party')
+    find(p.id, me.id)
     if (!p.members.some((m) => m.id === me.id) && p.members.length >= MAX_MEMBERS) throw new ApiError(400, `This party is full (${MAX_MEMBERS} people)`)
     join(p, { id: me.id, name: me.Name }, now())
     sendJson(res, 200, await view(p, me.id))
@@ -137,23 +146,21 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
   // A player reporting in: where it is and whether it's stalled. The party's clock comes back.
   router.post('/api/parties/:id/beat', async ({ req, res, params }) => {
     const me = await auth.requirePerson(req)
-    const p = find(String(params.id), me.id)
-    member(p, me.id)
-    const body = await readJson<{ position?: unknown; buffering?: unknown }>(req)
-    const position = Number(body.position)
-    if (!Number.isFinite(position) || position < 0) throw new ApiError(400, 'Where is it?')
-    report(p, me.id, { position, buffering: body.buffering === true }, now())
+    const body = await readJson<{ position?: unknown; buffering?: unknown } | null>(req, 4096)
+    const position = body?.position
+    if (typeof position !== 'number' || !Number.isFinite(position) || position < 0 || position >= 24 * 3600) throw new ApiError(400, 'Where is it?')
+    const p = await activeMember(String(params.id), me.id)
+    report(p, me.id, { position, buffering: body?.buffering === true }, now())
     sendJson(res, 200, await view(p, me.id))
   })
 
   router.post('/api/parties/:id/control', async ({ req, res, params }) => {
     const me = await auth.requirePerson(req)
-    const p = find(String(params.id), me.id)
-    member(p, me.id)
-    const body = await readJson<{ action?: unknown; position?: unknown }>(req)
-    const position = Number(body.position)
-    if (body.action === 'play' || body.action === 'pause') control(p, { action: body.action }, now())
-    else if (body.action === 'seek' && Number.isFinite(position) && position >= 0 && position < 24 * 3600) control(p, { action: 'seek', position }, now())
+    const body = await readJson<{ action?: unknown; position?: unknown } | null>(req, 4096)
+    const position = body?.position
+    const p = await activeMember(String(params.id), me.id)
+    if (body?.action === 'play' || body?.action === 'pause') control(p, { action: body.action }, now())
+    else if (body?.action === 'seek' && typeof position === 'number' && Number.isFinite(position) && position >= 0 && position < 24 * 3600) control(p, { action: 'seek', position }, now())
     else throw new ApiError(400, 'Play, pause or seek')
     sendJson(res, 200, await view(p, me.id))
   })
@@ -161,7 +168,7 @@ export function registerParties(router: Router, deps: { auth: Auth; settings: Se
   router.post('/api/parties/:id/leave', async ({ req, res, params }) => {
     const me = await auth.requirePerson(req)
     const p = parties.get(String(params.id))
-    if (p) {
+    if (p?.members.some((m) => m.id === me.id)) {
       leave(p, me.id)
       if (p.ended) parties.delete(p.id)
     }

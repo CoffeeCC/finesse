@@ -68,16 +68,21 @@ export function registerMomentCollections(router: Router, deps: { auth: Auth; se
 
   async function view(c: ColRow, me: string) {
     const names = new Map((await people()).map((p) => [p.id, p.name]))
+    c = readable(c.id, me)
     const rows = db.prepare('SELECT * FROM moment_entries WHERE collection = ? ORDER BY saved_at').all(c.id) as unknown as EntryRow[]
-    const entries = await Promise.all(
-      rows.map(async (e) => {
-        const open = await access.mayOpen(me, e.item)
+    const available = new Map<string, boolean>()
+    const items = [...new Set(rows.map((row) => row.item))]
+    for (let i = 0; i < items.length; i += 10) {
+      await Promise.all(items.slice(i, i + 10).map(async (item) => available.set(item, await access.mayOpen(me, item))))
+    }
+    c = readable(c.id, me)
+    const entries = rows.map((e) => {
+        const open = available.get(e.item)
         if (open) return { key: e.key, available: true, item: e.item, title: e.title, subtitle: e.subtitle, start: e.start, end: e.end, note: e.note, from: e.from_name, savedAt: e.saved_at }
         // Whoever saved it already knew what it was; anyone else doesn't learn it now.
         const own = c.owner === me
         return { key: e.key, available: false, item: null, title: own ? e.title : 'A title you can’t open', subtitle: own ? e.subtitle : '', start: e.start, end: e.end, note: own ? e.note : '', from: own ? e.from_name : '', savedAt: e.saved_at }
-      }),
-    )
+    })
     return {
       id: c.id,
       name: c.name,
@@ -100,8 +105,8 @@ export function registerMomentCollections(router: Router, deps: { auth: Auth; se
 
   router.post('/api/moment-collections', async ({ req, res }) => {
     const me = await auth.requirePerson(req)
-    const body = await readJson<{ name?: unknown }>(req)
-    const name = cleanName(body.name)
+    const body = await readJson<{ name?: unknown } | null>(req, 4096)
+    const name = cleanName(body?.name)
     if ((db.prepare('SELECT COUNT(*) AS n FROM moment_collections WHERE owner = ?').get(me.id) as { n: number }).n >= MC_LIMITS.owned)
       throw new ApiError(400, `You have ${MC_LIMITS.owned} collections already. Remove one to make another.`)
     const now = Date.now()
@@ -117,26 +122,30 @@ export function registerMomentCollections(router: Router, deps: { auth: Auth; se
 
   router.put('/api/moment-collections/:id', async ({ req, res, params }) => {
     const me = await auth.requirePerson(req)
-    const c = owned(String(params.id), me.id)
-    const body = await readJson<{ name?: unknown; sharedWith?: unknown }>(req, 16384)
-    if (body.name !== undefined) db.prepare('UPDATE moment_collections SET name = ? WHERE id = ?').run(cleanName(body.name), c.id)
+    const body = await readJson<{ name?: unknown; sharedWith?: unknown } | null>(req, 16384)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, 'Send collection changes as an object')
+    const name = body.name === undefined ? undefined : cleanName(body.name)
+    let who: string[] | undefined
     if (body.sharedWith !== undefined) {
       if (!Array.isArray(body.sharedWith)) throw new ApiError(400, 'sharedWith must be a list of people')
       const ok = new Set((await people()).map((p) => p.id))
-      const who = [...new Set(body.sharedWith.map((x) => String(x).toLowerCase()).filter((x) => ok.has(x) && x !== me.id))]
+      who = [...new Set(body.sharedWith.map((x) => String(x).toLowerCase()).filter((x) => ok.has(x) && x !== me.id))]
       if (who.length > MC_LIMITS.shares) throw new ApiError(400, `A collection can be shared with up to ${MC_LIMITS.shares} people`)
-      db.exec('BEGIN')
-      try {
+    }
+    const c = owned(String(params.id), me.id)
+    db.exec('BEGIN')
+    try {
+      if (who) {
         db.prepare('DELETE FROM moment_collection_shares WHERE collection = ?').run(c.id)
         const add = db.prepare('INSERT INTO moment_collection_shares (collection, user) VALUES (?, ?)')
         for (const u of who) add.run(c.id, u)
-        db.exec('COMMIT')
-      } catch (e) {
-        db.exec('ROLLBACK')
-        throw e
       }
+      db.prepare('UPDATE moment_collections SET name = ?, updated = ? WHERE id = ?').run(name ?? c.name, Date.now(), c.id)
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
     }
-    db.prepare('UPDATE moment_collections SET updated = ? WHERE id = ?').run(Date.now(), c.id)
     sendJson(res, 200, await view(readable(c.id, me.id), me.id))
   })
 
@@ -152,7 +161,7 @@ export function registerMomentCollections(router: Router, deps: { auth: Auth; se
     const me = await auth.requirePerson(req)
     const c = owned(String(params.id), me.id)
     if (count(c.id) >= MC_LIMITS.entries) throw new ApiError(400, `A collection holds up to ${MC_LIMITS.entries} moments`)
-    const body = await readJson<{ moment?: unknown; item?: unknown; start?: unknown; end?: unknown; note?: unknown; from?: unknown }>(req, 8192)
+    const body = (await readJson<{ moment?: unknown; item?: unknown; start?: unknown; end?: unknown; note?: unknown; from?: unknown } | null>(req, 8192)) ?? {}
     let e: Omit<EntryRow, 'collection' | 'key' | 'saved_at'>
     if (typeof body.moment === 'string') {
       const m = momentFor(me.id, body.moment)
@@ -165,17 +174,21 @@ export function registerMomentCollections(router: Router, deps: { auth: Auth; se
       const row = db.prepare('SELECT * FROM moment_entries WHERE collection = ? AND key = ?').get(src.id, String(f.key ?? '')) as EntryRow | undefined
       if (!row) throw new ApiError(404, 'That moment isn’t in the collection any more')
       if (!(await access.mayOpen(me.id, row.item))) throw new ApiError(403, 'You can’t open that title, so its moment can’t be saved')
+      readable(src.id, me.id)
+      if (!db.prepare('SELECT 1 FROM moment_entries WHERE collection = ? AND key = ?').get(src.id, row.key)) throw new ApiError(404, 'That moment isn’t in the collection any more')
       e = { item: row.item, title: row.title, subtitle: row.subtitle, start: row.start, end: row.end, note: row.note, from_name: row.from_name }
     } else {
       const item = String(body.item ?? '').toLowerCase()
       if (!ITEM_ID.test(item)) throw new ApiError(400, 'Which title?')
       const span = cleanSpan(body.start, body.end)
       const t = await access.titleFor({ id: me.id, name: me.Name }, item)
-      if (!t) throw new ApiError(404, 'You can’t open that title, so it can’t be saved')
+      if (!t || !(await access.mayOpen(me.id, item))) throw new ApiError(404, 'You can’t open that title, so it can’t be saved')
       e = { item, title: t.title, subtitle: t.subtitle, start: span.start, end: span.end, note: cleanNote(body.note), from_name: me.Name }
     }
+    owned(c.id, me.id)
     const dup = db.prepare('SELECT key FROM moment_entries WHERE collection = ? AND item = ? AND start IS ? AND "end" IS ?').get(c.id, e.item, e.start, e.end)
     if (!dup) {
+      if (count(c.id) >= MC_LIMITS.entries) throw new ApiError(400, `A collection holds up to ${MC_LIMITS.entries} moments`)
       db.prepare('INSERT INTO moment_entries (collection, key, item, title, subtitle, start, "end", note, from_name, saved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(c.id, newId(6), e.item, e.title, e.subtitle, e.start, e.end, e.note, e.from_name, Date.now())
       db.prepare('UPDATE moment_collections SET updated = ? WHERE id = ?').run(Date.now(), c.id)
     }

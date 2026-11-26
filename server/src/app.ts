@@ -37,7 +37,8 @@ import { registerGameStore, type GameStore } from './gamestore/routes.ts'
 import { plugPipeline } from './gamestore/wiring.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
 import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
-import { FixError, runConnectionFix } from './connectionFixes.ts'
+import { ConnectionRepairLoop, FixError } from './connectionFixes.ts'
+import { registerDownloadRescue, type DownloadRescue } from './downloadRescue.ts'
 import { libraryHealth, type LibraryHealth } from './libraryHealth.ts'
 import { GitHubReleases, registerWebUpdate, WebUpdater } from './update.ts'
 
@@ -58,6 +59,8 @@ export interface AppDeps {
   gameStore?: GameStore
   /** More rows for Connected apps (the system plugin adds Jellyfin's video conversion). */
   connectionChecks?: ((refresh: boolean) => Promise<ConnCheck | null>)[]
+  connectionRepairs?: ConnectionRepairLoop
+  downloadRescue?: DownloadRescue
 }
 
 /** Hook for later phases (setup, stack, system) to add routes. */
@@ -163,11 +166,11 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   const parental = new Parental({ settings, jf, auth })
   const groups = registerGroups(router, { settings, jf, auth, parental })
   registerParental(router, { settings, auth, parental, jf })
-  const moments = registerMoments(router, { settings, jf, auth, groups, parental })
   const lists = openLists(join(p.configDir, 'lists.db'))
   const access = new Access({ jf, groups, settings })
   access.limited = (userId) => parental.limitOf(userId) !== null
   access.ratingAllows = (userId, raw) => parental.allows(userId, raw)
+  const moments = registerMoments(router, { settings, jf, auth, groups, parental, access })
   registerSmartCollections(router, { auth, db: lists })
   registerQueues(router, { auth, settings, db: lists, access })
   registerGameSaves(router, { auth, db: openSaves(join(p.configDir, 'saves.db'), lists) })
@@ -183,8 +186,11 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   deps.gameStore = registerGameStore(router, { settings, auth })
   plugPipeline(deps.gameStore, settings, { log: (t) => log.warn(t) })
   registerAlbumRequests(router, { settings, auth, parental })
+  deps.downloadRescue = registerDownloadRescue(router, { settings, auth })
   // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.
   let conns: { at: number; report: Promise<ConnReport> } | null = null
+  const repairs = new ConnectionRepairLoop(settings, { docker: new Docker(), changed: () => { conns = null } })
+  deps.connectionRepairs = repairs
   router.get('/api/system/connections', async ({ req, res, url }) => {
     await auth.requireAdmin(req)
     // Its tests ask indexers and download clients: at most once a minute unless asked.
@@ -194,23 +200,25 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
         ...r,
         apps: [...r.apps, ...more.filter((x): x is ConnCheck => Boolean(x))],
       }))
-      conns = { at: Date.now(), report }
-      report.catch(() => (conns = null))
+      const entry = { at: Date.now(), report }
+      conns = entry
+      void report.catch(() => { if (conns === entry) conns = null })
     }
-    sendJson(res, 200, await conns.report)
+    sendJson(res, 200, { ...await conns.report, autoFixed: repairs.autoFixed })
   })
   // One-click repairs for what that finds (connectionFixes.ts).
   router.post('/api/system/connections/fix', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    const { app, fix } = await readJson<{ app?: string; fix?: string }>(req)
-    if (!app || !fix) throw new ApiError(400, 'Say which app and which fix')
+    const body = await readJson<{ app?: unknown; fix?: unknown } | null>(req)
+    const { app, fix } = body ?? {}
+    if (typeof app !== 'string' || typeof fix !== 'string' || !app || !fix) throw new ApiError(400, 'Say which app and which fix')
     try {
-      const message = await runConnectionFix(settings.get(), app, fix, { docker: new Docker() })
+      const message = await repairs.fix(app, fix)
       log.info(`connections: ${fix} for ${app}`)
       sendJson(res, 200, { message })
     } catch (e) {
       if (e instanceof FixError) throw new ApiError(409, e.message)
-      throw e
+      throw new ApiError(502, 'The connected app did not finish the repair. Check its status, then try again.')
     } finally {
       conns = null // the next look is a fresh one
     }

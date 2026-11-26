@@ -14,8 +14,11 @@ import { lookup } from 'node:dns/promises'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
-import type { Endpoint, Settings } from './config.ts'
-import { ARRS, liveFetch, REMOTE_PATH, unreachable, type ConnFetch } from './connections.ts'
+import { posix } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import type { Endpoint, Settings, SettingsStore } from './config.ts'
+import { ARRS, connectionRepairs, liveFetch, REMOTE_PATH, unreachable, type AutoConnectionFix, type ConnFetch, type ConnFix } from './connections.ts'
+import { logger } from './log.ts'
 import { joinUrl } from './http/proxy.ts'
 
 export interface FixDeps {
@@ -28,21 +31,35 @@ export interface FixDeps {
 
 export class FixError extends Error {}
 
+async function bounded<T>(work: Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  try {
+    return await Promise.race([work, delay(10000, undefined, { signal: controller.signal, ref: false }).then(() => { throw new Error('timeout') })])
+  } finally {
+    controller.abort()
+  }
+}
+
 // ---------- SABnzbd's hostname check ----------
 
 export const liveByIp: FixDeps['byIp'] = async (url) => {
   const u = new URL(url)
-  const ip = isIP(u.hostname) ? u.hostname : (await lookup(u.hostname)).address
+  const name = u.hostname.replace(/^\[|\]$/g, '')
+  const ip = isIP(name) ? name : (await bounded(lookup(name))).address
   const port = u.port || (u.protocol === 'https:' ? '443' : '80')
   const host = `${ip.includes(':') ? `[${ip}]` : ip}:${port}`
   const send = u.protocol === 'https:' ? httpsRequest : httpRequest
   return new Promise((resolve, reject) => {
     const req = send(
-      { host: ip, port, path: u.pathname + u.search, headers: { host }, timeout: 10000, ...(u.protocol === 'https:' ? { servername: isIP(u.hostname) ? undefined : u.hostname } : {}) },
+      { host: ip, port, path: u.pathname + u.search, headers: { host }, signal: AbortSignal.timeout(10000), ...(u.protocol === 'https:' ? { servername: isIP(name) ? undefined : name } : {}) },
       (res) => {
         let text = ''
         res.setEncoding('utf8')
-        res.on('data', (c: string) => (text += c))
+        res.on('error', reject)
+        res.on('data', (c: string) => {
+          text += c
+          if (text.length > 1 << 20) res.destroy(new Error('SABnzbd reply was too large'))
+        })
         res.on('end', () => {
           let json: unknown = null
           try {
@@ -54,7 +71,6 @@ export const liveByIp: FixDeps['byIp'] = async (url) => {
         })
       },
     )
-    req.on('timeout', () => req.destroy(new Error('timeout')))
     req.on('error', reject)
     req.end()
   })
@@ -62,7 +78,7 @@ export const liveByIp: FixDeps['byIp'] = async (url) => {
 
 async function fixSabHostname(svc: Endpoint, deps: FixDeps): Promise<string> {
   const name = new URL(svc.url!).hostname
-  if (isIP(name)) throw new FixError('SABnzbd is reached by its IP address, so its hostname check isn’t what’s wrong. Check again.')
+  if (isIP(name.replace(/^\[|\]$/g, ''))) throw new FixError('SABnzbd is reached by its IP address, so its hostname check isn’t what’s wrong. Check again.')
   const api = (q: string) => joinUrl(svc.url!, '/api', `?${q}&output=json&apikey=${encodeURIComponent(svc.apiKey ?? '')}`)
   let r: Awaited<ReturnType<FixDeps['byIp']>>
   try {
@@ -74,7 +90,8 @@ async function fixSabHostname(svc: Endpoint, deps: FixDeps): Promise<string> {
   if (r.status === 403 || /api key/i.test(j?.error ?? '')) throw new FixError('SABnzbd turned down Finesse’s API key. Copy it from SABnzbd (Config → General) into Finesse again.')
   const raw = j?.config?.misc?.host_whitelist
   if (r.status >= 400 || raw === undefined) throw new FixError('SABnzbd didn’t share its list of allowed names. Add the name yourself: Config → Special → host_whitelist.')
-  const list = (Array.isArray(raw) ? raw : String(raw).split(',')).map((x) => x.trim()).filter(Boolean)
+  if (!(typeof raw === 'string' || (Array.isArray(raw) && raw.every((x) => typeof x === 'string')))) throw new FixError('SABnzbd sent an invalid list of allowed names.')
+  const list = (Array.isArray(raw) ? raw : raw.split(',')).map((x) => x.trim()).filter(Boolean)
   if (!list.some((x) => x.toLowerCase() === name.toLowerCase())) {
     const set = await deps.byIp(api(`mode=set_config&section=misc&keyword=host_whitelist&value=${encodeURIComponent([...list, name].join(','))}`))
     if (set.status >= 400 || (set.json as { error?: string } | null)?.error) throw new FixError('SABnzbd didn’t take the change. Add the name yourself: Config → Special → host_whitelist.')
@@ -99,20 +116,29 @@ const under = (p: string, base: string) => {
 }
 const slash = (p: string) => (p.endsWith('/') ? p : `${p}/`)
 const deepest = (ms: Mount[], pick: (m: Mount) => string) => [...ms].sort((a, b) => pick(b).length - pick(a).length)
+const cleanDir = (p: unknown): p is string => typeof p === 'string' && p.startsWith('/') && !/[\\\x00-\x1f]/.test(p) &&
+  !p.split('/').some((part) => part === '..' || part === '.')
+const translate = (p: string, from: string, to: string) => posix.join(to, posix.relative(from, p))
 
 /** Where the client's folder `remote` is inside the app, from the two containers' folders (pure).
  *  Gives the mapping at the folder both containers share, e.g. qBittorrent /data/ → Lidarr /data/data/. */
 export function mapThroughMounts(remote: string, client: Mount[], app: Mount[]): { remotePath: string; localPath: string } | null {
+  if (!cleanDir(remote)) return null
   const r = trim(remote)
-  for (const m of deepest(client, (x) => x.Destination)) {
+  const usable = (m: Mount) => cleanDir(m?.Source) && cleanDir(m?.Destination)
+  const visible = deepest(app.filter(usable), (x) => x.Destination)
+  for (const m of deepest(client.filter(usable), (x) => x.Destination)) {
     if (!under(r, m.Destination)) continue
-    const hostPath = trim(m.Source) + r.slice(trim(m.Destination).length)
-    for (const a of deepest(app, (x) => x.Source)) {
+    const hostPath = translate(r, m.Destination, m.Source)
+    for (const a of deepest(visible, (x) => x.Source)) {
       if (!under(hostPath, a.Source)) continue
       const [remotePath, localPath] = under(trim(a.Source), m.Source)
         ? // The app's folder is the narrower one: map from there.
-          [trim(m.Destination) + trim(a.Source).slice(trim(m.Source).length), a.Destination]
-        : [m.Destination, trim(a.Destination) + trim(m.Source).slice(trim(a.Source).length)]
+          [translate(a.Source, m.Source, m.Destination), a.Destination]
+        : [m.Destination, translate(m.Source, a.Source, a.Destination)]
+      const local = translate(r, remotePath, localPath)
+      const mounted = visible.find((mount) => under(local, mount.Destination))
+      if (!mounted || translate(local, mounted.Destination, mounted.Source) !== hostPath) continue
       if (trim(remotePath) === trim(localPath)) return null // same name both sides: a mapping won't help
       return { remotePath: slash(remotePath || '/'), localPath: slash(localPath || '/') }
     }
@@ -167,15 +193,18 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
   }
 
   const health = await json<{ message?: string }[]>('health')
-  const missing = (Array.isArray(health) ? health : []).map((h) => REMOTE_PATH.exec(h.message ?? '')).filter((m): m is RegExpExecArray => Boolean(m)).map((m) => ({ client: m[1]!.trim(), remote: m[2]!.trim().replace(/\.$/, '') }))
+  if (!Array.isArray(health)) throw new FixError(`${def.name} sent an invalid health report.`)
+  const missing = health.map((h) => typeof h?.message === 'string' ? REMOTE_PATH.exec(h.message) : null)
+    .filter((m): m is RegExpExecArray => Boolean(m)).map((m) => ({ client: m[1]!.trim(), remote: m[2]!.trim().replace(/\.$/, '') }))
   if (!missing.length) return `${def.name} can find its download folders now. Nothing to change.`
   const clients = await json<{ name?: string; implementation?: string; fields?: { name?: string; value?: unknown }[] }[]>('downloadclient')
   const mappings = await json<Mapping[]>('remotepathmapping')
+  if (!Array.isArray(clients) || !Array.isArray(mappings)) throw new FixError(`${def.name} sent invalid download client or folder data.`)
 
   // Docker, when Finesse can reach it: the app's container, once.
   let list: Summary[] | null = null
-  const inspect = async (id: string) => (await deps.docker!.call<{ Mounts?: Mount[] }>('GET', `/containers/${id}/json`))?.Mounts ?? []
-  if (deps.docker) list = await deps.docker.call<Summary[]>('GET', '/containers/json').catch(() => null)
+  const inspect = async (id: string) => (await bounded(deps.docker!.call<{ Mounts?: Mount[] }>('GET', `/containers/${id}/json`)))?.Mounts ?? []
+  if (deps.docker) list = await bounded(deps.docker.call<Summary[]>('GET', '/containers/json')).catch(() => null)
   const appUrl = new URL(svc.url!)
   const appBox = list && findContainer(list, appUrl.hostname, Number(appUrl.port || 80), def.id)
   const appMounts = appBox ? await inspect(appBox.Id).catch(() => []) : []
@@ -186,15 +215,16 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
     if (d === '/') return true
     const parent = d.slice(0, d.lastIndexOf('/')) || '/'
     const r = await json<{ directories?: { path?: string }[] }>(`filesystem?path=${encodeURIComponent(slash(parent))}&includeFiles=false`).catch(() => null)
-    return Boolean(r?.directories?.some((x) => trim(x.path ?? '') === d))
+    return Boolean(Array.isArray(r?.directories) && r.directories.some((x) => cleanDir(x?.path) && trim(x.path) === d))
   }
 
   const done: string[] = []
+  const written = new Set<string>()
   const failed: string[] = []
   for (const { client, remote } of missing) {
-    const c = clients.find((x) => x.name === client)
+    const c = clients.find((x) => x?.name === client)
     const host = String(field(c ?? {}, 'host') ?? '')
-    if (!c || !host) {
+    if (!c || !host || !cleanDir(remote)) {
       failed.push(client)
       continue
     }
@@ -212,15 +242,18 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
       if (other.id === def.id || !other.clients || !o?.url || !o.apiKey) continue
       const r = await deps.get(joinUrl(o.url, `${other.api}/remotepathmapping`), { headers: { 'x-api-key': o.apiKey } }).catch(() => null)
       for (const m of Array.isArray(r?.json) ? (r!.json as Mapping[]) : [])
-        if (m.host === host && m.remotePath && m.localPath && under(trim(remote), m.remotePath)) candidates.push({ remotePath: m.remotePath, localPath: m.localPath })
+        if (m?.host === host && cleanDir(m.remotePath) && cleanDir(m.localPath) && under(trim(remote), m.remotePath)) candidates.push({ remotePath: m.remotePath, localPath: m.localPath })
     }
     let fixed = false
     for (const m of candidates) {
-      if (!(await sees(trim(m.localPath) + trim(remote).slice(trim(m.remotePath).length)))) continue
-      const same = mappings.find((x) => x.host === host && trim(x.remotePath ?? '') === trim(m.remotePath))
+      if (!(await sees(translate(trim(remote), m.remotePath, m.localPath)))) continue
+      const key = `${host}\0${trim(m.remotePath)}`
+      if (written.has(key)) { fixed = true; break }
+      const same = mappings.find((x) => x?.host === host && cleanDir(x.remotePath) && trim(x.remotePath) === trim(m.remotePath))
       const body = { ...same, host, remotePath: m.remotePath, localPath: m.localPath }
       const w = await deps.get(url(same?.id ? `remotepathmapping/${same.id}` : 'remotepathmapping'), { method: same?.id ? 'PUT' : 'POST', headers, body }).catch(() => null)
-      if (!w || w.status >= 400) continue
+      if (!w || w.status < 200 || w.status >= 300) continue
+      written.add(key)
       done.push(`${m.remotePath} → ${m.localPath}`)
       fixed = true
       break
@@ -241,4 +274,85 @@ export async function runConnectionFix(s: Settings, app: string, fix: string, de
   const def = ARRS.find((x) => x.id === app)
   if (fix === 'remote-paths' && def?.clients && s.services[def.id]?.url && s.services[def.id]?.apiKey) return fixRemotePaths(def, s, d)
   throw new FixError('Finesse doesn’t know that fix. Check again for the latest list.')
+}
+
+const log = logger('connections')
+export const REPAIR_COOLDOWN_MS = 30 * 60_000
+
+export class ConnectionRepairLoop {
+  private readonly running = new Map<string, Promise<string>>()
+  private readonly cooldown = new Map<string, number>()
+  private readonly recent: AutoConnectionFix[] = []
+  private startup: NodeJS.Timeout | null = null
+  private interval: NodeJS.Timeout | null = null
+  private checking: Promise<void> | null = null
+
+  constructor(
+    settings: SettingsStore,
+    options: Partial<FixDeps> & { changed?: () => void; now?: () => number } = {},
+  ) {
+    this.settings = settings
+    this.options = options
+  }
+
+  private readonly settings: SettingsStore
+  private readonly options: Partial<FixDeps> & { changed?: () => void; now?: () => number }
+
+  get autoFixed(): AutoConnectionFix[] { return this.recent.slice() }
+
+  start(everyMs = 15 * 60_000, startupMs = 15_000) {
+    if (this.interval) return
+    this.startup = setTimeout(() => void this.tick(), startupMs).unref()
+    this.interval = setInterval(() => void this.tick(), everyMs).unref()
+  }
+
+  stop() {
+    if (this.startup) clearTimeout(this.startup)
+    if (this.interval) clearInterval(this.interval)
+    this.startup = this.interval = null
+  }
+
+  /** Manual calls bypass the cooldown and share a repair already in progress. */
+  fix(app: string, fix: string): Promise<string> {
+    const key = `${app}:${fix}`
+    let work = this.running.get(key)
+    if (!work) {
+      work = runConnectionFix(this.settings.get(), app, fix, this.options).finally(() => {
+        this.running.delete(key)
+        this.options.changed?.()
+      })
+      this.running.set(key, work)
+    }
+    return work
+  }
+
+  tick(): Promise<void> {
+    this.checking ??= this.check().catch(() => log.debug('Couldn’t check connected apps for automatic repairs')).finally(() => { this.checking = null })
+    return this.checking
+  }
+
+  private async check() {
+    const now = this.options.now ?? Date.now
+    for (const [key, until] of this.cooldown) if (until <= now()) this.cooldown.delete(key)
+    const config = this.settings.get()
+    for (const { app, fix } of await connectionRepairs(config, this.options.get)) {
+      const key = `${app}:${fix}`
+      if (this.cooldown.has(key) || this.running.has(key)) continue
+      const id = app as keyof Settings['services']
+      const live = this.settings.get().services[id]
+      if (live?.url !== config.services[id]?.url || live?.apiKey !== config.services[id]?.apiKey) continue
+      await this.tryFix(app, fix)
+      this.cooldown.set(key, now() + REPAIR_COOLDOWN_MS)
+    }
+  }
+
+  private async tryFix(app: string, fix: ConnFix['id']) {
+    try {
+      const message = await this.fix(app, fix)
+      this.recent.unshift({ app, fix, at: new Date((this.options.now ?? Date.now)()).toISOString(), message })
+      this.recent.length = Math.min(this.recent.length, 30)
+    } catch {
+      log.debug(`Automatic connection repair ${fix} for ${app} could not finish`)
+    }
+  }
 }

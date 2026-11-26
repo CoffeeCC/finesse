@@ -36,6 +36,8 @@ export interface ProxyOptions {
   setHeaders?: Record<string, string | null>
   /** Drop the caller's credentials (Authorization, X-Emby-Token, Cookie). */
   stripAuth?: boolean
+  /** An untrusted media server may return data and media, with a narrow response header set. */
+  mediaOnly?: boolean
   /** Rewrite upstream Location headers that start with this prefix… */
   rewriteLocation?: { from: string; to: string }
   /** Connect / first-byte timeout (ms). Streaming itself has no limit. */
@@ -53,6 +55,8 @@ export interface ProxyOptions {
 
 const REWRITABLE = /^(application\/(json|vnd\.apple\.mpegurl|x-mpegurl)|audio\/(x-)?mpegurl)\b/i
 const REWRITE_MAX = 32 << 20
+const MEDIA_TYPES = /^(?:application\/(?:octet-stream|json|vnd\.apple\.mpegurl|x-mpegurl|x-subrip|ttml\+xml)|text\/(?:plain|vtt)|(?:audio|video)\/[\w.+-]+|image\/(?:jpeg|png|gif|webp|avif|bmp))(?:\s*;|$)/i
+const MEDIA_HEADERS = new Set(['content-type', 'content-length', 'content-encoding', 'content-range', 'accept-ranges'])
 
 function upstreamHeaders(req: IncomingMessage, opts: ProxyOptions): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {}
@@ -123,13 +127,28 @@ export function proxyHttp(req: IncomingMessage, res: ServerResponse, opts: Proxy
       },
       (up) => {
         const headers = downstreamHeaders(up.headers, opts)
+        if (opts.mediaOnly) {
+          const code = up.statusCode ?? 502
+          const type = String(up.headers['content-type'] ?? '')
+          const empty = code === 204 || Number(up.headers['content-length']) === 0
+          if (code >= 300 && code < 400 || (!empty && !MEDIA_TYPES.test(type))) {
+            up.destroy()
+            res.writeHead(502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+            res.end(JSON.stringify({ error: 'The friend’s server sent an unsupported media reply' }))
+            return resolve()
+          }
+          for (const header of Object.keys(headers)) if (!MEDIA_HEADERS.has(header)) delete headers[header]
+          headers['x-content-type-options'] = 'nosniff'
+          headers['content-security-policy'] = "default-src 'none'; sandbox"
+          headers['cache-control'] = 'private, no-store'
+        }
         if (up.statusCode === 200 && isTaggedJellyfinImage(req, t) && !/(?:^|,)\s*immutable\s*(?:,|$)/i.test(String(headers['cache-control'] ?? ''))) {
           headers['cache-control'] = 'private, max-age=604800, immutable'
         }
         const len = Number(up.headers['content-length'] ?? 0)
         // Text that must be rewritten (a token swapped out) is never passed on as it came: compressed
         // replies are unpacked first, and anything that can't be read or is too big is refused.
-        if (opts.rewriteText && REWRITABLE.test(String(up.headers['content-type'] ?? ''))) {
+        if (req.method !== 'HEAD' && opts.rewriteText && REWRITABLE.test(String(up.headers['content-type'] ?? ''))) {
           const refuse = () => {
             if (!res.destroyed && !res.writableEnded) {
               res.writeHead(502, { 'Content-Type': 'application/json' })

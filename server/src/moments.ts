@@ -21,6 +21,7 @@ import { mkdirSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import type { Access } from './access.ts'
 import { groupUserIds, type Auth } from './auth.ts'
 import type { GroupFriend, GroupLink, SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
@@ -131,7 +132,7 @@ const TAGGED = /^f-([a-z0-9]{8})-([0-9a-f]{32})$/i
 
 /** Plain, single-line-ish text: no control characters, trimmed, capped. */
 export function cleanNote(v: unknown): string {
-  return String(v ?? '')
+  return (typeof v === 'string' ? v : '')
     .replace(/[\u0000-\u0009\u000b-\u001f\u007f‪-‮⁦-⁩]/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
@@ -141,8 +142,9 @@ export function cleanNote(v: unknown): string {
 /** A start and end in seconds, sane and at most SPAN_MAX apart; both null for the whole title. */
 export function cleanSpan(start: unknown, end: unknown): { start: number | null; end: number | null } {
   if (start == null && end == null) return { start: null, end: null }
-  const a = Math.round(Number(start) * 10) / 10
-  const b = Math.round(Number(end) * 10) / 10
+  if (typeof start !== 'number' || typeof end !== 'number') throw new ApiError(400, 'Pick where the moment starts and ends')
+  const a = Math.round(start * 10) / 10
+  const b = Math.round(end * 10) / 10
   if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b > 24 * 3600) throw new ApiError(400, 'Pick where the moment starts and ends')
   if (b - a < 1) throw new ApiError(400, 'A moment is at least a second long')
   if (b - a > SPAN_MAX) throw new ApiError(400, 'A moment is at most 10 minutes long')
@@ -285,8 +287,10 @@ export class MomentStore {
   }
 
   markRead(user: string, keys: string[]) {
+    if (!keys.length) return
     const ins = this.db.prepare('INSERT OR IGNORE INTO reads (user, key) VALUES (?, ?)')
     for (const k of keys.slice(0, 500)) ins.run(user, k)
+    this.db.prepare('DELETE FROM reads WHERE rowid IN (SELECT rowid FROM reads WHERE user = ? ORDER BY rowid DESC LIMIT -1 OFFSET ?)').run(user, KEEP)
   }
 }
 
@@ -308,7 +312,10 @@ function limit(key: string, perHour: number) {
   if (list.length >= perHour) throw new ApiError(429, 'That’s a lot of moments for one hour. Try again a bit later.')
   list.push(now)
   made.set(key, list)
-  if (made.size > 5000) made.clear()
+  if (made.size > 5000) {
+    const oldest = made.keys().next()
+    if (!oldest.done) made.delete(oldest.value)
+  }
 }
 
 interface JfItemLite {
@@ -321,13 +328,15 @@ interface JfItemLite {
   ProductionYear?: number
 }
 
-export function registerMoments(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth; groups: GroupsApi; store?: MomentStore; parental?: import('./parental.ts').Parental }) {
+export function registerMoments(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth; groups: GroupsApi; store?: MomentStore; parental?: import('./parental.ts').Parental; access?: Pick<Access, 'canOpenOurs'> }) {
   const { settings, jf, auth, groups } = deps
   /** Parental limits (parental.ts): a limited profile reaches no friend's title, and only ours within its limit. */
   const limited = (uid: string) => Boolean(deps.parental?.limitOf(uid))
   const mayOpen = async (uid: string, item: string) => {
     if (TAGGED.test(item)) return !limited(uid)
-    return deps.parental ? deps.parental.allows(uid, item.toLowerCase()) : true
+    if (!RAW.test(item)) return false
+    return deps.access ? deps.access.canOpenOurs(uid, item.toLowerCase()) :
+      deps.parental ? deps.parental.allows(uid, item.toLowerCase()) : true
   }
   const refuse = () => new ApiError(403, 'This profile can’t open that title')
   const store = deps.store ?? new MomentStore(join(settings.paths.configDir, 'moments.db'))
@@ -347,7 +356,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const hit = itemCache.get(raw)
     if (hit && Date.now() - hit.at < 10 * 60e3) return hit
     const r = await jf.request<{ Items?: JfItemLite[] }>(`/Items?Ids=${raw}&Recursive=true&Fields=ProductionYear&EnableImages=false`).catch(() => null)
-    const it = r?.Items?.find((i) => String(i.Id).toLowerCase() === raw)
+    const it = Array.isArray(r?.Items) ? r.Items.find((i) => String(i?.Id).toLowerCase() === raw) : undefined
     if (!it) throw new ApiError(404, 'That title isn’t on this server any more')
     const episode = it.Type === 'Episode'
     const out = {
@@ -369,7 +378,8 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const hit = inLib.get(key)
     if (hit && Date.now() - hit.at < 10 * 60e3) return hit.yes
     const r = await jf.request<{ Items?: { Id: string }[] }>(`/Items?Ids=${raw}&ParentId=${lib}&Recursive=true&Limit=1&EnableImages=false`).catch(() => null)
-    const yes = Boolean(r?.Items?.some((i) => String(i.Id).toLowerCase() === raw))
+    if (!Array.isArray(r?.Items)) return false
+    const yes = r.Items.some((i) => String(i?.Id).toLowerCase() === raw)
     if (inLib.size > 5000) inLib.clear()
     inLib.set(key, { at: Date.now(), yes })
     return yes
@@ -417,10 +427,12 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     st.running = (async () => {
       try {
         const feed = await groups.callFriend<{ moments?: FeedMoment[] }>(f, '/api/groups/peer/moments')
-        store.replaceRemote(f.id, (feed?.moments ?? []).filter(validFeed).slice(0, FEED_MAX))
+        if (!Array.isArray(feed?.moments)) throw new ApiError(502, 'Their server sent an invalid moments feed')
+        if (groups.friends().some((friend) => friend.id === f.id)) store.replaceRemote(f.id, feed.moments.slice(0, FEED_MAX).filter(validFeed))
         st.skipUntil = 0
       } catch (e) {
         const status = (e as ApiError).status
+        if (status === 401 || status === 403) store.replaceRemote(f.id, [])
         // An older Finesse (no moments yet) or a server that's off: ask less often.
         st.skipUntil = Date.now() + (status === 404 ? 30 * 60e3 : 5 * 60e3)
         log.debug(`couldn’t fetch moments from ${f.name}: ${(e as Error).message}`)
@@ -431,11 +443,14 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     })()
     return st.running
   }
-  const pollAll = async () => {
+  let polling: Promise<void> | null = null
+  const pollAll = () => (polling ??= (async () => {
     const friends = groups.friends()
-    store.dropRemote(friends.map((f) => f.id))
+    const ids = new Set(friends.map((f) => f.id))
+    for (const id of pollState.keys()) if (!ids.has(id)) pollState.delete(id)
+    store.dropRemote([...ids])
     for (const f of friends) await pollFriend(f)
-  }
+  })().finally(() => { polling = null }))
   setInterval(() => void pollAll().catch(() => {}), POLL_MS).unref()
   setTimeout(() => void pollAll().catch(() => {}), 5000).unref()
 
@@ -445,6 +460,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
   router.get('/api/moments/targets', async ({ req, res, url }) => {
     const me = await person(req)
     const item = String(url.searchParams.get('item') ?? '')
+    if (!RAW.test(item) && !TAGGED.test(item)) throw new ApiError(400, 'Which title?')
     if (!(await mayOpen(me.Id.toLowerCase(), item))) throw refuse()
     const here = await people(me.Id)
     const tagged = TAGGED.exec(item)
@@ -463,8 +479,9 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
   // Flag a moment.
   router.post('/api/moments', async ({ req, res }) => {
     const me = await person(req)
-    const body = await readJson<{ item?: unknown; start?: unknown; end?: unknown; note?: unknown; spoiler?: unknown; to?: unknown }>(req, 8192)
+    const body = (await readJson<{ item?: unknown; start?: unknown; end?: unknown; note?: unknown; spoiler?: unknown; to?: unknown } | null>(req, 8192)) ?? {}
     const item = String(body.item ?? '')
+    if (!RAW.test(item) && !TAGGED.test(item)) throw new ApiError(400, 'Which title?')
     const { start, end } = cleanSpan(body.start, body.end)
     const note = cleanNote(body.note)
     const spoiler = body.spoiler === true
@@ -491,7 +508,8 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
         users: everyone ? null : picked,
       })
       // Remembered, so that server can only ever call this one ours (and only this person's).
-      if (typeof r?.id === 'string' && /^[\w-]{8,20}$/.test(r.id)) store.recordSent(f.id, r.id, me.Id.toLowerCase())
+      if (typeof r?.id !== 'string' || !/^[\w-]{8,20}$/.test(r.id)) throw new ApiError(502, 'Their server didn’t confirm the moment')
+      store.recordSent(f.id, r.id, me.Id.toLowerCase())
       await pollFriend(f, true)
       return sendJson(res, 201, { key: `r:${f.id}:${r.id}` })
     }
@@ -503,7 +521,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     if (everyone || picked.length) audience.push({ s: 'home', u: everyone ? null : picked })
     for (const target of to.filter((x) => x.startsWith('link:'))) {
       const link = groups.links().find((l) => l.id === target.slice(5))
-      if (!link) continue
+      if (!link || link.paused) continue
       if (!(await linkSees(link, raw))) throw new ApiError(400, `${link.name} can’t watch this one, so it can’t go to them`)
       audience.push({ s: link.id, u: null })
     }
@@ -518,13 +536,15 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const me = await person(req)
     const uid = me.Id.toLowerCase()
     const item = String(params.item ?? '')
+    if (!RAW.test(item) && !TAGGED.test(item)) throw new ApiError(400, 'Which title?')
     if (!(await mayOpen(uid, item))) throw refuse()
     const tagged = TAGGED.exec(item)
     if (tagged) {
       const f = friendOf(tagged[1]!)
       if (!f) return sendJson(res, 200, { moments: [] })
       const r = await groups.callFriend<{ moments?: FeedMoment[] }>(f, `/api/groups/peer/moments?item=${tagged[2]!.toLowerCase()}`).catch(() => ({ moments: [] as FeedMoment[] }))
-      const list = store.trustFeed(f.id, (r.moments ?? []).filter(validFeed)).filter((m) => m.fromHere === uid || (m.users === null ? true : m.users.includes(uid)))
+      const list = store.trustFeed(f.id, (Array.isArray(r?.moments) ? r.moments.slice(0, FEED_MAX).filter(validFeed) : []))
+        .filter((m) => m.item.toLowerCase() === tagged[2]!.toLowerCase() && (m.fromHere === uid || (m.users === null ? true : m.users.includes(uid))))
       return sendJson(res, 200, {
         moments: list.map((m) => ({ key: `r:${f.id}:${m.id}`, start: m.start, end: m.end, note: m.note, spoiler: m.spoiler, from: m.fromHere ? m.from : `${m.from} · ${f.name}`, mine: m.fromHere === uid, created: m.created })),
       })
@@ -547,7 +567,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const fresh = url.searchParams.get('fresh') === '1'
     const stale = groups.friends().filter((f) => Date.now() - (pollState.get(f.id)?.at ?? 0) > (fresh ? 3e3 : 60e3))
     if (fresh) await Promise.all(stale.map((f) => pollFriend(f, true)))
-    else for (const f of stale) void pollFriend(f)
+    else for (const f of stale) void pollFriend(f).catch(() => {})
     const read = store.readKeys(uid)
     const local = store
       .list({ since })
@@ -570,8 +590,7 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
         created: r.created,
       }))
     let all = [...local, ...remote].sort((a, b) => b.created - a.created)
-    // A limited profile only hears of titles it can open (checked only until there are 60).
-    all = limited(uid) ? await firstAllowed(all, 60, (m) => mayOpen(uid, m.item)) : all.slice(0, 60)
+    all = await firstAllowed(all, 60, (m) => mayOpen(uid, m.item))
     const items = all.map((m) => ({ ...m, read: read.has(m.key) }))
     sendJson(res, 200, { moments: items, unread: items.filter((m) => !m.read).length, mine: await mine(uid, since) })
   })
@@ -602,14 +621,15 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
       return { ...base, key: `r:${r.friend}:${r.id}`, item: `f-${r.friend}-${r.item}`, title: r.title, subtitle: r.subtitle, start: r.start, end: r.end, note: r.note, spoiler: r.spoiler === 1, to, created: r.created }
     })
     const list = [...local, ...remote].sort((a, b) => b.created - a.created)
-    return limited(uid) ? firstAllowed(list, 60, (m) => mayOpen(uid, m.item)) : list.slice(0, 60)
+    return firstAllowed(list, 60, (m) => mayOpen(uid, m.item))
   }
 
   router.post('/api/moments/read', async ({ req, res }) => {
     const me = await person(req)
-    const body = await readJson<{ keys?: unknown }>(req, 65536)
-    const keys = Array.isArray(body.keys) ? body.keys.map(String).filter((k) => /^(l:[\w-]{8,20}|r:[a-z0-9]{8}:[\w-]{8,20})$/.test(k)) : []
-    store.markRead(me.Id.toLowerCase(), keys)
+    const body = await readJson<{ keys?: unknown } | null>(req, 65536)
+    const uid = me.Id.toLowerCase()
+    const keys = Array.isArray(body?.keys) ? [...new Set(body.keys.slice(0, 500))].filter((k): k is string => typeof k === 'string' && momentFor(uid, k) !== null) : []
+    store.markRead(uid, keys)
     sendJson(res, 200, { ok: true })
   })
 
@@ -640,8 +660,8 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
   })
   router.put('/api/moments/settings', async ({ req, res }) => {
     await auth.requireAdmin(req)
-    const body = await readJson<{ fromFriends?: unknown }>(req)
-    if (typeof body.fromFriends !== 'boolean') throw new ApiError(400, 'fromFriends must be true or false')
+    const body = await readJson<{ fromFriends?: unknown } | null>(req, 4096)
+    if (typeof body?.fromFriends !== 'boolean') throw new ApiError(400, 'fromFriends must be true or false')
     const on = body.fromFriends
     settings.update((s) => void (s.momentsFromFriends = on))
     sendJson(res, 200, { fromFriends: on })
@@ -675,22 +695,33 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
     const item = url.searchParams.get('item')
     if (item && !RAW.test(item)) throw new ApiError(400, 'Which title?')
     const list = item ? store.list({ item: item.toLowerCase() }) : store.list({ since: Date.now() - FEED_DAYS * 86400e3, limit: 2000 })
-    sendJson(res, 200, { moments: list.filter((m) => visibleTo(link, m)).slice(0, FEED_MAX).map((m) => feedOf(link, m)) })
+    const allowed = new Map<string, Promise<boolean>>()
+    const visible = await firstAllowed(list.filter((m) => visibleTo(link, m)), FEED_MAX, (m) => {
+      let check = allowed.get(m.item)
+      if (!check) allowed.set(m.item, check = linkSees(link, m.item))
+      return check
+    })
+    const current = groups.peerLink(req)
+    if (current.libraries.length !== link.libraries.length || current.libraries.some((id) => !link.libraries.includes(id))) throw new ApiError(409, 'The shared libraries changed. Try again.')
+    sendJson(res, 200, { moments: visible.map((m) => feedOf(current, m)) })
   })
 
   router.post('/api/groups/peer/moments', async ({ req, res }) => {
     const link = groups.peerLink(req)
     if (settings.get().momentsFromFriends === false) throw new ApiError(403, 'That server isn’t taking moments from friends right now')
-    const body = await readJson<{ item?: unknown; start?: unknown; end?: unknown; note?: unknown; spoiler?: unknown; viewer?: unknown; name?: unknown; owner?: unknown; users?: unknown }>(req, 16384)
-    const item = String(body.item ?? '').toLowerCase()
-    const viewer = String(body.viewer ?? '').toLowerCase()
+    const body = (await readJson<{ item?: unknown; start?: unknown; end?: unknown; note?: unknown; spoiler?: unknown; viewer?: unknown; name?: unknown; owner?: unknown; users?: unknown } | null>(req, 16384)) ?? {}
+    const item = typeof body.item === 'string' ? body.item.toLowerCase() : ''
+    const viewer = typeof body.viewer === 'string' ? body.viewer.toLowerCase() : ''
     if (!RAW.test(item) || !RAW.test(viewer)) throw new ApiError(400, 'Which title, and who?')
     const { start, end } = cleanSpan(body.start, body.end)
     const note = cleanNote(body.note)
     limit(`l:${link.id}`, 60)
     if (!(await linkSees(link, item))) throw new ApiError(403, 'That title isn’t shared with you')
     const t = await title(item)
-    const users = body.users === null ? null : Array.isArray(body.users) ? body.users.map((u) => String(u).toLowerCase()).filter((u) => RAW.test(u)).slice(0, 100) : []
+    const current = groups.peerLink(req)
+    if (current.libraries.length !== link.libraries.length || current.libraries.some((id) => !link.libraries.includes(id))) throw new ApiError(409, 'The shared libraries changed. Try again.')
+    const users = body.users === null ? null : Array.isArray(body.users) ? body.users.slice(0, 100)
+      .filter((u): u is string => typeof u === 'string' && RAW.test(u)).map((u) => u.toLowerCase()) : []
     const audience: Audience[] = [{ s: link.id, u: users }]
     if (body.owner === true) audience.push({ s: 'home', u: null })
     const id = newId()
@@ -702,10 +733,10 @@ export function registerMoments(router: Router, deps: { settings: SettingsStore;
 
   router.post('/api/groups/peer/moments/:id/delete', async ({ req, res, params }) => {
     const link = groups.peerLink(req)
-    const body = await readJson<{ viewer?: unknown }>(req)
+    const body = await readJson<{ viewer?: unknown } | null>(req, 4096)
     const m = store.get(String(params.id ?? ''))
     if (!m || !visibleTo(link, m)) throw new ApiError(404, 'That moment is gone')
-    if (!(m.author_server === link.id && m.author_user === String(body.viewer ?? '').toLowerCase())) throw new ApiError(403, 'Only whoever flagged it can delete it')
+    if (!(m.author_server === link.id && typeof body?.viewer === 'string' && m.author_user === body.viewer.toLowerCase())) throw new ApiError(403, 'Only whoever flagged it can delete it')
     store.remove(m.id)
     sendJson(res, 200, { ok: true })
   })
@@ -741,18 +772,19 @@ function validFeed(m: FeedMoment): boolean {
     !!m &&
     typeof m.id === 'string' &&
     /^[\w-]{8,20}$/.test(m.id) &&
-    RAW.test(String(m.item)) &&
-    ((m.start === null && m.end === null) || (Number.isFinite(m.start) && Number.isFinite(m.end) && m.end! > m.start! && m.end! - m.start! <= SPAN_MAX + 1)) &&
+    typeof m.item === 'string' && RAW.test(m.item) &&
+    ((m.start === null && m.end === null) || (Number.isFinite(m.start) && Number.isFinite(m.end) && m.start! >= 0 && m.end! <= 24 * 3600 && m.end! > m.start! && m.end! - m.start! <= SPAN_MAX + 1)) &&
     Number.isFinite(m.created) &&
     (m.users === null || Array.isArray(m.users))
   ) && Object.assign(m, {
-    title: String(m.title ?? '').slice(0, 200),
-    subtitle: String(m.subtitle ?? '').slice(0, 200),
+    item: m.item.toLowerCase(),
+    title: (typeof m.title === 'string' ? m.title : '').slice(0, 200),
+    subtitle: (typeof m.subtitle === 'string' ? m.subtitle : '').slice(0, 200),
     note: cleanNote(m.note),
     spoiler: m.spoiler === true,
     from: cleanNote(m.from).replace(/\s+/g, ' ').slice(0, 40) || 'A friend',
-    fromHere: m.fromHere && RAW.test(String(m.fromHere)) ? String(m.fromHere).toLowerCase() : null,
-    users: m.users === null ? null : m.users.map(String).filter((u) => RAW.test(u)),
+    fromHere: typeof m.fromHere === 'string' && RAW.test(m.fromHere) ? m.fromHere.toLowerCase() : null,
+    users: m.users === null ? null : m.users.slice(0, 100).filter((u) => typeof u === 'string' && RAW.test(u)).map((u) => u.toLowerCase()),
     owner: typeof m.owner === 'boolean' ? m.owner : undefined,
   }) !== null
 }

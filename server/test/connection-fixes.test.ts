@@ -4,9 +4,9 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { Settings } from '../src/config.ts'
+import type { Settings, SettingsStore } from '../src/config.ts'
 import { checkConnections, type ConnFetch } from '../src/connections.ts'
-import { findContainer, mapThroughMounts, runConnectionFix } from '../src/connectionFixes.ts'
+import { ConnectionRepairLoop, REPAIR_COOLDOWN_MS, findContainer, mapThroughMounts, runConnectionFix } from '../src/connectionFixes.ts'
 
 const settings = (services: Settings['services'], mode: Settings['mode'] = 'adopt') => ({ services, mode }) as Settings
 
@@ -40,6 +40,12 @@ test('the folder both containers share becomes the mapping', () => {
   // Same name on both sides: a mapping won't help. Not shared at all: nothing to map.
   assert.equal(mapThroughMounts('/data/t', [{ Source: '/a', Destination: '/data' }], [{ Source: '/a', Destination: '/data' }]), null)
   assert.equal(mapThroughMounts('/data/t', [{ Source: '/a', Destination: '/data' }], [{ Source: '/b', Destination: '/data' }]), null)
+  assert.equal(mapThroughMounts('/data/t', [{ Source: '/a', Destination: '/data' }], [
+    { Source: '/a', Destination: '/files' }, { Source: '/other', Destination: '/files/t' },
+  ]), null, 'a nested mount shadows the apparent match')
+  assert.deepEqual(mapThroughMounts('/t', [{ Source: '/a', Destination: '/' }], [{ Source: '/a', Destination: '/files' }]), {
+    remotePath: '/', localPath: '/files/',
+  })
 })
 
 test('a client inside a VPN container is found through the VPN’s published port', () => {
@@ -146,4 +152,51 @@ test('SABnzbd’s hostname check: reported plainly, and fixed by asking it by IP
 
 test('an unknown fix is turned down plainly', async () => {
   await assert.rejects(runConnectionFix(settings({}), 'radarr', 'format-disk'), /doesn’t know that fix/)
+})
+
+test('automatic repairs record successes and retry failures only after cooldown', async (t) => {
+  const s = settings({
+    sabnzbd: { url: 'http://sab.local', apiKey: 'fixture' },
+    lidarr: { url: 'http://music.local', apiKey: 'fixture' },
+  })
+  const store = { get: () => s } as SettingsStore
+  let now = Date.UTC(2026, 0, 1)
+  let sabRepaired = false
+  let lidarrChecks = 0
+  const loop = new ConnectionRepairLoop(store, {
+    now: () => now,
+    get: async (url) => {
+      const u = new URL(url)
+      if (u.hostname === 'sab.local') {
+        if (sabRepaired) return { status: 200, json: { version: '1' } }
+        return { status: 403, json: null, text: 'Hostname verification' }
+      }
+      if (u.pathname.endsWith('/health')) return { status: 200, json: LIDARR_HEALTH }
+      if (u.pathname.endsWith('/downloadclient')) lidarrChecks++
+      return { status: 503, json: null }
+    },
+    byIp: async (url) => {
+      const mode = new URL(url).searchParams.get('mode')
+      if (mode === 'set_config') {
+        sabRepaired = true
+        return { status: 200, json: { status: true } }
+      }
+      return { status: 200, json: { config: { misc: { host_whitelist: ['other.local'] } } } }
+    },
+  })
+  t.after(() => loop.stop())
+  // Run through the actual startup scheduler.
+  loop.start(60_000, 0)
+  for (let i = 0; i < 20 && loop.autoFixed.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5))
+  await loop.tick()
+  assert.deepEqual(loop.autoFixed, [{ app: 'sabnzbd', fix: 'sab-hostname', at: new Date(now).toISOString(), message: 'SABnzbd now answers to “sab.local”.' }])
+  assert.equal(lidarrChecks, 1)
+  now += REPAIR_COOLDOWN_MS - 1
+  await loop.tick()
+  assert.equal(lidarrChecks, 1)
+  await assert.rejects(loop.fix('lidarr', 'remote-paths'))
+  assert.equal(lidarrChecks, 2, 'manual repair bypasses cooldown')
+  now++
+  await loop.tick()
+  assert.equal(lidarrChecks, 3)
 })

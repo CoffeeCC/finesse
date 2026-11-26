@@ -45,6 +45,14 @@ export interface ConnReport {
   checkedAt: string
   apps: ConnCheck[]
   vpn: { ok: ConnOk; summary: string; source: 'gluetun' | 'inferred' } | null
+  autoFixed?: AutoConnectionFix[]
+}
+
+export interface AutoConnectionFix {
+  app: string
+  fix: ConnFix['id']
+  at: string
+  message: string
 }
 
 /** GET/POST returning parsed JSON, or throwing an Error whose message is a plain reason. */
@@ -56,7 +64,7 @@ export type ConnFetch = (
 export const liveFetch: ConnFetch = async (url, init) => {
   const body = init.body === undefined ? undefined : JSON.stringify(init.body)
   const headers = body ? { 'content-type': 'application/json', ...init.headers } : init.headers
-  const r = await fetch(url, { method: init.method ?? 'GET', headers, body, signal: AbortSignal.timeout(10000) })
+  const r = await fetch(url, { method: init.method ?? 'GET', headers, body, signal: AbortSignal.timeout(10000), redirect: 'error' })
   const text = await r.text()
   let json: unknown = null
   try {
@@ -221,6 +229,26 @@ async function checkGluetun(svc: Endpoint, get: ConnFetch): Promise<ConnReport['
 /** Download-client trouble that points at the VPN (torrents go through it; when it drops, qBittorrent can't be reached). */
 const VPN_HINT = /qbittorrent|torrent/i
 const DOWN_HINT = /unable to (communicate|connect)|connection refused|timed? ?out|unreachable|not available|failed/i
+
+/** Background probes only read the health endpoints needed to decide on a repair. */
+export async function connectionRepairs(s: Settings, get: ConnFetch = liveFetch): Promise<{ app: string; fix: ConnFix['id'] }[]> {
+  const tasks: Promise<{ app: string; fix: ConnFix['id'] } | null>[] = []
+  for (const def of ARRS) {
+    const svc = s.services[def.id]
+    if (!def.clients || !svc?.url || !svc.apiKey) continue
+    tasks.push(Promise.resolve().then(async () => {
+      const r = await get(joinUrl(svc.url!, `${def.api}/health`), { headers: { 'x-api-key': svc.apiKey! } })
+      return r.status === 200 && Array.isArray(r.json) && r.json.some((item) => typeof item?.message === 'string' && REMOTE_PATH.test(item.message))
+        ? { app: def.id, fix: 'remote-paths' as const } : null
+    }).catch(() => null))
+  }
+  const sab = s.services.sabnzbd
+  if (sab?.url && sab.apiKey) {
+    tasks.push(checkSab(sab, get).then((r) => r.fixes?.some((f) => f.id === 'sab-hostname')
+      ? { app: 'sabnzbd', fix: 'sab-hostname' as const } : null).catch(() => null))
+  }
+  return (await Promise.all(tasks)).filter((r) => r !== null)
+}
 
 /** Every connected app, checked. */
 export async function checkConnections(s: Settings, get: ConnFetch = liveFetch): Promise<ConnReport> {

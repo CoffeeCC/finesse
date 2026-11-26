@@ -150,19 +150,32 @@ export function peerRequest(method: string, rest: string, query: URLSearchParams
 
 /** Where files sit on the sharing server is nobody else's business: drop "Path" from JSON replies. */
 export function withoutPaths(text: string): string {
-  if (!text.includes('"Path"')) return text
-  try {
-    const walk = (v: unknown): unknown => {
-      if (Array.isArray(v)) return v.map(walk)
-      if (!v || typeof v !== 'object') return v
-      const out: Record<string, unknown> = {}
-      for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (k !== 'Path') out[k] = walk(x)
-      return out
-    }
-    return JSON.stringify(walk(JSON.parse(text)))
-  } catch {
-    return text
+  if (text.trimStart().startsWith('#EXTM3U') || !text.trim()) return text
+  return JSON.stringify(JSON.parse(text), (key, value: unknown) => key.toLowerCase() === 'path' ? undefined : value)
+}
+
+/** Only attach the local sign-in to media paths that stay on this server's friend proxy. */
+export function friendPlaybackToken(text: string, token: string): string {
+  const fill = (path: string, relative = false) => {
+    if (!path.includes(PEER_TOKEN)) return path
+    const url = URL.parse(path, 'http://finesse.invalid/videos/playlist.m3u8')
+    if (url?.origin !== 'http://finesse.invalid' || /[\\\x00-\x20]/.test(path) ||
+      /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(path) || !/^\/(?:videos|audio)\//i.test(url.pathname) ||
+      (!relative && !/^\/(?:videos|audio)\//i.test(path))) return path
+    const query = path.indexOf('?')
+    const fragment = path.indexOf('#')
+    if (query < 0 || (fragment >= 0 && fragment < query)) return path
+    const end = fragment < 0 ? path.length : fragment
+    const search = path.slice(query + 1, end).replace(/(^|&)api_?key=FINESSE_PEER_TOKEN(?=&|$)/gi,
+      (_, separator: string) => `${separator}ApiKey=${encodeURIComponent(token)}`)
+    return path.slice(0, query + 1) + search + path.slice(end)
   }
+  if (text.trimStart().startsWith('#EXTM3U')) return text.split('\n').map((line) => {
+    const trimmed = line.trim()
+    return trimmed.startsWith('#') ? line.replace(/\bURI="([^"]*)"/g, (_, uri: string) => `URI="${fill(uri, true)}"`) : fill(trimmed, true)
+  }).join('\n')
+  if (!text.trim()) return text
+  return JSON.stringify(JSON.parse(text), (_key, value: unknown) => typeof value === 'string' ? fill(value) : value)
 }
 
 /** Jellyfin user names allow letters, digits, spaces and -'._@+ only. */
@@ -178,19 +191,43 @@ export function jfName(s: string): string {
 // ---------- rate limit for pairing codes ----------
 
 const guesses = new Map<string, { n: number; since: number }>()
+const PAIR_WINDOW = 10 * 60e3
 function pairLimit(req: IncomingMessage) {
   const g = guesses.get(clientIp(req))
-  if (g && Date.now() - g.since < 10 * 60e3 && g.n >= 10) throw new ApiError(429, 'Too many wrong codes. Wait a few minutes and check the code.')
+  if (g && Date.now() - g.since < PAIR_WINDOW && g.n >= 10) throw new ApiError(429, 'Too many wrong codes. Wait a few minutes and check the code.')
 }
 function wrongPair(req: IncomingMessage): ApiError {
   const ip = clientIp(req)
   const now = Date.now()
   const g = guesses.get(ip)
-  const cur = g && now - g.since < 10 * 60e3 ? g : { n: 0, since: now }
+  const cur = g && now - g.since < PAIR_WINDOW ? g : { n: 0, since: now }
   cur.n++
   guesses.set(ip, cur)
-  if (guesses.size > 10000) guesses.clear()
+  if (guesses.size > 10000) {
+    const oldest = guesses.keys().next()
+    if (!oldest.done) guesses.delete(oldest.value)
+  }
   return new ApiError(404, 'That code didn’t work. Codes work once and last 7 days; ask for a new one.')
+}
+
+async function friendText(response: Response): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const part = await reader.read()
+      if (part.done) break
+      size += part.value.length
+      if (size > 4 << 20) throw new Error('Friend response limit exceeded')
+      chunks.push(part.value)
+    }
+    return Buffer.concat(chunks, size).toString('utf8')
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
 }
 
 export function registerGroups(router: Router, deps: { settings: SettingsStore; jf: Jellyfin; auth: Auth; parental?: import('./parental.ts').Parental }): GroupsApi {
@@ -282,12 +319,24 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
 
   // One creation at a time per viewer, even when the app fires calls in parallel.
   const pending = new Map<string, Promise<{ userId: string; token: string }>>()
+  const changing = new Set<string>()
+  const liveLink = (id: string) => groupsOf(settings.get()).links.find((link) => link.id === id)
+  async function changeLink<T>(id: string, change: (link: GroupLink) => Promise<T>): Promise<T> {
+    if (changing.has(id)) throw new ApiError(409, 'This share is already changing. Try again in a moment.')
+    const link = liveLink(id)
+    if (!link) throw new ApiError(404, 'No such server')
+    changing.add(id)
+    try { return await change(link) } finally { changing.delete(id) }
+  }
+
   function viewerFor(link: GroupLink, viewerId: string, viewerName: string): Promise<{ userId: string; token: string }> {
+    if (changing.has(link.id)) throw new ApiError(503, 'Your friend is changing what they share. Try again in a moment.')
     const known = link.viewers[viewerId]
     if (known?.token) return Promise.resolve({ userId: known.userId, token: known.token })
     const key = `${link.id}/${viewerId}`
     let p = pending.get(key)
     if (!p) {
+      let created: string | undefined
       p = (async () => {
         let v = known
         if (!v) {
@@ -304,6 +353,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
             })
           }
           if (!user) throw new ApiError(502, 'Couldn’t make a viewer for your friend’s server')
+          created = user.Id
           const password = randomBytes(24).toString('base64url')
           await jf.request(`/Users/${user.Id}/Password`, { method: 'POST', body: { Id: user.Id, NewPw: password } })
           await setLibraries(user.Id, link.libraries)
@@ -311,13 +361,21 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
           log.info(`${link.name}: made a viewer for ${viewerName}`)
         }
         const token = await signIn(link, viewerId, v.name, v.password)
+        const current = liveLink(link.id)
+        if (!current || current.paused || changing.has(link.id) ||
+          current.libraries.length !== link.libraries.length || link.libraries.some((id) => !current.libraries.includes(id))) {
+          throw new ApiError(503, 'The share changed while signing in. Try again in a moment.')
+        }
         const saved = { ...v, token }
         update((g) => {
           const l = g.links.find((x) => x.id === link.id)
           if (l) l.viewers[viewerId] = saved
         })
         return { userId: saved.userId, token }
-      })().finally(() => pending.delete(key))
+      })().catch(async (error) => {
+        if (created) await deleteViewers([created]).catch(() => {})
+        throw error
+      }).finally(() => pending.delete(key))
       pending.set(key, p)
     }
     return p
@@ -326,7 +384,9 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
   /** Deletes viewer accounts; ones Jellyfin couldn't delete right now are kept for retrying. */
   async function deleteViewers(userIds: string[]) {
     const failed: string[] = []
-    for (const id of userIds) await jf.request(`/Users/${id}`, { method: 'DELETE' }).catch((e: Error) => (/404/.test(e.message) ? undefined : void failed.push(id)))
+    for (const id of userIds) await jf.request(`/Users/${id}`, { method: 'DELETE' }).catch((e: unknown) => {
+      if (!(e instanceof JfError && e.status === 404)) failed.push(id)
+    })
     update((g) => {
       g.orphans = [...new Set([...(g.orphans ?? []).filter((o) => !userIds.includes(o)), ...failed])]
     })
@@ -335,17 +395,34 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
   }
 
   /** Leftover viewer accounts: tried again whenever sharing changes (and every ten minutes). */
-  const retryOrphans = async () => {
-    const left = groupsOf(settings.get()).orphans ?? []
-    if (left.length) await deleteViewers(left).catch(() => {})
+  let cleaning: Promise<void> | null = null
+  const retryOrphans = () => {
+    cleaning ??= (async () => {
+      const left = groupsOf(settings.get()).orphans ?? []
+      if (left.length) await deleteViewers(left)
+      const g = groupsOf(settings.get())
+      const orphanIds = new Set(g.orphans)
+      const ready = g.links.filter((l) => l.pendingViewerRemoval?.length && !changing.has(l.id) &&
+        l.pendingViewerRemoval.every((id) => !orphanIds.has(id)))
+      if (ready.length) update((g) => {
+        for (const l of g.links) if (ready.some((x) => x.id === l.id)) {
+          delete l.pendingViewerRemoval
+          delete l.paused
+        }
+      })
+    })().catch(() => {}).finally(() => { cleaning = null })
+    return cleaning
   }
 
   async function removeLink(link: GroupLink) {
-    await retryOrphans()
-    update((g) => {
-      g.links = g.links.filter((l) => l.id !== link.id)
+    await changeLink(link.id, async (current) => {
+      const ids = Object.values(current.viewers).map((v) => v.userId)
+      update((g) => {
+        g.links = g.links.filter((l) => l.id !== current.id)
+        g.orphans = [...new Set([...(g.orphans ?? []), ...ids])]
+      })
+      await deleteViewers(ids)
     })
-    await deleteViewers(Object.values(link.viewers).map((v) => v.userId))
   }
 
   // Leftover viewer accounts (Jellyfin was down when a friend left): every ten minutes until gone.
@@ -353,24 +430,29 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
 
   async function callFriend<T>(f: { url: string; linkId?: string; secret?: string }, path: string, body?: unknown): Promise<T> {
     let res: Response
+    let text: string
     try {
       res = await fetch(`${f.url}${path}`, {
         method: body === undefined ? 'GET' : 'POST',
         headers: { 'Content-Type': 'application/json', ...(f.linkId ? { Authorization: `FinessePeer ${f.linkId}:${f.secret}` } : {}) },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(15000),
+        redirect: 'error',
       })
-    } catch (e) {
-      throw new ApiError(502, `Couldn’t reach ${new URL(f.url).host}. Check the address, and that their server is on. (${(e as Error).message})`)
+      text = await friendText(res)
+    } catch {
+      throw new ApiError(502, `Couldn’t reach ${URL.parse(f.url)?.host ?? 'your friend’s server'}. Check the address, and that their server is on.`)
     }
-    const text = await res.text()
     let data: unknown = null
     try {
       data = text ? JSON.parse(text) : null
     } catch {
-      /* not JSON */
+      if (res.ok) throw new ApiError(502, 'Their server sent an unreadable reply')
     }
-    if (!res.ok) throw new ApiError([401, 403, 404, 429].includes(res.status) ? res.status : 502, (data as { error?: string } | null)?.error ?? `Their server answered ${res.status}`)
+    if (!res.ok) {
+      const error = (data as { error?: unknown } | null)?.error
+      throw new ApiError([401, 403, 404, 429].includes(res.status) ? res.status : 502, typeof error === 'string' ? error.slice(0, 300) : `Their server answered ${res.status}`)
+    }
     return data as T
   }
 
@@ -382,6 +464,8 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     if (info?.name !== 'finesse') throw new ApiError(400, 'That address doesn’t answer like a Finesse server. Check it and try again.')
     if (info.instanceId === s.instanceId) throw new ApiError(400, 'That’s this server’s own address')
     const r = await callFriend<{ linkId: string; secret: string; name: string }>({ url }, '/api/groups/peer/pair', { code, name: await ourName(), url: s.publicUrl ?? null })
+    if (typeof r?.linkId !== 'string' || !/^[a-z0-9]{8}$/.test(r.linkId) ||
+      typeof r.secret !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(r.secret)) throw new ApiError(502, 'Their server sent an invalid pairing reply')
     const friend: GroupFriend = { id: newId(), name: String(r.name || 'A friend’s server').slice(0, 60), url, linkId: r.linkId, secret: r.secret, addedAt: new Date().toISOString() }
     update((g) => {
       g.friends = [...g.friends.filter((f) => !(f.url === url && f.linkId === r.linkId)), friend]
@@ -419,7 +503,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     const code = newPairCode()
     const expires = new Date(Date.now() + CODE_TTL_MS).toISOString()
     update((g) => {
-      g.codes = [...g.codes.filter((c) => Date.parse(c.expires) > Date.now()), { hash: hash(normCode(code)), libraries: libs, expires }]
+      g.codes = [...g.codes.filter((c) => Date.parse(c.expires) > Date.now()), { hash: hash(normCode(code)), libraries: libs, expires }].slice(-50)
     })
     sendJson(res, 201, { code, expires })
   })
@@ -430,39 +514,50 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     const all = new Set((await libraries()).map((l) => l.id))
     const libs = Array.isArray(body.libraries) ? body.libraries.map(String).filter((id) => all.has(id)) : null
     if (!libs) throw new ApiError(400, 'libraries must be a list')
-    const link = groupsOf(settings.get()).links.find((l) => l.id === params.id)
-    if (!link) throw new ApiError(404, 'No such server')
     await retryOrphans()
-    const narrowing = link.libraries.some((id) => !libs.includes(id))
-    // Narrowing: nothing of theirs gets through until every viewer account is updated.
-    update((g) => {
-      const l = g.links.find((x) => x.id === link.id)
-      if (l) Object.assign(l, { libraries: libs, paused: narrowing ? true : l.paused })
-    })
-    const stuck: string[] = []
-    for (const [key, v] of Object.entries(link.viewers)) {
-      try {
-        await setLibraries(v.userId, libs)
-      } catch (e) {
-        log.warn(`couldn’t update ${v.name}: ${(e as Error).message}`)
-        // Can't change what it sees: delete it instead (it's made again, with today's list, next time).
-        const failed = await deleteViewers([v.userId])
+    await changeLink(String(params.id), async (link) => {
+      const narrowing = link.libraries.some((id) => !libs.includes(id))
+      // Narrowing: nothing of theirs gets through until every viewer account is updated.
+      update((g) => {
+        const l = g.links.find((x) => x.id === link.id)
+        if (l) Object.assign(l, { libraries: libs, paused: narrowing ? true : l.paused })
+      })
+      const stuck: string[] = []
+      const unresolved = new Set(link.pendingViewerRemoval?.filter((id) => groupsOf(settings.get()).orphans?.includes(id)))
+      for (const [key, v] of Object.entries(link.viewers)) {
+        try {
+          await setLibraries(v.userId, libs)
+        } catch (e) {
+          log.warn(`couldn’t update ${v.name}: ${(e as Error).message}`)
+          // Can't change what it sees: delete it instead (it's made again, with today's list, next time).
+          const failed = await deleteViewers([v.userId])
+          update((g) => {
+            const l = g.links.find((x) => x.id === link.id)
+            if (l) delete l.viewers[key]
+          })
+          if (failed.length) {
+            stuck.push(v.name)
+            unresolved.add(v.userId)
+          }
+        }
+      }
+      if (unresolved.size) {
+        // Their viewer accounts are pending deletion and the link stays paused until then; say so.
         update((g) => {
           const l = g.links.find((x) => x.id === link.id)
-          if (l) delete l.viewers[key]
+          if (l) Object.assign(l, { paused: true, pendingViewerRemoval: [...unresolved] })
         })
-        if (failed.length) stuck.push(v.name)
+        throw new ApiError(502, `Jellyfin couldn’t update ${stuck.join(', ') || 'the remaining viewers'}. ${link.name} can’t watch anything until it does; Finesse keeps trying.`)
       }
-    }
-    if (stuck.length) {
-      // Their viewer accounts are pending deletion and the link stays paused until then; say so.
-      throw new ApiError(502, `Jellyfin didn’t accept the change for ${stuck.join(', ')}. ${link.name} can’t watch anything until it does; Finesse keeps trying.`)
-    }
-    update((g) => {
-      const l = g.links.find((x) => x.id === link.id)
-      if (l) delete l.paused
+      update((g) => {
+        const l = g.links.find((x) => x.id === link.id)
+        if (l) {
+          delete l.paused
+          delete l.pendingViewerRemoval
+        }
+      })
+      sendJson(res, 200, { ok: true, libraries: libs })
     })
-    sendJson(res, 200, { ok: true, libraries: libs })
   })
 
   router.delete('/api/groups/links/:id', async ({ req, res, params }) => {
@@ -575,20 +670,20 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     const f = groupsOf(settings.get()).friends.find((x) => x.id === params.id)
     if (!f) throw new ApiError(404, 'That server isn’t shared with you (any more)')
     const own = tokenFrom(req, { query: url.searchParams }) ?? ''
-    const search = new URLSearchParams(url.searchParams)
-    search.delete('ApiKey')
-    search.delete('api_key')
-    const target = joinUrl(f.url, `/api/groups/peer/jellyfin/${params.rest ?? ''}`, search.toString() ? `?${search}` : '')
+    const call = peerRequest(req.method ?? 'GET', params.rest ?? '', url.searchParams, user.Id.toLowerCase())
+    if (!call) throw new ApiError(403, 'Not available through a friend’s server')
+    const target = joinUrl(f.url, `/api/groups/peer/jellyfin/${call.path}`, call.query.toString() ? `?${call.query}` : '')
     await proxyHttp(req, res, {
       target,
       stripAuth: true,
+      mediaOnly: true,
       setHeaders: {
         authorization: `FinessePeer ${f.linkId}:${f.secret}`,
         'x-finesse-viewer': user.Id.toLowerCase(),
         'x-finesse-viewer-name': encodeURIComponent(user.Name ?? ''),
         'accept-encoding': 'identity',
       },
-      rewriteText: (t) => t.split(PEER_TOKEN).join(own),
+      rewriteText: (t) => friendPlaybackToken(t, own),
       timeoutMs: 20000,
     })
   })
@@ -669,6 +764,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     await proxyHttp(req, res, {
       target,
       stripAuth: true,
+      mediaOnly: true,
       // Jellyfin 12 only takes the standard header (no X-Emby-Token any more).
       setHeaders: {
         authorization: mediaBrowserHeader(v.token, `finesse-group-${link.id}-${viewerId.slice(0, 12)}`, `Finesse - ${link.name}`),
@@ -683,7 +779,7 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     if (res.statusCode === 401) {
       update((g) => {
         const l = g.links.find((x) => x.id === link.id)
-        if (l?.viewers[viewerId]) delete l.viewers[viewerId].token
+        if (l?.viewers[viewerId]?.token === v.token) delete l.viewers[viewerId].token
       })
     }
   })
@@ -693,10 +789,15 @@ export function registerGroups(router: Router, deps: { settings: SettingsStore; 
     const r = await fetch(`${f.url}/api/groups/peer/jellyfin/${path.replace(/^\/+/, '')}`, {
       headers: { Authorization: `FinessePeer ${f.linkId}:${f.secret}`, 'x-finesse-viewer': viewer.id.toLowerCase(), 'x-finesse-viewer-name': encodeURIComponent(viewer.name) },
       signal: AbortSignal.timeout(15000),
+      redirect: 'error',
     }).catch(() => null)
     if (!r) throw new ApiError(502, `Couldn’t reach ${f.name}`)
-    if (!r.ok) throw new ApiError(r.status === 404 || r.status === 403 ? 404 : 502, `${f.name} answered ${r.status}`)
-    return (await r.json()) as T
+    if (!r.ok) {
+      await r.body?.cancel().catch(() => {})
+      throw new ApiError(r.status === 404 || r.status === 403 ? 404 : 502, `${f.name} answered ${r.status}`)
+    }
+    try { return JSON.parse(await friendText(r)) as T }
+    catch { throw new ApiError(502, `${f.name} sent an unreadable reply`) }
   }
 
   return {

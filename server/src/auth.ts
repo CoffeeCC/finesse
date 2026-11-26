@@ -47,7 +47,7 @@ const hash = (t: string) => createHash('sha256').update(t).digest('hex')
 
 /** Jellyfin user ids of friends' viewers on this server (Groups): never household members. */
 export function groupUserIds(s: Settings): Set<string> {
-  const out = new Set<string>()
+  const out = new Set(s.groups?.orphans ?? [])
   for (const l of s.groups?.links ?? []) for (const v of Object.values(l.viewers)) out.add(v.userId)
   return out
 }
