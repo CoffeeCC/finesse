@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSabStatus } from '../api/queries'
-import { sabPauseAll, sabResumeAll, sabSetLimit } from '../api/sab'
+import { sabPauseAll, sabResumeAll, sabSetLimit, type SabStatus } from '../api/sab'
+import { useLater } from './RequestStatus'
 import { useToast } from './Toast'
 
 const LIMITS: { label: string; mbps: number }[] = [
@@ -25,38 +26,47 @@ export default function SabPanel() {
   const { data, isError } = useSabStatus()
   const toast = useToast()
   const qc = useQueryClient()
+  const later = useLater()
   const [busy, setBusy] = useState(false)
 
   if (isError || !data) return null
 
-  const refresh = () => setTimeout(() => qc.invalidateQueries({ queryKey: ['sabStatus'] }), 800)
+  // Show the change at once; SAB's own numbers follow a moment later (cleared if this page goes).
+  const patch = (p: Partial<SabStatus>) => qc.setQueryData<SabStatus>(['sabStatus'], (s) => (s ? { ...s, ...p } : s))
+  const refresh = () => later(() => void qc.invalidateQueries({ queryKey: ['sabStatus'] }), 800)
+  const said = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback)
 
   const togglePause = async () => {
+    if (busy) return
     setBusy(true)
     try {
       if (data.paused) {
         await sabResumeAll()
+        patch({ paused: false })
         toast('Downloads resumed')
       } else {
         await sabPauseAll()
+        patch({ paused: true })
         toast('All downloads paused')
       }
       refresh()
-    } catch {
-      toast('Downloader didn’t respond', 'error')
+    } catch (e) {
+      toast(said(e, 'The downloader didn’t respond'), 'error')
     } finally {
       setBusy(false)
     }
   }
 
   const changeLimit = async (mbps: number) => {
+    if (busy) return
     setBusy(true)
     try {
       await sabSetLimit(mbps)
+      patch({ limitBps: mbps * 1024 * 1024 })
       toast(mbps > 0 ? `Speed capped at ${mbps} MB/s` : 'Speed limit removed')
       refresh()
-    } catch {
-      toast('Couldn’t set the speed limit', 'error')
+    } catch (e) {
+      toast(said(e, 'Couldn’t set the speed limit'), 'error')
     } finally {
       setBusy(false)
     }
@@ -69,16 +79,20 @@ export default function SabPanel() {
     <section className="mb-6">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl bg-ink-900/60 border border-white/5 px-4 py-3">
         <div className="flex items-center gap-2 text-sm">
-          <span className={`h-2 w-2 rounded-full ${data.paused ? 'bg-amber-400' : data.speedBps > 0 ? 'bg-emerald-400' : 'bg-ink-500'}`} />
-          <span className="font-medium text-ink-100">
+          <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${data.paused ? 'bg-amber-400' : data.speedBps > 0 ? 'bg-emerald-400' : 'bg-ink-500'}`} />
+          <span className="font-medium tabular-nums text-ink-100">
             {data.paused ? 'Downloads paused' : data.jobs > 0 ? fmtSpeed(data.speedBps) : 'Downloader idle'}
           </span>
           {!data.paused && data.jobs > 0 && data.timeLeft && (
-            <span className="text-ink-400 text-xs">{data.timeLeft} left</span>
+            <span className="text-ink-400 text-xs tabular-nums">{data.timeLeft} left</span>
           )}
         </div>
 
-        <span className="text-xs text-ink-400">{Math.round(data.diskFreeGb)} GB free</span>
+        {data.diskFreeGb > 0 && (
+          <span className={`text-xs tabular-nums ${data.diskFreeGb < 20 ? 'font-semibold text-amber-300' : 'text-ink-400'}`}>
+            {data.diskFreeGb < 20 ? `Only ${Math.round(data.diskFreeGb)} GB free` : `${Math.round(data.diskFreeGb)} GB free`}
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           <select
@@ -86,7 +100,7 @@ export default function SabPanel() {
             onChange={(e) => changeLimit(Number(e.target.value))}
             disabled={busy}
             aria-label="Download speed limit"
-            className="rounded-lg bg-ink-800 border border-white/10 px-2 py-1.5 text-xs outline-none focus:border-accent-500 text-ink-200 disabled:opacity-50"
+            className="h-9 rounded-lg bg-ink-800 border border-white/10 px-2 text-xs outline-none focus:border-accent-500 text-ink-200 disabled:opacity-50"
           >
             {LIMITS.map((l) => (
               <option key={l.mbps} value={l.mbps}>
@@ -98,9 +112,10 @@ export default function SabPanel() {
             )}
           </select>
           <button
+            type="button"
             onClick={togglePause}
             disabled={busy}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+            className={`h-9 rounded-lg px-3.5 text-xs font-semibold transition active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 ${
               data.paused
                 ? 'bg-accent-fill hover:brightness-110 text-white'
                 : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500'

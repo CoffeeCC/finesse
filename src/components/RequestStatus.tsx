@@ -1,10 +1,51 @@
 // Where a request stands, said the same way on the Request page, in search, on a movie's
 // request page and in the Requested list (lib/requestStatus.ts decides; this draws it).
 
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ArrResult } from '../api/arr'
 import { useArrFailures, useArrQueue, useLibraryMatch } from '../api/queries'
 import { requestStatus, type RequestStatus } from '../lib/requestStatus'
+import { TOUCH_UI } from '../lib/device'
+
+/** setTimeout that's cleared when the component goes (a row removed by its own Cancel). */
+export function useLater() {
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
+  useEffect(() => {
+    const set = timers.current
+    return () => {
+      for (const t of set) clearTimeout(t)
+      set.clear()
+    }
+  }, [])
+  return useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timers.current.delete(t)
+      fn()
+    }, ms)
+    timers.current.add(t)
+  }, [])
+}
+
+/** A two-press confirm (Cancel, Take back): the first press arms it for `ms`, a second confirms.
+ *  Re-arming restarts the wait, and nothing fires after the row is gone. */
+export function useConfirmPress(ms = 4000) {
+  const [armed, setArmed] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const arm = useCallback(() => {
+    clearTimeout(timer.current)
+    setArmed(true)
+    timer.current = setTimeout(() => setArmed(false), ms)
+  }, [ms])
+  const disarm = useCallback(() => {
+    clearTimeout(timer.current)
+    setArmed(false)
+  }, [])
+  return { armed, arm, disarm }
+}
+
+export const CONFIRM_AGAIN = TOUCH_UI ? 'Tap again to confirm' : 'Press again to confirm'
 
 const TONE = { ok: 'text-emerald-300', busy: 'text-accent-300', wait: 'text-ink-200', bad: 'text-amber-200' } as const
 
@@ -51,8 +92,11 @@ export function RequestStatusView({ status, size = 'sm', className = '' }: { sta
         {status.label}
       </span>
       {status.progress !== undefined && (
-        <span className={`mt-1.5 block h-1 overflow-hidden rounded-full bg-white/10 ${lg ? 'w-56' : 'w-32'}`} aria-hidden>
-          <span className="block h-full rounded-full bg-accent-400 transition-all duration-700" style={{ width: `${status.progress}%` }} />
+        <span className={`mt-1.5 block h-1 max-w-full overflow-hidden rounded-full bg-white/10 ${lg ? 'w-56' : 'w-32'}`} aria-hidden>
+          <span
+            className={`block h-full rounded-full transition-[width] duration-700 ${status.stage === 'paused' ? 'bg-ink-400' : 'bg-accent-400'}`}
+            style={{ width: `${Math.max(3, status.progress)}%` }}
+          />
         </span>
       )}
       {status.detail && <span className={`mt-1 block text-ink-400 break-words ${lg ? 'text-[13px] max-w-md' : 'text-[11.5px] leading-snug'}`}>{status.detail}</span>}
@@ -68,7 +112,7 @@ export function ReadyLink({ r, className = '' }: { r: ArrResult; className?: str
   return (
     <Link
       to={`/item/${item.Id}`}
-      className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 hover:bg-emerald-400/25 border border-emerald-300/30 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition-colors ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 hover:bg-emerald-400/25 border border-emerald-300/30 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition active:scale-[0.97] ${className}`}
     >
       <StageIcon s={ready} className="h-4 w-4 shrink-0" />
       Ready — open it

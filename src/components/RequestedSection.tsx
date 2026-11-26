@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArrFailures, useArrQueue, useArrRequested } from '../api/queries'
 import { requestStatus } from '../lib/requestStatus'
-import { RequestStatusView } from './RequestStatus'
-import { arrCancelRequest, arrSearchAgain, type ArrRequested } from '../api/arr'
+import { CONFIRM_AGAIN, RequestStatusView, useConfirmPress, useLater } from './RequestStatus'
+import { arrCancelRequest, arrSearchAgain, type ArrFailure, type ArrRequested } from '../api/arr'
 import ArrThumb from './ArrThumb'
 import { useToast } from './Toast'
 
@@ -19,55 +19,56 @@ function ago(iso: string): string {
   return d === 1 ? 'yesterday' : `${d} days ago`
 }
 
-function Row({ r }: { r: ArrRequested }) {
+const BTN = 'rounded-lg px-3.5 py-2 text-sm font-medium transition active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100'
+
+const Row = memo(function Row({ r, failure }: { r: ArrRequested; failure?: ArrFailure }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const { data: failures } = useArrFailures()
-  const [busy, setBusy] = useState(false)
-  // Take back is two-tap: first tap arms, second within 4s confirms.
-  const [armed, setArmed] = useState(false)
+  const later = useLater()
+  const [busy, setBusy] = useState<'again' | 'cancel' | null>(null)
+  // Take back is two-press: the first arms it, a second within 4 s confirms.
+  const confirm = useConfirmPress()
 
-  const refresh = () => setTimeout(() => {
-    qc.invalidateQueries({ queryKey: ['arrRequested'] })
-    qc.invalidateQueries({ queryKey: ['arrQueue'] })
-    qc.invalidateQueries({ queryKey: ['arrLookup'] })
-    qc.invalidateQueries({ queryKey: ['arrFailures'] })
-  }, 1200)
+  // Everything that says whether this title is requested, once the app has caught up.
+  const refresh = () =>
+    later(() => {
+      for (const key of [['arrRequested'], ['arrQueue'], ['arrLookup'], ['arrLookupAll'], ['arrDiscover'], ['arrMovieDetails'], ['arrFailures']]) void qc.invalidateQueries({ queryKey: key })
+    }, 1200)
 
   const again = async () => {
-    setBusy(true)
+    if (busy) return
+    setBusy('again')
     try {
       await arrSearchAgain(r)
       toast(`Looking for “${r.title}” again`)
       refresh()
-    } catch {
-      toast(`Couldn’t search for “${r.title}” right now`, 'error')
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t search for “${r.title}” right now`, 'error')
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
   const cancel = async () => {
-    if (!armed) {
-      setArmed(true)
-      setTimeout(() => setArmed(false), 4000)
-      return
-    }
-    setArmed(false)
-    setBusy(true)
+    if (busy) return
+    if (!confirm.armed) return confirm.arm()
+    confirm.disarm()
+    setBusy('cancel')
     try {
       await arrCancelRequest(r)
+      // Gone from the list at once; the lists that offered Request again catch up just after.
+      qc.setQueryData<ArrRequested[]>(['arrRequested'], (list) => list?.filter((x) => x.key !== r.key))
       toast(`Took back the request for “${r.title}”`)
       refresh()
-    } catch {
-      toast(`Couldn’t take back “${r.title}”`, 'error')
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t take back “${r.title}”`, 'error')
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
   return (
-    <div className="flex gap-3 rounded-xl border bg-ink-900/60 border-white/5 p-2.5">
+    <div className={`flex gap-3 rounded-xl border bg-ink-900/60 border-white/5 p-2.5 transition-opacity ${busy === 'cancel' ? 'opacity-60' : ''}`}>
       <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-white truncate">
@@ -77,31 +78,29 @@ function Row({ r }: { r: ArrRequested }) {
         <p className="mt-0.5 text-xs text-ink-400">
           {KIND_LABEL[r.kind]} · requested {ago(r.added)}
         </p>
-        <RequestStatusView status={requestStatus({ requested: true, hasFile: false, available: r.available, failure: failures?.get(r.key) })} className="mt-1" />
+        <RequestStatusView status={requestStatus({ requested: true, hasFile: false, available: r.available, failure })} className="mt-1" />
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           {r.available && (
-            <button
-              onClick={again}
-              disabled={busy}
-              className="rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 disabled:opacity-50 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
-            >
-              Search again
+            <button type="button" onClick={again} disabled={busy !== null} className={`${BTN} bg-ink-800 border border-white/10 hover:border-accent-500 text-ink-100`}>
+              {busy === 'again' ? 'Searching…' : 'Search again'}
             </button>
           )}
           <button
+            type="button"
             onClick={cancel}
-            disabled={busy}
-            className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-              armed ? 'bg-red-500 hover:bg-red-400 text-white font-semibold' : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
+            onBlur={confirm.disarm}
+            disabled={busy !== null}
+            className={`${BTN} ${
+              confirm.armed ? 'bg-red-500 hover:bg-red-400 text-white font-semibold' : 'bg-ink-800 border border-white/10 text-ink-100 hover:border-red-400 hover:text-red-300'
             }`}
           >
-            {armed ? 'Tap again to confirm' : 'Take back'}
+            {busy === 'cancel' ? 'Taking back…' : confirm.armed ? CONFIRM_AGAIN : 'Take back'}
           </button>
         </div>
       </div>
     </div>
   )
-}
+})
 
 /** Columns the grid has right now (it fits as many cards as the screen allows). */
 function useColumns() {
@@ -127,10 +126,14 @@ function useColumns() {
 export default function RequestedSection() {
   const { data } = useArrRequested()
   const { data: queue } = useArrQueue()
-  const busy = new Set((queue ?? []).map((q) => `${q.kind}-${q.refId}`))
+  // One failures lookup for the list (not one subscription per row).
+  const { data: failures } = useArrFailures(Boolean(data?.length))
   const [all, setAll] = useState(false)
   const [grid, cols] = useColumns()
-  const items = (data ?? []).filter((r) => !busy.has(r.key))
+  const items = useMemo(() => {
+    const busy = new Set((queue ?? []).map((q) => `${q.kind}-${q.refId}`))
+    return (data ?? []).filter((r) => !busy.has(r.key))
+  }, [data, queue])
   if (items.length === 0) return null
   // Two full rows (at least four), so a long list doesn't push everything else
   // off the screen; no "Show all" to reveal just one more.
@@ -147,14 +150,11 @@ export default function RequestedSection() {
       </div>
       <div ref={grid} className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-2.5">
         {shown.map((r) => (
-          <Row key={r.key} r={r} />
+          <Row key={r.key} r={r} failure={failures?.get(r.key)} />
         ))}
       </div>
       {foldable && (
-        <button
-          onClick={() => setAll((v) => !v)}
-          className="mt-3 rounded-lg bg-ink-800 border border-white/10 hover:border-accent-500 px-3.5 py-2 text-sm font-medium text-ink-100 transition-colors"
-        >
+        <button type="button" onClick={() => setAll((v) => !v)} className={`mt-3 ${BTN} bg-ink-800 border border-white/10 hover:border-accent-500 text-ink-100`}>
           {all ? 'Show fewer' : `Show all ${items.length}`}
         </button>
       )}

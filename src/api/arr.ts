@@ -97,29 +97,60 @@ export interface ArrRelease {
 }
 
 const FEATURE_OF: Record<ArrKind, string> = { movie: 'movies', series: 'shows', artist: 'music' }
+/** The app's name as people see it. */
+export const ARR_APP_NAME: Record<ArrKind, string> = { movie: 'Radarr', series: 'Sonarr', artist: 'Lidarr' }
+
+// An app the server says isn't set up (503 "… isn't set up"): the queue, Requested and failure
+// polls would ask it every few seconds for the same answer. Ask again after a while instead.
+const UNSET_RETRY_MS = 2 * 60_000
+const unsetUntil: Partial<Record<ArrKind, number>> = {}
+
+const notSetUp = (kind: ArrKind) =>
+  new ArrError(503, `${ARR_APP_NAME[kind]} isn’t set up on this server, so ${FEATURE_OF[kind]} can’t be requested yet. Whoever runs the server can turn it on in Settings.`)
+
+/** Words for a failure that came back without a usable message (an HTML error page, or nothing). */
+function statusWords(kind: ArrKind, status: number): string {
+  const app = ARR_APP_NAME[kind]
+  if (status === 401) return 'Your sign-in has expired. Sign out and back in, then try again.'
+  if (status === 403) return `Only whoever runs the server can do that in ${app}.`
+  if (status === 404) return `${app} doesn’t have that any more. Refresh and try again.`
+  if (status === 502 || status === 504) return `${app} isn’t answering. It may be starting up; try again in a moment.`
+  if (status === 503) return `${app} isn’t available right now. Try again in a moment.`
+  return `${app} had a problem (${status}). Try again in a moment.`
+}
 
 async function arrFetch<T>(
   kind: ArrKind,
   path: string,
-  opts: { method?: string; body?: unknown } = {},
+  opts: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
   const app = APP_OF[kind]
   // Not set up on this server: don't ask (it only answers with an error).
   const feats = knownFinesse()?.features
-  if (feats && feats[FEATURE_OF[kind]] === false) throw new Error(`${app} isn’t set up on this server`)
-  const res = await fetch(`${arrBase()}/${app}${path}`, {
-    method: opts.method ?? 'GET',
-    headers: {
-      Authorization: mediaBrowserAuthHeader(),
-      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  })
+  if (feats && feats[FEATURE_OF[kind]] === false) throw notSetUp(kind)
+  if ((unsetUntil[kind] ?? 0) > Date.now()) throw notSetUp(kind)
+  let res: Response
+  try {
+    res = await fetch(`${arrBase()}/${app}${path}`, {
+      method: opts.method ?? 'GET',
+      headers: {
+        Authorization: mediaBrowserAuthHeader(),
+        ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      signal: opts.signal,
+    })
+  } catch (e) {
+    // A search replaced by a newer one: let the caller (TanStack Query) see the abort as such.
+    if (opts.signal?.aborted) throw e
+    throw new ArrError(0, 'Can’t reach Finesse. Check your connection and try again.')
+  }
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`
+    let detail = statusWords(kind, res.status)
     try {
       const text = await res.text()
-      if (text) {
+      // An HTML error page (a proxy in between) says nothing useful: keep the words above.
+      if (text && !/^\s*</.test(text)) {
         // *arr returns { message, description } for many failures (e.g. SABnzbd).
         try {
           const j = JSON.parse(text) as { message?: string; description?: string; error?: string }
@@ -137,6 +168,10 @@ async function arrFetch<T>(
     } catch {
       /* ignore */
     }
+    if (res.status === 503 && /isn.t set up/i.test(detail)) {
+      unsetUntil[kind] = Date.now() + UNSET_RETRY_MS
+      throw notSetUp(kind)
+    }
     // Friendly rewrites for common download-client failures
     if (/sabnzbd/i.test(detail) && /error response/i.test(detail)) {
       detail =
@@ -147,9 +182,14 @@ async function arrFetch<T>(
     }
     throw new ArrError(res.status, detail)
   }
+  delete unsetUntil[kind]
   if (res.status === 204) return undefined as T
   const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  try {
+    return (text ? JSON.parse(text) : undefined) as T
+  } catch {
+    throw new ArrError(res.status, `${ARR_APP_NAME[kind]} sent back something Finesse couldn’t read. Try again in a moment.`)
+  }
 }
 
 /** The poster's address on the web. For something in the library, an image's
@@ -304,18 +344,18 @@ export async function arrMovieDetails(tmdbId: number): Promise<MovieDetails> {
 
 /** Search TMDb/TVDb via the *arr lookup endpoint. Results flag what's already
  *  in the library (id > 0), so the UI can show In Library / Requested / Add. */
-export async function arrLookup(kind: ArrKind, term: string): Promise<ArrResult[]> {
+export async function arrLookup(kind: ArrKind, term: string, signal?: AbortSignal): Promise<ArrResult[]> {
   const q = encodeURIComponent(term.trim())
   if (kind === 'movie') {
-    const data = await arrFetch<Record<string, unknown>[]>('movie', `/movie/lookup?term=${q}`)
-    return data.map(mapMovie)
+    const data = await arrFetch<Record<string, unknown>[]>('movie', `/movie/lookup?term=${q}`, { signal })
+    return (data ?? []).map(mapMovie)
   }
   if (kind === 'artist') {
-    const data = await arrFetch<Record<string, unknown>[]>('artist', `/artist/lookup?term=${q}`)
-    return data.map(mapArtist)
+    const data = await arrFetch<Record<string, unknown>[]>('artist', `/artist/lookup?term=${q}`, { signal })
+    return (data ?? []).map(mapArtist)
   }
-  const data = await arrFetch<Record<string, unknown>[]>('series', `/series/lookup?term=${q}`)
-  return data.map(mapSeries)
+  const data = await arrFetch<Record<string, unknown>[]>('series', `/series/lookup?term=${q}`, { signal })
+  return (data ?? []).map(mapSeries)
 }
 
 interface ArrConfig {
@@ -497,6 +537,9 @@ export interface ArrQueueItem {
   queueIds: number[]
   /** SABnzbd job ids (only for usenet downloads) — enables per-item pause/resume. */
   nzoIds: string[]
+  /** What Retry searches for again: Sonarr episode ids / Lidarr album ids of these downloads
+   *  (empty: the whole movie, series or artist). */
+  searchIds: number[]
   /** Every backing download is currently paused. */
   paused: boolean
   /** How it's being fetched: Usenet (SABnzbd), torrent (qBittorrent, behind the VPN), both (a series with some of each), or unknown. */
@@ -512,6 +555,8 @@ interface RawQueueRecord {
   movieId?: number
   seriesId?: number
   artistId?: number
+  episodeId?: number
+  albumId?: number
   movie?: { title?: string; images?: ArrImage[] }
   series?: { title?: string; images?: ArrImage[] }
   artist?: { artistName?: string; images?: ArrImage[] }
@@ -577,6 +622,7 @@ interface Agg {
   reason?: string
   queueIds: number[]
   nzoIds: string[]
+  searchIds: number[]
   protocols: string[]
 }
 
@@ -584,7 +630,7 @@ function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => numbe
   const map = new Map<number, Agg>()
   for (const r of records) {
     const id = idOf(r)
-    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [], protocols: [] }
+    const cur = map.get(id) ?? { rec: r, size: 0, left: 0, count: 0, anyDownloading: false, anyWarning: false, allPaused: true, queueIds: [], nzoIds: [], searchIds: [], protocols: [] }
     const { size, left } = pct(r.size, r.sizeleft)
     cur.size += size
     cur.left += left
@@ -597,6 +643,8 @@ function aggregate(records: RawQueueRecord[], idOf: (r: RawQueueRecord) => numbe
     if (r.status !== 'paused') cur.allPaused = false
     if (r.id) cur.queueIds.push(r.id)
     cur.nzoIds.push(...nzoOf(r))
+    const sid = r.episodeId ?? r.albumId
+    if (sid && !cur.searchIds.includes(sid)) cur.searchIds.push(sid)
     if (r.protocol) cur.protocols.push(r.protocol)
     map.set(id, cur)
   }
@@ -618,7 +666,8 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
     const { size, left } = pct(r.size, r.sizeleft)
     const { label, done } = statusLabel(r.status, r.trackedDownloadState, r.trackedDownloadStatus)
     items.push({
-      key: `movie-${r.movieId}`,
+      // A download Radarr couldn't match to a movie has no movieId: keep its row apart.
+      key: r.movieId ? `movie-${r.movieId}` : `movie-q${r.id ?? items.length}`,
       kind: 'movie',
       refId: r.movieId ?? 0,
       title: r.movie?.title ?? r.title ?? 'Unknown',
@@ -629,6 +678,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       reason: label === 'Needs attention' ? reasonOf(r) : undefined,
       queueIds: r.id ? [r.id] : [],
       nzoIds: nzoOf(r),
+      searchIds: [],
       paused: r.status === 'paused',
       via: viaOf([r.protocol]),
     })
@@ -654,6 +704,7 @@ export async function arrQueue(): Promise<ArrQueueItem[]> {
       reason: label === 'Needs attention' ? agg.reason : undefined,
       queueIds: agg.queueIds,
       nzoIds: agg.nzoIds,
+      searchIds: agg.searchIds,
       paused: agg.allPaused,
       via: viaOf(agg.protocols),
     })
@@ -759,7 +810,8 @@ export async function arrQueueRemove(item: ArrQueueItem): Promise<void> {
 }
 
 /** Unstick a "Needs attention" item: drop the bad download, blocklist that
- *  release so it isn't re-grabbed, and immediately search for another one. */
+ *  release so it isn't re-grabbed, and immediately search for another one: for a show or an
+ *  artist, only the episodes or albums that were stuck (not every missing one it has). */
 export async function arrQueueRetry(item: ArrQueueItem): Promise<void> {
   if (item.queueIds.length > 0) {
     await arrFetch(item.kind, '/queue/bulk?removeFromClient=true&blocklist=true', {
@@ -767,13 +819,24 @@ export async function arrQueueRetry(item: ArrQueueItem): Promise<void> {
       body: { ids: item.queueIds },
     })
   }
-  const command =
+  const ids = item.searchIds ?? []
+  const whole =
     item.kind === 'movie'
       ? { name: 'MoviesSearch', movieIds: [item.refId] }
       : item.kind === 'series'
         ? { name: 'SeriesSearch', seriesId: item.refId }
         : { name: 'ArtistSearch', artistId: item.refId }
-  await arrFetch(item.kind, '/command', { method: 'POST', body: command })
+  const exact = !ids.length ? null : item.kind === 'series' ? { name: 'EpisodeSearch', episodeIds: ids } : item.kind === 'artist' ? { name: 'AlbumSearch', albumIds: ids } : null
+  if (exact) {
+    try {
+      await arrFetch(item.kind, '/command', { method: 'POST', body: exact })
+      return
+    } catch (e) {
+      // The server lets only admins send these (server/src/policy.ts): everyone else searches the whole title.
+      if (!(e instanceof ArrError) || e.status !== 403) throw e
+    }
+  }
+  await arrFetch(item.kind, '/command', { method: 'POST', body: whole })
 }
 
 // ---------- Quality / upgrade / downgrade ----------
@@ -823,17 +886,25 @@ function qualityFromFile(file: Record<string, unknown> | undefined): Partial<Arr
   }
 }
 
+/** The on-disk quality a search result already carries (Radarr's lookup includes the movie's
+ *  file for one in the library), so the Request page needn't ask again per result. */
+export function qualityFromLookup(r: ArrResult): ArrQualityInfo | null {
+  if (r.kind !== 'movie' || !r.hasFile) return null
+  const file = r.raw.movieFile as Record<string, unknown> | undefined
+  return file && typeof file === 'object' ? (qualityFromFile(file) as ArrQualityInfo) : null
+}
+
 /** Load current on-disk quality for a library movie or series. */
-export async function arrLibraryQuality(kind: ArrKind, id: number): Promise<ArrQualityInfo | null> {
+export async function arrLibraryQuality(kind: ArrKind, id: number, signal?: AbortSignal): Promise<ArrQualityInfo | null> {
   if (kind === 'artist' || !id) return null
   if (kind === 'movie') {
-    const m = await arrFetch<Record<string, unknown>>('movie', `/movie/${id}`)
+    const m = await arrFetch<Record<string, unknown>>('movie', `/movie/${id}`, { signal })
     const file = m.movieFile as Record<string, unknown> | undefined
     if (!file && !m.hasFile) return null
     return qualityFromFile(file) as ArrQualityInfo
   }
   // Series: summarize episode files (most common quality + pixel range if present).
-  const files = await arrFetch<Record<string, unknown>[]>('series', `/episodefile?seriesId=${id}`)
+  const files = await arrFetch<Record<string, unknown>[]>('series', `/episodefile?seriesId=${id}`, { signal })
   if (!files?.length) return null
   const names = new Map<string, number>()
   let totalSize = 0
@@ -899,10 +970,10 @@ function mapRelease(r: Record<string, unknown>): ArrRelease {
 }
 
 /** Interactive search — list available releases for a movie or series. */
-export async function arrSearchReleases(kind: ArrKind, id: number): Promise<ArrRelease[]> {
+export async function arrSearchReleases(kind: ArrKind, id: number, signal?: AbortSignal): Promise<ArrRelease[]> {
   if (kind === 'artist') throw new ArrError(0, 'Quality change is only available for movies and shows')
   const path = kind === 'movie' ? `/release?movieId=${id}` : `/release?seriesId=${id}`
-  const data = await arrFetch<Record<string, unknown>[]>(kind, path)
+  const data = await arrFetch<Record<string, unknown>[]>(kind, path, { signal })
   const mapped = (data ?? []).map(mapRelease)
   // Prefer upgrades + higher score first; rejected last.
   return mapped.sort((a, b) => {

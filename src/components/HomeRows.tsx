@@ -212,7 +212,6 @@ export function GenreTilesRow({ genres, hideTitle }: { genres: string[]; hideTit
     })),
   })
   if (genres.length === 0) return null
-  const hue = (g: string) => [...g].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
 
   return (
     <section ref={ref} className={`depth-row group/row relative reveal ${visible ? 'is-visible' : ''}`}>
@@ -224,12 +223,12 @@ export function GenreTilesRow({ genres, hideTitle }: { genres: string[]; hideTit
             <Link
               key={g}
               to={browseHref(g, { includeItemTypes: 'Movie,Series', genres: g, sortBy: 'SortName' })}
-              className="group relative shrink-0 snap-start h-24 w-44 sm:h-28 sm:w-56 rounded-xl overflow-hidden ring-1 ring-white/5 hover:ring-accent-400/70 focus-visible:ring-2 focus-visible:ring-accent-400 outline-none transition-all"
-              style={{ background: `hsl(${hue(g)}, 32%, 26%)` }}
+              className="group relative shrink-0 snap-start h-24 w-44 sm:h-28 sm:w-56 rounded-xl overflow-hidden border border-white/[0.08] bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.07] focus-visible:ring-2 focus-visible:ring-accent-400 outline-none transition-all active:scale-[0.98]"
             >
-              {art && <img src={art} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-60 group-hover:opacity-80 group-hover:scale-105 transition-all duration-500 fade-in" />}
-              <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-              <span className="absolute left-3 bottom-2.5 font-display text-2xl sm:text-[1.7rem] leading-none text-white">{g}</span>
+              <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/[0.09]" />
+              {art && <img src={art} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover opacity-55 group-hover:opacity-75 group-hover:scale-105 transition-all duration-500 fade-in" />}
+              <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950/85 via-ink-950/25 to-transparent" />
+              <span className="absolute left-3.5 bottom-3 font-display italic text-2xl sm:text-[1.7rem] leading-none text-white/95 group-hover:text-white transition-colors">{g}</span>
             </Link>
           )
         })}

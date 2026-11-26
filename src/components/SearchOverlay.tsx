@@ -61,12 +61,17 @@ export default function SearchOverlay() {
       // A plain dark scrim (one blur, the panel's own frost, is plenty: a second full-screen
       // blur under it cost every frame), clear of notches and rounded corners, and the panel
       // never runs past the bottom of what's visible.
-      className="os-qm-scrim fixed inset-0 z-[90] flex flex-col bg-black/65 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(calc(var(--vh)*6),env(safe-area-inset-top))] sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))] sm:pt-[max(calc(var(--vh)*8),env(safe-area-inset-top))] fade-in"
+      className="os-qm-scrim fixed inset-0 z-[90] flex flex-col bg-black/70 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(calc(var(--vh)*6),env(safe-area-inset-top))] sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))] sm:pt-[max(calc(var(--vh)*7),env(safe-area-inset-top))] fade-in"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) closeSearch()
       }}
     >
-      <div className="os-glass mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[28px] toast-in">
+      <div className="os-menu relative mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[26px] shadow-[0_32px_90px_rgba(0,0,0,0.78)] toast-in">
+        {/* Subtle top accent specular line */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent-300/45 to-transparent"
+        />
         <SearchPanel mode="overlay" initialQuery={query} onClose={closeSearch} />
       </div>
     </div>,

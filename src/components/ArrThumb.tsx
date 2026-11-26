@@ -26,12 +26,12 @@ function initials(title: string): string {
  *  initials: never the browser's broken-image icon. Artists are round. */
 export default function ArrThumb({ kind, id, remote, title, size = 'sm' }: { kind: ArrKind; id?: number; remote?: string; title: string; size?: keyof typeof SIZES }) {
   const srcs = useMemo(() => [id && id > 0 ? arrCoverUrl(kind, id) : undefined, remote].filter((s): s is string => Boolean(s)), [kind, id, remote])
-  const [failed, setFailed] = useState<string[]>([])
+  const [failed, setFailed] = useState<readonly string[]>([])
   const src = srcs.find((s) => !failed.includes(s))
+  const h = useMemo(() => hue(title), [title])
   const box = `${SIZES[size][kind === 'artist' ? 'artist' : 'poster']} shrink-0 overflow-hidden`
 
   if (!src) {
-    const h = hue(title)
     return (
       <div
         className={`${box} flex items-center justify-center`}
@@ -49,9 +49,13 @@ export default function ArrThumb({ kind, id, remote, title, size = 'sm' }: { kin
         src={src}
         alt=""
         loading="lazy"
+        decoding="async"
+        draggable={false}
         referrerPolicy="no-referrer"
         className="h-full w-full object-cover"
-        onError={() => setFailed((f) => [...f, src])}
+        // A copy that answers but is empty (0×0) is as broken as one that errors.
+        onLoad={(e) => e.currentTarget.naturalWidth === 0 && setFailed((f) => (f.includes(src) ? f : [...f, src]))}
+        onError={() => setFailed((f) => (f.includes(src) ? f : [...f, src]))}
       />
     </div>
   )

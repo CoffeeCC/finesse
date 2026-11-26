@@ -15,7 +15,6 @@ interface Tile {
   to: string
   /** The library, whose newest title lends its artwork. */
   viewId?: string
-  hue: number
 }
 
 /**
@@ -46,12 +45,11 @@ export default function LibrariesPage() {
   const items = views?.Items ?? []
   const byType = (t: string) => items.filter((v) => v.CollectionType === t)
   const musicView = byType('music')[0]
-  const HUE: Record<string, number> = { Anime: 320, Music: 28, Games: 140, Friends: 170, Collections: 262, 'Smart collections': 290, 'Watch together': 12, Moments: 340 }
 
   const tiles: Tile[] = [
-    ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 222 })),
-    ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id, hue: 190 })),
-    ...secondary.map((d) => ({ key: d.to, label: d.label, to: d.to, viewId: d.to === '/music' ? musicView?.Id : undefined, hue: HUE[d.label] ?? 230 })),
+    ...byType('movies').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id })),
+    ...byType('tvshows').map((v) => ({ key: v.Id, label: v.Name, to: `/library/${v.Id}`, viewId: v.Id })),
+    ...secondary.map((d) => ({ key: d.to, label: d.label, to: d.to, viewId: d.to === '/music' ? musicView?.Id : undefined })),
   ]
 
   return (
@@ -65,13 +63,13 @@ export default function LibrariesPage() {
             onMouseEnter={() => prefetchRoute(t.to)}
             onFocus={() => prefetchRoute(t.to)}
             onTouchStart={() => prefetchRoute(t.to)}
-            className="group relative h-28 sm:h-36 rounded-2xl overflow-hidden flex items-end p-4 ring-1 ring-white/5 hover:ring-white/20 transition-all active:scale-[0.98]"
-            style={{ background: `hsl(${t.hue}, 32%, 24%)` }}
+            className="group relative h-28 sm:h-36 rounded-2xl overflow-hidden flex items-end p-4 border border-white/[0.08] bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.07] transition-all active:scale-[0.98]"
           >
-            <span aria-hidden className="absolute -right-6 -top-6 h-24 w-24 rounded-full" style={{ background: `hsla(${(t.hue + 170) % 360}, 45%, 66%, 0.3)` }} />
+            <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/[0.09]" />
+            <span aria-hidden className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-accent-400/10 transition-colors duration-300 group-hover:bg-accent-400/20" />
             {t.viewId && <TileArt viewId={t.viewId} music={t.to === '/music'} />}
-            <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-            <span className="relative text-lg font-semibold text-white">{t.label}</span>
+            <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950/85 via-ink-950/25 to-transparent" />
+            <span className="relative font-display italic text-2xl sm:text-[26px] leading-none text-white">{t.label}</span>
           </Link>
         ))}
       </div>

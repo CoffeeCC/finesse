@@ -8,13 +8,55 @@ import { CONTENT_BASE } from '../lib/contentOrigin'
 // SAB's API is a single endpoint driven by `mode` query params — see
 // https://sabnzbd.org/wiki/advanced/api
 
+// SAB not set up on this server (the proxy's 503): the status poll would ask every 10 s for the
+// same answer. Ask again after a while instead.
+const UNSET_RETRY_MS = 2 * 60_000
+let unsetUntil = 0
+
+export class SabError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function sabCall<T>(params: Record<string, string>): Promise<T> {
+  if (unsetUntil > Date.now()) throw new SabError(503, 'SABnzbd isn’t set up on this server')
   const qs = new URLSearchParams({ ...params, output: 'json' })
-  const res = await fetch(`${CONTENT_BASE}arr/sab?${qs}`, {
-    headers: { Authorization: mediaBrowserAuthHeader() },
-  })
-  if (!res.ok) throw new Error(`SABnzbd: ${res.status} ${res.statusText}`)
-  return (await res.json()) as T
+  let res: Response
+  try {
+    res = await fetch(`${CONTENT_BASE}arr/sab?${qs}`, {
+      headers: { Authorization: mediaBrowserAuthHeader() },
+    })
+  } catch {
+    throw new SabError(0, 'Can’t reach Finesse. Check your connection and try again.')
+  }
+  const text = await res.text()
+  let data: unknown = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    /* an HTML error page: the status says enough */
+  }
+  if (!res.ok) {
+    const said = (data as { error?: string } | null)?.error
+    if (res.status === 503 && said && /isn.t set up/i.test(said)) unsetUntil = Date.now() + UNSET_RETRY_MS
+    throw new SabError(
+      res.status,
+      res.status === 401
+        ? 'Your sign-in has expired. Sign out and back in, then try again.'
+        : res.status === 403
+          ? 'Only whoever runs the server can do that.'
+          : said || 'SABnzbd isn’t answering. Try again in a moment.',
+    )
+  }
+  unsetUntil = 0
+  // SAB answers its own failures with 200 and { status: false, error }.
+  const sab = data as { status?: boolean; error?: string } | null
+  if (sab && sab.status === false) throw new SabError(res.status, sab.error ? `SABnzbd said: ${sab.error}` : 'SABnzbd turned that down.')
+  if (data === null) throw new SabError(res.status, 'SABnzbd sent back something Finesse couldn’t read.')
+  return data as T
 }
 
 export interface SabStatus {
@@ -45,15 +87,21 @@ interface RawSabQueue {
   }
 }
 
+/** SAB's numbers come as strings ("12.5"), sometimes empty: never NaN on screen. */
+const num = (v: string | undefined) => {
+  const n = parseFloat(v ?? '')
+  return Number.isFinite(n) ? n : 0
+}
+
 export async function sabStatus(): Promise<SabStatus> {
-  const { queue } = await sabCall<RawSabQueue>({ mode: 'queue', limit: '0' })
+  const { queue = {} } = await sabCall<Partial<RawSabQueue>>({ mode: 'queue', limit: '0' })
   return {
     paused: Boolean(queue.paused),
-    speedBps: Math.round(parseFloat(queue.kbpersec ?? '0') * 1024),
-    limitBps: Math.round(parseFloat(queue.speedlimit_abs ?? '0') || 0),
-    diskFreeGb: parseFloat(queue.diskspace1 ?? '0'),
+    speedBps: Math.round(num(queue.kbpersec) * 1024),
+    limitBps: Math.round(num(queue.speedlimit_abs)),
+    diskFreeGb: num(queue.diskspace1),
     jobs: queue.noofslots ?? 0,
-    mbLeft: parseFloat(queue.mbleft ?? '0'),
+    mbLeft: num(queue.mbleft),
     timeLeft: queue.timeleft ?? '',
   }
 }

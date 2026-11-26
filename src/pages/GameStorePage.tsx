@@ -48,23 +48,36 @@ export default function GameStorePage() {
           {facets.data && facets.data.genres.length > 0 && (
             <section className="mb-9">
               <h2 className="row-title mb-3 text-white">Genres</h2>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {facets.data.genres.slice(0, 10).map((g) => (
                   <Link
                     key={g.value}
                     to={browseHref({ genres: [g.value] })}
-                    className="group relative flex h-20 items-end overflow-hidden rounded-xl p-3 ring-1 ring-white/5 outline-none transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-accent-400"
-                    style={{ backgroundImage: storeGradient(g.value, 120) }}
+                    className="group relative flex h-16 items-end justify-between gap-2 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 outline-none transition hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.07] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent-400"
                   >
-                    <span className="font-display text-xl leading-none text-white drop-shadow">{g.label}</span>
-                    <span className="absolute right-3 top-2.5 text-xs font-semibold text-white/70">{g.count}</span>
+                    <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/[0.09]" />
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-accent-400/0 transition-colors duration-300 group-hover:bg-accent-400/15"
+                    />
+                    <span className="relative truncate font-display italic text-[22px] leading-none text-white/90 transition-colors group-hover:text-white">
+                      {g.label}
+                    </span>
+                    <span className="relative shrink-0 self-start font-mono text-[11px] font-medium tabular-nums text-ink-400 transition-colors group-hover:text-accent-300">
+                      {g.count}
+                    </span>
                   </Link>
                 ))}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {facets.data.modes.map((m) => (
-                  <Link key={m.value} to={browseHref({ mode: m.value as GameMode })} className="h-9 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-medium leading-9 text-ink-200 hover:text-white">
-                    {m.label} <span className="text-ink-400">{m.count}</span>
+                  <Link
+                    key={m.value}
+                    to={browseHref({ mode: m.value as GameMode })}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-3.5 text-[13px] font-medium text-ink-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white active:scale-[0.97]"
+                  >
+                    {m.label}
+                    <span className="font-mono text-[11px] text-ink-400">{m.count}</span>
                   </Link>
                 ))}
               </div>
@@ -155,7 +168,7 @@ function YourRequests({ requests }: { requests: GameRequest[] }) {
         {requests.slice(0, 8).map((r) => (
           <Link
             key={r.id}
-            to={r.state === 'needs-you' ? `/games/store/requests/${encodeURIComponent(r.id)}/installer` : storeGameHref(r.gameId)}
+            to={r.state === 'needs-you' || ((r.state === 'failed') && r.candidates?.length) ? `/games/store/requests/${encodeURIComponent(r.id)}/installer` : storeGameHref(r.gameId)}
             className="flex w-72 shrink-0 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3 outline-none hover:bg-white/[0.07] focus-visible:ring-2 focus-visible:ring-accent-400"
           >
             <StoreThumb id={r.gameId} title={r.title} cover={r.cover} />

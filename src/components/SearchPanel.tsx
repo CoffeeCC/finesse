@@ -25,15 +25,13 @@ import { IS_TV } from '../lib/device'
 import { artistOf, trackArt } from '../lib/music'
 import { usePlayTrack } from '../lib/playAlbum'
 import { useAudio } from '../audio/AudioPlayerContext'
-import type { JfItem } from '../api/types'
+import { formatRuntime, type JfItem } from '../api/types'
+import { prefetchItem, prefetchPlayer, prefetchRoute } from '../lib/prefetch'
+import { useOptionalLibraries } from './NavBar'
 
-// Universal search: one box for everything. A ranked top result, then one list
-// of titles: your library's first, then titles only friends' servers have (Groups),
-// then Radarr/Sonarr matches nobody has. Each title is listed once with where it is
-// ("In your library", "On Sam's server", "Not in your library") and one action (Play,
-// Play from Sam's, Request, or where the request stands); a title with more than one
-// source lists the others under "More ways to watch". Friends' titles join ours only
-// when their TMDb/TVDb ids match. Then albums, songs and people.
+// Universal search: one command palette for everything. A spotlight Top Result,
+// then one merged list of titles (your library first, friends' servers, then
+// requestable titles via Radarr/Sonarr), followed by albums, songs, and people.
 
 type Scope = 'all' | 'movies' | 'shows' | 'episodes' | 'music' | 'people'
 type Where = 'all' | 'library' | 'friends' | 'request'
@@ -55,15 +53,18 @@ function readRecent(): string[] {
     return []
   }
 }
-function pushRecent(term: string) {
-  const t = term.trim()
-  if (t.length < 2) return
+function saveRecent(list: string[]) {
   try {
-    const next = [t, ...readRecent().filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 6)
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+    if (list.length) localStorage.setItem(RECENT_KEY, JSON.stringify(list))
+    else localStorage.removeItem(RECENT_KEY)
   } catch {
     /* private mode */
   }
+}
+function pushRecent(term: string) {
+  const t = term.trim()
+  if (t.length < 2) return
+  saveRecent([t, ...readRecent().filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 6))
 }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N} ]/gu, '').trim()
@@ -97,8 +98,8 @@ function watchState(item: JfItem): string {
 }
 
 const ROW =
-  'flex items-center gap-3.5 rounded-xl px-2.5 py-2 hover:bg-white/5 focus-visible:bg-white/10 outline-none transition-colors'
-const SECTION = 'px-2.5 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400'
+  'flex items-center gap-3.5 rounded-xl px-2.5 py-2 hover:bg-white/[0.06] focus-visible:bg-white/[0.1] focus-visible:ring-1 focus-visible:ring-accent-400/70 outline-none transition-colors'
+const SECTION = 'px-2.5 pt-4 pb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-400'
 
 export default function SearchPanel({
   mode,
@@ -126,7 +127,7 @@ export default function SearchPanel({
   const scopes = hasMusic ? SCOPES : SCOPES.filter((s) => s.key !== 'music')
 
   useEffect(() => {
-    const t = setTimeout(() => setTerm(input.trim()), 250)
+    const t = setTimeout(() => setTerm(input.trim()), 200)
     return () => clearTimeout(t)
   }, [input])
   // A new search starts from every source again.
@@ -173,7 +174,7 @@ export default function SearchPanel({
   }, [lib.data, term, scope])
 
   // Requestable titles (Radarr/Sonarr), ranked like the library so the show someone typed
-  // exactly isn't below a loose movie match. mergeTitles drops the ones the library has.
+  // exactly isn't below a loose movie match. mergeSources drops the ones the library has.
   const requestable = useMemo(() => {
     const q = norm(term)
     return (request.data ?? [])
@@ -184,23 +185,27 @@ export default function SearchPanel({
   }, [request.data, scope, term])
 
   const top = scope !== 'people' ? ranked[0] : undefined
-  // Kept between renders (typing re-renders this panel on every key before the term settles):
-  // a fresh list here re-ran the merge below and re-rendered every result row each keystroke.
   const rest = useMemo(() => new Set(scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []), [ranked, scope])
-  // One list of titles: the library's first, then friends' (Groups), then what can be requested,
-  // each title once with all its sources (lib/discovery.ts mergeSources). The top result is above it.
   const merged = useMemo(() => (scope === 'people' || scope === 'music' ? [] : mergeSources(ranked, friendHits, requestable)), [ranked, friendHits, requestable, scope])
   const topAlso = useMemo(() => (top ? merged.find((t) => t.key === top.Id)?.sources.slice(1) ?? [] : []), [merged, top])
   const listed = useMemo(() => merged.filter((t) => (t.sources[0]!.source === 'library' ? rest.has((t.sources[0] as { item: JfItem }).item) : true)), [merged, rest])
-  const kinds = new Set(listed.flatMap((t) => t.sources.map((s) => s.source)))
-  const titles = listed.filter((t) =>
-    where === 'all' ? true : where === 'library' ? t.sources.some((s) => s.source === 'library') : where === 'friends' ? t.sources.some((s) => s.source === 'friend') : t.sources[0]!.source === 'request' || (t.sources.some((s) => s.source === 'request') && !t.sources.some((s) => s.source === 'library')),
+  const kinds = useMemo(() => new Set(listed.flatMap((t) => t.sources.map((s) => s.source))), [listed])
+  const titles = useMemo(
+    () =>
+      listed.filter((t) =>
+        where === 'all'
+          ? true
+          : where === 'library'
+            ? t.sources.some((s) => s.source === 'library')
+            : where === 'friends'
+              ? t.sources.some((s) => s.source === 'friend')
+              : t.sources[0]!.source === 'request' || (t.sources.some((s) => s.source === 'request') && !t.sources.some((s) => s.source === 'library')),
+      ),
+    [listed, where],
   )
-  const missing = listed.filter((t) => t.sources[0]!.source !== 'library')
+  const missing = useMemo(() => listed.filter((t) => t.sources[0]!.source !== 'library'), [listed])
   const peopleList = people.data?.Items.slice(0, scope === 'people' ? 24 : 6) ?? []
 
-  // Albums named like the term first (best match on top), then albums by a
-  // matching artist in the order the server gave (newest first). Songs by name.
   const { albums, songs } = useMemo(() => {
     const q = norm(term)
     const rank = (list: JfItem[]) =>
@@ -218,7 +223,6 @@ export default function SearchPanel({
     }
   }, [music.data, term, scope])
 
-  // One function for the panel's life (the rows are memoized and take it as a prop).
   const termRef = useRef(term)
   termRef.current = term
   const onCloseRef = useRef(onClose)
@@ -229,13 +233,34 @@ export default function SearchPanel({
     onCloseRef.current?.()
   }, [])
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') {
-      const first = resultsRef.current?.querySelector<HTMLElement>('[data-result]')
-      if (first) {
-        e.preventDefault()
-        first.focus()
+  const stepFocus = useCallback((dir: 1 | -1) => {
+    const nodes = Array.from(resultsRef.current?.querySelectorAll<HTMLElement>('[data-result]:not([disabled])') ?? [])
+    if (!nodes.length) return false
+    const idx = nodes.indexOf(document.activeElement as HTMLElement)
+    if (idx === -1) {
+      if (dir === 1) {
+        nodes[0]!.focus()
+        nodes[0]!.scrollIntoView({ block: 'nearest' })
+        return true
       }
+      return false
+    }
+    const next = idx + dir
+    if (next < 0) {
+      inputRef.current?.focus()
+      return true
+    }
+    if (next < nodes.length) {
+      nodes[next]!.focus()
+      nodes[next]!.scrollIntoView({ block: 'nearest' })
+      return true
+    }
+    return false
+  }, [])
+
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      if (stepFocus(1)) e.preventDefault()
     } else if (e.key === 'Enter' && (top || albums[0])) {
       e.preventDefault()
       opened()
@@ -243,32 +268,62 @@ export default function SearchPanel({
     }
   }
 
-  const nothing =
-    active &&
-    !lib.isLoading &&
-    !music.isLoading &&
-    ranked.length === 0 &&
-    peopleList.length === 0 &&
-    missing.length === 0 &&
-    albums.length === 0 &&
-    songs.length === 0
+  const onResultsKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowDown') {
+      if (stepFocus(1)) e.preventDefault()
+    } else if (e.key === 'ArrowUp') {
+      if (stepFocus(-1)) e.preventDefault()
+    } else if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault()
+      inputRef.current?.focus()
+    }
+  }
+
+  const removeRecent = (item: string) => {
+    const next = recent.filter((x) => x !== item)
+    saveRecent(next)
+    setRecent(next)
+  }
+
+  const searching = active && (scope === 'music' ? music.isLoading : lib.isLoading)
+  const fetching = active && (lib.isFetching || music.isFetching || request.isFetching || people.isFetching)
+  const hasAny =
+    ranked.length > 0 ||
+    peopleList.length > 0 ||
+    missing.length > 0 ||
+    albums.length > 0 ||
+    songs.length > 0
+  const nothing = active && !searching && !hasAny
 
   return (
     <div className={mode === 'overlay' ? 'flex min-h-0 flex-col' : ''}>
-      <div className={`flex items-center gap-3 ${mode === 'overlay' ? 'h-16 px-5 border-b border-white/10 focus-within:border-accent-400/60' : 'h-12 px-5 rounded-full bg-white/[0.06] border border-white/10 focus-within:border-white/30 max-w-2xl'}`}>
-        <svg className="h-5 w-5 shrink-0 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-          <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
-        </svg>
+      {/* Search bar */}
+      <div
+        className={`group/bar flex items-center gap-3 transition-colors ${
+          mode === 'overlay'
+            ? 'h-16 px-4 sm:px-5 border-b border-white/[0.08] bg-white/[0.02] focus-within:border-accent-400/50'
+            : 'h-12 px-5 rounded-full bg-white/[0.06] border border-white/10 focus-within:border-accent-400/60 max-w-2xl'
+        }`}
+      >
+        <div className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+          {fetching ? (
+            <span className="h-4 w-4 rounded-full border-2 border-white/15 border-t-accent-400 animate-spin" aria-label="Searching" />
+          ) : (
+            <svg className="h-5 w-5 text-ink-400 transition-colors group-focus-within/bar:text-accent-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
+            </svg>
+          )}
+        </div>
         <input
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
+          onKeyDown={onInputKeyDown}
           type="search"
           enterKeyHint="search"
           aria-label="Search your library"
-          placeholder={hasMusic ? 'Titles, people, music' : 'Titles, people, genres'}
-          className={`search-field flex-1 min-w-0 bg-transparent outline-none placeholder:text-ink-400 text-white ${mode === 'overlay' ? 'text-xl' : 'text-base'}`}
+          placeholder={hasMusic ? 'Search movies, shows, people, music…' : 'Search movies, shows, people, genres…'}
+          className={`search-field flex-1 min-w-0 bg-transparent outline-none placeholder:text-ink-400/80 text-white ${mode === 'overlay' ? 'text-lg sm:text-xl font-medium tracking-[-0.01em]' : 'text-base'}`}
         />
         {input && (
           <button
@@ -278,20 +333,32 @@ export default function SearchPanel({
               inputRef.current?.focus()
             }}
             aria-label="Clear search"
-            className="h-8 w-8 shrink-0 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-ink-200"
+            className="h-8 w-8 shrink-0 rounded-full bg-white/[0.07] hover:bg-white/15 active:scale-90 flex items-center justify-center text-ink-200 hover:text-white transition"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
           </button>
         )}
-        {mode === 'overlay' && (
-          <kbd className="hidden sm:flex h-6 px-2 items-center rounded border border-white/15 text-[11px] font-sans text-ink-400">Esc</kbd>
+        {mode === 'overlay' && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close search"
+            title="Close (Esc)"
+            className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.05] px-2.5 text-[11.5px] font-medium text-ink-300 hover:border-white/25 hover:bg-white/10 hover:text-white active:scale-95 transition"
+          >
+            <span className="hidden sm:inline font-mono">Esc</span>
+            <svg className="h-3.5 w-3.5 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
         )}
       </div>
 
+      {/* Scope pills */}
       {active && (
-        <div role="tablist" aria-label="Filter results" className={`flex gap-1.5 overflow-x-auto no-scrollbar ${mode === 'overlay' ? 'px-5 py-3 border-b border-white/10' : 'pt-4'}`}>
+        <div role="tablist" aria-label="Filter results" className={`flex items-center gap-1.5 overflow-x-auto no-scrollbar ${mode === 'overlay' ? 'px-4 sm:px-5 py-2.5 border-b border-white/[0.07] bg-white/[0.015]' : 'pt-4'}`}>
           {scopes.map((s) => (
             <button
               key={s.key}
@@ -299,8 +366,10 @@ export default function SearchPanel({
               role="tab"
               aria-selected={scope === s.key}
               onClick={() => setScope(s.key)}
-              className={`shrink-0 h-8 px-3.5 rounded-full text-sm transition-colors ${
-                scope === s.key ? 'bg-white text-ink-950 font-semibold' : 'border border-white/10 text-ink-200 hover:text-white font-medium'
+              className={`shrink-0 h-8 px-3.5 rounded-full text-[13px] transition active:scale-[0.97] ${
+                scope === s.key
+                  ? 'bg-white text-ink-950 font-semibold shadow-sm'
+                  : 'border border-white/10 bg-white/[0.03] text-ink-200 hover:bg-white/[0.08] hover:text-white font-medium'
               }`}
             >
               {s.label}
@@ -309,17 +378,19 @@ export default function SearchPanel({
         </div>
       )}
 
-      <div ref={resultsRef} className={mode === 'overlay' ? 'os-scroll min-h-0 overflow-y-auto mx-1.5 mb-1.5 px-1 pb-4 pt-1' : 'pt-2'}>
+      {/* Results body */}
+      <div
+        ref={resultsRef}
+        onKeyDown={onResultsKeyDown}
+        className={mode === 'overlay' ? 'os-scroll min-h-0 flex-1 overflow-y-auto px-2.5 sm:px-3.5 pb-4 pt-1' : 'pt-2'}
+      >
         {!active ? (
           <EmptyState
             recent={recent}
             onPick={(t) => setInput(t)}
+            onRemoveRecent={removeRecent}
             onClear={() => {
-              try {
-                localStorage.removeItem(RECENT_KEY)
-              } catch {
-                /* ignore */
-              }
+              saveRecent([])
               setRecent([])
             }}
             onSurprise={() => {
@@ -331,17 +402,20 @@ export default function SearchPanel({
           />
         ) : (
           <>
-            {(scope === 'music' ? music.isLoading : lib.isLoading) && <p className="px-2.5 py-6 text-sm text-ink-400">Searching…</p>}
+            {searching && !hasAny && <SearchSkeleton />}
             {nothing && (
-              <p className="px-2.5 py-6 text-sm text-ink-300">
-                Nothing matches “{term}”. Check the spelling, or try a person or genre.
-              </p>
+              <div className="px-3 py-10 text-center">
+                <p className="font-display text-2xl text-white">Nothing matches “{term}”</p>
+                <p className="mt-1.5 text-sm text-ink-400">
+                  Check the spelling, try a shorter word, or switch tabs above.
+                </p>
+              </div>
             )}
 
             {top && <TopResult item={top} also={topAlso} onOpen={opened} />}
 
             {friendSearch.failed.length > 0 && (
-              <p className="px-2.5 pt-3 text-[12.5px] text-amber-200">
+              <p className="mx-2.5 mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[12.5px] text-amber-200">
                 Couldn’t reach {friendSearch.failed.join(', ')} just now, so {friendSearch.failed.length === 1 ? 'its' : 'their'} titles aren’t here.
               </p>
             )}
@@ -368,7 +442,9 @@ export default function SearchPanel({
                             role="radio"
                             aria-checked={where === k}
                             onClick={() => setWhere(k)}
-                            className={`h-7 rounded-full px-3 text-[12.5px] transition-colors ${where === k ? 'bg-white font-semibold text-ink-950' : 'border border-white/10 text-ink-300 hover:text-white'}`}
+                            className={`h-7 rounded-full px-3 text-[12px] transition active:scale-[0.97] ${
+                              where === k ? 'bg-white font-semibold text-ink-950' : 'border border-white/10 text-ink-300 hover:bg-white/[0.06] hover:text-white'
+                            }`}
                           >
                             {label}
                           </button>
@@ -377,33 +453,46 @@ export default function SearchPanel({
                   )}
                 </div>
                 {titles.length === 0 && <p className="px-2.5 py-2 text-[13px] text-ink-400">None of these titles are there. Choose Everywhere to see them all.</p>}
-                {titles.map((t) => (
-                  <TitleRow key={t.key} t={t} onOpen={opened} />
-                ))}
+                <div className="space-y-0.5">
+                  {titles.map((t) => (
+                    <TitleRow key={t.key} t={t} onOpen={opened} />
+                  ))}
+                </div>
               </>
             )}
 
             {albums.length > 0 && (
               <>
                 <p className={SECTION}>Albums</p>
-                {albums.map((album) => (
-                  <Link key={album.Id} to={`/album/${album.Id}`} onClick={opened} data-result className={ROW}>
-                    <SquareThumb src={posterUrl(album, 100)} />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[15px] font-semibold text-white truncate">{album.Name}</span>
-                      <span className="block text-[13px] text-ink-400 truncate">{typeLabel(album)}</span>
-                    </span>
-                  </Link>
-                ))}
+                <div className="space-y-0.5">
+                  {albums.map((album) => (
+                    <Link
+                      key={album.Id}
+                      to={`/album/${album.Id}`}
+                      onClick={opened}
+                      onMouseEnter={() => prefetchRoute(`/album/${album.Id}`)}
+                      data-result
+                      className={ROW}
+                    >
+                      <SquareThumb src={posterUrl(album, 100)} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[15px] font-semibold text-white truncate">{album.Name}</span>
+                        <span className="block text-[13px] text-ink-400 truncate">{typeLabel(album)}</span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
               </>
             )}
 
             {songs.length > 0 && (
               <>
                 <p className={SECTION}>Songs</p>
-                {songs.map((song) => (
-                  <SongRow key={song.Id} song={song} onPlay={opened} />
-                ))}
+                <div className="space-y-0.5">
+                  {songs.map((song) => (
+                    <SongRow key={song.Id} song={song} onPlay={opened} />
+                  ))}
+                </div>
               </>
             )}
 
@@ -416,8 +505,9 @@ export default function SearchPanel({
                       key={p.Id}
                       to={`/person/${p.Id}`}
                       onClick={opened}
+                      onMouseEnter={() => prefetchRoute(`/person/${p.Id}`)}
                       data-result
-                      className="inline-flex items-center gap-2.5 h-10 pl-1 pr-3.5 rounded-full bg-white/5 hover:bg-white/10 focus-visible:bg-white/15 outline-none transition-colors"
+                      className="inline-flex items-center gap-2.5 h-10 pl-1 pr-3.5 rounded-full border border-white/[0.08] bg-white/[0.04] hover:bg-white/10 focus-visible:bg-white/15 focus-visible:ring-1 focus-visible:ring-accent-400/70 outline-none transition"
                     >
                       <span className="h-8 w-8 rounded-full overflow-hidden bg-ink-700 flex items-center justify-center text-xs font-semibold text-white">
                         {p.ImageTags?.Primary ? (
@@ -426,32 +516,66 @@ export default function SearchPanel({
                           p.Name?.split(' ').map((w) => w[0]).slice(0, 2).join('')
                         )}
                       </span>
-                      <span className="text-sm text-white">{p.Name}</span>
+                      <span className="text-sm font-medium text-white">{p.Name}</span>
                     </Link>
                   ))}
                 </div>
               </>
             )}
-
           </>
         )}
       </div>
 
+      {/* Command-palette keyboard legend */}
       {mode === 'overlay' && (
-        <div className="hidden sm:flex items-center gap-5 h-11 px-5 border-t border-white/10 bg-black/20 text-xs text-ink-400">
-          <span><b className="font-semibold text-ink-200">↑ ↓</b> move</span>
-          <span><b className="font-semibold text-ink-200">Enter</b> open top result</span>
-          <span><b className="font-semibold text-ink-200">Esc</b> close</span>
+        <div className="hidden sm:flex items-center justify-between gap-4 h-11 px-5 border-t border-white/[0.08] bg-black/25 text-xs text-ink-400">
+          <div className="flex items-center gap-4">
+            <span className="inline-flex items-center gap-1.5">
+              <kbd className="rounded border border-white/15 bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10.5px] text-ink-200">↑↓</kbd>
+              Navigate
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <kbd className="rounded border border-white/15 bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10.5px] text-ink-200">↵</kbd>
+              Open
+            </span>
+          </div>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 text-ink-400 hover:text-white transition-colors"
+            >
+              <kbd className="rounded border border-white/15 bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10.5px] text-ink-200">Esc</kbd>
+              Close
+            </button>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function Thumb({ item }: { item: JfItem }) {
-  const src = item.Type === 'Episode' ? posterUrl(item, 100) : posterUrl(item, 100)
+function SearchSkeleton() {
   return (
-    <span className="h-14 w-10 shrink-0 rounded-md overflow-hidden bg-ink-800">
+    <div className="space-y-2 px-2.5 py-3" aria-busy="true" aria-label="Searching">
+      <div className="h-28 rounded-2xl shimmer" />
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex items-center gap-3.5 py-1.5">
+          <div className="h-14 w-10 shrink-0 rounded-md shimmer" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-48 rounded shimmer" />
+            <div className="h-3 w-32 rounded shimmer" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Thumb({ item }: { item: JfItem }) {
+  const src = posterUrl(item, 100)
+  return (
+    <span className="h-14 w-10 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/10">
       {src && <img decoding="async" src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
     </span>
   )
@@ -459,7 +583,7 @@ function Thumb({ item }: { item: JfItem }) {
 
 function SquareThumb({ src }: { src: string | null | undefined }) {
   return (
-    <span className="h-12 w-12 shrink-0 rounded-md overflow-hidden bg-ink-800">
+    <span className="h-12 w-12 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/10">
       {src && <img decoding="async" src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
     </span>
   )
@@ -486,57 +610,93 @@ const SongRow = memo(function SongRow({ song, onPlay }: { song: JfItem; onPlay: 
         <span className="block text-[15px] font-semibold text-white truncate">{song.Name}</span>
         <span className="block text-[13px] text-ink-400 truncate">{typeLabel(song)}</span>
       </span>
-      <span className="shrink-0 text-xs text-ink-400">{isCurrent ? 'Playing' : 'Play'}</span>
+      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${isCurrent ? 'bg-accent-400/20 text-accent-300' : 'text-ink-400'}`}>
+        {isCurrent ? 'Playing' : 'Play'}
+      </span>
     </button>
   )
 })
 
 const TopResult = memo(function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfItem, ArrResult>[]; onOpen: () => void }) {
+  const qc = useQueryClient()
   const art = backdropUrl(item, 640) ?? posterUrl(item, 300)
   const playable = item.Type === 'Movie' || item.Type === 'Episode'
   const choice = playChoice(item)
+  const runtime = item.RunTimeTicks && item.Type !== 'Series' ? formatRuntime(item.RunTimeTicks) : ''
+  const friendsAlso = also.flatMap((x) => (x.source === 'friend' ? [x.friend.name] : []))
+
   return (
     <>
       <p className={SECTION}>Top result</p>
-      <div className="flex items-center gap-4 rounded-2xl bg-white/[0.06] ring-1 ring-white/10 p-3">
-        <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className="shrink-0 w-36 sm:w-48 aspect-video rounded-xl overflow-hidden bg-ink-800 outline-none focus-visible:ring-2 focus-visible:ring-accent-400">
-          {art && <img decoding="async" src={art} alt="" className="h-full w-full object-cover" />}
-        </Link>
-        <div className="flex-1 min-w-0">
-          <p className="font-display text-2xl sm:text-3xl leading-tight text-white truncate">{item.Name}</p>
-          <p className="text-sm text-ink-300 truncate">
-            {typeLabel(item)}
-            {also.some((x) => x.source === 'friend') && ` · Also on ${also.flatMap((x) => (x.source === 'friend' ? [x.friend.name] : [])).join(', ')}`}
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {playable && (
+      <div
+        onMouseEnter={() => {
+          prefetchItem(qc, item.Id)
+          if (playable) prefetchPlayer()
+        }}
+        className="relative mx-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-3.5 sm:p-4"
+      >
+        {art && (
+          <img
+            src={art}
+            alt=""
+            aria-hidden
+            decoding="async"
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-[0.16] scale-110"
+          />
+        )}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-ink-950/90 via-ink-950/75 to-ink-950/55"
+        />
+        <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
+          <Link
+            to={`/item/${item.Id}`}
+            onClick={onOpen}
+            data-result
+            className="shrink-0 w-full sm:w-48 aspect-video rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/15 shadow-lg shadow-black/40 outline-none focus-visible:ring-2 focus-visible:ring-accent-400 transition-transform hover:scale-[1.02]"
+          >
+            {art && <img decoding="async" src={art} alt="" className="h-full w-full object-cover" />}
+          </Link>
+          <div className="flex-1 min-w-0">
+            <p className="font-display text-2xl sm:text-[2rem] leading-[1.02] text-white truncate">{item.Name}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-300">
+              <span className="rounded-md bg-emerald-400/15 px-1.5 py-0.5 font-semibold text-emerald-200">In your library</span>
+              <span>{typeLabel(item)}</span>
+              {runtime && <span>· {runtime}</span>}
+              {item.OfficialRating && <span className="rounded border border-white/15 px-1.5 py-px text-[11px] text-ink-200">{item.OfficialRating}</span>}
+              {friendsAlso.length > 0 && <span className="text-sky-200">· Also on {friendsAlso.join(', ')}</span>}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {playable && (
+                <Link
+                  to={choice.href}
+                  onClick={onOpen}
+                  onMouseEnter={prefetchPlayer}
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 active:scale-[0.97] transition"
+                >
+                  <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>
+                  {choice.label}
+                </Link>
+              )}
+              {playable && choice.startOver && (
+                <Link
+                  to={choice.startOver}
+                  onClick={onOpen}
+                  aria-label={`Start ${item.Name} over from the beginning`}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-3.5 text-sm font-semibold text-white hover:bg-white/15 active:scale-[0.97] transition"
+                >
+                  <RestartIcon className="h-3.5 w-3.5" />
+                  Start over
+                </Link>
+              )}
               <Link
-                to={choice.href}
+                to={`/item/${item.Id}`}
                 onClick={onOpen}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
+                className="inline-flex h-9 items-center rounded-full bg-white/10 border border-white/15 px-4 text-sm font-semibold text-white hover:bg-white/15 active:scale-[0.97] transition"
               >
-                <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>
-                {choice.label}
+                {item.Type === 'Series' ? 'Open series' : 'Details'}
               </Link>
-            )}
-            {playable && choice.startOver && (
-              <Link
-                to={choice.startOver}
-                onClick={onOpen}
-                aria-label={`Start ${item.Name} over from the beginning`}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/10 border border-white/15 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
-              >
-                <RestartIcon className="h-3.5 w-3.5" />
-                Start over
-              </Link>
-            )}
-            <Link
-              to={`/item/${item.Id}`}
-              onClick={onOpen}
-              className="inline-flex h-9 items-center rounded-lg bg-white/10 border border-white/15 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
-            >
-              {item.Type === 'Series' ? 'Open series' : 'Details'}
-            </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -565,8 +725,8 @@ const TitleRow = memo(function TitleRow({ t, onOpen }: { t: Title; onOpen: () =>
         <RequestRow r={main!.r} />
       )}
       {others.length > 0 && (
-        <div className="pl-[3.75rem] pr-2.5">
-          <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="text-[12.5px] font-semibold text-accent-300 hover:text-white">
+        <div className="pl-[3.75rem] pr-2.5 pb-1">
+          <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="text-[12.5px] font-semibold text-accent-300 hover:text-white transition-colors">
             {open ? 'Hide other ways' : `More ways to watch (${others.length}): ${others.map((o) => (o.source === 'friend' ? o.friend.name : o.source === 'request' ? 'request it' : 'your library')).join(', ')}`}
           </button>
           {open && (
@@ -590,11 +750,15 @@ const TitleRow = memo(function TitleRow({ t, onOpen }: { t: Title; onOpen: () =>
 
 /** A library title: opens its page; its one action plays it (or opens a show). */
 const LibraryRow = memo(function LibraryRow({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
+  const qc = useQueryClient()
   const playable = item.Type === 'Movie' || item.Type === 'Episode' || item.Type === 'Video'
   const choice = playChoice(item)
   const state = watchState(item)
   return (
-    <div className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/5 transition-colors">
+    <div
+      onMouseEnter={() => prefetchItem(qc, item.Id)}
+      className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/[0.05] transition-colors"
+    >
       <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className={`${ROW} flex-1 min-w-0 hover:bg-transparent`}>
         <Thumb item={item} />
         <span className="flex-1 min-w-0">
@@ -611,9 +775,10 @@ const LibraryRow = memo(function LibraryRow({ item, onOpen }: { item: JfItem; on
       <Link
         to={playable ? choice.href : `/item/${item.Id}`}
         onClick={onOpen}
+        onMouseEnter={playable ? prefetchPlayer : undefined}
         aria-label={`${playable ? (choice.resuming ? choice.label : 'Play') : 'Open'}: ${item.Name}`}
         title={playable && choice.resuming ? choice.label : undefined}
-        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
+        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
       >
         {playable && <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
         {playable ? (choice.resuming ? 'Resume' : 'Play') : 'Open'}
@@ -628,7 +793,7 @@ const FriendRow = memo(function FriendRow({ item, friend, onOpen, compact }: { i
   const choice = playChoice(item)
   const state = watchState(item)
   return (
-    <div className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/5 transition-colors">
+    <div className="flex items-center gap-2 rounded-xl pr-2.5 hover:bg-white/[0.05] transition-colors">
       <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className={`${ROW} flex-1 min-w-0 hover:bg-transparent`}>
         {!compact && <Thumb item={item} />}
         <span className="flex-1 min-w-0">
@@ -646,7 +811,7 @@ const FriendRow = memo(function FriendRow({ item, friend, onOpen, compact }: { i
         to={playable ? choice.href : `/item/${item.Id}`}
         onClick={onOpen}
         aria-label={`${playable ? 'Play' : 'Open'} ${item.Name} from ${friend.name}`}
-        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/15 active:scale-[0.97] transition"
       >
         {playable && <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
         {playable ? (choice.resuming ? 'Resume' : 'Play') : 'Open'}
@@ -678,9 +843,9 @@ const RequestRow = memo(function RequestRow({ r }: { r: ArrResult }) {
   }
 
   return (
-    <div className="flex items-center gap-3.5 rounded-xl px-2.5 py-2">
+    <div className="flex items-center gap-3.5 rounded-xl px-2.5 py-2 hover:bg-white/[0.04] transition-colors">
       <span className="h-14 w-10 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/15">
-        {r.poster && <img decoding="async" src={r.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover opacity-80" />}
+        {r.poster && <img decoding="async" src={r.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover opacity-85" />}
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px] font-semibold text-white truncate">{r.title}</span>
@@ -700,7 +865,7 @@ const RequestRow = memo(function RequestRow({ r }: { r: ArrResult }) {
           onClick={request}
           disabled={state === 'adding'}
           data-result
-          className="shrink-0 h-9 rounded-lg bg-accent-fill hover:brightness-110 px-3.5 text-sm font-semibold text-white disabled:opacity-60 transition"
+          className="shrink-0 h-9 rounded-full bg-accent-fill hover:brightness-110 px-4 text-sm font-semibold text-white disabled:opacity-60 active:scale-[0.97] transition"
         >
           {state === 'adding' ? 'Requesting…' : 'Request'}
         </button>
@@ -712,6 +877,7 @@ const RequestRow = memo(function RequestRow({ r }: { r: ArrResult }) {
 function EmptyState({
   recent,
   onPick,
+  onRemoveRecent,
   onClear,
   onSurprise,
   surprising,
@@ -719,83 +885,137 @@ function EmptyState({
 }: {
   recent: string[]
   onPick: (t: string) => void
+  onRemoveRecent: (t: string) => void
   onClear: () => void
   onSurprise: () => void
   surprising: boolean
   onNavigate?: () => void
 }) {
   const { data: views } = useViews()
+  const { hasGames } = useOptionalLibraries()
+  const limits = useMyLimits()
   const movieLib = views?.Items.find((v) => v.CollectionType === 'movies')
+  const showLib = views?.Items.find((v) => v.CollectionType === 'tvshows')
+  const hasMusic = views?.Items.some((v) => v.CollectionType === 'music') ?? false
   const { data: genres } = useGenres(movieLib?.Id)
   const names = (genres?.Items ?? []).map((g) => g.Name).slice(0, 12)
-  const hue = (g: string) => [...g].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
+
+  const jumps = [
+    ...(movieLib ? [{ label: movieLib.Name, to: `/library/${movieLib.Id}` }] : []),
+    ...(showLib ? [{ label: showLib.Name, to: `/library/${showLib.Id}` }] : []),
+    ...(hasMusic ? [{ label: 'Music', to: '/music' }] : []),
+    ...(hasGames ? [{ label: 'Games', to: '/games' }] : []),
+    ...(!limits || limits.requests ? [{ label: 'Requests', to: '/request' }] : []),
+    { label: 'My List', to: '/mylist' },
+  ]
 
   return (
-    <div className="pt-2">
-      {recent.length > 0 && (
-        <>
-          <div className="flex items-center justify-between">
-            <p className={SECTION}>Recent</p>
-            <button type="button" onClick={onClear} className="px-2.5 pt-3 text-xs font-semibold text-accent-300 hover:text-white">
-              Clear
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2 px-2.5">
-            {recent.map((t) => (
-              <button
-                key={t}
-                type="button"
-                data-result
-                onClick={() => onPick(t)}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 text-sm text-ink-200 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <svg className="h-3.5 w-3.5 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>
-                {t}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="px-2.5 pt-4">
+    <div className="pt-1">
+      {/* Quick jump command bar */}
+      <p className={SECTION}>Quick jump</p>
+      <div className="flex flex-wrap gap-2 px-2.5">
         <button
           type="button"
           onClick={onSurprise}
           disabled={surprising}
           data-result
-          className="w-full sm:w-auto inline-flex h-11 items-center justify-center gap-2.5 rounded-xl bg-white/[0.07] border border-white/15 px-5 text-[15px] font-semibold text-white hover:bg-white/10 disabled:opacity-60 transition-colors"
+          className="inline-flex h-9 items-center gap-2 rounded-full bg-white text-ink-950 px-3.5 text-[13px] font-semibold hover:bg-ink-200 active:scale-[0.97] disabled:opacity-60 outline-none focus-visible:ring-2 focus-visible:ring-accent-400 transition"
         >
-          <DiceIcon className="h-5 w-5" spinning={surprising} />
+          <DiceIcon className="h-4 w-4" spinning={surprising} />
           Surprise me
         </button>
+        {jumps.map((j) => (
+          <Link
+            key={j.to}
+            to={j.to}
+            onClick={onNavigate}
+            onMouseEnter={() => prefetchRoute(j.to)}
+            data-result
+            className="inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.04] px-3.5 text-[13px] font-medium text-ink-200 hover:border-white/20 hover:bg-white/10 hover:text-white active:scale-[0.97] outline-none focus-visible:ring-2 focus-visible:ring-accent-400 transition"
+          >
+            {j.label}
+          </Link>
+        ))}
       </div>
+
+      {recent.length > 0 && (
+        <>
+          <div className="flex items-center justify-between pr-2.5">
+            <p className={SECTION}>Recent</p>
+            <button type="button" onClick={onClear} className="pt-3 text-xs font-semibold text-ink-400 hover:text-white transition-colors">
+              Clear all
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 px-2.5">
+            {recent.map((t) => (
+              <span
+                key={t}
+                className="inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.04] pl-3 pr-1.5 text-sm text-ink-200 hover:border-white/20 hover:bg-white/[0.08] transition-colors"
+              >
+                <button
+                  type="button"
+                  data-result
+                  onClick={() => onPick(t)}
+                  className="inline-flex items-center gap-2 pr-1.5 text-left text-ink-200 hover:text-white outline-none focus-visible:text-accent-300"
+                >
+                  <svg className="h-3.5 w-3.5 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  </svg>
+                  {t}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveRecent(t)}
+                  aria-label={`Remove ${t} from recent searches`}
+                  className="grid h-6 w-6 place-items-center rounded-full text-ink-400 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
 
       {names.length > 0 && (
         <>
           <p className={SECTION}>Browse by genre</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 px-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 px-2.5">
             {names.map((g) => (
               <Link
                 key={g}
                 to={browseHref(g, { includeItemTypes: 'Movie,Series', genres: g, sortBy: 'SortName' })}
                 onClick={onNavigate}
                 data-result
-                className="relative h-16 sm:h-[4.5rem] rounded-xl overflow-hidden flex items-end px-3 pb-2 outline-none ring-1 ring-white/5 hover:ring-white/20 focus-visible:ring-2 focus-visible:ring-accent-400 transition-all"
-                style={{ background: `hsl(${hue(g)}, 32%, 26%)` }}
+                className="group/g relative flex h-12 items-center justify-between gap-2 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.035] px-3.5 outline-none transition hover:border-white/20 hover:bg-white/[0.07] active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent-400"
               >
-                <span aria-hidden className="absolute -right-5 -top-6 h-16 w-16 rounded-full" style={{ background: `hsla(${(hue(g) + 170) % 360}, 45%, 66%, 0.3)` }} />
-                <span className="relative font-display text-xl leading-none text-white">{g}</span>
+                <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/[0.09]" />
+                <span className="truncate font-display italic text-[20px] leading-none text-white/90 transition-colors group-hover/g:text-white">
+                  {g}
+                </span>
+                <svg
+                  className="h-3.5 w-3.5 shrink-0 text-ink-400 transition-transform duration-200 group-hover/g:translate-x-0.5 group-hover/g:text-accent-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.2}
+                  aria-hidden
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
               </Link>
             ))}
           </div>
         </>
       )}
 
-      <p className="px-2.5 pt-5 text-[13px] text-ink-400">
-        Can't find something? Search for it, and titles you don't have yet show up with a <span className="text-white font-semibold">Request</span> button.
-      </p>
+      {(!limits || limits.requests) && (
+        <p className="px-2.5 pt-4 text-[12.5px] text-ink-400">
+          Looking for something not in your library? Type its name to <span className="text-ink-200 font-semibold">Request</span> it right from here.
+        </p>
+      )}
     </div>
   )
 }

@@ -6,8 +6,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { arrAdd, arrMovieDetails, ArrError, toMovieDetails, type MovieDetails } from '../api/arr'
-import { getItems } from '../api/client'
-import { noteRequested } from '../api/queries'
+import { noteRequested, useLibraryMatch } from '../api/queries'
 import { RequestStatusView, useRequestStatus } from '../components/RequestStatus'
 import { ACTION_BTN, ActionButton, PLAY_BTN } from '../components/ActionButton'
 import TrailerHero from '../components/TrailerHero'
@@ -27,13 +26,23 @@ export default function RequestMoviePage() {
   const toast = useToast()
   const qc = useQueryClient()
   const passed = (useLocation().state as RequestMovieState | null)?.raw
+  const valid = Number.isFinite(tmdbId) && tmdbId > 0
   const [requested, setRequested] = useState<'idle' | 'adding' | 'requested'>('idle')
   const [trailerOn, setTrailerOn] = useState(false)
   const [trailerLive, setTrailerLive] = useState(false)
+  // Another movie opened over this one (the route stays mounted): start it afresh, not as
+  // "requested" or with the last one's trailer playing.
+  const [shownId, setShownId] = useState(tmdbId)
+  if (shownId !== tmdbId) {
+    setShownId(tmdbId)
+    setRequested('idle')
+    setTrailerOn(false)
+    setTrailerLive(false)
+  }
 
   const details = useQuery({
     queryKey: ['arrMovieDetails', tmdbId],
-    enabled: Number.isFinite(tmdbId) && tmdbId > 0,
+    enabled: valid,
     staleTime: 10 * 60_000,
     retry: 1,
     queryFn: () => arrMovieDetails(tmdbId),
@@ -46,16 +55,9 @@ export default function RequestMoviePage() {
   // Where the request stands: searching, downloading (how far), stuck, searching again…
   const status = useRequestStatus(m, { justRequested: requested === 'requested', available: m?.raw?.isAvailable === false ? false : undefined })
 
-  // In the library: find it in Jellyfin (same TMDb id) so Play can open it.
-  const libraryItem = useQuery({
-    queryKey: ['jfByTmdb', tmdbId, m?.title],
-    enabled: inLibrary && Boolean(m?.title),
-    staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const r = await getItems({ searchTerm: m!.title, includeItemTypes: 'Movie', recursive: true, fields: 'ProviderIds', limit: 30 })
-      return r.Items.find((i) => String((i as { ProviderIds?: Record<string, string> }).ProviderIds?.Tmdb ?? '') === String(tmdbId)) ?? null
-    },
-  })
+  // In the library: find it in Jellyfin (same TMDb id) so Play can open it. The same lookup the
+  // Request page's Ready links use, so it's shared (and refreshed when a download lands).
+  const libraryItem = useLibraryMatch(m, inLibrary)
 
   const request = async () => {
     if (!m || requested !== 'idle') return
@@ -64,7 +66,7 @@ export default function RequestMoviePage() {
       const id = await arrAdd(m)
       setRequested('requested')
       noteRequested(qc, m, id)
-      toast(`Added “${m.title}”. Radarr is looking for it now.`)
+      toast(`Added “${m.title}”. Radarr is looking for a release now.`)
     } catch (e) {
       setRequested('idle')
       toast(e instanceof ArrError && e.status === 401 ? 'Sign in again to request' : e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t request “${m.title}”`, 'error')
@@ -72,10 +74,41 @@ export default function RequestMoviePage() {
   }
 
   if (!m) {
+    const problem = !valid
+      ? 'This link doesn’t point to a movie. Go back and pick one again.'
+      : details.isError
+        ? details.error instanceof ArrError && details.error.message
+          ? details.error.message
+          : 'Couldn’t load this movie. Radarr may be busy; try again in a moment.'
+        : null
     return (
       <div className="px-4 sm:px-6 lg:px-12 py-10">
         <BackButton onClick={() => goBack(navigate)} />
-        <p className="mt-16 text-sm text-ink-400">{details.isError ? 'Couldn’t load this movie. Radarr may be busy; try again in a moment.' : 'Loading…'}</p>
+        {problem ? (
+          <div className="mt-16 max-w-xl">
+            <p className="text-sm text-ink-300" role="alert">
+              {problem}
+            </p>
+            {valid && (
+              <button
+                type="button"
+                onClick={() => void details.refetch()}
+                disabled={details.isFetching}
+                className="mt-4 inline-flex h-10 items-center rounded-full bg-white px-5 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97] disabled:opacity-60"
+              >
+                {details.isFetching ? 'Trying again…' : 'Try again'}
+              </button>
+            )}
+          </div>
+        ) : (
+          // The page's shape while Radarr answers: a hero, a title, a button.
+          <div className="mt-10" aria-busy="true" aria-label="Loading the movie">
+            <div className="h-[calc(var(--vh)*30)] min-h-[200px] w-full rounded-2xl shimmer" />
+            <div className="mt-6 h-10 w-2/3 max-w-md rounded-lg shimmer" />
+            <div className="mt-3 h-4 w-48 rounded shimmer" />
+            <div className="mt-6 h-11 w-36 rounded-full shimmer" />
+          </div>
+        )}
       </div>
     )
   }
@@ -119,7 +152,7 @@ export default function RequestMoviePage() {
         </div>
 
         <div className="relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
-          {m.poster && <img decoding="async" src={m.poster} alt={m.title} className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0 shadow-2xl" />}
+          {m.poster && <img decoding="async" src={m.poster} alt="" className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0 shadow-2xl" />}
           <div className="min-w-0 pb-2">
             <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl leading-[0.95] text-white mb-3 drop-shadow-lg">{m.title}</h1>
             <div className="flex flex-wrap items-center gap-3 text-sm text-ink-200 mb-4">

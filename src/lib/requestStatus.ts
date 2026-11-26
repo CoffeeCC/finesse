@@ -38,7 +38,8 @@ export function requestStatus(f: RequestFacts): RequestStatus {
     if (q.status === 'Needs attention')
       return { stage: 'stuck', label: 'Download stuck', detail: q.reason ? `${q.reason}` : 'The download needs a look from whoever runs the server.', tone: 'bad' }
     if (q.done) return { stage: 'importing', label: 'Almost ready', detail: 'Downloaded, adding it to the library', tone: 'busy' }
-    const pct = Math.max(0, Math.min(100, Math.round(q.progress)))
+    // A queue row without a usable size reports NaN or nothing: say 0%, never "NaN%".
+    const pct = Number.isFinite(q.progress) ? Math.max(0, Math.min(100, Math.round(q.progress))) : 0
     if (q.paused || q.status === 'Paused') return { stage: 'paused', label: `Paused at ${pct}%`, progress: pct, tone: 'wait' }
     if (q.status === 'Downloading') return { stage: 'downloading', label: `Downloading ${pct}%`, progress: pct, tone: 'busy' }
     return { stage: 'queued', label: 'Queued to download', tone: 'wait' }
