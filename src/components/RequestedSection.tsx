@@ -5,6 +5,7 @@ import { requestStatus } from '../lib/requestStatus'
 import { CONFIRM_AGAIN, RequestStatusView, useConfirmPress, useLater } from './RequestStatus'
 import { arrCancelRequest, arrSearchAgain, type ArrFailure, type ArrRequested } from '../api/arr'
 import ArrThumb from './ArrThumb'
+import WhyNothingModal from './WhyNothingModal'
 import { useToast } from './Toast'
 
 const KIND_LABEL = { movie: 'Movie', series: 'Show', artist: 'Artist' } as const
@@ -28,6 +29,7 @@ const Row = memo(function Row({ r, failure }: { r: ArrRequested; failure?: ArrFa
   const [busy, setBusy] = useState<'again' | 'cancel' | null>(null)
   // Take back is two-press: the first arms it, a second within 4 s confirms.
   const confirm = useConfirmPress()
+  const [why, setWhy] = useState(false)
 
   // Everything that says whether this title is requested, once the app has caught up.
   const refresh = () =>
@@ -80,6 +82,15 @@ const Row = memo(function Row({ r, failure }: { r: ArrRequested; failure?: ArrFa
         </p>
         <RequestStatusView status={requestStatus({ requested: true, hasFile: false, available: r.available, failure })} className="mt-1" />
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {r.available && r.kind !== 'artist' && (
+            <button
+              type="button"
+              onClick={() => setWhy(true)}
+              className={`${BTN} bg-ink-800 border border-white/10 hover:border-accent-500 text-ink-100`}
+            >
+              Why nothing yet?
+            </button>
+          )}
           {r.available && (
             <button type="button" onClick={again} disabled={busy !== null} className={`${BTN} bg-ink-800 border border-white/10 hover:border-accent-500 text-ink-100`}>
               {busy === 'again' ? 'Searching…' : 'Search again'}
@@ -98,6 +109,7 @@ const Row = memo(function Row({ r, failure }: { r: ArrRequested; failure?: ArrFa
           </button>
         </div>
       </div>
+      {why && r.kind !== 'artist' && <WhyNothingModal item={{ kind: r.kind, id: r.id, title: r.title, year: r.year }} onClose={() => setWhy(false)} />}
     </div>
   )
 })

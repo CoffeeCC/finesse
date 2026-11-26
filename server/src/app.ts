@@ -32,6 +32,7 @@ import { registerReport } from './report.ts'
 import { handleUpgrade, registerServiceProxies } from './services.ts'
 import { registerRequestDefaults } from './requestDefaults.ts'
 import { Roku, registerRoku } from './roku.ts'
+import { registerQualityRules } from './qualityRules.ts'
 import { registerGameStore, type GameStore } from './gamestore/routes.ts'
 import { plugPipeline } from './gamestore/wiring.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
@@ -178,6 +179,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerDeletions(router, { deleter: new Deleter(settings), auth })
   registerRequestDefaults(router, { settings, auth })
   registerRoku(router, { auth, roku: new Roku(jf) })
+  registerQualityRules(router, { settings, auth })
   deps.gameStore = registerGameStore(router, { settings, auth })
   plugPipeline(deps.gameStore, settings, { log: (t) => log.warn(t) })
   registerAlbumRequests(router, { settings, auth, parental })

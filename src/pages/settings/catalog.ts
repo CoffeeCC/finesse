@@ -124,6 +124,7 @@ export const ENTRIES: Entry[] = [
   { section: 'health', label: 'Recent activity', anchor: 'system-activity', words: 'events log history repairs', when: system },
 
   // Downloads
+  { section: 'downloads', label: 'Quality and languages (why a request finds nothing)', anchor: 'quality-rules', words: 'quality languages language english original foreign dub subtitles size big files remux 4k 1080p 720p profile nothing found rejected', when: (c) => Boolean(c.features.requests && (c.features.movies || c.features.shows)) },
   { section: 'downloads', label: 'Quality and folders for requests', anchor: 'request-defaults', words: 'quality profile root folder radarr sonarr lidarr 4k 1080p requests', when: (c) => Boolean(c.features.requests) },
   { section: 'downloads', label: 'Usenet, torrents, VPN and access from outside', anchor: 'system-setup-change', words: 'usenet torrents vpn tailscale cloudflare remote access setup change', when: system },
 

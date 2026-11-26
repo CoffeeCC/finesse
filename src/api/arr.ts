@@ -91,6 +91,8 @@ export interface ArrRelease {
   rejected: boolean
   rejections: string[]
   customFormatScore: number
+  /** Languages the app read from the release name. */
+  languages: string[]
   /** True if *arr thinks this is an upgrade over the current file. */
   isUpgrade?: boolean
   raw: Record<string, unknown>
@@ -964,6 +966,7 @@ function mapRelease(r: Record<string, unknown>): ArrRelease {
     rejected: Boolean(r.rejected) || rejections.length > 0,
     rejections,
     customFormatScore: Number(r.customFormatScore ?? 0),
+    languages: Array.isArray(r.languages) ? (r.languages as { name?: unknown }[]).map((l) => String(l?.name ?? '')).filter(Boolean) : [],
     isUpgrade: typeof r.isUpgrade === 'boolean' ? r.isUpgrade : undefined,
     raw: r,
   }

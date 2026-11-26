@@ -22,6 +22,7 @@ import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
 import DownloadsSettings from './settings/DownloadsSettings'
+import QualitySettings from './settings/QualitySettings'
 import ConnectionsHealth, { connectionProblems, useConnections } from './settings/ConnectionsHealth'
 import { searchSettings, slug, visibleSections, type Ctx, type Entry, type SectionDef, type SectionId } from './settings/catalog'
 import LibraryHealth from './settings/LibraryHealth'
@@ -842,6 +843,11 @@ export default function SettingsPage() {
                   {finesseInfo?.features?.requests && (
                     <div data-setting="request-defaults">
                       <DownloadsSettings />
+                    </div>
+                  )}
+                  {finesseInfo?.features?.requests && (finesseInfo.features.movies || finesseInfo.features.shows) && (
+                    <div data-setting="quality-rules">
+                      <QualitySettings />
                     </div>
                   )}
                   <SystemPanel parts={['setup-change']} />
