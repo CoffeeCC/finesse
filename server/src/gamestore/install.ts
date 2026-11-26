@@ -13,7 +13,7 @@
 
 import { looksPortable, type Sniffed } from '../installerSniff.ts'
 import { answerWindow, failureReason, shownCommand, silentCommand, windowWords } from './answers.ts'
-import { findProgram, programNames, type FoundProgram } from './program.ts'
+import { detectRedistHints, findPrograms, programNames, type FoundProgram } from './program.ts'
 import type { GamePlatform, InstallerKind, InstallOutcome, InstallPlan, InstallStep, JobFile, SandboxRunner, SurveyedFile, Tier, UnpackTool, WindowInfo } from './types.ts'
 
 /** Folders of a job. The download is read-only; these two are the only places anything is written. */
@@ -66,7 +66,45 @@ const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 /** Nearest the top of the download first, then the biggest. */
 const topThenBiggest = (a: SurveyedFile, b: SurveyedFile) => depth(a.path) - depth(b.path) || b.size - a.size || a.path.localeCompare(b.path)
 /** The first volume of a split archive stands for the set. */
-const laterVolume = (p: string) => /\.part(?!0*1\.)\d+\.rar$/i.test(p) || /\.(r\d\d|0(?!01)\d\d|[1-9]\d\d)$/i.test(p)
+const laterVolume = (p: string) => /\.part(?!0*1\.)\d+\.rar$/i.test(p) || /\.(r\d\d|z\d\d|0(?!01)\d\d|[1-9]\d\d)$/i.test(p)
+const knownInstaller = (f: SurveyedFile) => ['inno', 'nsis', 'msi'].includes(f.sniffed.kind)
+const unknownInstaller = (f: SurveyedFile) => f.sniffed.kind === 'unknown' && /\.exe$/i.test(f.path) &&
+  /^(?:Windows (?:console )?program|.+ installer)$/.test(f.sniffed.format) &&
+  (!looksPortable(f.sniffed) || NAMED_LIKE_AN_INSTALLER.test(base(f.path)))
+
+/** Check the volume numbers supplied by the download before opening its first volume. */
+export function checkSplitArchive(files: JobFile[]): { ok: true } | { ok: false; missing: string } {
+  const paths = new Set(files.map((f) => f.path.toLowerCase()))
+  const sets = new Map<string, { prefix: string; suffix: string; width: number; numbers: Set<number> }>()
+  for (const { path } of files) {
+    const match = /^(.*\.part)(\d+)(\.rar)$/i.exec(path) ?? /^(.*\.7z\.)(\d{3})()$/i.exec(path) ?? /^(.*\.z)(\d{2})()$/i.exec(path)
+    if (!match) continue
+    const prefix = match[1]!
+    const digits = match[2]!
+    const suffix = match[3]!
+    if (prefix.toLowerCase().endsWith('.z')) {
+      const zip = prefix.slice(0, -1) + 'zip'
+      if (!paths.has(zip.toLowerCase())) return { ok: false, missing: zip }
+    }
+    const key = prefix.toLowerCase()
+    let set = sets.get(key)
+    if (!set) {
+      set = { prefix, suffix, width: digits.startsWith('0') || digits.length <= 2 ? digits.length : 1, numbers: new Set() }
+      sets.set(key, set)
+    }
+    if (digits.startsWith('0')) set.width = Math.max(set.width, digits.length)
+    set.numbers.add(Number(digits))
+  }
+  for (const { prefix, suffix, width, numbers } of sets.values()) {
+    let expected = 1
+    for (const n of [...numbers].sort((a, b) => a - b)) {
+      if (n === 0) continue
+      if (n !== expected) return { ok: false, missing: prefix + String(expected).padStart(width, '0') + suffix }
+      expected++
+    }
+  }
+  return { ok: true }
+}
 
 /** What the download starts from: the store's hint, else an installer, else an archive, else the game itself. */
 export function pickInstaller(found: SurveyedFile[], opts: { hint?: string; platform?: GamePlatform } = {}): SurveyedFile | null {
@@ -77,11 +115,18 @@ export function pickInstaller(found: SurveyedFile[], opts: { hint?: string; plat
   }
   const of = (test: (f: SurveyedFile) => boolean) => found.filter(test).sort(topThenBiggest)[0] ?? null
   const linux = () => of((f) => f.sniffed.kind === 'linux')
-  const windows = () =>
-    of((f) => ['inno', 'nsis', 'msi'].includes(f.sniffed.kind)) ??
-    // A program Finesse doesn't know that carries a payload, or is plainly named "setup".
-    of((f) => f.sniffed.kind === 'unknown' && /\.exe$/i.test(f.path) && (!looksPortable(f.sniffed) || NAMED_LIKE_AN_INSTALLER.test(base(f.path))) && f.sniffed.format !== 'DOS program or damaged Windows program')
-  const archive = () => of((f) => f.sniffed.kind === 'archive' && !laterVolume(f.path))
+  const isArchive = (f: SurveyedFile) => f.sniffed.kind === 'archive' && !laterVolume(f.path)
+  const archive = () => of(isArchive)
+  const windows = () => {
+    const known = of(knownInstaller)
+    if (known) return known
+    const unknown = of(unknownInstaller)
+    if (!unknown) return null
+    // Multiple .bin payloads stay with their setup program so its plan can unpack all parts.
+    const payload = (f: SurveyedFile) => isArchive(f) && /\.bin$/i.test(f.path)
+    const hasPayloads = NAMED_LIKE_AN_INSTALLER.test(base(unknown.path)) && found.filter(payload).length > 1
+    return of((f) => isArchive(f) && !(hasPayloads && payload(f)) && (f.size >= 10 * MIB || f.size >= 5 * unknown.size)) ?? unknown
+  }
   const portable = () => of((f) => looksPortable(f.sniffed) && /\.exe$/i.test(f.path))
   return opts.platform === 'linux' ? (linux() ?? archive() ?? windows() ?? portable()) : (windows() ?? archive() ?? portable() ?? linux())
 }
@@ -163,9 +208,15 @@ export async function startCheck(job: Pick<InstallJob, 'runner' | 'startWaitMs' 
     for (let round = 0; round < 6; round++) {
       const real = windows.find((w) => w.class !== DIALOG)
       const boxes = windows.filter((w) => w.class === DIALOG)
-      for (const box of boxes) {
-        const a = answerWindow(box)
+      for (const window of windows) {
+        const launcher = /\b(?:config(?:uration)?|settings|launcher)\b/i.test(window.title)
+        const controls = window.buttons.length || window.wantsInput
+        if (window.class !== DIALOG && !controls && !launcher) continue
+        const a = answerWindow(window)
         if (a.do === 'error') return { ok: false, why: a.text }
+        if (window.class !== DIALOG && launcher && controls) {
+          return { ok: false, why: `It stopped at a launcher or configuration screen: ${windowWords(window)}` }
+        }
       }
       if (real && !boxes.length) return first.screenshot ? { ok: true, screenshot: first.screenshot } : { ok: false, why: 'It opened, but the screen stayed blank.' }
       if (!boxes.length) {
@@ -196,21 +247,41 @@ function reasonOrCode(log: string, exit: number): string {
 
 // ---------- 4. run ----------
 
-type Tried = { state: 'ready'; program: FoundProgram; dir: string; screenshot?: string } | { state: 'no'; why: string }
+type InstallChoices = Pick<Extract<InstallOutcome, { state: 'failed' }>, 'candidates' | 'redistHints'>
+type Tried =
+  | { state: 'ready'; program: FoundProgram; dir: string; screenshot?: string; redistHints?: string[] }
+  | ({ state: 'no'; why: string } & InstallChoices)
+
+function choicesFor(job: InstallJob, files: JobFile[], installer: string | null) {
+  const programs = findPrograms(files, { hint: job.programHint, names: programNames(job.title, installer), linux: job.platform === 'linux' })
+  const hints = detectRedistHints(files)
+  return { programs, redistHints: hints.length ? hints : undefined }
+}
+
+function details(programs: ReturnType<typeof findPrograms>, redistHints: string[] | undefined): InstallChoices {
+  return {
+    ...(programs.length ? { candidates: programs.slice(0, 5).map(({ path, linux, reason }) => ({ path, linux, reason })) } : {}),
+    ...(redistHints?.length ? { redistHints } : {}),
+  }
+}
 
 /** After files are in place: find the program and start it. */
 async function prove(job: InstallJob, dir: string, installer: string | null, say: (t: string) => void): Promise<Tried> {
   const files = await job.runner.files(dir)
-  const program = findProgram(files, { hint: job.programHint, names: programNames(job.title, installer), linux: job.platform === 'linux' })
-  if (!program) return { state: 'no', why: files.length ? 'There’s no game program among the files.' : 'No files came out.' }
-  say(`The game’s program: ${program.path}`)
-  const started = await startCheck(job, `${dir}/${program.path}`)
-  if (!started.ok) {
+  const { programs, redistHints } = choicesFor(job, files, installer)
+  if (!programs.length) return { state: 'no', why: files.length ? 'There’s no game program among the files.' : 'No files came out.', ...details(programs, redistHints) }
+  let why = ''
+  for (const program of programs.slice(0, 3)) {
+    say(`The game’s program: ${program.path}`)
+    const started = await startCheck(job, `${dir}/${program.path}`)
+    if (started.ok) {
+      say('It starts.')
+      return { state: 'ready', program, dir, screenshot: started.screenshot, redistHints }
+    }
     say(`It doesn’t start: ${started.why}`)
-    return { state: 'no', why: `The game doesn’t start. ${started.why}` }
+    why ||= started.why
   }
-  say('It starts.')
-  return { state: 'ready', program, dir, screenshot: started.screenshot }
+  return { state: 'no', why: `The game doesn’t start. ${why}`, ...details(programs, redistHints) }
 }
 
 /** Installs a finished download. Never throws for an installer's sake: the outcome says what happened. */
@@ -221,10 +292,12 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
     log.push(text)
     job.onStep?.(text, tier)
   }
-  const root = nested ? UNPACKED : 'download'
+  const root = nested === 0 ? 'download' : nested === 1 ? UNPACKED : `${UNPACKED}-${nested - 1}`
   const hangAfterMs = job.hangAfterMs ?? 120_000
   const sleep = job.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
 
+  const split = checkSplitArchive(job.files)
+  if (!split.ok) return { state: 'failed', reason: `This split archive is missing ${split.missing}.`, log }
   const found = await survey(job.files, job.sniff, root)
   const installer = pickInstaller(found, { hint: job.installerHint, platform: job.platform })
   let listing: string[] = []
@@ -236,7 +309,15 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
 
   // The best explanation so far, should nothing work: an installer's own words beat a guess.
   let reason = ''
-  const ready = (t: Extract<Tried, { state: 'ready' }>, by: Tier): InstallOutcome => ({ state: 'ready', by, program: t.program.path, dir: t.dir, ...(t.screenshot ? { screenshot: t.screenshot } : {}), log })
+  let choices: InstallChoices = {}
+  const remember = ({ candidates, redistHints }: InstallChoices) => {
+    if (candidates) choices.candidates = candidates
+    if (redistHints) choices.redistHints = [...new Set([...(choices.redistHints ?? []), ...redistHints])].sort()
+  }
+  const ready = (t: Extract<Tried, { state: 'ready' }>, by: Tier): InstallOutcome => ({
+    state: 'ready', by, program: t.program.path, dir: t.dir, ...(t.screenshot ? { screenshot: t.screenshot } : {}),
+    ...(t.redistHints ? { redistHints: t.redistHints } : {}), log,
+  })
 
   for (const step of plan.steps) {
     say(step.why, step.tier)
@@ -258,17 +339,22 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
         continue
       }
       // An archive (or disc image) that holds an installer: start again from what came out.
-      if (installer.sniffed.kind === 'archive' && nested < 1) {
+      if (installer.sniffed.kind === 'archive' && nested < 3) {
         const inside = await runner.files(into)
-        const inner = pickInstaller(await survey(inside, job.sniff, into))
-        if (inner && ['inno', 'nsis', 'msi'].includes(inner.sniffed.kind)) {
+        const innerFiles = (await survey(inside, job.sniff, into)).filter((f) =>
+          f.sniffed.kind === 'archive' || ((knownInstaller(f) || unknownInstaller(f)) && !detectRedistHints([f]).length) ||
+          (f.sniffed.kind === 'linux' && f.sniffed.format.includes('Makeself')))
+        const inner = pickInstaller(innerFiles)
+        if (inner) {
           say(`Inside is an installer: ${inner.path}`)
-          const out = await install({ ...job, files: inside, installerHint: inner.path, onStep: job.onStep }, nested + 1)
-          return { ...out, log: [...log, ...out.log] }
+          const out = await install({ ...job, files: inside, installerHint: inner.path }, nested + 1)
+          const hints = [...new Set([...detectRedistHints(inside), ...(out.redistHints ?? [])])].sort()
+          return { ...out, ...(hints.length ? { redistHints: hints } : {}), log: [...log, ...out.log] }
         }
       }
       const t = await prove(job, into, installer.path, say)
       if (t.state === 'ready') return ready(t, 'unpack')
+      remember(t)
       reason ||= t.why
       continue
     }
@@ -291,7 +377,8 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
       if (t.state === 'ready') return ready(t, 'silent')
       // It installed without complaint and the game still won't start: clicking through the same
       // installer won't change that.
-      return { state: 'failed', reason: t.why, log }
+      remember(t)
+      return { state: 'failed', reason: t.why, ...choices, log }
     }
 
     if (step.tier === 'auto-click') {
@@ -351,26 +438,29 @@ export async function install(job: InstallJob, nested = 0): Promise<InstallOutco
       if (error) {
         await runner.stop()
         say(`The installer said: ${error}`)
-        return { state: 'failed', reason: error, log }
+        return { state: 'failed', reason: error, ...choices, log }
       }
       if (ask) {
         // Left running on purpose: the person finishes it on its screen.
         const about = windowWords(ask)
         say(about ? `The installer wants a person: ${about}` : 'The installer wants a person.')
-        return { state: 'needs-you', ...(ask.title ? { waitingOn: ask.title } : {}), why: about || 'The installer stopped at a window Finesse can’t answer for you.', log }
+        const { programs, redistHints } = choicesFor(job, await runner.files(INSTALLED).catch(() => []), installer.path)
+        remember(details(programs, redistHints))
+        return { state: 'needs-you', ...(ask.title ? { waitingOn: ask.title } : {}), why: about || 'The installer stopped at a window Finesse can’t answer for you.', ...choices, log }
       }
       const r = done!
       if (r.exit !== 0) {
         const why = failureReason(plan.kind, r.exit, r.log)
         say(`The installer didn’t finish: ${why}`)
-        return { state: 'failed', reason: reason || why, log }
+        return { state: 'failed', reason: reason || why, ...choices, log }
       }
       const t = await prove(job, r.dir ?? INSTALLED, installer.path, say)
       if (t.state === 'ready') return ready(t, 'auto-click')
-      return { state: 'failed', reason: t.why, log }
+      remember(t)
+      return { state: 'failed', reason: t.why, ...choices, log }
     }
   }
-  return { state: 'failed', reason: reason || 'Finesse couldn’t install this one.', log }
+  return { state: 'failed', reason: reason || 'Finesse couldn’t install this one.', ...choices, log }
 }
 
 /** A person finished the installer on its screen ("Needs you"): find the game and start it. */
@@ -382,6 +472,7 @@ export async function finishAfterPerson(job: InstallJob): Promise<InstallOutcome
   }
   await job.runner.stop()
   const t = await prove(job, INSTALLED, job.installerHint ?? null, say)
-  if (t.state === 'ready') return { state: 'ready', by: 'needs-you', program: t.program.path, dir: t.dir, ...(t.screenshot ? { screenshot: t.screenshot } : {}), log }
-  return { state: 'failed', reason: t.why, log }
+  if (t.state === 'ready') return { state: 'ready', by: 'needs-you', program: t.program.path, dir: t.dir, ...(t.screenshot ? { screenshot: t.screenshot } : {}), ...(t.redistHints ? { redistHints: t.redistHints } : {}), log }
+  const { why, state: _state, ...choices } = t
+  return { state: 'failed', reason: why, ...choices, log }
 }

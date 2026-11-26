@@ -282,10 +282,18 @@ export interface SandboxRunner {
   stop(): Promise<void>
 }
 
+interface InstallHints {
+  redistHints?: string[]
+}
+
+interface InstallChoices extends InstallHints {
+  candidates?: { path: string; linux: boolean; reason: string }[]
+}
+
 export type InstallOutcome =
-  | { state: 'ready'; by: Tier; program: string; dir: string; screenshot?: string; log: string[] }
-  | { state: 'needs-you'; waitingOn?: string; why: string; log: string[] }
-  | { state: 'failed'; reason: string; log: string[] }
+  | ({ state: 'ready'; by: Tier; program: string; dir: string; screenshot?: string; log: string[] } & InstallHints)
+  | ({ state: 'needs-you'; waitingOn?: string; why: string; log: string[] } & InstallChoices)
+  | ({ state: 'failed'; reason: string; log: string[] } & InstallChoices)
 
 // ---------- WS6: playing ----------
 
