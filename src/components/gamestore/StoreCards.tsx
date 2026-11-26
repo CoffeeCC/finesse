@@ -1,7 +1,7 @@
 // The store's covers, cards, shelves and grid. A game without art gets a tile in a steady
 // colour with its title, so a store of art-less games still reads as designed.
 
-import { useState, type ReactNode } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { GameRequest, StoreGame } from '../../api/gameStore'
 import { CardSkeleton } from '../Skeletons'
@@ -27,7 +27,7 @@ export function storeGameHref(id: string): string {
 export function StoreCover({ game, className = '', big = false }: { game: StoreGame; className?: string; big?: boolean }) {
   const [broken, setBroken] = useState(false)
   if (game.cover && !broken)
-    return <img src={game.cover} alt={game.title} loading="lazy" onError={() => setBroken(true)} className={`h-full w-full object-cover fade-in ${className}`} />
+    return <img decoding="async" src={game.cover} alt={game.title} loading="lazy" onError={() => setBroken(true)} className={`h-full w-full object-cover fade-in ${className}`} />
   return (
     <div className={`flex h-full w-full flex-col justify-between p-3 ${className}`} style={{ backgroundImage: storeGradient(game.id) }}>
       <span className="self-start rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/85">{game.genres[0] ?? 'Game'}</span>
@@ -42,7 +42,7 @@ export function StoreThumb({ id, title, cover, className = 'h-16 w-12' }: { id: 
   return (
     <div className={`relative shrink-0 overflow-hidden rounded-md ring-1 ring-white/10 ${className}`} style={cover && !broken ? undefined : { backgroundImage: storeGradient(id) }}>
       {cover && !broken ? (
-        <img src={cover} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+        <img decoding="async" src={cover} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
       ) : (
         <span className="grid h-full w-full place-items-center font-display text-xl text-white/90" aria-hidden>
           {title.slice(0, 1)}
@@ -52,7 +52,7 @@ export function StoreThumb({ id, title, cover, className = 'h-16 w-12' }: { id: 
   )
 }
 
-export function StoreCard({ game, request }: { game: StoreGame; request?: GameRequest }) {
+export const StoreCard = memo(function StoreCard({ game, request }: { game: StoreGame; request?: GameRequest }) {
   return (
     <Link to={storeGameHref(game.id)} viewTransition className="own-focus group block outline-none">
       <div className="tilt sheen relative aspect-[3/4] overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60 group-focus-visible:ring-2 group-focus-visible:ring-accent-400">
@@ -67,7 +67,7 @@ export function StoreCard({ game, request }: { game: StoreGame; request?: GameRe
       <p className="truncate px-0.5 text-xs text-ink-400">{[game.genres[0], game.year].filter(Boolean).join(' · ')}</p>
     </Link>
   )
-}
+})
 
 /** A titled row of cards with "See all". */
 export function StoreShelf({ title, href, games, requests }: { title: ReactNode; href?: string; games: StoreGame[]; requests?: Map<string, GameRequest> }) {

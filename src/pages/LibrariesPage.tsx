@@ -4,6 +4,7 @@ import { useLatest, useViews } from '../api/queries'
 import { backdropUrl, imageUrl } from '../api/client'
 import { useSecondaryDestinations } from '../components/NavBar'
 import { DiceIcon, useSurprise } from '../lib/surprise'
+import { prefetchRoute } from '../lib/prefetch'
 
 // The phone's Library tab: every place to browse, one tap away (on desktop and
 // TV these live in the navbar and its More menu).
@@ -32,7 +33,7 @@ function TileArt({ viewId, music }: { viewId: string; music: boolean }) {
       })()
     : items.map((i) => backdropUrl(i, 640)).find(Boolean) ?? null
   if (!src) return null
-  return <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
+  return <img src={src} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
 }
 
 export default function LibrariesPage() {
@@ -61,6 +62,9 @@ export default function LibrariesPage() {
           <Link
             key={t.key}
             to={t.to}
+            onMouseEnter={() => prefetchRoute(t.to)}
+            onFocus={() => prefetchRoute(t.to)}
+            onTouchStart={() => prefetchRoute(t.to)}
             className="group relative h-28 sm:h-36 rounded-2xl overflow-hidden flex items-end p-4 ring-1 ring-white/5 hover:ring-white/20 transition-all active:scale-[0.98]"
             style={{ background: `hsl(${t.hue}, 32%, 24%)` }}
           >
@@ -85,7 +89,10 @@ export default function LibrariesPage() {
         {(!limits || limits.requests) && (
         <Link
           to="/request"
-          className="h-12 rounded-xl bg-white/[0.07] border border-white/15 flex items-center justify-center gap-2.5 text-[15px] font-semibold text-white hover:bg-white/10 transition-colors"
+          onMouseEnter={() => prefetchRoute('/request')}
+          onFocus={() => prefetchRoute('/request')}
+          onTouchStart={() => prefetchRoute('/request')}
+          className="h-12 rounded-xl bg-white/[0.07] border border-white/15 flex items-center justify-center gap-2.5 text-[15px] font-semibold text-white hover:bg-white/10 active:scale-[0.98] transition-all"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />

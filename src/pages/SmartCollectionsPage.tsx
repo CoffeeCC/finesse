@@ -32,7 +32,7 @@ import type { JfItem } from '../api/types'
 // and why it's in. Each person's are their own.
 
 const GRID = 'grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]'
-const BTN = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors'
+const BTN = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition active:scale-[0.97]'
 const BTN_MAIN = `${BTN} bg-white text-ink-950 hover:bg-ink-200 disabled:opacity-60`
 const BTN_SOFT = `${BTN} bg-white/10 border border-white/15 text-white hover:bg-white/15 disabled:opacity-60`
 
@@ -201,7 +201,11 @@ function SmartDetail() {
         {data?.partial && ' Only the first titles the library returned were checked; narrow the rules to see everything.'}
       </p>
       <div className={`${GRID} mt-3`}>
-        {isLoading ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />) : items.map((it) => <Card key={it.Id} item={it} rules={c.rules} />)}
+        {isLoading ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />) : items.map((it) => (
+              <div key={it.Id} className="cv-card">
+                <Card item={it} rules={c.rules} />
+              </div>
+            ))}
       </div>
       {removing && (
         <ConfirmDialog title={`Remove “${c.name}”?`} confirmLabel="Remove" busy={busy} onConfirm={remove} onCancel={() => setRemoving(false)}>
@@ -444,7 +448,7 @@ function SmartEditor() {
                   ? 'Couldn’t ask the library right now.'
                   : `${items.length}${preview.data?.partial ? '+' : ''} ${items.length === 1 ? 'title matches' : 'titles match'} right now: ${describe(shown)}`}
           </p>
-          <div className={`${GRID} mt-3 ${pending ? 'opacity-50' : ''}`}>{items.slice(0, 18).map((it) => (shown ? <Card key={it.Id} item={it} rules={shown} /> : null))}</div>
+          <div className={`${GRID} mt-3 ${pending ? 'opacity-50' : ''}`}>{items.slice(0, 18).map((it) => (shown ? <div key={it.Id} className="cv-card"><Card item={it} rules={shown} /></div> : null))}</div>
         </section>
       </div>
     </div>

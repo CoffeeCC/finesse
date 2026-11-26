@@ -22,7 +22,7 @@ import { useToast } from '../components/Toast'
 // the note, who flagged it), not a copy of the video. Sharing one lets chosen people here see
 // and play the entries they can open themselves; it doesn't give anyone access to a title.
 
-const BTN = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors disabled:opacity-60'
+const BTN = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition active:scale-[0.97] disabled:opacity-60'
 const BTN_MAIN = `${BTN} bg-white text-ink-950 hover:bg-ink-200`
 const BTN_SOFT = `${BTN} bg-white/10 border border-white/15 text-white hover:bg-white/15`
 const H2 = 'text-[12px] font-semibold uppercase tracking-[0.14em] text-ink-400'
@@ -176,7 +176,7 @@ function CollectionPage() {
       ) : (
         <ul className="mt-6 space-y-2">
           {c.entries.map((e) => (
-            <li key={e.key} className={`rounded-xl px-3 py-3 ${e.available ? 'bg-white/[0.03]' : 'opacity-70'}`}>
+            <li key={e.key} className={`cv-card rounded-xl px-3 py-3 ${e.available ? 'bg-white/[0.03]' : 'opacity-70'}`}>
               <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
                 <div className="min-w-0 flex-1 basis-56">
                   <p className="text-[15px] font-semibold text-white">
@@ -192,7 +192,7 @@ function CollectionPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {e.available && e.item && (
-                    <Link to={momentHref({ item: e.item, start: e.start })} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+                    <Link to={momentHref({ item: e.item, start: e.start })} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
                       ▶ {e.start != null ? `Play from ${clock(e.start)}` : 'Open'}
                     </Link>
                   )}

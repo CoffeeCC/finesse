@@ -28,7 +28,7 @@ export default function GameInstallerPage() {
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <p className="text-lg font-semibold text-white">This install isn’t waiting any more</p>
         <p className="mt-1 text-sm text-ink-400">It may have finished or been cancelled.</p>
-        <Link to="/games/store/requests" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+        <Link to="/games/store/requests" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
           See your requests
         </Link>
       </div>
@@ -82,7 +82,7 @@ export default function GameInstallerPage() {
 
         {waiting && (
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <button type="button" onClick={done} disabled={actions.installerDone.isPending} className="inline-flex h-11 items-center rounded-lg bg-white px-5 text-[15px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-60">
+            <button type="button" onClick={done} disabled={actions.installerDone.isPending} className="inline-flex h-11 items-center rounded-lg bg-white px-5 text-[15px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-60 transition active:scale-[0.97]">
               I’ve finished
             </button>
             <p className="text-sm text-ink-400">Press this if the installer has closed and Finesse hasn’t noticed.</p>

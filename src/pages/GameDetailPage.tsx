@@ -65,7 +65,7 @@ export default function GameDetailPage() {
       {/* The cover, blurred, behind everything (games have no backdrop art) */}
       {cover && (
         <div className="fixed inset-0 -z-10 overflow-hidden" aria-hidden>
-          <img src={cover} alt="" className="h-full w-full object-cover blur-3xl brightness-[0.25] saturate-150 scale-110" />
+          <img decoding="async" src={cover} alt="" className="h-full w-full object-cover blur-3xl brightness-[0.25] saturate-150 scale-110" />
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/60 to-ink-950/30" />
         </div>
       )}
@@ -81,7 +81,7 @@ export default function GameDetailPage() {
         <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:gap-8">
           <div className="w-40 shrink-0 overflow-hidden rounded-xl shadow-2xl shadow-black/50 ring-1 ring-white/10 sm:w-52" style={{ viewTransitionName: 'vt-poster' }}>
             {cover ? (
-              <img src={cover} alt={title} className="aspect-[3/4] h-full w-full object-cover" />
+              <img decoding="async" src={cover} alt={title} className="aspect-[3/4] h-full w-full object-cover" />
             ) : (
               // The shape on the outer box, the tile filling it (the TV's aspect fallback sizes it that way).
               <div className="relative aspect-[3/4]">

@@ -35,7 +35,7 @@ export default function GameStorePage() {
         <div className="py-16 text-center">
           <p className="text-lg font-semibold text-white">Couldn’t load the store</p>
           <p className="mt-1 text-sm text-ink-400">The game store didn’t answer. Try again in a moment.</p>
-          <button type="button" onClick={() => home.refetch()} className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+          <button type="button" onClick={() => home.refetch()} className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
             Try again
           </button>
         </div>
@@ -103,7 +103,7 @@ function Featured({ games, requests }: { games: StoreGame[]; requests: Map<strin
       aria-label="Featured games"
     >
       <div key={g.id} className="fade-in absolute inset-0" style={g.hero ? undefined : { backgroundImage: storeGradient(g.id, 110) }} aria-hidden>
-        {g.hero && <img src={g.hero} alt="" className="h-full w-full object-cover" />}
+        {g.hero && <img decoding="async" src={g.hero} alt="" className="h-full w-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-r from-ink-950/85 via-ink-950/40 to-transparent" />
       </div>
       <div className="relative flex min-h-[300px] items-end gap-8 p-5 sm:min-h-[360px] sm:p-8">
@@ -175,7 +175,7 @@ function NoStore() {
     <div className="mx-auto max-w-xl px-4 py-16 text-center">
       <h1 className="page-title">Game store</h1>
       <p className="mt-3 text-sm text-ink-300">This server doesn’t have the game store yet. It arrives with a Finesse update.</p>
-      <Link to="/games" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+      <Link to="/games" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
         Back to Games
       </Link>
     </div>

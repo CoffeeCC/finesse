@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import { posterUrl } from '../api/client'
 import type { JfItem } from '../api/types'
@@ -6,7 +7,7 @@ import { usePlayAlbum } from '../lib/playAlbum'
 
 /** Square album tile; hovering it offers a play button that starts the album
  *  without opening it. */
-export default function AlbumCard({ album, width }: { album: JfItem; width?: number }) {
+const AlbumCard = memo(function AlbumCard({ album, width }: { album: JfItem; width?: number }) {
   const art = posterUrl(album, 360)
   const blur = blurhashToDataURL(primaryBlurhash(album))
   const playAlbum = usePlayAlbum()
@@ -18,9 +19,9 @@ export default function AlbumCard({ album, width }: { album: JfItem; width?: num
           to={href}
           className="block relative aspect-square rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 transition-all group-hover:ring-white/25 focus-visible:ring-2 focus-visible:ring-accent-400 outline-none shadow-lg shadow-black/30"
         >
-          {blur && <img src={blur} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />}
+          {blur && <img decoding="async" src={blur} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover" />}
           {art ? (
-            <img src={art} alt={album.Name} loading="lazy" className="relative h-full w-full object-cover fade-in" />
+            <img decoding="async" src={art} alt={album.Name} loading="lazy" className="relative h-full w-full object-cover fade-in" />
           ) : (
             <span className="relative h-full w-full flex items-center justify-center text-sm text-ink-400 p-3 text-center">{album.Name}</span>
           )}
@@ -31,7 +32,7 @@ export default function AlbumCard({ album, width }: { album: JfItem; width?: num
           tabIndex={-1}
           onClick={() => void playAlbum(album.Id)}
           aria-label={`Play ${album.Name}`}
-          className="absolute right-2 bottom-2 h-11 w-11 rounded-full bg-white text-ink-950 shadow-xl shadow-black/40 flex items-center justify-center opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 transition-all [@media(hover:none)]:hidden"
+          className="absolute right-2 bottom-2 h-11 w-11 rounded-full bg-white text-ink-950 shadow-xl shadow-black/40 flex items-center justify-center opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all [@media(hover:none)]:hidden"
         >
           <svg className="h-5 w-5 translate-x-px" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
             <path d="M8 5v14l11-7z" />
@@ -44,4 +45,6 @@ export default function AlbumCard({ album, width }: { album: JfItem; width?: num
       </Link>
     </div>
   )
-}
+})
+
+export default AlbumCard

@@ -138,7 +138,7 @@ export default function GameStoreBrowsePage() {
                     setInput('')
                     setQuery({ sort: query.sort })
                   }}
-                  className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200"
+                  className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
                 >
                   Show every game
                 </button>
@@ -148,7 +148,9 @@ export default function GameStoreBrowsePage() {
             <>
               <div className={STORE_GRID}>
                 {games.map((g) => (
-                  <StoreCard key={g.id} game={g} request={byGame.get(g.id)} />
+                  <div key={g.id} className="cv-card">
+                    <StoreCard game={g} request={byGame.get(g.id)} />
+                  </div>
                 ))}
               </div>
               <div ref={sentinel} />
@@ -172,7 +174,7 @@ export default function GameStoreBrowsePage() {
       {sheet && (
         <Sheet title="Filters" onClose={() => setSheet(false)}>
           <StoreFilters facets={facets.data} query={query} onChange={setQuery} />
-          <button type="button" onClick={() => setSheet(false)} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-white text-[15px] font-semibold text-ink-950 hover:bg-ink-200">
+          <button type="button" onClick={() => setSheet(false)} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-white text-[15px] font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
             {total === undefined ? 'Done' : total === 1 ? 'Show 1 game' : `Show ${total} games`}
           </button>
         </Sheet>

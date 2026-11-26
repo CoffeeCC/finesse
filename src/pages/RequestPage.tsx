@@ -216,7 +216,7 @@ function RequestPageInner() {
             return (
               <div
                 key={keyOf(r)}
-                className="flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
+                className="cv-card flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
               >
                 {r.kind === 'movie' && r.tmdbId ? (
                   <Link to={movieHref(r.tmdbId)} state={movieState(r)} aria-label={`${r.title}: details`} className="shrink-0 rounded-lg outline-none ring-accent-400 transition hover:brightness-110 focus-visible:ring-2">
@@ -364,7 +364,7 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
         title={m.overview}
       >
         {m.poster && !broken ? (
-          <img src={m.poster} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+          <img decoding="async" src={m.poster} alt="" loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
         ) : (
           <div
             className="flex h-full w-full items-end p-2.5 text-[13px] font-semibold leading-tight text-white/90"

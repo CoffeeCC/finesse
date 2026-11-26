@@ -29,7 +29,7 @@ import type { JfItem } from '../api/types'
 // who's in it, add titles (here or from any title's More menu), everyone gets one vote, and
 // whoever started it picks. Picking doesn't start playback on anyone's device.
 
-const BTN = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors disabled:opacity-60'
+const BTN = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition active:scale-[0.97] disabled:opacity-60'
 const BTN_MAIN = `${BTN} bg-white text-ink-950 hover:bg-ink-200`
 const BTN_SOFT = `${BTN} bg-white/10 border border-white/15 text-white hover:bg-white/15`
 const FIELD = 'h-10 rounded-lg border border-white/15 bg-white/[0.05] px-3 text-[15px] text-white outline-none focus:border-white/40'
@@ -347,7 +347,7 @@ function ShortlistRow({ q, it, jf, busy, act }: { q: Queue; it: QueueItem; jf?: 
   const poster = jf ? api.posterUrl(jf, 100) : null
   return (
     <li className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl px-2.5 py-2 ${q.picked === it.key ? 'bg-emerald-400/[0.06]' : ''}`}>
-      <span className="h-14 w-10 shrink-0 overflow-hidden rounded-md bg-ink-800">{poster && <img src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />}</span>
+      <span className="h-14 w-10 shrink-0 overflow-hidden rounded-md bg-ink-800">{poster && <img decoding="async" src={poster} alt="" loading="lazy" className="h-full w-full object-cover" />}</span>
       <span className="min-w-0 flex-1 basis-40">
         {it.item ? (
           <Link to={`/item/${it.item}`} className="block truncate text-[15px] font-semibold text-white hover:underline">

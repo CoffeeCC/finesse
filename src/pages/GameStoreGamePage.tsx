@@ -30,7 +30,7 @@ export default function GameStoreGamePage() {
           <div className="mt-16">
             <p className="text-lg font-semibold text-white">Couldn’t load this game</p>
             <p className="mt-1 text-sm text-ink-400">It may have left the store, or the store is busy.</p>
-            <button type="button" onClick={() => refetch()} className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+            <button type="button" onClick={() => refetch()} className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
               Try again
             </button>
           </div>
@@ -54,12 +54,12 @@ export default function GameStoreGamePage() {
     <div className="pb-16">
       <div className="relative -mt-16">
         {!IS_TV && (
-          <div className="absolute left-3 top-[4.75rem] z-20 sm:left-6 sm:top-[5.25rem] lg:left-12">
+          <div className="absolute left-3 top-[4.75rem] z-20 sm:left-6 sm:top-[5.25rem] lg:left-12 supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(4.75rem+env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(0.75rem,env(safe-area-inset-left))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(5.25rem+env(safe-area-inset-top))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(1.5rem,env(safe-area-inset-left))] lg:supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(3rem,env(safe-area-inset-left))]">
             <BackButton onClick={() => goBack(navigate)} />
           </div>
         )}
         <div className="hero-melt relative h-[calc(var(--vh)*40)] min-h-[300px] w-full overflow-hidden" style={g.hero ? undefined : { backgroundImage: storeGradient(g.id, 160) }}>
-          {g.hero && <img src={g.hero} alt="" className="fade-in h-full w-full object-cover" />}
+          {g.hero && <img decoding="async" src={g.hero} alt="" className="fade-in h-full w-full object-cover" />}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/30 to-ink-950/20" />
         </div>
 
@@ -96,7 +96,7 @@ export default function GameStoreGamePage() {
             {g.screenshots && g.screenshots.length > 0 && (
               <div className="-mx-2 mt-8 flex gap-3 overflow-x-auto no-scrollbar px-2 pb-2">
                 {g.screenshots.map((s) => (
-                  <img key={s} src={s} alt="" loading="lazy" className="aspect-video w-80 shrink-0 rounded-xl object-cover ring-1 ring-white/10" />
+                  <img decoding="async" key={s} src={s} alt="" loading="lazy" className="aspect-video w-80 shrink-0 rounded-xl object-cover ring-1 ring-white/10" />
                 ))}
               </div>
             )}

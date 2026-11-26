@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useGamePlatforms, useGames } from '../api/queries'
 import { fetchSgdbCover, rommCoverUrl, isPlayable, cleanName, tileGradient, type RommRom } from '../api/romm'
@@ -8,7 +8,7 @@ import StreamingSection from '../components/StreamingSection'
 import { useFinesse } from '../lib/finesseServer'
 import { useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 
-function GameCard({ rom }: { rom: RommRom }) {
+const GameCard = memo(function GameCard({ rom }: { rom: RommRom }) {
   // RomM's cover, unless it didn't load: then SteamGridDB's, then the tile.
   const [romFailed, setRomFailed] = useState(false)
   const romCover = romFailed ? null : rommCoverUrl(rom)
@@ -63,7 +63,7 @@ function GameCard({ rom }: { rom: RommRom }) {
       }`}
     >
       {cover ? (
-        <img
+        <img decoding="async"
           src={cover}
           alt={title}
           loading="lazy"
@@ -104,7 +104,7 @@ function GameCard({ rom }: { rom: RommRom }) {
       </p>
     </Link>
   )
-}
+})
 
 const SHELF_CAP = 20
 
@@ -255,7 +255,11 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         ))
       ) : (
         <div className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
-          {games.map((rom) => <GameCard key={rom.id} rom={rom} />)}
+          {games.map((rom) => (
+            <div key={rom.id} className="cv-card">
+              <GameCard rom={rom} />
+            </div>
+          ))}
         </div>
       )}
 

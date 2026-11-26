@@ -155,7 +155,7 @@ export default function InvitePage() {
         {!loading && !invite && !codeParam && (
           <form
             onSubmit={submitCode}
-            className="rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl"
+            className="rounded-2xl bg-ink-900/90 border border-white/10 p-8 shadow-2xl"
           >
             <h1 className="text-3xl font-semibold tracking-tight text-white">
               <FinesseWordmark />
@@ -185,7 +185,7 @@ export default function InvitePage() {
         )}
 
         {!loading && loadError && codeParam && (
-          <div className="rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl text-center">
+          <div className="rounded-2xl bg-ink-900/90 border border-white/10 p-8 shadow-2xl text-center">
             <h1 className="text-2xl font-semibold text-white">
               <FinesseWordmark />
             </h1>
@@ -204,7 +204,7 @@ export default function InvitePage() {
         )}
 
         {!loading && invite && step !== 'success' && (
-          <div className="rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl">
+          <div className="rounded-2xl bg-ink-900/90 border border-white/10 p-8 shadow-2xl">
             <StepDots step={stepIndex} total={3} />
 
             {step === 'welcome' && (
@@ -341,7 +341,7 @@ export default function InvitePage() {
         )}
 
         {!loading && invite && step === 'success' && (
-          <div className="rounded-2xl bg-ink-900/80 backdrop-blur-xl border border-white/10 p-8 shadow-2xl text-center">
+          <div className="rounded-2xl bg-ink-900/90 border border-white/10 p-8 shadow-2xl text-center">
             <div className="h-12 w-12 mx-auto rounded-2xl bg-accent-500/20 border border-accent-400/40 flex items-center justify-center">
               <span className="text-xl text-accent-300">✓</span>
             </div>

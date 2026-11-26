@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -184,12 +184,14 @@ export default function SearchPanel({
   }, [request.data, scope, term])
 
   const top = scope !== 'people' ? ranked[0] : undefined
-  const rest = scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []
+  // Kept between renders (typing re-renders this panel on every key before the term settles):
+  // a fresh list here re-ran the merge below and re-rendered every result row each keystroke.
+  const rest = useMemo(() => new Set(scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []), [ranked, scope])
   // One list of titles: the library's first, then friends' (Groups), then what can be requested,
   // each title once with all its sources (lib/discovery.ts mergeSources). The top result is above it.
   const merged = useMemo(() => (scope === 'people' || scope === 'music' ? [] : mergeSources(ranked, friendHits, requestable)), [ranked, friendHits, requestable, scope])
-  const topTitle = top ? merged.find((t) => t.key === top.Id) : undefined
-  const listed = useMemo(() => merged.filter((t) => (t.sources[0]!.source === 'library' ? rest.includes((t.sources[0] as { item: JfItem }).item) : true)), [merged, rest])
+  const topAlso = useMemo(() => (top ? merged.find((t) => t.key === top.Id)?.sources.slice(1) ?? [] : []), [merged, top])
+  const listed = useMemo(() => merged.filter((t) => (t.sources[0]!.source === 'library' ? rest.has((t.sources[0] as { item: JfItem }).item) : true)), [merged, rest])
   const kinds = new Set(listed.flatMap((t) => t.sources.map((s) => s.source)))
   const titles = listed.filter((t) =>
     where === 'all' ? true : where === 'library' ? t.sources.some((s) => s.source === 'library') : where === 'friends' ? t.sources.some((s) => s.source === 'friend') : t.sources[0]!.source === 'request' || (t.sources.some((s) => s.source === 'request') && !t.sources.some((s) => s.source === 'library')),
@@ -216,14 +218,16 @@ export default function SearchPanel({
     }
   }, [music.data, term, scope])
 
-  const remember = () => {
-    pushRecent(term)
+  // One function for the panel's life (the rows are memoized and take it as a prop).
+  const termRef = useRef(term)
+  termRef.current = term
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const opened = useCallback(() => {
+    pushRecent(termRef.current)
     setRecent(readRecent())
-  }
-  const opened = () => {
-    remember()
-    onClose?.()
-  }
+    onCloseRef.current?.()
+  }, [])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
@@ -334,7 +338,7 @@ export default function SearchPanel({
               </p>
             )}
 
-            {top && <TopResult item={top} also={topTitle?.sources.slice(1) ?? []} onOpen={opened} />}
+            {top && <TopResult item={top} also={topAlso} onOpen={opened} />}
 
             {friendSearch.failed.length > 0 && (
               <p className="px-2.5 pt-3 text-[12.5px] text-amber-200">
@@ -417,7 +421,7 @@ export default function SearchPanel({
                     >
                       <span className="h-8 w-8 rounded-full overflow-hidden bg-ink-700 flex items-center justify-center text-xs font-semibold text-white">
                         {p.ImageTags?.Primary ? (
-                          <img src={imageUrl(p.Id, 'Primary', { maxWidth: 80, tag: p.ImageTags.Primary })} alt="" className="h-full w-full object-cover" />
+                          <img decoding="async" src={imageUrl(p.Id, 'Primary', { maxWidth: 80, tag: p.ImageTags.Primary })} alt="" loading="lazy" className="h-full w-full object-cover" />
                         ) : (
                           p.Name?.split(' ').map((w) => w[0]).slice(0, 2).join('')
                         )}
@@ -448,7 +452,7 @@ function Thumb({ item }: { item: JfItem }) {
   const src = item.Type === 'Episode' ? posterUrl(item, 100) : posterUrl(item, 100)
   return (
     <span className="h-14 w-10 shrink-0 rounded-md overflow-hidden bg-ink-800">
-      {src && <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
+      {src && <img decoding="async" src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
     </span>
   )
 }
@@ -456,13 +460,13 @@ function Thumb({ item }: { item: JfItem }) {
 function SquareThumb({ src }: { src: string | null | undefined }) {
   return (
     <span className="h-12 w-12 shrink-0 rounded-md overflow-hidden bg-ink-800">
-      {src && <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
+      {src && <img decoding="async" src={src} alt="" loading="lazy" className="h-full w-full object-cover" />}
     </span>
   )
 }
 
 /** A song: pressing it plays its album from this song on. */
-function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
+const SongRow = memo(function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
   const playTrack = usePlayTrack()
   const { current } = useAudio()
   const isCurrent = current?.Id === song.Id
@@ -485,9 +489,9 @@ function SongRow({ song, onPlay }: { song: JfItem; onPlay: () => void }) {
       <span className="shrink-0 text-xs text-ink-400">{isCurrent ? 'Playing' : 'Play'}</span>
     </button>
   )
-}
+})
 
-function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfItem, ArrResult>[]; onOpen: () => void }) {
+const TopResult = memo(function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfItem, ArrResult>[]; onOpen: () => void }) {
   const art = backdropUrl(item, 640) ?? posterUrl(item, 300)
   const playable = item.Type === 'Movie' || item.Type === 'Episode'
   const choice = playChoice(item)
@@ -496,7 +500,7 @@ function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfI
       <p className={SECTION}>Top result</p>
       <div className="flex items-center gap-4 rounded-2xl bg-white/[0.06] ring-1 ring-white/10 p-3">
         <Link to={`/item/${item.Id}`} onClick={onOpen} data-result className="shrink-0 w-36 sm:w-48 aspect-video rounded-xl overflow-hidden bg-ink-800 outline-none focus-visible:ring-2 focus-visible:ring-accent-400">
-          {art && <img src={art} alt="" className="h-full w-full object-cover" />}
+          {art && <img decoding="async" src={art} alt="" className="h-full w-full object-cover" />}
         </Link>
         <div className="flex-1 min-w-0">
           <p className="font-display text-2xl sm:text-3xl leading-tight text-white truncate">{item.Name}</p>
@@ -509,7 +513,7 @@ function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfI
               <Link
                 to={choice.href}
                 onClick={onOpen}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
               >
                 <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>
                 {choice.label}
@@ -538,7 +542,7 @@ function TopResult({ item, also, onOpen }: { item: JfItem; also: TitleSource<JfI
       </div>
     </>
   )
-}
+})
 
 /** Where a title comes from, said plainly on every row. */
 function SourceTag({ s }: { s: TitleSource<JfItem, ArrResult> }) {
@@ -548,7 +552,7 @@ function SourceTag({ s }: { s: TitleSource<JfItem, ArrResult> }) {
 }
 
 /** One title: its main source's row, and the others under "More ways to watch". */
-function TitleRow({ t, onOpen }: { t: Title; onOpen: () => void }) {
+const TitleRow = memo(function TitleRow({ t, onOpen }: { t: Title; onOpen: () => void }) {
   const [open, setOpen] = useState(false)
   const [main, ...others] = t.sources
   return (
@@ -582,10 +586,10 @@ function TitleRow({ t, onOpen }: { t: Title; onOpen: () => void }) {
       )}
     </div>
   )
-}
+})
 
 /** A library title: opens its page; its one action plays it (or opens a show). */
-function LibraryRow({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
+const LibraryRow = memo(function LibraryRow({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
   const playable = item.Type === 'Movie' || item.Type === 'Episode' || item.Type === 'Video'
   const choice = playChoice(item)
   const state = watchState(item)
@@ -609,17 +613,17 @@ function LibraryRow({ item, onOpen }: { item: JfItem; onOpen: () => void }) {
         onClick={onOpen}
         aria-label={`${playable ? (choice.resuming ? choice.label : 'Play') : 'Open'}: ${item.Name}`}
         title={playable && choice.resuming ? choice.label : undefined}
-        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+        className="shrink-0 inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
       >
         {playable && <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg>}
         {playable ? (choice.resuming ? 'Resume' : 'Play') : 'Open'}
       </Link>
     </div>
   )
-}
+})
 
 /** A title on a friend's server: through our server's friend proxy (only what they share). */
-function FriendRow({ item, friend, onOpen, compact }: { item: JfItem; friend: { id: string; name: string }; onOpen: () => void; compact?: boolean }) {
+const FriendRow = memo(function FriendRow({ item, friend, onOpen, compact }: { item: JfItem; friend: { id: string; name: string }; onOpen: () => void; compact?: boolean }) {
   const playable = item.Type === 'Movie'
   const choice = playChoice(item)
   const state = watchState(item)
@@ -650,10 +654,10 @@ function FriendRow({ item, friend, onOpen, compact }: { item: JfItem; friend: { 
       </Link>
     </div>
   )
-}
+})
 
 /** A title the library doesn't have: Request, or where its request stands. */
-function RequestRow({ r }: { r: ArrResult }) {
+const RequestRow = memo(function RequestRow({ r }: { r: ArrResult }) {
   const toast = useToast()
   const qc = useQueryClient()
   const [state, setState] = useState<'idle' | 'adding' | 'requested'>(r.id > 0 ? 'requested' : 'idle')
@@ -676,7 +680,7 @@ function RequestRow({ r }: { r: ArrResult }) {
   return (
     <div className="flex items-center gap-3.5 rounded-xl px-2.5 py-2">
       <span className="h-14 w-10 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/15">
-        {r.poster && <img src={r.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover opacity-80" />}
+        {r.poster && <img decoding="async" src={r.poster} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover opacity-80" />}
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-[15px] font-semibold text-white truncate">{r.title}</span>
@@ -703,7 +707,7 @@ function RequestRow({ r }: { r: ArrResult }) {
       )}
     </div>
   )
-}
+})
 
 function EmptyState({
   recent,

@@ -115,7 +115,11 @@ export default function MusicPage() {
             <SelectMenu label="Sort albums by" prefix="Sort:" value={sort} options={SORTS} onChange={chooseSort} align="right" />
           </div>
           <div className="grid gap-3 sm:gap-5 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))]">
-            {isLoading ? Array.from({ length: 18 }).map((_, i) => <CardSkeleton key={i} />) : sorted.map((a) => <AlbumCard key={a.Id} album={a} />)}
+            {isLoading ? Array.from({ length: 18 }).map((_, i) => <CardSkeleton key={i} />) : sorted.map((a) => (
+                  <div key={a.Id} className="cv-card">
+                    <AlbumCard album={a} />
+                  </div>
+                ))}
           </div>
           {!isLoading && albums?.Items.length === 0 && <p className="text-ink-400 py-12 text-center">No albums in your music library.</p>}
         </div>

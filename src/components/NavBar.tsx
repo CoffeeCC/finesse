@@ -21,6 +21,7 @@ import { useFriendMusic } from './FriendAlbums'
 import { beginServerUpdate, useServerUpdate } from '../lib/appUpdate'
 import { SparkIcon, UpdatePill, shortVersion } from './Update'
 import { gameStoreMode } from '../api/gameStore'
+import { prefetchRoute } from '../lib/prefetch'
 
 const NAV_COLLECTIONS = new Set(['movies', 'tvshows'])
 
@@ -201,7 +202,13 @@ export default function NavBar() {
             </NavLink>
           ))}
           {spaces.map((d) => (
-            <NavLink key={d.to} to={d.to} className={() => linkClass({ isActive: d.match(pathname, search) })}>
+            <NavLink
+              key={d.to}
+              to={d.to}
+              onMouseEnter={() => prefetchRoute(d.to)}
+              onFocus={() => prefetchRoute(d.to)}
+              className={() => linkClass({ isActive: d.match(pathname, search) })}
+            >
               {d.label}
             </NavLink>
           ))}

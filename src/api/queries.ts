@@ -257,7 +257,7 @@ export function useArrQueue(enabled = true) {
     queryKey: ['arrQueue'],
     enabled,
     queryFn: arrQueue,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => ((query.state.data ?? []).some((d) => !d.done) ? 15_000 : 60_000),
     staleTime: 5_000,
     retry: false,
   })

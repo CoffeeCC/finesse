@@ -45,7 +45,11 @@ export default function MyListPage() {
         <div className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
           {isLoading
             ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)
-            : items!.map((item) => <MediaCard key={item.Id} item={item} />)}
+            : items!.map((item) => (
+                <div key={item.Id} className="cv-card">
+                  <MediaCard item={item} />
+                </div>
+              ))}
         </div>
       )}
 

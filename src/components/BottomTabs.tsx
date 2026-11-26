@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { prefetchRoute } from '../lib/prefetch'
 
 const ICONS = {
   home: 'M2.25 12 11.2 3a1.13 1.13 0 0 1 1.6 0l8.95 9M4.5 9.75V21h5.25v-5.25a1.5 1.5 0 0 1 3 0V21h5.25V9.75',
@@ -40,9 +41,12 @@ export default function BottomTabs() {
             key={tab.to}
             to={tab.to}
             end={tab.end}
+            onTouchStart={() => prefetchRoute(tab.to)}
+            onMouseEnter={() => prefetchRoute(tab.to)}
+            onFocus={() => prefetchRoute(tab.to)}
             className={({ isActive }) => {
               const on = isActive || tab.forceActive
-              return `flex flex-col items-center justify-center gap-1 min-h-[60px] py-2 text-[11px] transition-colors ${
+              return `flex flex-col items-center justify-center gap-1 min-h-[60px] py-2 text-[11px] transition-all active:scale-95 ${
                 on ? 'text-white font-semibold' : 'text-white/55 font-medium'
               }`
             }}

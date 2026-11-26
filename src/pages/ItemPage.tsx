@@ -1,6 +1,7 @@
 import MomentComposer from '../components/moments/MomentComposer'
 import { useMomentsOn } from '../api/moments'
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { prefetchPlayer } from '../lib/prefetch'
 import TitleLogo from '../components/TitleLogo'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -98,6 +99,9 @@ function PlayChoices({ item, word = 'Play', suffix = '', episodeName }: { item: 
           to={choice.href}
           // The backdrop (data-vt-static="vt-hero") morphs into the player's video.
           onClick={go(choice.href)}
+          onMouseEnter={prefetchPlayer}
+          onFocus={prefetchPlayer}
+          onTouchStart={prefetchPlayer}
           data-autofocus
           className={PLAY_BTN}
         >
@@ -135,7 +139,7 @@ function SeriesPlayLink({ seriesId }: { seriesId: string }) {
   return <PlayChoices item={ep} suffix={episodeCode(ep)} episodeName={ep.Name} />
 }
 
-function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {
+const EpisodeRow = memo(function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {
   const navigate = useNavigate()
   const thumbRef = useRef<HTMLDivElement>(null)
   const thumb = episodeThumbUrl(ep)
@@ -152,7 +156,7 @@ function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: bool
     <>
       <div ref={thumbRef} className="relative w-32 sm:w-44 shrink-0 aspect-video rounded-lg overflow-hidden bg-ink-800 ring-1 ring-white/5">
         {thumb && (
-          <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover fade-in" />
+          <img src={thumb} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover fade-in" />
         )}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
           <div className="h-10 w-10 rounded-full bg-white/90 flex items-center justify-center">
@@ -198,6 +202,8 @@ function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: bool
       to={playHref(ep)}
       // This episode's still (not the series backdrop) grows into the player.
       onClick={(e) => morphNavigate(() => navigate(playHref(ep)), { from: thumbRef.current, name: 'vt-hero', event: e })}
+      onMouseEnter={prefetchPlayer}
+      onFocus={prefetchPlayer}
       className={rowClass}
     >
       {body}
@@ -213,6 +219,8 @@ function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: bool
           <Link
             key={v.Id}
             to={playHref(v)}
+            onMouseEnter={prefetchPlayer}
+            onFocus={prefetchPlayer}
             aria-current={v.Id === ep.Id ? 'true' : undefined}
             className={`inline-flex h-7 items-center rounded-full border px-2.5 text-[12px] transition-colors ${
               v.Id === ep.Id ? 'border-white/30 bg-white/10 text-white' : 'border-white/10 text-ink-300 hover:text-white'
@@ -225,7 +233,7 @@ function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: bool
       </div>
     </div>
   )
-}
+})
 
 function Seasons({ series }: { series: JfItem }) {
   const { data: seasons } = useSeasons(series.Id)
@@ -558,7 +566,7 @@ export default function ItemPage() {
             onClick={() => goBack(navigate)}
             aria-label="Back"
             title="Back"
-            className="vt-detail-back absolute left-3 top-[4.75rem] sm:left-6 lg:left-12 sm:top-[5.25rem] z-20 h-10 w-10 rounded-full bg-black/45 backdrop-blur-md ring-1 ring-white/10 flex items-center justify-center text-white active:scale-95 transition-transform"
+            className="vt-detail-back absolute left-[max(0.75rem,env(safe-area-inset-left))] top-[calc(4.75rem+env(safe-area-inset-top))] sm:left-[max(1.5rem,env(safe-area-inset-left))] lg:left-12 sm:top-[calc(5.25rem+env(safe-area-inset-top))] z-20 h-10 w-10 rounded-full bg-black/45 backdrop-blur-md ring-1 ring-white/10 flex items-center justify-center text-white active:scale-95 transition-transform"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />

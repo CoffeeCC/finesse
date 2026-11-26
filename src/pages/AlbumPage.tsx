@@ -68,7 +68,7 @@ export default function AlbumPage() {
     <div className="relative pb-28 -mt-16">
       {/* The album's own colour, washing down from the top */}
       <div aria-hidden className="absolute inset-x-0 top-0 h-[34rem] overflow-hidden pointer-events-none">
-        {cover && <img src={cover} alt="" className="h-full w-full object-cover blur-3xl scale-125 opacity-45 saturate-150" />}
+        {cover && <img decoding="async" src={cover} alt="" className="h-full w-full object-cover blur-3xl scale-125 opacity-45 saturate-150" />}
         {mood && <div className="absolute inset-0" style={{ background: `radial-gradient(70% 80% at 20% 30%, rgba(${mood}, 0.35), transparent 70%)` }} />}
         <div className="absolute inset-0 bg-gradient-to-b from-ink-950/30 via-ink-950/70 to-ink-950" />
       </div>
@@ -79,7 +79,7 @@ export default function AlbumPage() {
           style={{ boxShadow: mood ? `0 30px 80px -20px rgba(${mood}, 0.5), 0 20px 40px -20px rgba(0,0,0,0.8)` : undefined }}
         >
           {cover ? (
-            <img src={cover} alt={album.Name} className="h-full w-full object-cover fade-in" />
+            <img decoding="async" src={cover} alt={album.Name} className="h-full w-full object-cover fade-in" />
           ) : (
             <div className="h-full w-full flex items-center justify-center text-6xl text-ink-400">♪</div>
           )}

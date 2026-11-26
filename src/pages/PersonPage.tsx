@@ -25,7 +25,7 @@ export default function PersonPage() {
       <div className="px-4 sm:px-6 lg:px-12 pt-8 flex flex-col sm:flex-row gap-6 sm:gap-8 items-start">
         <div className="h-40 w-40 shrink-0 rounded-2xl overflow-hidden bg-ink-800 ring-1 ring-white/10 shadow-2xl">
           {headshot ? (
-            <img src={headshot} alt={person.Name} className="h-full w-full object-cover fade-in" />
+            <img decoding="async" src={headshot} alt={person.Name} className="h-full w-full object-cover fade-in" />
           ) : (
             <div className="h-full w-full flex items-center justify-center text-5xl font-bold text-ink-400">
               {person.Name.charAt(0)}
@@ -50,7 +50,11 @@ export default function PersonPage() {
         >
           {itemsLoading
             ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)
-            : items?.Items.map((item) => <MediaCard key={item.Id} item={item} />)}
+            : items?.Items.map((item) => (
+                <div key={item.Id} className="cv-card">
+                  <MediaCard item={item} />
+                </div>
+              ))}
           {!itemsLoading && items?.Items.length === 0 && (
             <p className="col-span-full text-ink-400 py-8 text-center">
               Nothing from {person.Name} in your library yet.

@@ -66,13 +66,18 @@ export default function FriendsPage() {
             {session?.isAdmin ? ' Add one with the code they send you.' : ' Ask whoever runs this server to add one.'}
           </p>
           {session?.isAdmin && (
-            <Link to="/settings#settings-groups" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors">
+            <Link to="/settings#settings-groups" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
               Set up Groups
             </Link>
           )}
         </div>
       ) : (
-        (friends ?? []).map((f) => <FriendServer key={f.id} friend={f} />)
+        (friends ?? []).map((f) => (
+          // A friend's whole server (rows of their libraries) is drawn only once it's near the screen.
+          <div key={f.id} className="cv-card">
+            <FriendServer friend={f} />
+          </div>
+        ))
       )}
     </div>
   )

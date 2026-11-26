@@ -36,7 +36,7 @@ export default function GameRequestsPage() {
         <div className="py-16 text-center">
           <p className="text-lg font-semibold text-white">No game requests yet</p>
           <p className="mt-1 text-sm text-ink-400">Find a game in the store and press Request. It shows up here while it downloads and installs.</p>
-          <Link to="/games/store" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+          <Link to="/games/store" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
             Open the store
           </Link>
         </div>
@@ -82,12 +82,12 @@ function RequestRow({ r }: { r: GameRequest }) {
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
         {r.state === 'needs-you' && (
-          <Link to={`/games/store/requests/${encodeURIComponent(r.id)}/installer`} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+          <Link to={`/games/store/requests/${encodeURIComponent(r.id)}/installer`} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
             Finish installing
           </Link>
         )}
         {r.state === 'failed' && (
-          <button type="button" onClick={() => actions.retry.mutate(r.id, { onError: fail })} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200">
+          <button type="button" onClick={() => actions.retry.mutate(r.id, { onError: fail })} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
             Try again
           </button>
         )}
@@ -97,7 +97,7 @@ function RequestRow({ r }: { r: GameRequest }) {
           </button>
         )}
         {actions.canPause && r.state === 'paused' && (
-          <button type="button" onClick={() => actions.resume.mutate(r.id, { onError: fail })} disabled={actions.resume.isPending} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50">
+          <button type="button" onClick={() => actions.resume.mutate(r.id, { onError: fail })} disabled={actions.resume.isPending} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50 transition active:scale-[0.97]">
             Carry on
           </button>
         )}

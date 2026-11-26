@@ -92,18 +92,18 @@ export default function RequestMoviePage() {
     <div className="pb-16">
       {m.backdrop && (
         <div className="ambilight fixed inset-0 -z-10 overflow-hidden" aria-hidden>
-          <img src={m.backdrop} alt="" className="ambient-breathe h-full w-full object-cover blur-3xl brightness-[0.22] saturate-150" />
+          <img decoding="async" src={m.backdrop} alt="" className="ambient-breathe h-full w-full object-cover blur-3xl brightness-[0.22] saturate-150" />
         </div>
       )}
       <div className="relative -mt-16">
         {!IS_TV && (
-          <div className="absolute left-3 top-[4.75rem] sm:left-6 lg:left-12 sm:top-[5.25rem] z-20">
+          <div className="absolute left-3 top-[4.75rem] sm:left-6 lg:left-12 sm:top-[5.25rem] z-20 supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(4.75rem+env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(0.75rem,env(safe-area-inset-left))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(5.25rem+env(safe-area-inset-top))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(1.5rem,env(safe-area-inset-left))] lg:supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(3rem,env(safe-area-inset-left))]">
             <BackButton onClick={() => goBack(navigate)} />
           </div>
         )}
         <div className="hero-melt relative h-[calc(var(--vh)*48)] min-h-[360px] w-full overflow-hidden">
           {m.backdrop && (
-            <img src={m.backdrop} alt="" className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${trailerOn && trailerLive ? 'opacity-0' : 'opacity-100'}`} />
+            <img decoding="async" src={m.backdrop} alt="" className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${trailerOn && trailerLive ? 'opacity-0' : 'opacity-100'}`} />
           )}
           {trailerOn && m.trailer && (
             <TrailerHero
@@ -119,7 +119,7 @@ export default function RequestMoviePage() {
         </div>
 
         <div className="relative z-10 px-4 sm:px-6 lg:px-12 -mt-40 flex gap-8 items-end">
-          {m.poster && <img src={m.poster} alt={m.title} className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0 shadow-2xl" />}
+          {m.poster && <img decoding="async" src={m.poster} alt={m.title} className="hidden md:block w-52 rounded-xl ring-1 ring-white/10 shrink-0 shadow-2xl" />}
           <div className="min-w-0 pb-2">
             <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl leading-[0.95] text-white mb-3 drop-shadow-lg">{m.title}</h1>
             <div className="flex flex-wrap items-center gap-3 text-sm text-ink-200 mb-4">

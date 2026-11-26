@@ -46,7 +46,7 @@ function connectionLabel(server: string): string {
 function ConnectionPill({ conn, server, onRetry }: { conn: Conn; server: string; onRetry: () => void }) {
   const dot = conn === 'ok' ? 'bg-emerald-400' : conn === 'error' ? 'bg-red-400' : 'bg-ink-400 animate-pulse'
   return (
-    <div className="absolute top-5 right-5 z-10 flex items-center gap-2">
+    <div className="absolute top-[max(1.25rem,env(safe-area-inset-top))] right-[max(1.25rem,env(safe-area-inset-right))] z-10 flex items-center gap-2">
       <span className="inline-flex items-center gap-2 h-9 rounded-full bg-ink-900/80 backdrop-blur border border-white/10 px-3.5 text-[13px] text-ink-200">
         <span className={`h-2 w-2 rounded-full ${dot}`} />
         {conn === 'ok' ? connectionLabel(server) : conn === 'error' ? "Can't reach your server" : 'Connecting…'}
@@ -237,7 +237,7 @@ export default function LoginPage() {
                     className="own-focus group w-32 outline-none disabled:opacity-50"
                   >
                     <div
-                      className={`h-32 w-32 rounded-[1.75rem] overflow-hidden ring-offset-4 ring-offset-ink-950 transition-all duration-200 group-hover:scale-105 group-hover:ring-4 group-hover:ring-white group-focus-visible:ring-4 group-focus-visible:ring-white shadow-xl shadow-black/40 flex items-center justify-center ${
+                      className={`h-32 w-32 rounded-[1.75rem] overflow-hidden ring-offset-4 ring-offset-ink-950 transition-all duration-200 group-hover:scale-105 group-active:scale-95 group-hover:ring-4 group-hover:ring-white group-focus-visible:ring-4 group-focus-visible:ring-white shadow-xl shadow-black/40 flex items-center justify-center ${
                         last ? 'ring-2 ring-white/60' : ''
                       }`}
                       style={{ background: `hsl(${hue}, 42%, 38%)` }}
@@ -246,6 +246,7 @@ export default function LoginPage() {
                         <img
                           src={publicUserImageUrl(server, u.Id, u.PrimaryImageTag)}
                           alt=""
+                          decoding="async"
                           className="h-full w-full object-cover"
                         />
                       ) : (

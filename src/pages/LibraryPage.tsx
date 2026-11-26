@@ -350,7 +350,17 @@ export default function LibraryPage() {
         <div className={listMode ? 'grid gap-2.5' : 'grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]'}>
           {searchLoading
             ? Array.from({ length: 12 }).map((_, i) => (listMode ? <div key={i} className="h-[96px] w-full rounded-xl shimmer" /> : <CardSkeleton key={i} />))
-            : searchResults?.Items.map((item) => (listMode ? <ListRow key={item.Id} item={item} /> : <MediaCard key={item.Id} item={item} />))}
+            : searchResults?.Items.map((item) =>
+                listMode ? (
+                  <div key={item.Id} className="cv-card">
+                    <ListRow item={item} />
+                  </div>
+                ) : (
+                  <div key={item.Id} className="cv-card">
+                    <MediaCard item={item} />
+                  </div>
+                ),
+              )}
           {!searchLoading && searchResults?.Items.length === 0 && (
             <p className="col-span-full text-ink-400 py-12 text-center">
               Nothing matches “{debouncedFilter}”

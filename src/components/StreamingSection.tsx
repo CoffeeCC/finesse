@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { streamingApi, type StreamApp, type StreamProfile } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
@@ -15,7 +15,7 @@ function tint(title: string): string {
   return `linear-gradient(150deg, hsl(${h} 45% 34%), hsl(${(h + 40) % 360} 50% 18%))`
 }
 
-function AppTile({ app, onOpen, cover, onHide }: { app: StreamApp; onOpen?: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
+const AppTile = memo(function AppTile({ app, onOpen, cover, onHide }: { app: StreamApp; onOpen?: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
   const images = tileImages(app)
   const [n, setN] = useState(0)
   const src = images[n] ?? null
@@ -32,7 +32,7 @@ function AppTile({ app, onOpen, cover, onHide }: { app: StreamApp; onOpen?: (app
       >
         <div className={`relative ${size} overflow-hidden rounded-xl bg-ink-800 ring-1 transition group-hover:ring-white/30 ${app.running ? 'ring-2 ring-emerald-400/70' : 'ring-white/5'}`} style={src ? undefined : { background: tint(app.title) }}>
           {src ? (
-            <img key={src} src={src} alt="" loading="lazy" onError={() => setN((i) => i + 1)} className={`h-full w-full ${cover ? 'object-cover' : 'object-contain p-1'}`} />
+            <img decoding="async" key={src} src={src} alt="" loading="lazy" onError={() => setN((i) => i + 1)} className={`h-full w-full ${cover ? 'object-cover' : 'object-contain p-1'}`} />
           ) : (
             <span className="flex h-full w-full items-center justify-center p-2 text-center text-2xl font-semibold text-white/90" aria-hidden>
               {cover ? app.title : app.title.slice(0, 1)}
@@ -61,7 +61,7 @@ function AppTile({ app, onOpen, cover, onHide }: { app: StreamApp; onOpen?: (app
       )}
     </div>
   )
-}
+})
 
 function Row({ apps, onOpen, cover, onHide }: { apps: StreamApp[]; onOpen: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
   return (
@@ -144,14 +144,17 @@ export default function StreamingSection() {
   const running = allApps.filter((a) => a.running && !a.launcher)
   const hiddenCount = new Set(allApps.filter((a) => a.hidden).map((a) => a.title.toLowerCase())).size
   // Administrators tidy the page: hidden here, still in Moonlight.
-  const onHide = isAdmin
-    ? (app: StreamApp) =>
-        void streamingApi
-          .setHidden(app.title, !app.hidden)
-          .then(() => qc.invalidateQueries({ queryKey: ['streaming', 'apps'] }))
-          .then(() => toast(app.hidden ? `${app.title} is back` : `${app.title} hidden. It’s still in Moonlight.`))
-          .catch((e: Error) => toast(e.message, 'error'))
-    : undefined
+  // One function across renders, so the (memoized) tiles don't all redraw when anything here changes.
+  const hide = useCallback(
+    (app: StreamApp) =>
+      void streamingApi
+        .setHidden(app.title, !app.hidden)
+        .then(() => qc.invalidateQueries({ queryKey: ['streaming', 'apps'] }))
+        .then(() => toast(app.hidden ? `${app.title} is back` : `${app.title} hidden. It’s still in Moonlight.`))
+        .catch((e: Error) => toast(e.message, 'error')),
+    [qc, toast],
+  )
+  const onHide = isAdmin ? hide : undefined
   const pill = 'inline-flex h-9 items-center rounded-full border border-white/10 bg-white/[0.06] px-4 text-[13px] font-medium text-ink-100 hover:border-white/25 hover:text-white transition-colors'
 
   return (
@@ -225,7 +228,7 @@ export default function StreamingSection() {
                     key={a.id}
                     type="button"
                     onClick={() => setLaunch(a)}
-                    className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-ink-950 hover:bg-ink-200"
+                    className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
                     aria-label={`Resume ${a.title}`}
                   >
                     <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>

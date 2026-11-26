@@ -640,7 +640,7 @@ function SkipWarning({ step, failed, onBack, onContinue }: { step: StepId; faile
     return () => window.removeEventListener('keydown', onKey)
   }, [onBack])
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="skip-title" onClick={onBack}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-5" role="dialog" aria-modal="true" aria-labelledby="skip-title" onClick={onBack}>
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-ink-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <h2 id="skip-title" className="font-display text-[28px] leading-tight text-white">
           {failed.length === 1 ? `${failed[0]!.label} didn’t pass its test` : 'Some of these didn’t pass their test'}

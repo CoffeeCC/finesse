@@ -23,7 +23,7 @@ export default function SearchOverlay() {
       const cmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'
       if (!slash && !cmdK) return
       // Not over the player / game screens (they're outside the main layout).
-      if (/^\/(play|games\/play)\//.test(window.location.hash.replace(/^#/, '') || window.location.pathname.replace(/^\/finesse/, ''))) return
+      if (/^\/(play|games\/play|games\/stream)\//.test(window.location.hash.replace(/^#/, '') || window.location.pathname.replace(/^\/finesse/, ''))) return
       e.preventDefault()
       openSearch()
     }
@@ -39,9 +39,16 @@ export default function SearchOverlay() {
     })
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    // The page behind holds still while search is up (index.css pauses the stage and aurora
+    // animations under [data-overlay]): nothing moving under the glass to re-blur every frame.
+    const html = document.documentElement
+    const prevOverlay = html.dataset.overlay
+    html.dataset.overlay = 'open'
     return () => {
       pop()
       document.body.style.overflow = prev
+      if (prevOverlay === undefined) delete html.dataset.overlay
+      else html.dataset.overlay = prevOverlay
     }
   }, [open])
 
@@ -51,9 +58,10 @@ export default function SearchOverlay() {
       role="dialog"
       aria-modal="true"
       aria-label="Search"
-      // Glass like the Quick menu: the page blurs behind, the panel frosts over
-      // it, and it never runs past the bottom of what's visible.
-      className="os-qm-scrim fixed inset-0 z-[90] flex flex-col bg-black/45 backdrop-blur-md px-3 pb-3 pt-[calc(var(--vh)*6)] sm:px-4 sm:pt-[calc(var(--vh)*8)] fade-in"
+      // A plain dark scrim (one blur, the panel's own frost, is plenty: a second full-screen
+      // blur under it cost every frame), clear of notches and rounded corners, and the panel
+      // never runs past the bottom of what's visible.
+      className="os-qm-scrim fixed inset-0 z-[90] flex flex-col bg-black/65 pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(calc(var(--vh)*6),env(safe-area-inset-top))] sm:pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(1rem,env(safe-area-inset-right))] sm:pt-[max(calc(var(--vh)*8),env(safe-area-inset-top))] fade-in"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) closeSearch()
       }}

@@ -97,7 +97,7 @@ export function ServerUpdateOverlay() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="server-update-title"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-ink-950/80 backdrop-blur-md px-6"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-ink-950/85 px-6"
     >
       <div className="w-full max-w-sm rounded-2xl bg-ink-900 border border-white/10 shadow-2xl shadow-black/50 p-6 toast-in">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-300">

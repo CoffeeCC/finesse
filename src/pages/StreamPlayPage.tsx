@@ -141,7 +141,7 @@ export default function StreamPlayPage() {
       )}
       {/* Top right, out of the game's way: the touch controls, full screen (it takes a tap: a
           controller's buttons can't start full screen), and Quit. */}
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+      <div className="absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-10 flex items-center gap-2">
         {ready && touch && (
           <button
             type="button"

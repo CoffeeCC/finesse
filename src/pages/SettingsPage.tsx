@@ -810,7 +810,7 @@ function InviteQr({ url }: { url: string }) {
   if (!src) return <p className="text-xs text-ink-400 mt-2">Generating…</p>
   return (
     <div className="mt-3 inline-block rounded-xl bg-white p-2 shadow-lg">
-      <img src={src} alt={`QR code for ${url}`} className="h-40 w-40" />
+      <img decoding="async" src={src} alt={`QR code for ${url}`} className="h-40 w-40" />
     </div>
   )
 }
@@ -1145,7 +1145,7 @@ function TipJar() {
         </div>
         {qr && (
           <div className="mt-3 inline-block rounded-xl bg-white p-2">
-            <img src={`${import.meta.env.BASE_URL}donate-eth.svg`} alt="QR code of the tip address" className="h-36 w-36" />
+            <img decoding="async" src={`${import.meta.env.BASE_URL}donate-eth.svg`} alt="QR code of the tip address" className="h-36 w-36" />
           </div>
         )}
       </div>

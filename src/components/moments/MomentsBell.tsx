@@ -161,7 +161,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         )}
       </button>
       {open && (
-        <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-2 shadow-2xl backdrop-blur-xl">
+        <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(4rem+env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.5rem,env(safe-area-inset-right))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(1rem,env(safe-area-inset-right))] z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/[0.97] p-2 shadow-2xl">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-1">
             <p className="text-[15px] font-semibold text-white">Moments</p>
             {unread > 0 && (
@@ -231,7 +231,7 @@ export function MomentArrivals() {
 
   if (!card) return null
   return (
-    <div role="status" className="toast-in fixed bottom-24 md:bottom-6 right-3 sm:right-6 z-[72] w-[min(22rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-2xl border border-white/10 bg-ink-900/95 p-1.5 shadow-2xl backdrop-blur-xl">
+    <div role="status" className="toast-in fixed bottom-24 md:bottom-6 right-3 sm:right-6 supports-[top:max(0px,env(safe-area-inset-top))]:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:supports-[top:max(0px,env(safe-area-inset-top))]:bottom-[max(1.5rem,env(safe-area-inset-bottom))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.75rem,env(safe-area-inset-right))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(1.5rem,env(safe-area-inset-right))] z-[72] w-[min(22rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-2xl border border-white/10 bg-ink-900/[0.97] p-1.5 shadow-2xl">
       <MomentLine
         m={card}
         compact

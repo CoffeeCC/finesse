@@ -42,7 +42,11 @@ export default function BrowsePage() {
       >
         {isLoading
           ? Array.from({ length: 18 }).map((_, i) => <CardSkeleton key={i} />)
-          : data?.Items.map((item) => <MediaCard key={item.Id} item={item} />)}
+          : data?.Items.map((item) => (
+              <div key={item.Id} className="cv-card">
+                <MediaCard item={item} />
+              </div>
+            ))}
       </div>
 
       {!isLoading && data?.Items.length === 0 && (

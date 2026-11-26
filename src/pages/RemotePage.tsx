@@ -126,7 +126,7 @@ function DisplayCard({ s, onPick }: { s: api.JfSession; onPick: () => void }) {
   const art = item ? (api.posterUrl(item, 120) ?? null) : null
   return (
     <button type="button" onClick={onPick} className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 text-left transition-colors hover:border-white/25 hover:bg-white/[0.06] active:scale-[.99]">
-      <div className="flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-ink-800 text-ink-400">{art ? <img src={art} alt="" className="h-full w-full object-cover" /> : <ScreenIcon />}</div>
+      <div className="flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-ink-800 text-ink-400">{art ? <img decoding="async" src={art} alt="" className="h-full w-full object-cover" /> : <ScreenIcon />}</div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-semibold text-white">{s.DeviceName || 'A screen'}</p>
         <p className="truncate text-[12.5px] text-ink-400">
@@ -230,7 +230,7 @@ function Controller({ s, onBack }: { s: api.JfSession; onBack: () => void }) {
       <section className="mt-5 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
         {item ? (
           <>
-            {art && <img src={art} alt="" className="aspect-video w-full object-cover" />}
+            {art && <img decoding="async" src={art} alt="" className="aspect-video w-full object-cover" />}
             <div className="p-4">
               <p className="text-[12px] font-semibold uppercase tracking-wider text-accent-300">{paused ? 'Paused' : 'Now playing'}</p>
               <p className="mt-0.5 text-[16px] font-semibold leading-snug text-white">{titleOf(item)}</p>

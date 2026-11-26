@@ -58,7 +58,7 @@ function LogsDialog({ id, name, onClose }: { id: string; name: string; onClose: 
     })
   }, [id, onClose])
   return (
-    <div role="dialog" aria-modal="true" aria-label={`${name} logs`} className="fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/80 p-4 backdrop-blur" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label={`${name} logs`} className="fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/85 p-4" onClick={onClose}>
       <div className="flex max-h-[calc(var(--vh)*85)] w-full max-w-4xl flex-col rounded-2xl border border-white/10 bg-ink-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-white/5 px-5 py-3">
           <p className="font-semibold text-white">{name} — recent log</p>
@@ -430,7 +430,7 @@ export default function SystemPanel() {
         <Block title="Downloads & away from home">
           <div className={`${CARD} flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between`}>
             <p className="text-[13.5px] leading-relaxed text-ink-300">Add or change Usenet, torrents and the VPN, or let people (and friends’ servers) reach this server from outside your home.</p>
-            <Link to="/setup?change=1" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-white px-4 text-[13.5px] font-semibold text-ink-950 hover:bg-ink-200">
+            <Link to="/setup?change=1" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-white px-4 text-[13.5px] font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
               Change
             </Link>
           </div>

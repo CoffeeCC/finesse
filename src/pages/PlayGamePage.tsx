@@ -182,7 +182,7 @@ export default function PlayGamePage() {
       )}
       <button
         onClick={() => void exitToGames()}
-        className="absolute top-3 left-3 z-[60] inline-flex items-center gap-2 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur px-3 py-2 text-sm font-medium text-white transition-colors"
+        className="absolute top-3 left-3 supports-[top:max(0px,env(safe-area-inset-top))]:top-[max(0.75rem,env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(0.75rem,env(safe-area-inset-left))] z-[60] inline-flex items-center gap-2 rounded-lg bg-black/70 hover:bg-black/85 px-3 py-2 text-sm font-medium text-white transition-[background-color,transform] active:scale-[0.97]"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
@@ -193,7 +193,7 @@ export default function PlayGamePage() {
       {pads && pads.pads.length > 1 && !picking && (
         <button
           onClick={() => setPicking(true)}
-          className="absolute top-3 right-3 z-[60] inline-flex max-w-[45vw] items-center gap-2 rounded-lg bg-black/60 hover:bg-black/80 backdrop-blur px-3 py-2 text-sm font-medium text-white transition-colors"
+          className="absolute top-3 right-3 supports-[top:max(0px,env(safe-area-inset-top))]:top-[max(0.75rem,env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.75rem,env(safe-area-inset-right))] z-[60] inline-flex max-w-[45vw] items-center gap-2 rounded-lg bg-black/70 hover:bg-black/85 px-3 py-2 text-sm font-medium text-white transition-[background-color,transform] active:scale-[0.97]"
           title="Choose the controller you play with"
         >
           <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>

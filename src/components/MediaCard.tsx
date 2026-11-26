@@ -17,6 +17,7 @@ import { useTvLazy } from '../lib/tvLazy'
 import { morphNavigate, posterMorphName } from '../lib/motion'
 import { formatRuntime } from '../api/types'
 import { playChoice } from '../lib/playChoice'
+import { prefetchItem, prefetchPlayer } from '../lib/prefetch'
 import type { JfItem } from '../api/types'
 
 function progressPct(item: JfItem): number | null {
@@ -60,6 +61,17 @@ const MediaCard = memo(function MediaCard({
 
   const tiltRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const prefetchTimer = useRef(0)
+
+  const warmItem = useCallback(() => {
+    window.clearTimeout(prefetchTimer.current)
+    prefetchTimer.current = window.setTimeout(() => prefetchItem(qc, linkId), 100)
+  }, [qc, linkId])
+
+  const cancelWarm = useCallback(() => {
+    window.clearTimeout(prefetchTimer.current)
+  }, [])
 
   // Hover-preview: mouse over a poster and a short muted clip of the real title
   // plays over it (Netflix-style). Clips are pre-generated per resolution under
@@ -94,6 +106,7 @@ const MediaCard = memo(function MediaCard({
 
   useEffect(() => () => {
     window.clearTimeout(hoverTimer.current)
+    window.clearTimeout(prefetchTimer.current)
     releasePreview(stopPreview)
   }, [stopPreview])
 
@@ -167,8 +180,16 @@ const MediaCard = memo(function MediaCard({
       style={width ? { width } : undefined}
       data-backdrop={backdropUrl(item, 1280) ?? undefined}
       data-autofocus={autoFocus || undefined}
-      onFocus={canFocusPreview ? onTvFocus : undefined}
-      onBlur={canFocusPreview ? onTvBlur : undefined}
+      onMouseEnter={warmItem}
+      onMouseLeave={cancelWarm}
+      onFocus={() => {
+        warmItem()
+        if (canFocusPreview) onTvFocus()
+      }}
+      onBlur={() => {
+        cancelWarm()
+        if (canFocusPreview) onTvBlur()
+      }}
     >
       <div className="relative" style={spillStyle}>
         <span aria-hidden className="spill-glow" />
@@ -191,6 +212,7 @@ const MediaCard = memo(function MediaCard({
               src={poster}
               alt={item.Name}
               loading="lazy"
+              decoding="async"
               className="relative h-full w-full object-cover fade-in"
             />
           ) : poster ? null : (
@@ -339,6 +361,8 @@ export const WideCard = memo(function WideCard({
         onClick={(e) => morphNavigate(() => navigate(href), { from: lazyRef.current, name: 'vt-hero', event: e })}
         aria-label={`Play ${title}${sub ? ` — ${sub}` : ''}`}
         data-backdrop={backdropUrl(item, 1280) ?? undefined}
+        onMouseEnter={prefetchPlayer}
+        onFocus={prefetchPlayer}
         className="group block outline-none"
       >
         <div className="relative" style={spill}>
@@ -350,7 +374,7 @@ export const WideCard = memo(function WideCard({
             className="tilt sheen relative aspect-video rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
           >
             {img && nearViewport && (
-              <img src={img} alt="" loading="lazy" className="h-full w-full object-cover fade-in" />
+              <img src={img} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover fade-in" />
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">

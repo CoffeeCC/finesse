@@ -122,7 +122,7 @@ export default function MomentComposer({
 
   // In <body>: a page's entrance animation (a transform) would otherwise pin it to the page, not the screen.
   const dialog = (
-    <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="moment-title" onClick={(e) => {
+    <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="moment-title" onClick={(e) => {
         e.stopPropagation()
         if (!busy) onClose()
       }}
@@ -234,7 +234,7 @@ export default function MomentComposer({
           <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-medium text-ink-200 hover:text-white disabled:opacity-50">
             Cancel
           </button>
-          <button type="button" onClick={send} disabled={busy || tooLong || (!span && !to.size)} className="h-10 rounded-full bg-white px-6 text-[14px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50">
+          <button type="button" onClick={send} disabled={busy || tooLong || (!span && !to.size)} className="h-10 rounded-full bg-white px-6 text-[14px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50 transition active:scale-[0.97]">
             {busy ? 'Sending…' : to.size ? 'Send' : span ? 'Save for me' : 'Send'}
           </button>
         </div>
