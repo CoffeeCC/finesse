@@ -101,6 +101,9 @@ body {
 input.search-field:focus,
 input.search-field:focus-visible {
   outline: none;
+  /* The global focus band and its rounding would draw a box inside the search bar. */
+  box-shadow: none;
+  border-radius: 0;
 }
 input.search-field::-webkit-search-cancel-button,
 input.search-field::-webkit-search-decoration {

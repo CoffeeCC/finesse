@@ -62,6 +62,9 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false)
   const [shuffle, setShuffle] = useState(false)
   const [repeat, setRepeat] = useState<RepeatMode>('off')
+  // Bumped by playQueue/jumpTo: asking for the song that's already loaded (an album's first
+  // track again, after it ended) starts it over instead of doing nothing.
+  const [loadSeq, setLoadSeq] = useState(0)
   // The queue as it was before shuffling, so turning shuffle off restores order.
   const unshuffled = useRef<JfItem[] | null>(null)
   const sessionRef = useRef<string>('')
@@ -142,13 +145,17 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     ensureGraph()
     audioCtxRef.current?.resume().catch(() => {})
     a.src = api.audioStreamUrl(current.Id)
+    // The new song from 0, with Jellyfin's length until the stream says (converted streams
+    // report Infinity), so the bar never shows the last song's place.
+    setPosition(0)
+    setDuration(current.RunTimeTicks ? current.RunTimeTicks / 10_000_000 : 0)
     userPaused.current = false
     startPlayback(a, () => report(api.reportPlaybackStart))
     return () => {
       report(api.reportPlaybackStopped)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.Id])
+  }, [current?.Id, loadSeq])
 
   // Periodic progress reports
   useEffect(() => {
@@ -176,18 +183,24 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     if (opts.shuffle) {
       unshuffled.current = items
       setShuffle(true)
+      failures.current = 0
       setQueue(shuffled(items))
       setIndex(0)
+      setLoadSeq((n) => n + 1)
       return
     }
     unshuffled.current = null
     setShuffle(false)
+    failures.current = 0
     setQueue(items)
-    setIndex(startIndex)
+    setIndex(Math.max(0, Math.min(startIndex, items.length - 1)))
+    setLoadSeq((n) => n + 1)
   }, [])
 
   const jumpTo = useCallback((i: number) => {
-    if (i >= 0 && i < queue.length) setIndex(i)
+    if (i < 0 || i >= queue.length) return
+    setIndex(i)
+    setLoadSeq((n) => n + 1)
   }, [queue.length])
 
   // Shuffle keeps the current song playing and reorders everything around it.
@@ -235,9 +248,22 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
   const stop = useCallback(() => {
     report(api.reportPlaybackStopped)
+    // Silence it too: clearing the queue alone left the last song playing with no player on screen.
+    const a = audioRef.current
+    if (a) {
+      userPaused.current = true
+      pendingPlay.current = false
+      a.pause()
+      a.removeAttribute('src')
+      a.load()
+    }
+    unshuffled.current = null
     setQueue([])
     setIndex(0)
     setPlaying(false)
+    setPosition(0)
+    setDuration(0)
+    setExpanded(false)
   }, [report])
 
   const onEnded = useCallback(() => {
@@ -317,7 +343,17 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   // Lock screen / notification / hardware media keys (phones, laptops).
   useEffect(() => {
     const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined
-    if (!ms || !current) return
+    if (!ms) return
+    if (!current) {
+      // Stopped: the lock screen stops offering controls for a song that's gone.
+      try {
+        ms.metadata = null
+        for (const act of ['play', 'pause', 'previoustrack', 'nexttrack', 'seekto'] as MediaSessionAction[]) ms.setActionHandler(act, null)
+      } catch {
+        /* older engines */
+      }
+      return
+    }
     const cover = current.AlbumId && current.AlbumPrimaryImageTag
       ? api.imageUrl(current.AlbumId, 'Primary', { maxWidth: 512, tag: current.AlbumPrimaryImageTag })
       : current.ImageTags?.Primary
@@ -426,7 +462,11 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+        onDurationChange={(e) => {
+          // Converted streams say Infinity (or NaN) at first: keep Jellyfin's length until a real one comes.
+          const d = e.currentTarget.duration
+          if (Number.isFinite(d) && d > 0) setDuration(d)
+        }}
         onEnded={onEnded}
         onError={onError}
         onPlaying={() => (failures.current = 0)}

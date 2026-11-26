@@ -90,7 +90,7 @@ test('iPhone: HEVC up to 10-bit and Dolby sound play as they are; no WebM or MKV
   assert.deepEqual(codecs(direct(p, 'mp4,m4v')?.VideoCodec), ['h264', 'hevc'])
   assert.deepEqual(codecs(direct(p, 'mp4,m4v')?.AudioCodec), ['aac', 'mp3', 'flac', 'opus', 'ac3', 'eac3'])
   assert.equal(hevcDepth(p), '10')
-  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,mp3,ac3,eac3', '6'])
+  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,ac3,eac3', '6'])
 })
 
 test('macOS Safari: the same, but its HLS goes through hls.js, which can’t read E-AC-3 in MPEG-TS', async () => {
@@ -98,7 +98,7 @@ test('macOS Safari: the same, but its HLS goes through hls.js, which can’t rea
   const p = buildDeviceProfile(0, detectMediaCaps(DEVICES.macSafari))
   assert.deepEqual(p.DirectPlayProfiles.map((d) => d.Container), ['mp4,m4v'])
   assert.deepEqual(codecs(direct(p, 'mp4,m4v')?.AudioCodec), ['aac', 'mp3', 'flac', 'ac3', 'eac3'], 'direct play keeps both')
-  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,mp3,ac3', '6'])
+  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,ac3', '6'])
 })
 
 test('desktop Chrome: HEVC, AV1 and VP9 in MP4; MKV and WebM direct; no Dolby, so stereo transcodes', async () => {
@@ -112,7 +112,7 @@ test('desktop Chrome: HEVC, AV1 and VP9 in MP4; MKV and WebM direct; no Dolby, s
   assert.deepEqual(codecs(direct(p, 'webm')?.VideoCodec), ['vp8', 'vp9', 'av1'])
   assert.deepEqual(codecs(direct(p, 'webm')?.AudioCodec), ['vorbis', 'opus'])
   for (const d of p.DirectPlayProfiles) assert.equal(/ac3/.test(d.AudioCodec), false, `${d.Container}: no Dolby`)
-  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,mp3', '2'])
+  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac', '2'])
   assert.equal(hevcDepth(p), '10')
 })
 
@@ -137,7 +137,7 @@ test('LG CX (Chromium 68): H.264, 8-bit HEVC and MKV direct, with Dolby; AV1 nev
   assert.deepEqual(codecs(direct(p, 'mkv')?.VideoCodec), ['h264', 'hevc', 'vp9'])
   assert.deepEqual(codecs(direct(p, 'mkv')?.AudioCodec), ['aac', 'mp3', 'ac3', 'eac3'])
   assert.equal(hevcDepth(p), '8', 'only Main decodes: 10-bit HEVC is converted')
-  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,mp3,ac3', '6'])
+  assert.deepEqual([hls(p).AudioCodec, hls(p).MaxAudioChannels], ['aac,ac3', '6'])
 })
 
 test('WebM is only offered with a codec and a sound it plays', async () => {
@@ -163,7 +163,8 @@ test('the bitrate cap, and a fresh profile each time (burn-in narrows its own co
   for (const probe of Object.values(DEVICES)) {
     const t = hls(buildDeviceProfile(0, detectMediaCaps(probe)))
     assert.deepEqual([t.Container, t.VideoCodec, t.Protocol, t.Context, t.BreakOnNonKeyFrames], ['ts', 'h264', 'hls', 'Streaming', true])
-    assert.match(String(t.AudioCodec), /^aac,mp3/)
+    assert.match(String(t.AudioCodec), /^aac(,|$)/)
+    assert.equal(String(t.AudioCodec).includes('mp3'), false, 'never copy MP3 into HLS TS segments')
   }
 })
 

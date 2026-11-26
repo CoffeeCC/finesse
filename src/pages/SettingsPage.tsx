@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { SelectMenu } from '../components/Menu'
@@ -21,7 +21,7 @@ import GameStoreAdmin from './settings/GameStoreAdmin'
 import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
-import DownloadsSettings from './settings/DownloadsSettings'
+import DownloadsSettings, { DownloadRescue } from './settings/DownloadsSettings'
 import QualitySettings from './settings/QualitySettings'
 import ConnectionsHealth, { connectionProblems, useConnections } from './settings/ConnectionsHealth'
 import { searchSettings, slug, visibleSections, type Ctx, type Entry, type SectionDef, type SectionId } from './settings/catalog'
@@ -450,35 +450,48 @@ export default function SettingsPage() {
     return () => window.clearInterval(t)
   }, [at, active])
 
-  // Phones: keep the open page's chip in view in the scrolling row.
+  // Phones: keep the open page's chip in view in the scrolling row (centred, gliding there).
+  const chipRow = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const el = document.querySelector<HTMLElement>('nav[aria-label="Settings pages"] [aria-current="page"]')
-    const row = el?.parentElement
-    if (el && row && row.scrollWidth > row.clientWidth) row.scrollLeft = el.offsetLeft - row.offsetLeft - (row.clientWidth - el.clientWidth) / 2
+    const row = chipRow.current
+    const el = row?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!el || !row || row.scrollWidth <= row.clientWidth) return
+    const left = el.offsetLeft - row.offsetLeft - (row.clientWidth - el.clientWidth) / 2
+    const reduce = document.documentElement.classList.contains('reduce-motion') || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (typeof row.scrollTo === 'function') row.scrollTo({ left, behavior: reduce ? 'auto' : 'smooth' })
+    else row.scrollLeft = left
   }, [active])
+  const searchBox = useRef<HTMLInputElement>(null)
 
   const results = searchSettings(query, ctx)
   const searching = query.trim().length > 0
   const pick = (e: Entry) => open(e.section, e.anchor ?? slug(e.label))
 
-  const navButton = (x: SectionDef) => (
+  // Phones: chips (the open one solid). Desktop: a quiet list whose open page gets a soft pill
+  // and an accent bar at its edge. One look for every page, the server ones included.
+  const navButton = (x: SectionDef) => {
+    const on = !searching && active === x.id
+    return (
     <button
       key={x.id}
       type="button"
       onClick={() => open(x.id)}
-      aria-current={!searching && active === x.id ? 'page' : undefined}
-      className={`shrink-0 flex items-center gap-2 h-9 lg:h-10 px-3.5 rounded-full lg:rounded-lg text-sm text-left transition-colors ${
-        !searching && active === x.id ? 'bg-white/10 text-white font-semibold' : 'text-ink-200 hover:text-white font-medium'
+      aria-current={on ? 'page' : undefined}
+      className={`relative shrink-0 flex items-center gap-2 h-9 lg:h-10 px-3.5 rounded-full lg:rounded-lg text-sm text-left transition active:scale-[0.97] lg:active:scale-100 ${
+        on
+          ? 'bg-white text-ink-950 font-semibold lg:bg-white/[0.08] lg:text-white lg:before:absolute lg:before:left-0 lg:before:top-2 lg:before:bottom-2 lg:before:w-[3px] lg:before:rounded-full lg:before:bg-accent-400'
+          : 'border border-white/10 bg-white/[0.04] text-ink-200 font-medium hover:text-white hover:bg-white/[0.07] lg:border-transparent lg:bg-transparent lg:hover:bg-white/[0.04]'
       }`}
     >
-      <span className="flex-1">{x.label}</span>
+      <span className="flex-1 whitespace-nowrap">{x.label}</span>
       {x.id === 'health' && attention > 0 && (
         <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-300/20 px-1.5 text-[11px] font-semibold text-amber-200" aria-label={`${attention} need attention`}>
           {attention}
         </span>
       )}
     </button>
-  )
+    )
+  }
   const mine = sections.filter((x) => !x.admin)
   const server = sections.filter((x) => x.admin)
 
@@ -486,13 +499,16 @@ export default function SettingsPage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-12 py-8">
       <h1 className="page-title mb-5">Settings</h1>
 
-      <div className="relative mb-6 max-w-xl">
+      {/* The wrapper draws the focus (one ring, no second outline on the input: .search-field). */}
+      <div className="relative mb-6 flex max-w-xl items-center h-11 rounded-xl bg-ink-900/80 border border-white/10 transition-colors focus-within:border-accent-400/80 focus-within:bg-ink-900">
         <svg aria-hidden viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" fill="none" stroke="currentColor" strokeWidth={2}>
           <circle cx="11" cy="11" r="7" />
           <path strokeLinecap="round" d="m20 20-3.5-3.5" />
         </svg>
         <input
+          ref={searchBox}
           type="search"
+          enterKeyHint="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -506,21 +522,45 @@ export default function SettingsPage() {
           }}
           placeholder="Search settings"
           aria-label="Search settings"
-          className="w-full h-11 rounded-xl bg-ink-900/80 border border-white/10 pl-10 pr-3 text-sm text-white placeholder:text-ink-400 outline-none focus:border-accent-500 transition-colors"
+          className="search-field h-full min-w-0 flex-1 rounded-xl bg-transparent pl-10 pr-2 text-sm text-white placeholder:text-ink-400 outline-none"
         />
+        {query && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('')
+              searchBox.current?.focus()
+            }}
+            aria-label="Clear the search"
+            className="mr-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 transition hover:bg-white/10 hover:text-white active:scale-95"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="lg:grid lg:grid-cols-[13rem_1fr] lg:gap-10">
         {/* Pages: a sticky sidebar on desktop, a chip row on phones */}
-        <nav aria-label="Settings pages" className="lg:sticky lg:top-24 lg:self-start mb-6 lg:mb-0">
-          <div className="flex lg:flex-col gap-1.5 overflow-x-auto no-scrollbar">
+        {/* Phones: the chip row stays under the navbar while the page scrolls (solid, not blurred:
+            it sits over everything), clear of the notch at its sides. */}
+        <nav
+          aria-label="Settings pages"
+          className="mb-6 lg:mb-0 lg:sticky lg:top-24 lg:self-start max-lg:sticky max-lg:top-16 max-lg:z-20 max-lg:-mx-4 max-lg:sm:-mx-6 max-lg:bg-ink-950/95 max-lg:border-b max-lg:border-white/5 max-lg:supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(4rem+env(safe-area-inset-top))]"
+        >
+          <div
+            ref={chipRow}
+            className="flex lg:flex-col gap-1.5 overflow-x-auto no-scrollbar max-lg:px-4 max-lg:sm:px-6 max-lg:py-2.5 max-lg:supports-[top:max(0px,env(safe-area-inset-top))]:pl-[max(1rem,env(safe-area-inset-left))] max-lg:supports-[top:max(0px,env(safe-area-inset-top))]:pr-[max(1rem,env(safe-area-inset-right))]"
+          >
+            <p className="hidden lg:block mb-1 px-3.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">You</p>
             {mine.map(navButton)}
             {server.length > 0 && (
               <>
-                <p className="hidden lg:flex items-center gap-2 mt-4 mb-1 px-3.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+                <p className="hidden lg:flex items-center gap-2 mt-5 mb-1 px-3.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">
                   Server <AdminTag />
                 </p>
-                <span aria-hidden className="lg:hidden shrink-0 my-1.5 w-px bg-white/10" />
+                <span aria-hidden className="lg:hidden shrink-0 my-1 w-px bg-white/10" />
                 {server.map(navButton)}
               </>
             )}
@@ -537,9 +577,12 @@ export default function SettingsPage() {
                 <ul className="rounded-2xl bg-ink-900/60 border border-white/5 divide-y divide-white/5">
                   {results.map((e) => (
                     <li key={`${e.section}-${e.label}`}>
-                      <button type="button" onClick={() => pick(e)} className="w-full flex items-center justify-between gap-4 px-5 py-3.5 text-left hover:bg-white/[0.03] transition-colors">
-                        <span className="text-sm font-semibold text-white">{e.label}</span>
-                        <span className="shrink-0 text-[12px] text-ink-400">{e.sectionLabel}</span>
+                      <button type="button" onClick={() => pick(e)} className="group w-full flex items-center justify-between gap-4 px-5 py-3.5 text-left hover:bg-white/[0.03] transition-colors">
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-white">{e.label}</span>
+                          {e.hint && <span className="mt-0.5 block truncate text-[12.5px] text-ink-400">{e.hint}</span>}
+                        </span>
+                        <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-0.5 text-[11.5px] text-ink-300 group-hover:text-white">{e.sectionLabel}</span>
                       </button>
                     </li>
                   ))}
@@ -552,7 +595,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => open('health', 'connected-apps')}
-                  className="mb-5 w-full flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-3 text-left hover:bg-amber-300/[0.11] transition-colors"
+                  className="mb-5 w-full flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-3 text-left hover:bg-amber-300/[0.11] transition active:scale-[0.99]"
                 >
                   <span className="text-sm text-amber-100">
                     {attention} connected app{attention > 1 ? 's' : ''} need{attention > 1 ? '' : 's'} attention.
@@ -840,6 +883,12 @@ export default function SettingsPage() {
 
               {admin && active === 'downloads' && (
                 <div className="space-y-8">
+                  {finesseInfo?.features?.requests && (
+                    <div data-setting="download-rescue">
+                      <h3 className="mb-3 text-[15px] font-semibold text-white">Automatic download rescue</h3>
+                      <DownloadRescue />
+                    </div>
+                  )}
                   {finesseInfo?.features?.requests && (
                     <div data-setting="request-defaults">
                       <DownloadsSettings />

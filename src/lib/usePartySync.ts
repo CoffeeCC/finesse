@@ -28,6 +28,12 @@ export function usePartySync(
   const done = useRef(false)
 
   useEffect(() => {
+    // A new party (or title): nothing of the last one carries over. A stale view here let the
+    // heartbeat start for the new party before it was joined, steered by the old party's clock.
+    viewRef.current = null
+    offset.current = 0
+    quietUntil.current = 0
+    setState((s) => (s.view || s.error || s.lost ? { view: null, error: null, lost: null } : s))
     if (!partyId || !itemId) return
     done.current = false
     let stopped = false

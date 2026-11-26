@@ -7,7 +7,7 @@
 
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { connectionsApi, graphicsApi, type ConnCheck, type ConnReport } from '../../api/setup'
+import { connectionsApi, graphicsApi, type ConnAutoFix, type ConnCheck, type ConnReport } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 
 type Row = Pick<ConnCheck, 'id' | 'name' | 'ok' | 'summary' | 'problems' | 'fix' | 'fixes' | 'notes'>
@@ -33,7 +33,63 @@ const rowsOf = (data: ConnReport): Row[] => [
 /** How many connected apps need attention (for the Settings nav). */
 export const connectionProblems = (data: ConnReport | undefined) => (data ? rowsOf(data).filter((r) => r.ok !== true).length : 0)
 
-const pill = 'inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-semibold disabled:opacity-60 transition-colors'
+const pill = 'inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-semibold transition active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100'
+
+function ago(iso: string): string {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return ''
+  const mins = Math.round((Date.now() - t) / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  const h = Math.round(mins / 60)
+  if (h < 24) return `${h} h ago`
+  const d = Math.round(h / 24)
+  return d === 1 ? 'yesterday' : `${d} days ago`
+}
+
+/** Repairs Finesse made on its own, newest first; anything without words or a time is left out. */
+const healedOf = (data: ConnReport): ConnAutoFix[] =>
+  (Array.isArray(data.autoFixed) ? data.autoFixed : [])
+    .filter((f) => f && typeof f.message === 'string' && f.message && typeof f.at === 'string')
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+
+/** "Finesse fixed this by itself": a quiet line, the details a press away. Nothing to do. */
+function AutoHealed({ fixes, nameOf }: { fixes: ConnAutoFix[]; nameOf: (app: string) => string }) {
+  const [open, setOpen] = useState(false)
+  if (!fixes.length) return null
+  const latest = fixes[0]!
+  return (
+    <div className="mb-3 rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.05] px-4 py-2.5">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2.5 text-left">
+        <svg className="h-4 w-4 shrink-0 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+        </svg>
+        <span className="min-w-0 flex-1 text-[13px] text-emerald-100">
+          <span className="font-semibold">Auto-healed</span>
+          <span className="text-emerald-100/75">
+            {' '}
+            · {fixes.length === 1 ? `${nameOf(latest.app)}, ${ago(latest.at)}. Nothing for you to do.` : `Finesse fixed ${fixes.length} things by itself, last ${ago(latest.at)}. Nothing for you to do.`}
+          </span>
+        </span>
+        <svg className={`h-4 w-4 shrink-0 text-emerald-200/70 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1.5 border-t border-emerald-300/10 pt-2">
+          {fixes.slice(0, 10).map((f, i) => (
+            <li key={`${f.app}-${f.fix}-${f.at}-${i}`} className="flex flex-wrap items-baseline justify-between gap-x-3 text-[12.5px] leading-relaxed">
+              <span className="min-w-0 break-words text-ink-200">
+                <span className="font-medium text-white">{nameOf(f.app)}</span> · {f.message}
+              </span>
+              <span className="shrink-0 tabular-nums text-ink-400">{ago(f.at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 const primary = `${pill} bg-white text-ink-950 hover:bg-ink-200`
 
 export default function ConnectionsHealth() {
@@ -78,6 +134,10 @@ export default function ConnectionsHealth() {
   if (!rows.length) return null
   const bad = rows.filter((r) => r.ok !== true).length
   const all = rows.flatMap((r) => (r.fixes ?? []).map((f) => ({ app: r.id, name: r.name, fix: f.id })))
+  const healed = healedOf(data)
+  const nameOf = (app: string) => rows.find((r) => r.id === app)?.name ?? app.charAt(0).toUpperCase() + app.slice(1)
+  const healedAt = new Map<string, string>()
+  for (const f of healed) if (!healedAt.has(f.app)) healedAt.set(f.app, f.at)
 
   return (
     <div>
@@ -112,13 +172,21 @@ export default function ConnectionsHealth() {
         {bad ? `${bad} need${bad > 1 ? '' : 's'} attention.` : 'Every app answers, and its own checks pass.'} Indexers and download clients are tested the way their Test buttons do.
         {all.length > 0 && ' Finesse can fix the ones with a button.'}
       </p>
+      <AutoHealed fixes={healed} nameOf={nameOf} />
       <ul className="divide-y divide-white/5 rounded-2xl border border-white/5 bg-ink-900/60">
         {rows.map((r) => (
           <li key={r.id} className="flex min-w-0 gap-3 px-5 py-3">
             <Dot ok={r.ok} />
             <div className="min-w-0 flex-1">
-              <p className="text-[14px] font-medium text-white">
-                {r.name} <span className="sr-only">: {word(r.ok)}</span>
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[14px] font-medium text-white">
+                <span>
+                  {r.name} <span className="sr-only">: {word(r.ok)}</span>
+                </span>
+                {healedAt.has(r.id) && (
+                  <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200" title={`Finesse fixed something here ${ago(healedAt.get(r.id)!)}`}>
+                    Auto-healed {ago(healedAt.get(r.id)!)}
+                  </span>
+                )}
               </p>
               {r.ok !== true || r.summary !== 'Working' ? <p className="break-words text-[12.5px] leading-relaxed text-ink-200">{r.summary}</p> : null}
               {r.problems.length > 0 && (
@@ -135,10 +203,11 @@ export default function ConnectionsHealth() {
                   {n}
                 </p>
               ))}
-              {(r.fix || r.fixes?.length) && (
+              {/* Boolean: an empty fixes list would otherwise draw a stray "0". */}
+              {Boolean(r.fix || r.fixes?.length) && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {r.fixes?.map((f) => (
-                    <button key={f.id} type="button" title={f.detail} disabled={!!busy} onClick={() => void run(`${r.id}:${f.id}`, [{ app: r.id, name: r.name, fix: f.id }])} className={primary}>
+                    <button key={f.id} type="button" title={f.detail} disabled={!!busy} aria-busy={busy === `${r.id}:${f.id}` || undefined} onClick={() => void run(`${r.id}:${f.id}`, [{ app: r.id, name: r.name, fix: f.id }])} className={primary}>
                       {busy === `${r.id}:${f.id}` ? 'Fixing…' : f.label}
                     </button>
                   ))}

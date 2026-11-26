@@ -14,6 +14,7 @@ export default function SaveMoment({ what, label, onClose }: { what: What; label
   const [making, setMaking] = useState(false)
   const qc = useQueryClient()
   const save = async (id: string) => {
+    if (state[id] === 'saving' || state[id] === 'saved') return
     setState((s) => ({ ...s, [id]: 'saving' }))
     try {
       await saveToCollection(id, what)
@@ -32,6 +33,8 @@ export default function SaveMoment({ what, label, onClose }: { what: What; label
         <div className="mt-4 h-14 rounded-xl shimmer" />
       ) : isError ? (
         <p className="mt-4 text-sm text-amber-200">Couldn’t load your collections. Try again in a moment.</p>
+      ) : !data?.mine.length ? (
+        <p className="mt-4 text-[13.5px] text-ink-400">No collections yet. Name one below and this goes straight in.</p>
       ) : (
         <ul className="mt-3 space-y-1">
           {(data?.mine ?? []).map((c) => {
@@ -49,7 +52,7 @@ export default function SaveMoment({ what, label, onClose }: { what: What; label
                     Saved · Open
                   </Link>
                 ) : (
-                  <button type="button" disabled={st === 'saving'} onClick={() => void save(c.id)} className="h-9 rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white hover:bg-white/15 disabled:opacity-60">
+                  <button type="button" disabled={st === 'saving'} onClick={() => void save(c.id)} className="h-9 rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white transition hover:bg-white/15 active:scale-[0.97] disabled:opacity-60">
                     {st === 'saving' ? 'Saving…' : 'Save'}
                   </button>
                 )}
@@ -62,10 +65,12 @@ export default function SaveMoment({ what, label, onClose }: { what: What; label
         className="mt-3 flex gap-2"
         onSubmit={async (e) => {
           e.preventDefault()
-          if (!name.trim()) return
+          if (!name.trim() || making) return
           setMaking(true)
+          // A new try starts without the last one's error.
+          setState(({ new: _, ...rest }) => rest)
           try {
-            const c = await createMomentCollection(name)
+            const c = await createMomentCollection(name.trim())
             await saveToCollection(c.id, what)
             setState((s) => ({ ...s, [c.id]: 'saved' }))
             setName('')
@@ -78,7 +83,7 @@ export default function SaveMoment({ what, label, onClose }: { what: What; label
         }}
       >
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="New collection, like “Best openings”" aria-label="New collection name" className="h-10 min-w-0 flex-1 rounded-lg border border-white/15 bg-white/[0.05] px-3 text-[15px] text-white outline-none focus:border-white/40" />
-        <button type="submit" disabled={making || !name.trim()} className="h-10 shrink-0 rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-60">
+        <button type="submit" disabled={making || !name.trim()} className="h-10 shrink-0 rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97] disabled:opacity-60">
           {making ? 'Saving…' : 'Make and save'}
         </button>
       </form>

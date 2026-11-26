@@ -72,9 +72,10 @@ function CollectionsHome() {
         className="mt-6 flex max-w-md gap-2"
         onSubmit={async (e) => {
           e.preventDefault()
+          if (busy || !name.trim()) return
           setBusy(true)
           try {
-            const c = await createMomentCollection(name)
+            const c = await createMomentCollection(name.trim())
             await qc.invalidateQueries({ queryKey: ['momentCollections'] })
             navigate(`/moments/${c.id}`)
           } catch (err) {
@@ -85,7 +86,7 @@ function CollectionsHome() {
       >
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="New collection, like “Best openings”" aria-label="New collection name" className="h-10 min-w-0 flex-1 rounded-lg border border-white/15 bg-white/[0.05] px-3 text-[15px] text-white outline-none focus:border-white/40" />
         <button type="submit" disabled={busy || !name.trim()} className={BTN_MAIN}>
-          Make
+          {busy ? 'Making…' : 'Make'}
         </button>
       </form>
       {isLoading ? (
@@ -165,7 +166,16 @@ function CollectionPage() {
           </button>
         </div>
       )}
-      {sharing && c.mine && <ShareEditor c={c} onSaved={set} />}
+      {sharing && c.mine && (
+        <ShareEditor
+          c={c}
+          onSaved={(next) => {
+            set(next)
+            // Saved: the editor folds away, the new list of people shows on the page.
+            setSharing(false)
+          }}
+        />
+      )}
       {gone > 0 && (
         <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-[13px] text-amber-100">
           {gone === 1 ? 'One moment is' : `${gone} moments are`} of a title {c.mine ? 'that isn’t available to you any more: it may have been removed, or a friend’s server stopped sharing it.' : 'you can’t open.'}
@@ -197,7 +207,7 @@ function CollectionPage() {
                     </Link>
                   )}
                   {!c.mine && e.available && (
-                    <button type="button" onClick={() => setSaving(e)} className="h-9 rounded-lg border border-white/15 bg-white/10 px-3 text-sm font-semibold text-white hover:bg-white/15">
+                    <button type="button" onClick={() => setSaving(e)} className="h-9 rounded-lg border border-white/15 bg-white/10 px-3 text-sm font-semibold text-white transition hover:bg-white/15 active:scale-[0.97]">
                       Save to mine
                     </button>
                   )}
@@ -217,7 +227,7 @@ function CollectionPage() {
                       }}
                       aria-label={`Take “${e.title}” out of the collection`}
                       title="Take it out"
-                      className="grid h-9 w-9 place-items-center rounded-lg text-ink-400 hover:bg-white/10 hover:text-white"
+                      className="grid h-9 w-9 place-items-center rounded-lg text-ink-400 transition hover:bg-white/10 hover:text-white active:scale-90 disabled:opacity-50"
                     >
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />

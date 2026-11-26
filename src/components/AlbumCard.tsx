@@ -4,6 +4,7 @@ import { posterUrl } from '../api/client'
 import type { JfItem } from '../api/types'
 import { blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
 import { usePlayAlbum } from '../lib/playAlbum'
+import { useToast } from './Toast'
 
 /** Square album tile; hovering it offers a play button that starts the album
  *  without opening it. */
@@ -11,6 +12,7 @@ const AlbumCard = memo(function AlbumCard({ album, width }: { album: JfItem; wid
   const art = posterUrl(album, 360)
   const blur = blurhashToDataURL(primaryBlurhash(album))
   const playAlbum = usePlayAlbum()
+  const toast = useToast()
   const href = `/album/${album.Id}`
   return (
     <div className="group shrink-0 snap-start" style={width ? { width } : undefined}>
@@ -30,7 +32,8 @@ const AlbumCard = memo(function AlbumCard({ album, width }: { album: JfItem; wid
         <button
           type="button"
           tabIndex={-1}
-          onClick={() => void playAlbum(album.Id)}
+          // A failed track list said nothing (an unhandled rejection): say so.
+          onClick={() => playAlbum(album.Id).catch(() => toast(`Couldn’t play “${album.Name}” right now`, 'error'))}
           aria-label={`Play ${album.Name}`}
           className="absolute right-2 bottom-2 h-11 w-11 rounded-full bg-white text-ink-950 shadow-xl shadow-black/40 flex items-center justify-center opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 hover:scale-105 active:scale-95 transition-all [@media(hover:none)]:hidden"
         >

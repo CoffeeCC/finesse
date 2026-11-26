@@ -656,11 +656,78 @@ export interface ConnReport {
   checkedAt: string
   apps: ConnCheck[]
   vpn: { ok: boolean | null; summary: string; source: 'gluetun' | 'inferred' } | null
+  /** Repairs Finesse made by itself since the last look (newer servers); nothing to do about them. */
+  autoFixed?: ConnAutoFix[]
+}
+export interface ConnAutoFix {
+  app: string
+  fix: string
+  /** ISO time it was put right. */
+  at: string
+  /** What was wrong and what Finesse did, in words. */
+  message: string
 }
 export const connectionsApi = {
   get: (refresh = false) => call<ConnReport>('GET', `/api/system/connections${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 60000 }),
   /** Runs one repair; answers with what it changed. */
   fix: (app: string, fix: string) => call<{ message: string }>('POST', '/api/system/connections/fix', { app, fix }, { timeoutMs: 60000 }),
+}
+
+// ---------- Automatic download rescue (server/src/downloadRescue.ts) ----------
+
+export type RescueProblem = 'stalled' | 'slow' | 'failed' | 'import' | 'not-needed' | 'needs-person'
+
+/** One thing the rescuer did (or decided it couldn't), newest first. */
+export interface RescueEvent {
+  at: string
+  /** `movie-12`, `series-4`, `artist-9`: the download queue's keys. */
+  key: string
+  title: string
+  what: 'swapped' | 'dropped' | 'gave-up'
+  problem: RescueProblem
+  reason: string
+  via?: string
+}
+
+/** A stuck download it's keeping an eye on. */
+export interface RescueWatch {
+  key: string
+  title: string
+  problem: RescueProblem
+  action: 'swap' | 'drop' | 'report'
+  reason: string
+  dueAt?: string
+  swaps: number
+  exhausted: boolean
+}
+
+export interface RescueStatus {
+  enabled: boolean
+  stalledMinutes: number
+  lastRun: string | null
+  maxSwaps: number
+  watching: RescueWatch[]
+  log: RescueEvent[]
+  prefer: 'usenet' | 'torrent' | null
+  /** Both a Usenet and a torrent downloader are set up (so "prefer" means something). */
+  both: boolean
+}
+
+/** The server's range for the stalled wait (minutes). */
+export const RESCUE_WAIT_RANGE = [15, 24 * 60] as const
+
+export const downloadRescueApi = {
+  /** null on a server from before automatic rescue (404). */
+  get: async (): Promise<RescueStatus | null> => {
+    try {
+      return await call<RescueStatus>('GET', '/api/downloads/auto')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null
+      throw e
+    }
+  },
+  set: (change: { enabled?: boolean; stalledMinutes?: number; prefer?: 'usenet' | 'torrent' }) => call<RescueStatus>('PUT', '/api/downloads/auto', change),
+  check: () => call<RescueStatus>('POST', '/api/downloads/auto/check', undefined, { timeoutMs: 60000 }),
 }
 
 // ---------- Library health (read-only; server/src/libraryHealth.ts) ----------

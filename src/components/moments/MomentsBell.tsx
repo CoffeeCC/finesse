@@ -113,11 +113,11 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
   const mine = data?.mine ?? []
   const unread = data?.unread ?? 0
 
-  const openOne = async (m: InboxMoment) => {
+  // Straight there: marking it read happens on the way (it used to hold the jump up).
+  const openOne = (m: InboxMoment) => {
     setOpen(false)
-    if (!m.read) await markMomentsRead([m.key]).catch(() => {})
-    void qc.invalidateQueries({ queryKey: ['moments', 'inbox'] })
     navigate(momentHref(m))
+    if (!m.read) void markMomentsRead([m.key]).catch(() => {}).finally(() => void qc.invalidateQueries({ queryKey: ['moments', 'inbox'] }))
   }
   const remove = async (m: MyMoment) => {
     try {
@@ -134,8 +134,12 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         setSaving(m)
       }
     : null
+  // The badge clears at once; the server's count follows.
   const allRead = async () => {
-    await markMomentsRead(list.filter((m) => !m.read).map((m) => m.key)).catch(() => {})
+    const keys = list.filter((m) => !m.read).map((m) => m.key)
+    if (!keys.length) return
+    qc.setQueryData<typeof data>(['moments', 'inbox'], (d) => (d ? { ...d, unread: 0, moments: d.moments.map((m) => ({ ...m, read: true })) } : d))
+    await markMomentsRead(keys).catch(() => toast('Couldn’t mark them read. Try again in a moment.', 'error'))
     void qc.invalidateQueries({ queryKey: ['moments', 'inbox'] })
   }
 
@@ -161,11 +165,11 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
         )}
       </button>
       {open && (
-        <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(4rem+env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.5rem,env(safe-area-inset-right))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(1rem,env(safe-area-inset-right))] z-[75] w-[min(24rem,calc(var(--vw,1vw)*100_-_1rem))] rounded-2xl border border-white/10 bg-ink-900/[0.97] p-2 shadow-2xl">
+        <div ref={panel} role="dialog" aria-label="Moments" tabIndex={-1} className="outline-none fixed right-2 sm:right-4 top-16 supports-[top:max(0px,env(safe-area-inset-top))]:top-[calc(4rem+env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.5rem,env(safe-area-inset-right))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(1rem,env(safe-area-inset-right))] z-[75] w-[24rem] max-w-[calc(var(--vw,1vw)*100_-_1rem)] rounded-2xl border border-white/10 bg-ink-900/[0.97] p-2 shadow-2xl">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-1">
             <p className="text-[15px] font-semibold text-white">Moments</p>
             {unread > 0 && (
-              <button type="button" onClick={allRead} className="text-[12.5px] font-medium text-ink-300 hover:text-white">
+              <button type="button" onClick={() => void allRead()} className="rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-ink-300 transition hover:text-white active:scale-[0.97]">
                 Mark all read
               </button>
             )}
@@ -173,7 +177,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
           <div className="max-h-[calc(var(--vh,1vh)*65)] overflow-y-auto">
             {mine.length > 0 && <p className="px-3 pb-1 pt-1 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Sent to you</p>}
             {list.length ? (
-              list.map((m) => <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} onSave={saveOne?.(m)} />)
+              list.map((m) => <MomentLine key={m.key} m={m} onOpen={() => openOne(m)} onSave={saveOne?.(m)} />)
             ) : (
               <p className="px-3 pb-3 pt-1 text-[13.5px] leading-relaxed text-ink-400">
                 {mine.length
@@ -185,7 +189,7 @@ export default function MomentsBell({ lux }: { lux: boolean }) {
               <>
                 <p className="mt-2 border-t border-white/5 px-3 pb-1 pt-3 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Saved by you</p>
                 {mine.map((m) => (
-                  <MomentLine key={m.key} m={m} onOpen={() => void openOne(m)} onSave={saveOne?.(m)} onDelete={() => void remove(m)} />
+                  <MomentLine key={m.key} m={m} onOpen={() => openOne(m)} onSave={saveOne?.(m)} onDelete={() => void remove(m)} />
                 ))}
               </>
             )}
@@ -223,20 +227,42 @@ export function MomentArrivals() {
     if (fresh) setCard(fresh)
   }, [data])
 
+  // Gone after 8 s, but not while it's being read (pointer over it, or focus in it).
+  const [held, setHeld] = useState(false)
   useEffect(() => {
-    if (!card) return
+    if (!card || held) return
     const t = setTimeout(() => setCard(null), 8000)
     return () => clearTimeout(t)
-  }, [card])
+  }, [card, held])
 
   if (!card) return null
   return (
-    <div role="status" className="toast-in fixed bottom-24 md:bottom-6 right-3 sm:right-6 supports-[top:max(0px,env(safe-area-inset-top))]:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:supports-[top:max(0px,env(safe-area-inset-top))]:bottom-[max(1.5rem,env(safe-area-inset-bottom))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.75rem,env(safe-area-inset-right))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(1.5rem,env(safe-area-inset-right))] z-[72] w-[min(22rem,calc(var(--vw,1vw)*100_-_1.5rem))] rounded-2xl border border-white/10 bg-ink-900/[0.97] p-1.5 shadow-2xl">
+    <div
+      role="status"
+      onPointerEnter={() => setHeld(true)}
+      onPointerLeave={() => setHeld(false)}
+      onFocus={() => setHeld(true)}
+      onBlur={() => setHeld(false)}
+      className="toast-in fixed bottom-24 md:bottom-6 right-3 sm:right-6 supports-[top:max(0px,env(safe-area-inset-top))]:bottom-[calc(6rem+env(safe-area-inset-bottom))] md:supports-[top:max(0px,env(safe-area-inset-top))]:bottom-[max(1.5rem,env(safe-area-inset-bottom))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.75rem,env(safe-area-inset-right))] sm:supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(1.5rem,env(safe-area-inset-right))] z-[72] w-[22rem] max-w-[calc(var(--vw,1vw)*100_-_1.5rem)] rounded-2xl border border-white/10 bg-ink-900/[0.97] p-1.5 pr-9 shadow-2xl">
+      <button
+        type="button"
+        onClick={() => {
+          setHeld(false)
+          setCard(null)
+        }}
+        aria-label="Dismiss"
+        className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full text-ink-400 transition hover:bg-white/10 hover:text-white active:scale-90"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
       <MomentLine
         m={card}
         compact
         onOpen={() => {
           const m = card
+          setHeld(false)
           setCard(null)
           void markMomentsRead([m.key]).catch(() => {})
           void qc.invalidateQueries({ queryKey: ['moments', 'inbox'] })

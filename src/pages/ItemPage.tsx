@@ -38,6 +38,7 @@ import { DELETABLE, DeleteFromLibrary, useCanDelete } from '../components/Delete
 import { ACTION_BTN, ActionButton, PLAY_BTN, RestartIcon, START_OVER_BTN, actionCircle } from '../components/ActionButton'
 import { playChoice } from '../lib/playChoice'
 import WatchlistButton from '../components/WatchlistButton'
+import SoundtrackButton from '../components/SoundtrackButton'
 import TrailerHero from '../components/TrailerHero'
 import VideoClipHero from '../components/VideoClipHero'
 import MediaCard, { playHref } from '../components/MediaCard'
@@ -660,6 +661,7 @@ export default function ItemPage() {
               {isSeries && <SeriesPlayLink seriesId={item.Id} />}
               <div className="flex items-start gap-1 sm:gap-2">
                 {(item.Type === 'Movie' || item.Type === 'Series') && <WatchlistButton item={item} labelled />}
+                {(item.Type === 'Movie' || item.Type === 'Series') && !friendId && <SoundtrackButton item={item} />}
                 <ActionButton
                   label={isFavorite ? 'Favorited' : 'Favorite'}
                   onClick={toggleFavorite}

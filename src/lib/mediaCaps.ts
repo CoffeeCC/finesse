@@ -138,9 +138,10 @@ export function buildDeviceProfile(maxBitrate: number, caps: MediaCaps = detectM
   if (webmVideo.length && webmAudio.length) direct.push({ Container: 'webm', Type: 'Video', VideoCodec: webmVideo.join(','), AudioCodec: webmAudio.join(',') })
 
   // The transcode: HLS, MPEG-TS, H.264 (what seeks and plays everywhere). Surround is kept when
-  // the device decodes it. AAC stays first: it's what Jellyfin encodes to when it has to.
+  // the device decodes it. AAC only (no mp3: Jellyfin copies MP3 into TS segments, which hls.js
+  // fails to play in Chrome and LG webOS — old XviD/MP3 AVIs never started).
   // E-AC-3 only where the engine plays the HLS itself (Safari): hls.js doesn't read E-AC-3 in TS.
-  const hlsAudio = ['aac', 'mp3', ...(a.ac3 ? ['ac3'] : []), ...(a.eac3 && !caps.mse ? ['eac3'] : [])]
+  const hlsAudio = ['aac', ...(a.ac3 ? ['ac3'] : []), ...(a.eac3 && !caps.mse ? ['eac3'] : [])]
   const surround = hlsAudio.includes('ac3') || hlsAudio.includes('eac3')
   const videoTranscode: Record<string, unknown> = {
     Container: 'ts',

@@ -8,6 +8,7 @@ import { FriendMusicRows, useFriendMusic } from '../components/FriendAlbums'
 import { SelectMenu } from '../components/Menu'
 import { ROW_SCROLLER } from '../components/MediaRow'
 import type { JfItem } from '../api/types'
+import { useToast } from '../components/Toast'
 
 type Sort = 'title' | 'artist' | 'year' | 'added'
 const SORTS: { value: Sort; label: string }[] = [
@@ -44,10 +45,13 @@ export default function MusicPage() {
     musicView ? { parentId: musicView.Id, includeItemTypes: 'MusicAlbum', sortBy: 'DateCreated', sortOrder: 'Descending', limit: 12 } : null,
   )
   const { playQueue } = useAudio()
+  const toast = useToast()
   const [shuffling, setShuffling] = useState(false)
   const [sort, setSort] = useState<Sort>(() => {
     try {
-      return (localStorage.getItem(SORT_KEY) as Sort | null) ?? 'title'
+      // A stored value from an older build (or a hand edit) falls back to Title, not to no sort.
+      const v = localStorage.getItem(SORT_KEY)
+      return SORTS.some((x) => x.value === v) ? (v as Sort) : 'title'
     } catch {
       return 'title'
     }
@@ -64,10 +68,14 @@ export default function MusicPage() {
 
   const shuffleAll = async () => {
     if (!musicView) return
+    if (shuffling) return
     setShuffling(true)
     try {
       const res = await api.getItems({ parentId: musicView.Id, includeItemTypes: 'Audio', recursive: true, sortBy: 'Random', limit: 200 })
       if (res.Items.length) playQueue(res.Items, 0, { shuffle: true })
+      else toast('There are no songs to shuffle yet')
+    } catch {
+      toast('Couldn’t start shuffling. Try again in a moment.', 'error')
     } finally {
       setShuffling(false)
     }
@@ -115,7 +123,7 @@ export default function MusicPage() {
             <SelectMenu label="Sort albums by" prefix="Sort:" value={sort} options={SORTS} onChange={chooseSort} align="right" />
           </div>
           <div className="grid gap-3 sm:gap-5 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))]">
-            {isLoading ? Array.from({ length: 18 }).map((_, i) => <CardSkeleton key={i} />) : sorted.map((a) => (
+            {isLoading || !views ? Array.from({ length: 18 }).map((_, i) => <CardSkeleton key={i} />) : sorted.map((a) => (
                   <div key={a.Id} className="cv-card">
                     <AlbumCard album={a} />
                   </div>

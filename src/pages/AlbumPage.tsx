@@ -5,7 +5,7 @@ import { goBack } from '../lib/back'
 import { useQuery } from '@tanstack/react-query'
 import ItemUnavailable from '../components/ItemUnavailable'
 import { useAlbums, useFriends, useItem, useTracks, useViews } from '../api/queries'
-import { posterUrl } from '../api/client'
+import { getItems, posterUrl } from '../api/client'
 import { useAudio } from '../audio/AudioPlayerContext'
 import { formatRuntime, ticksToSeconds } from '../api/types'
 import type { JfItem } from '../api/types'
@@ -17,6 +17,7 @@ import { peerOf } from '../lib/peers'
 import { ROW_SCROLLER } from '../components/MediaRow'
 
 function trackLen(ticks?: number): string {
+  if (!ticks) return ''
   const s = ticksToSeconds(ticks)
   const m = Math.floor(s / 60)
   const sec = Math.floor(s % 60)
@@ -36,7 +37,7 @@ function Equalizer({ paused }: { paused: boolean }) {
 export default function AlbumPage() {
   const { albumId } = useParams()
   const { data: album, isLoading, isError, error, refetch, isFetching } = useItem(albumId)
-  const { data: tracks } = useTracks(albumId)
+  const { data: tracks, isLoading: tracksLoading } = useTracks(albumId)
   const { playQueue, current, playing, toggle } = useAudio()
   const { data: views } = useViews()
   // An album on a friend's server (Groups): "More by" comes from their library.
@@ -45,7 +46,17 @@ export default function AlbumPage() {
   const { data: friendViews } = useQuery({ ...friendViewsQuery(friendId ?? ''), enabled: !!friendId })
   const friendName = friendId ? friends?.find((f) => f.id === friendId)?.name ?? 'a friend’s server' : null
   const musicView = (friendId ? friendViews : views)?.Items.find(isMusicView)
-  const { data: albums } = useAlbums(musicView?.Id)
+  // "More by": just this artist's albums. Reading the whole music library for it (as before)
+  // cost one huge request per album opened; a friend's album still reads theirs (ids differ).
+  const artistId = (album as (JfItem & { AlbumArtists?: { Id?: string }[] }) | undefined)?.AlbumArtists?.[0]?.Id
+  const byArtist = useQuery({
+    queryKey: ['albumsByArtist', artistId],
+    enabled: Boolean(artistId && !friendId),
+    staleTime: 10 * 60_000,
+    queryFn: () => getItems({ albumArtistIds: artistId, includeItemTypes: 'MusicAlbum', recursive: true, sortBy: 'ProductionYear,SortName', sortOrder: 'Descending', limit: 40 }),
+  })
+  const { data: libraryAlbums } = useAlbums(album && (friendId || !artistId) ? musicView?.Id : undefined)
+  const albums = friendId || !artistId ? libraryAlbums : byArtist.data
   const navigate = useNavigate()
   const [deleting, setDeleting] = useState(false)
   const canDelete = useCanDelete() && !friendId
@@ -92,12 +103,13 @@ export default function AlbumPage() {
           <h1 className="mt-2 font-display text-4xl sm:text-5xl lg:text-6xl leading-[1.02] text-white">{album.Name}</h1>
           <p className="mt-3 text-lg font-semibold text-white/85">{album.AlbumArtist}</p>
           <p className="mt-1 text-sm text-white/55">
-            {[album.ProductionYear, `${items.length} song${items.length === 1 ? '' : 's'}`, totalTicks ? formatRuntime(totalTicks) : null, album.Genres?.[0]]
+            {[album.ProductionYear, tracks ? `${items.length} song${items.length === 1 ? '' : 's'}` : null, totalTicks ? formatRuntime(totalTicks) : null, album.Genres?.[0]]
               .filter(Boolean)
               .join(' · ')}
           </p>
           <div className="mt-5 flex flex-wrap justify-center sm:justify-start gap-3">
             <button
+              type="button"
               onClick={() => (thisAlbumPlaying ? toggle() : playQueue(items, 0))}
               disabled={items.length === 0}
               data-autofocus
@@ -109,6 +121,7 @@ export default function AlbumPage() {
               {thisAlbumPlaying ? (playing ? 'Pause' : 'Resume') : 'Play'}
             </button>
             <button
+              type="button"
               onClick={() => playQueue(items, 0, { shuffle: true })}
               disabled={items.length === 0}
               className="inline-flex h-12 items-center gap-2 rounded-full bg-white/10 border border-white/15 backdrop-blur px-6 text-[15px] font-semibold text-white hover:bg-white/15 active:scale-95 disabled:opacity-50 transition-all"
@@ -143,6 +156,7 @@ export default function AlbumPage() {
                   <p className="px-4 pt-4 pb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink-400">Disc {t.ParentIndexNumber ?? 1}</p>
                 )}
                 <button
+                  type="button"
                   onClick={() => (isCurrent ? toggle() : playQueue(items, i))}
                   aria-current={isCurrent ? 'true' : undefined}
                   className={`group w-full flex items-center gap-4 px-4 py-3 text-left transition-colors ${isCurrent ? 'bg-white/[0.06]' : 'hover:bg-white/5'}`}
@@ -168,7 +182,16 @@ export default function AlbumPage() {
               </li>
             )
           })}
-          {items.length === 0 && <li className="px-4 py-6 text-sm text-ink-400">No tracks found.</li>}
+          {/* Loading: rows the shape of tracks. Only "no tracks" once the album really has none. */}
+          {tracksLoading &&
+            Array.from({ length: 6 }, (_, i) => (
+              <li key={`s${i}`} className="flex items-center gap-4 px-4 py-3.5" aria-hidden>
+                <span className="h-3 w-6 rounded shimmer" />
+                <span className="h-3.5 flex-1 max-w-sm rounded shimmer" />
+                <span className="h-3 w-10 rounded shimmer" />
+              </li>
+            ))}
+          {!tracksLoading && items.length === 0 && <li className="px-4 py-6 text-sm text-ink-400">No tracks found.</li>}
         </ol>
       </div>
 

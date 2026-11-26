@@ -55,6 +55,27 @@ export interface AlbumRow {
   downloaded: boolean
 }
 
+export interface SoundtrackRow extends AlbumRow {
+  artistName: string
+  foreignArtistId?: string
+  cover?: string
+}
+
+export interface SoundtrackQuery {
+  title: string
+  year?: number
+  kind?: 'movie' | 'series'
+  composer?: string
+}
+
+export interface SoundtrackAsk {
+  foreignAlbumId: string
+  albumTitle: string
+  artistName?: string
+  qualityProfileId: number
+  rootFolderPath: string
+}
+
 /** A call to Lidarr with its key; JSON back, or an ApiError saying what to do. */
 export type LidarrCall = <T>(method: string, path: string, body?: unknown) => Promise<T>
 
@@ -188,6 +209,185 @@ export async function requestAlbum(call: LidarrCall, ask: AlbumAsk): Promise<{ s
 
 const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+const STOP_WORDS = new Set(['the', 'a', 'an', 'of', 'and', 'in', 'to', 'for', 'on', 'at', 'by', 'from'])
+const normWords = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+const SOUNDTRACK_HINT = /\b(soundtrack|original motion picture|original television|original series|original score|motion picture|television series|ost|music from|film score)\b/i
+const COVER_PENALTY = /\b(karaoke|tribute|lullaby|lullabies|8-bit|ringtone|piano cover|guitar cover)\b/i
+
+function pickCover(a: LidarrAlbum): string | undefined {
+  const images = Array.isArray(a.images) ? (a.images as { coverType?: string; remoteUrl?: string; url?: string }[]) : []
+  const cover = images.find((i) => i.coverType === 'cover') ?? images[0]
+  const url = [cover?.remoteUrl, cover?.url, typeof a.remoteCover === 'string' ? a.remoteCover : undefined].find(
+    (u) => typeof u === 'string' && /^https?:\/\//i.test(u),
+  )
+  return url
+}
+
+function hasSoundtrackSecondary(a: LidarrAlbum): boolean {
+  return Array.isArray(a.secondaryTypes) && (a.secondaryTypes as unknown[]).some((t) => typeof t === 'string' && /soundtrack/i.test(t))
+}
+
+function scoreSoundtrack(a: LidarrAlbum, q: SoundtrackQuery): number {
+  const albumTitle = str(a.title) ?? ''
+  if (!albumTitle) return -1
+  const artistName = str(a.artist?.artistName) ?? ''
+  const rawTitleWords = normWords(q.title)
+  const keyWords = rawTitleWords.filter((w) => w.length > 1 && !STOP_WORDS.has(w))
+  const required = keyWords.length ? keyWords : rawTitleWords
+  if (!required.length) return -1
+  const hay = ` ${normWords(albumTitle).join(' ')} `
+  const hayWithArtist = `${hay}${normWords(artistName).join(' ')} `
+  const titleHits = required.filter((w) => hay.includes(` ${w} `)).length
+  const anyHits = required.filter((w) => hayWithArtist.includes(` ${w} `)).length
+  const fullPhrase = rawTitleWords.join(' ')
+  const hasPhrase = fullPhrase.length >= 2 && hay.includes(` ${fullPhrase} `)
+  if (!hasPhrase && titleHits / required.length < 0.6 && anyHits / required.length < 0.8) return -1
+
+  let pts = hasPhrase ? 50 : Math.round((titleHits / required.length) * 40)
+  if (hasSoundtrackSecondary(a)) pts += 45
+  if (SOUNDTRACK_HINT.test(albumTitle)) pts += 40
+  if (q.composer) {
+    const cWords = normWords(q.composer).filter((w) => w.length > 2)
+    const aNorm = ` ${normWords(artistName).join(' ')} `
+    if (cWords.length && cWords.every((w) => aNorm.includes(` ${w} `))) pts += 30
+  }
+  const y = yearOf(a.releaseDate)
+  if (q.year && y) {
+    const diff = Math.abs(y - q.year)
+    if (diff <= 1) pts += 18
+    else if (diff <= 3) pts += 10
+    else if (diff > 10) pts -= 8
+  }
+  if (str(a.albumType)?.toLowerCase() === 'album') pts += 6
+  if (COVER_PENALTY.test(albumTitle) || COVER_PENALTY.test(artistName)) pts -= 40
+  return pts
+}
+
+/** Searches Lidarr for the soundtrack / score of a movie or show, ranked by relevance. */
+export async function findSoundtracks(call: LidarrCall, q: SoundtrackQuery): Promise<SoundtrackRow[]> {
+  const title = q.title.trim()
+  if (!title) return []
+  const queries = [
+    `${title} soundtrack`,
+    `${title} ${q.kind === 'series' ? 'original television soundtrack' : 'original motion picture soundtrack'}`,
+    ...(q.composer?.trim() ? [`${title} ${q.composer.trim()}`] : []),
+  ]
+  const [lookups, artists] = await Promise.all([
+    Promise.all(queries.map((term) => lidarrList<LidarrAlbum>(call, `/album/lookup?term=${encodeURIComponent(term)}`).catch(() => [] as LidarrAlbum[]))),
+    lidarrList<LidarrArtist>(call, '/artist'),
+  ])
+  const unique = new Map<string, LidarrAlbum>()
+  for (const list of lookups) {
+    for (const a of list) {
+      const id = mbid(a.foreignAlbumId)
+      if (!id || unique.has(id)) continue
+      unique.set(id, a)
+    }
+  }
+  const scored = [...unique.entries()]
+    .map(([id, album]) => ({ id, album, score: scoreSoundtrack(album, q) }))
+    .filter((x) => x.score >= 25)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+
+  // Only ask Lidarr for the albums of artists that matched and are already in Lidarr.
+  const artistByMbid = new Map(artists.filter((a) => positiveId(a.id) && mbid(a.foreignArtistId)).map((a) => [mbid(a.foreignArtistId)!, a]))
+  const matchedArtistIds = [...new Set(scored.map((x) => artistIdOf(x.album)).filter((id): id is string => Boolean(id && artistByMbid.has(id))).map((id) => artistByMbid.get(id)!.id))]
+  const ownLists = await Promise.all(matchedArtistIds.map((aid) => lidarrList<LidarrAlbum>(call, `/album?artistId=${aid}`).catch(() => [] as LidarrAlbum[])))
+  const ownById = new Map(ownLists.flat().map((a) => [mbid(a.foreignAlbumId), a]))
+
+  return scored.map(({ id, album }) => {
+    const mine = ownById.get(id)
+    const year = yearOf(album.releaseDate)
+    const cover = pickCover(album)
+    const foreignArtistId = artistIdOf(album)
+    return {
+      foreignAlbumId: id,
+      title: str(album.title) ?? 'Soundtrack',
+      artistName: str(album.artist?.artistName) ?? 'Various Artists',
+      ...(foreignArtistId ? { foreignArtistId } : {}),
+      type: str(album.albumType) ?? 'Album',
+      ...(year !== undefined ? { year } : {}),
+      ...(cover ? { cover } : {}),
+      inLidarr: Boolean(mine),
+      monitored: mine?.monitored === true,
+      downloaded: downloaded(mine),
+    }
+  })
+}
+
+/** Requests one soundtrack album in Lidarr without subscribing to the composer's whole discography. */
+export async function requestSoundtrack(call: LidarrCall, ask: SoundtrackAsk): Promise<{ state: 'searching' | 'added' | 'have'; message: string; profileChanged?: boolean }> {
+  const wanted = mbid(ask.foreignAlbumId)
+  if (!wanted) throw new ApiError(400, 'Which soundtrack?')
+  const searchTerms = [`lidarr:${wanted}`, ask.albumTitle, ...(ask.artistName ? [ask.artistName] : [])].filter(Boolean)
+  const [qps, roots, metas, artists] = await Promise.all([
+    lidarrList<{ id: number }>(call, '/qualityprofile'),
+    call('GET', '/rootfolder').then((value) => rootFolderPaths(value, 'Lidarr')),
+    lidarrList<MetaProfile>(call, '/metadataprofile'),
+    lidarrList<LidarrArtist>(call, '/artist'),
+  ])
+  if (!qps.some((q) => q.id === ask.qualityProfileId)) throw new ApiError(400, 'Lidarr doesn’t have that quality profile any more. Reload and try again.')
+  const root = roots.find((path) => addAllowed({ rootFolderPath: ask.rootFolderPath }, [path]))
+  if (!root) throw new ApiError(400, 'Lidarr doesn’t have that music folder any more. Reload and try again.')
+
+  let album: LidarrAlbum | undefined
+  for (const term of searchTerms) {
+    const found = await lidarrList<LidarrAlbum>(call, `/album/lookup?term=${encodeURIComponent(term)}`).catch(() => [] as LidarrAlbum[])
+    album = found.find((a) => mbid(a.foreignAlbumId) === wanted)
+    if (album) break
+  }
+  if (!album) throw new ApiError(404, 'Lidarr couldn’t find that soundtrack any more. Search again.')
+  const type = str(album.albumType) ?? 'Album'
+  const title = str(album.title) ?? ask.albumTitle ?? 'Soundtrack'
+  const foreignArtist = artistIdOf(album)
+  if (!foreignArtist) throw new ApiError(502, 'Lidarr sent a soundtrack without an artist. Search again.')
+  const artist = artists.find((a) => positiveId(a.id) && mbid(a.foreignArtistId) === foreignArtist)
+  const own = artist ? await lidarrList<LidarrAlbum>(call, `/album?artistId=${artist.id}`) : []
+  const have = own.find((o) => positiveId(o.id) && mbid(o.foreignAlbumId) === wanted)
+  if (have?.monitored === true && downloaded(have)) return { state: 'have', message: `“${title}” is already in your music library.`, profileChanged: false }
+  const current = metas.find((m) => positiveId(m.id) && m.id === artist?.metadataProfileId)
+  const meta = current?.name !== 'None' && allows(current, type) ? current : profileFor(type, metas)
+  if (!meta) throw new ApiError(409, `Lidarr has no metadata profile that includes ${type}s. Add one in Lidarr (Settings → Profiles → Metadata), then try again.`)
+  let profileChanged = false
+  if (artist) {
+    if (meta !== current) {
+      await call('PUT', `/artist/${artist.id}`, { ...artist, metadataProfileId: meta.id })
+      profileChanged = true
+    }
+    if (have?.id) {
+      await call('PUT', '/album/monitor', { albumIds: [have.id], monitored: true })
+      await call('POST', '/command', { name: 'AlbumSearch', albumIds: [have.id] })
+      return { state: 'searching', message: `Requested “${title}”. Lidarr is downloading it for your music library.`, profileChanged }
+    }
+  }
+  await call('POST', '/album', {
+    ...album,
+    monitored: true,
+    addOptions: { searchForNewAlbum: true },
+    artist: artist
+      ? { ...artist, metadataProfileId: profileChanged ? meta.id : artist.metadataProfileId }
+      : {
+          ...(album.artist ?? {}),
+          qualityProfileId: ask.qualityProfileId,
+          metadataProfileId: meta.id,
+          rootFolderPath: root,
+          monitored: true,
+          monitorNewItems: 'none',
+          addOptions: { monitor: 'none', searchForMissingAlbums: false },
+        },
+  })
+  return { state: 'added', message: `Requested “${title}”. Lidarr is downloading it for your music library.`, profileChanged }
+}
+
 export function registerAlbumRequests(router: Router, deps: { settings: SettingsStore; auth: Auth; parental?: import('./parental.ts').Parental }) {
   const { settings, auth } = deps
   /** The profile is the one the sign-in was checked as. */
@@ -212,5 +412,33 @@ export function registerAlbumRequests(router: Router, deps: { settings: Settings
     }
     const ask: AlbumAsk = { foreignAlbumId: b.foreignAlbumId, artistName: b.artistName.trim().slice(0, 200), qualityProfileId: b.qualityProfileId, rootFolderPath: b.rootFolderPath }
     sendJson(res, 200, await requestAlbum(lidarrCaller(settings.get().services.lidarr), ask))
+  })
+  router.get('/api/requests/soundtrack', async ({ req, res, url }) => {
+    requestsOff(await auth.requireUser(req))
+    const title = (url.searchParams.get('title') ?? '').trim().slice(0, 200)
+    if (!title) throw new ApiError(400, 'Which title?')
+    const rawYear = Number(url.searchParams.get('year'))
+    const year = Number.isInteger(rawYear) && rawYear >= 1880 && rawYear <= 2100 ? rawYear : undefined
+    const rawKind = url.searchParams.get('kind')
+    const kind = rawKind === 'movie' || rawKind === 'series' ? rawKind : undefined
+    const composer = (url.searchParams.get('composer') ?? '').trim().slice(0, 120) || undefined
+    sendJson(res, 200, { albums: await findSoundtracks(lidarrCaller(settings.get().services.lidarr), { title, year, kind, composer }) })
+  })
+  router.post('/api/requests/soundtrack', async ({ req, res }) => {
+    requestsOff(await auth.requireUser(req))
+    const b = await readJson<Partial<SoundtrackAsk> | null>(req)
+    if (typeof b?.foreignAlbumId !== 'string' || !MBID.test(b.foreignAlbumId)) throw new ApiError(400, 'Which soundtrack?')
+    if (typeof b.albumTitle !== 'string' || !b.albumTitle.trim()) throw new ApiError(400, 'Which soundtrack?')
+    if (!positiveId(b.qualityProfileId) || typeof b.rootFolderPath !== 'string' || !b.rootFolderPath.trim() || b.rootFolderPath.length > 1000 || b.rootFolderPath.includes('\0')) {
+      throw new ApiError(400, 'Missing the quality or folder')
+    }
+    const ask: SoundtrackAsk = {
+      foreignAlbumId: b.foreignAlbumId,
+      albumTitle: b.albumTitle.trim().slice(0, 200),
+      artistName: typeof b.artistName === 'string' && b.artistName.trim() ? b.artistName.trim().slice(0, 200) : undefined,
+      qualityProfileId: b.qualityProfileId,
+      rootFolderPath: b.rootFolderPath,
+    }
+    sendJson(res, 200, await requestSoundtrack(lidarrCaller(settings.get().services.lidarr), ask))
   })
 }

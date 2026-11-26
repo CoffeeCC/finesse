@@ -1060,3 +1060,50 @@ export async function requestArtistAlbum(artist: ArrResult, album: ArtistAlbum):
     throw e
   }
 }
+
+export interface SoundtrackAlbum extends ArtistAlbum {
+  artistName: string
+  foreignArtistId?: string
+  cover?: string
+}
+
+/** Search Lidarr for the soundtrack / original score of a movie or show. */
+export async function findSoundtracks(
+  q: { title: string; year?: number; kind?: 'movie' | 'series'; composer?: string },
+  signal?: AbortSignal,
+): Promise<SoundtrackAlbum[]> {
+  const params = new URLSearchParams({ title: q.title })
+  if (q.year) params.set('year', String(q.year))
+  if (q.kind) params.set('kind', q.kind)
+  if (q.composer) params.set('composer', q.composer)
+  const res = await fetch(`${CONTENT_BASE}api/requests/soundtrack?${params}`, {
+    headers: { Authorization: mediaBrowserAuthHeader() },
+    signal,
+  })
+  const text = await res.text()
+  let data: { albums?: SoundtrackAlbum[]; error?: string } | null = null
+  try {
+    data = text ? (JSON.parse(text) as { albums?: SoundtrackAlbum[]; error?: string }) : null
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok) throw new ArrError(res.status, data?.error ?? `Finesse answered ${res.status}`)
+  return data?.albums ?? []
+}
+
+/** Ask Lidarr to download one movie/show soundtrack into the music library. */
+export async function requestSoundtrackAlbum(album: SoundtrackAlbum): Promise<{ state: string; message: string; profileChanged?: boolean }> {
+  const cfg = await resolveConfig('artist')
+  try {
+    return await finesseJson('POST', '/api/requests/soundtrack', {
+      foreignAlbumId: album.foreignAlbumId,
+      albumTitle: album.title,
+      artistName: album.artistName,
+      qualityProfileId: cfg.qualityProfileId,
+      rootFolderPath: cfg.rootFolderPath,
+    })
+  } catch (e) {
+    forgetArrConfig('artist')
+    throw e
+  }
+}

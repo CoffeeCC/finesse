@@ -361,7 +361,7 @@ export default function NowPlaying() {
       }}
     >
       {cover ? (
-        <img src={cover} alt={current.Album ?? current.Name} className={`h-full w-full object-cover transition-transform duration-700 ${playing ? 'scale-100' : 'scale-[0.94]'}`} />
+        <img src={cover} alt={current.Album ?? current.Name} decoding="async" className={`h-full w-full object-cover transition-transform duration-700 ${playing ? 'scale-100' : 'scale-[0.94]'}`} />
       ) : (
         <div className="h-full w-full flex items-center justify-center text-7xl text-white/40">♪</div>
       )}
@@ -382,7 +382,7 @@ export default function NowPlaying() {
       >
         <button
           onClick={() => setExpanded(false)}
-          className="h-10 w-10 shrink-0 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center transition-colors"
+          className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
           aria-label="Close now playing"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -392,7 +392,7 @@ export default function NowPlaying() {
         <p className="flex-1 min-w-0 text-center text-xs font-semibold uppercase tracking-[0.14em] text-white/55 truncate">
           {current.Album ? `Playing from ${current.Album}` : 'Now playing'}
         </p>
-        <div className="hidden sm:flex shrink-0 gap-0.5 rounded-full bg-black/30 backdrop-blur border border-white/10 p-0.5" aria-label="Visualizer">
+        <div className="hidden sm:flex shrink-0 gap-0.5 rounded-full bg-black/50 border border-white/10 p-0.5" aria-label="Visualizer">
           {VISUALIZER_STYLES.map((v) => (
             <button
               key={v}
@@ -407,7 +407,7 @@ export default function NowPlaying() {
         {fullscreen.supported ? (
           <button
             onClick={() => void fullscreen.toggle()}
-            className="h-10 w-10 shrink-0 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur flex items-center justify-center transition-colors"
+            className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
             aria-label={fullscreen.on ? 'Exit full screen' : 'Full screen'}
             title={fullscreen.on ? 'Exit full screen' : 'Full screen'}
           >
@@ -474,7 +474,7 @@ export default function NowPlaying() {
                 <button
                   type="button"
                   onClick={() => pickViz(lastCanvasViz.current)}
-                  className="h-9 px-4 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur text-sm font-semibold transition-colors"
+                  className="h-9 px-4 rounded-full bg-white/15 hover:bg-white/25 text-sm font-semibold transition-colors"
                 >
                   <span className="hidden sm:inline">Exit lyric video</span>
                   <span className="sm:hidden">Exit</span>

@@ -11,8 +11,13 @@ import { getMomentSettings, setMomentSettings } from '../../api/moments'
 function MomentsSwitch() {
   const toast = useToast()
   const [on, setOn] = useState<boolean | null>(null)
+  const [saving, setSaving] = useState(false)
   useEffect(() => {
-    getMomentSettings().then((r) => setOn(r.fromFriends), () => setOn(null))
+    let live = true
+    getMomentSettings().then((r) => live && setOn(r.fromFriends), () => live && setOn(null))
+    return () => {
+      live = false
+    }
   }, [])
   if (on === null) return null
   return (
@@ -20,16 +25,22 @@ function MomentsSwitch() {
       <input
         type="checkbox"
         checked={on}
+        disabled={saving}
         onChange={(e) => {
+          // One change at a time: a quick second click could land before the first and undo it.
+          if (saving) return
           const v = e.target.checked
           setOn(v)
-          setMomentSettings(v).then(
-            () => toast(v ? 'Friends can send moments here' : 'Friends can’t send moments here now'),
-            (err: Error) => {
-              setOn(!v)
-              toast(err.message, 'error')
-            },
-          )
+          setSaving(true)
+          setMomentSettings(v)
+            .then(
+              () => toast(v ? 'Friends can send moments here' : 'Friends can’t send moments here now'),
+              (err: Error) => {
+                setOn(!v)
+                toast(err.message, 'error')
+              },
+            )
+            .finally(() => setSaving(false))
         }}
         className="mt-0.5 h-4 w-4 accent-accent-400"
       />
@@ -43,8 +54,34 @@ function MomentsSwitch() {
 }
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
-const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white disabled:opacity-50 transition-colors'
-const primaryBtn = 'inline-flex h-9 items-center gap-2 rounded-lg bg-accent-fill px-4 text-[13px] font-semibold text-white hover:brightness-110 disabled:opacity-50 transition'
+const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 transition'
+const primaryBtn = 'inline-flex h-9 items-center gap-2 rounded-lg bg-accent-fill px-4 text-[13px] font-semibold text-white hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 transition'
+
+/** Copies text; where the Clipboard API isn't allowed (plain http, older TVs), selects it via a hidden field. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch {
+    return false
+  }
+}
 const input = 'h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-sm text-white placeholder:text-ink-500 outline-none focus:border-accent-500'
 const label = 'block text-[11px] font-semibold uppercase tracking-wider text-ink-400'
 
@@ -113,7 +150,21 @@ export default function GroupsAdmin() {
     }
   }
 
-  if (!o) return <div className={`${CARD} p-5`}>{err ? <p className="text-sm text-red-300">{err}</p> : <div className="h-24 rounded-xl shimmer" />}</div>
+  if (!o)
+    return (
+      <div className={`${CARD} p-5`}>
+        {err ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-red-300">{err}</p>
+            <button type="button" className={smallBtn} onClick={() => void load()}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="h-24 rounded-xl shimmer" />
+        )}
+      </div>
+    )
   const libName = (id: string) => o.libraries.find((l) => l.id === id)?.name ?? 'a removed library'
 
   return (
@@ -162,7 +213,20 @@ export default function GroupsAdmin() {
           </button>
           {code && (
             <div className="rounded-xl border border-white/10 bg-ink-950/50 px-4 py-3">
-              <p className="font-mono text-2xl tracking-[0.15em] text-white select-all">{code.code}</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="font-mono text-2xl tracking-[0.15em] text-white select-all">{code.code}</p>
+                <button
+                  type="button"
+                  className={smallBtn}
+                  onClick={async () => {
+                    const text = o.publicUrl ? `${o.publicUrl}\n${code.code}` : code.code
+                    if (await copyText(text)) toast(o.publicUrl ? 'Copied the address and the code' : 'Copied the code')
+                    else toast('Couldn’t copy here: select the code and copy it', 'error')
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-ink-300">
                 Send your friend this code {o.publicUrl ? (
                   <>
@@ -188,11 +252,12 @@ export default function GroupsAdmin() {
           className="space-y-3 border-t border-white/5 pt-5"
           onSubmit={(e) => {
             e.preventDefault()
+            if (busy === 'add' || !addUrl.trim() || !addCode.trim()) return
             setAddErr('')
             void (async () => {
               setBusy('add')
               try {
-                const f = await groupsApi.addFriend(addUrl, addCode)
+                const f = await groupsApi.addFriend(addUrl.trim(), addCode.trim().toUpperCase())
                 toast(`Added ${f.name}. It’s under Friends.`)
                 setAddUrl('')
                 setAddCode('')
@@ -212,14 +277,14 @@ export default function GroupsAdmin() {
               <label className={label} htmlFor="group-url">
                 Their address
               </label>
-              <input id="group-url" className={`${input} mt-1`} value={addUrl} onChange={(e) => setAddUrl(e.target.value)} placeholder="https://their-server.example.com" autoComplete="off" />
+              <input id="group-url" className={`${input} mt-1`} value={addUrl} onChange={(e) => setAddUrl(e.target.value)} placeholder="https://their-server.example.com" autoComplete="off" inputMode="url" autoCapitalize="none" spellCheck={false} />
               <p className="mt-1 text-[12px] text-ink-400">Their https address, or their Tailscale one (100.x.x.x or a name ending in .ts.net). Tailscale is the most private: only your two servers can read what’s sent.</p>
             </div>
             <div>
               <label className={label} htmlFor="group-code">
                 Their code
               </label>
-              <input id="group-code" className={`${input} mt-1 font-mono uppercase`} value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="ABCD-EFGH-JKLM" autoComplete="off" />
+              <input id="group-code" className={`${input} mt-1 font-mono uppercase`} value={addCode} onChange={(e) => setAddCode(e.target.value)} placeholder="ABCD-EFGH-JKLM" autoComplete="off" autoCapitalize="characters" spellCheck={false} />
             </div>
           </div>
           {addErr && <p className="text-[12.5px] text-red-300">{addErr}</p>}

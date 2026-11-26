@@ -77,7 +77,7 @@ export function StoreSearchBox({ value, onChange, onSubmit, autoFocus }: { value
           placeholder="Search the store"
           aria-label="Search the game store"
           autoFocus={autoFocus}
-          className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-ink-400"
+          className="search-field min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-ink-400"
         />
       </label>
     </form>

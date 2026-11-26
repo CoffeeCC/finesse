@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
@@ -135,7 +135,7 @@ function NewShortlist({ onCancel }: { onCancel: () => void }) {
         setBusy(true)
         setError(null)
         try {
-          const q = await createQueue(name, members)
+          const q = await createQueue(name.trim(), members)
           await qc.invalidateQueries({ queryKey: ['queues', 'list'] })
           navigate(`/together/shortlist/${q.id}`)
         } catch (err) {
@@ -378,7 +378,7 @@ function ShortlistRow({ q, it, jf, busy, act }: { q: Queue; it: QueueItem; jf?: 
         </button>
       )}
       {q.isHost && !it.hidden && q.picked !== it.key && (
-        <button type="button" disabled={busy} onClick={() => act(() => pickInQueue(q.id, it.key), `Picked “${it.title}”`)} className="h-9 shrink-0 rounded-lg border border-white/15 px-3 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-60">
+        <button type="button" disabled={busy} onClick={() => act(() => pickInQueue(q.id, it.key), `Picked “${it.title}”`)} className="h-9 shrink-0 rounded-lg border border-white/15 px-3 text-sm font-semibold text-white transition hover:bg-white/10 active:scale-[0.97] disabled:opacity-60">
           Pick
         </button>
       )}
@@ -414,12 +414,13 @@ function EditShortlist({ q, onSaved }: { q: Queue; onSaved: (q: Queue) => void }
       </div>
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || !name.trim()}
         className={BTN_MAIN}
         onClick={async () => {
+          if (busy || !name.trim()) return
           setBusy(true)
           try {
-            onSaved(await updateQueue(q.id, { name, members }))
+            onSaved(await updateQueue(q.id, { name: name.trim(), members }))
             toast('Saved')
           } catch (e) {
             toast((e as Error).message, 'error')
@@ -436,8 +437,16 @@ function EditShortlist({ q, onSaved }: { q: Queue; onSaved: (q: Queue) => void }
 
 function AddTitles({ q, onAdded }: { q: Queue; onAdded: (q: Queue) => void }) {
   const [term, setTerm] = useState('')
-  const { data, isFetching } = useSearch(term.trim().length > 1 ? term : '')
+  // Asks once typing pauses, not on every key.
+  const [asked, setAsked] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setAsked(term.trim().length > 1 ? term.trim() : ''), 250)
+    return () => clearTimeout(t)
+  }, [term])
+  const { data, isFetching } = useSearch(asked)
   const toast = useToast()
+  // One add per title at a time: a double tap doesn't add (or error) twice.
+  const [adding, setAdding] = useState<string | null>(null)
   const have = new Set(q.items.map((i) => i.item))
   const hits = (data?.Items ?? []).filter((i) => i.Type === 'Movie' || i.Type === 'Series').slice(0, 8)
   return (
@@ -446,8 +455,8 @@ function AddTitles({ q, onAdded }: { q: Queue; onAdded: (q: Queue) => void }) {
       <input type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search your library" className={`${FIELD} mt-2 w-full max-w-md`} aria-label="Search your library to add a title" />
       {term.trim().length > 1 && (
         <ul className="mt-2 space-y-0.5">
-          {isFetching && !data && <li className="px-2.5 py-2 text-sm text-ink-400">Searching…</li>}
-          {data && hits.length === 0 && <li className="px-2.5 py-2 text-sm text-ink-400">No films or shows match “{term.trim()}”.</li>}
+          {(isFetching || asked !== term.trim()) && !hits.length && <li className="px-2.5 py-2 text-sm text-ink-400">Searching…</li>}
+          {data && !isFetching && asked === term.trim() && hits.length === 0 && <li className="px-2.5 py-2 text-sm text-ink-400">No films or shows match “{term.trim()}”.</li>}
           {hits.map((i) => (
             <li key={i.Id} className="flex items-center gap-3 rounded-xl px-2.5 py-1.5 hover:bg-white/5">
               <span className="min-w-0 flex-1 truncate text-[14.5px] text-white">
@@ -459,16 +468,22 @@ function AddTitles({ q, onAdded }: { q: Queue; onAdded: (q: Queue) => void }) {
               ) : (
                 <button
                   type="button"
-                  className="h-8 rounded-lg border border-white/15 bg-white/10 px-3 text-sm font-semibold text-white hover:bg-white/15"
+                  disabled={adding !== null}
+                  className="h-8 rounded-lg border border-white/15 bg-white/10 px-3 text-sm font-semibold text-white transition hover:bg-white/15 active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100"
                   onClick={async () => {
+                    if (adding) return
+                    setAdding(i.Id)
                     try {
                       onAdded(await addToQueue(q.id, i.Id))
+                      toast(`Added “${i.Name}”`)
                     } catch (e) {
                       toast((e as Error).message, 'error')
+                    } finally {
+                      setAdding(null)
                     }
                   }}
                 >
-                  Add
+                  {adding === i.Id ? 'Adding…' : 'Add'}
                 </button>
               )}
             </li>

@@ -67,7 +67,7 @@ export const SECTIONS: SectionDef[] = [
   { id: 'updates', label: 'Updates', blurb: 'This app’s version, and the server’s.' },
   { id: 'about', label: 'About', blurb: 'Finesse, reporting a problem, and supporting it.' },
   { id: 'health', label: 'Health', blurb: 'How every app is doing, and one-click fixes when one isn’t.', admin: true },
-  { id: 'downloads', label: 'Downloads', blurb: 'Where requests go and in what quality.', admin: true, when: (c) => Boolean(c.features.requests) || system(c) },
+  { id: 'downloads', label: 'Downloads', blurb: 'Where requests go, in what quality, and how stuck downloads get rescued.', admin: true, when: (c) => Boolean(c.features.requests) || system(c) },
   { id: 'media', label: 'Media', blurb: 'Preview clips and the graphics card that converts video.', admin: true },
   { id: 'people', label: 'People', blurb: 'Accounts, invites, friends’ servers and limits for profiles.', admin: true },
   { id: 'games', label: 'Games', blurb: 'Retro games, game streaming and the game store.', admin: true },
@@ -125,6 +125,7 @@ export const ENTRIES: Entry[] = [
 
   // Downloads
   { section: 'downloads', label: 'Quality and languages (why a request finds nothing)', anchor: 'quality-rules', words: 'quality languages language english original foreign dub subtitles size big files remux 4k 1080p 720p profile nothing found rejected', when: (c) => Boolean(c.features.requests && (c.features.movies || c.features.shows)) },
+  { section: 'downloads', label: 'Automatic download rescue', anchor: 'download-rescue', words: 'stuck stalled slow dead torrent swap replace retry fix automatic rescue heal wait minutes', when: (c) => Boolean(c.features.requests) },
   { section: 'downloads', label: 'Quality and folders for requests', anchor: 'request-defaults', words: 'quality profile root folder radarr sonarr lidarr 4k 1080p requests', when: (c) => Boolean(c.features.requests) },
   { section: 'downloads', label: 'Usenet, torrents, VPN and access from outside', anchor: 'system-setup-change', words: 'usenet torrents vpn tailscale cloudflare remote access setup change', when: system },
 

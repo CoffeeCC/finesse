@@ -28,7 +28,13 @@ function languages(household: string | null | undefined): { value: LanguageMode;
 
 export default function QualitySettings() {
   const q = useQuery({ queryKey: ['qualityRules'], queryFn: qualityApi.get, staleTime: 30_000, retry: false })
-  if (q.isLoading) return <p className="text-sm text-ink-400">Asking Radarr and Sonarr how they’re set up…</p>
+  if (q.isLoading)
+    return (
+      <div className="space-y-3" aria-busy="true" aria-label="Asking Radarr and Sonarr how they’re set up">
+        <div className="h-4 w-44 rounded shimmer" />
+        <div className="h-28 rounded-2xl shimmer" />
+      </div>
+    )
   if (q.isError) return <p className="text-sm text-ink-400">Couldn’t load the quality settings. Try again in a moment; if it keeps happening, update the Finesse server.</p>
   const apps = q.data?.apps ?? []
   if (!apps.length) return null
@@ -90,11 +96,12 @@ function AppCard({ view }: { view: QualityAppView }) {
             {([true, false] as const).map((on) => (
               <button
                 key={String(on)}
+                type="button"
                 aria-pressed={view.bigFiles!.allowed === on}
                 disabled={busy || view.bigFiles!.allowed === on || (!on && !view.bigFiles!.canRestore)}
                 title={!on && !view.bigFiles!.canRestore && view.bigFiles!.allowed ? `Finesse doesn’t know the old limits. Set them in ${view.name} → Settings → Quality.` : undefined}
                 onClick={() => void bigFiles(on)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors disabled:cursor-default ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition active:scale-[0.97] disabled:active:scale-100 disabled:cursor-default ${
                   view.bigFiles!.allowed === on ? 'bg-[#f5f3ee] text-ink-950' : 'text-ink-300 hover:text-white disabled:opacity-50'
                 }`}
               >

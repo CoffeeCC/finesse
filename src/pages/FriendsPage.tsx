@@ -24,9 +24,20 @@ function FriendServer({ friend }: { friend: Friend }) {
         <p className="text-[13px] text-ink-400">Shared with you. Streams come from their server, so the first seconds can take a little longer.</p>
       </div>
       {views.isError ? (
-        <p className="mx-4 sm:mx-6 lg:mx-12 rounded-xl border border-white/5 bg-ink-900/50 px-4 py-3 text-sm text-ink-300">
-          {friend.name} isn’t answering right now. It may be switched off, or no longer shared with you.
-        </p>
+        <div className="mx-4 sm:mx-6 lg:mx-12 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-ink-900/50 px-4 py-3">
+          <p className="text-sm text-ink-300">{friend.name} isn’t answering right now. It may be switched off, or no longer shared with you.</p>
+          <button
+            type="button"
+            onClick={() => {
+              void views.refetch()
+              void resume.refetch()
+            }}
+            disabled={views.isFetching}
+            className="h-9 shrink-0 rounded-lg border border-white/15 bg-white/10 px-3.5 text-sm font-semibold text-white transition hover:bg-white/15 active:scale-[0.97] disabled:opacity-60"
+          >
+            {views.isFetching ? 'Trying…' : 'Try again'}
+          </button>
+        </div>
       ) : (
         <>
           <MediaRow title="Continue watching" items={resume.data?.Items} variant="wide" />
@@ -48,9 +59,10 @@ function FriendLibraryRow({ viewId, title }: { viewId: string; title: string }) 
 
 /** Friends: libraries other households share with this one (Groups). */
 export default function FriendsPage() {
-  const { data: friends, isLoading } = useFriends()
+  const { data: friends, isLoading, isError, refetch, isFetching } = useFriends()
   const { session } = useAuth()
-  const none = !isLoading && !friends?.length
+  // A failed look isn't "no friends": that said "add one" to someone who already has some.
+  const none = !isLoading && !isError && !friends?.length
 
   return (
     <div className="pb-16 py-6 space-y-10">
@@ -58,7 +70,27 @@ export default function FriendsPage() {
         <h1 className="page-title mb-1">Friends</h1>
         <p className="text-sm text-ink-400">Libraries friends share from their own Finesse. Watch and listen only: nothing is downloaded or requested there.</p>
       </div>
-      {none ? (
+      {isLoading ? (
+        <div className="space-y-6" aria-busy="true" aria-label="Loading friends’ servers">
+          <div className={`${PAD} space-y-2`}>
+            <div className="h-5 w-40 rounded shimmer" />
+            <div className="h-3 w-72 max-w-full rounded shimmer" />
+          </div>
+          <MediaRow title=" " items={undefined} loading />
+        </div>
+      ) : isError && !friends?.length ? (
+        <div className="mx-4 sm:mx-6 lg:mx-12 flex max-w-2xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-ink-900/50 px-5 py-4">
+          <p className="text-sm text-ink-300">Couldn’t load your friends’ servers. Check your connection and try again.</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="h-10 shrink-0 rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97] disabled:opacity-60"
+          >
+            {isFetching ? 'Trying…' : 'Try again'}
+          </button>
+        </div>
+      ) : none ? (
         <div className="mx-4 sm:mx-6 lg:mx-12 rounded-2xl border border-white/5 bg-ink-900/50 px-6 py-10 sm:p-12 text-center max-w-2xl">
           <p className="text-lg font-semibold text-white">No friends’ servers yet</p>
           <p className="text-sm text-ink-300 mt-1.5">
@@ -74,7 +106,8 @@ export default function FriendsPage() {
       ) : (
         (friends ?? []).map((f) => (
           // A friend's whole server (rows of their libraries) is drawn only once it's near the screen.
-          <div key={f.id} className="cv-card">
+          // Its placeholder height is about a server's (a few rows), not a card's, so the page doesn't jump.
+          <div key={f.id} className="cv-card" style={{ containIntrinsicSize: 'auto 720px' }}>
             <FriendServer friend={f} />
           </div>
         ))

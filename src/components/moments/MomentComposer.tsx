@@ -79,16 +79,28 @@ export default function MomentComposer({
     return names.join(', ')
   }, [targets.data, to])
 
+  // One delete per moment at a time; it leaves the list at once rather than after the refetch.
+  const [deleting, setDeleting] = useState<Set<string>>(new Set())
+  const [gone, setGone] = useState<Set<string>>(new Set())
   const remove = async (key: string) => {
+    if (deleting.has(key)) return
+    setDeleting((s) => new Set(s).add(key))
     try {
       await deleteMoment(key)
-      await qc.invalidateQueries({ queryKey: ['moments'] })
+      setGone((s) => new Set(s).add(key))
+      void qc.invalidateQueries({ queryKey: ['moments'] })
       toast('Moment deleted')
     } catch (e) {
       toast((e as Error).message, 'error')
+    } finally {
+      setDeleting((s) => {
+        const n = new Set(s)
+        n.delete(key)
+        return n
+      })
     }
   }
-  const listed = (existing ?? []).filter((m) => m.start != null)
+  const listed = (existing ?? []).filter((m) => m.start != null && !gone.has(m.key))
 
   const send = async () => {
     // One send per press: a double tap doesn't send it twice.
@@ -146,8 +158,8 @@ export default function MomentComposer({
                     {m.note && !m.spoiler ? ` · ${m.note}` : m.spoiler ? ' · (spoiler)' : ''}
                   </span>
                   {(m.mine || m.canDelete) && (
-                    <button type="button" onClick={() => void remove(m.key)} className="shrink-0 rounded-full px-2 py-0.5 text-[12px] text-ink-400 hover:bg-white/10 hover:text-red-200">
-                      Delete
+                    <button type="button" onClick={() => void remove(m.key)} disabled={deleting.has(m.key)} className="shrink-0 rounded-full px-2 py-0.5 text-[12px] text-ink-400 transition hover:bg-white/10 hover:text-red-200 active:scale-95 disabled:opacity-50">
+                      {deleting.has(m.key) ? 'Deleting…' : 'Delete'}
                     </button>
                   )}
                 </li>
@@ -231,7 +243,7 @@ export default function MomentComposer({
         {error && <p className="mt-3 text-[13.5px] text-red-200">{error}</p>}
         {/* Stays at the bottom of the dialog while the form scrolls on a short screen. */}
         <div className="sticky -bottom-5 sm:-bottom-6 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 mt-5 flex justify-end gap-3 border-t border-white/5 bg-ink-900 px-5 sm:px-6 py-4">
-          <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-medium text-ink-200 hover:text-white disabled:opacity-50">
+          <button type="button" onClick={onClose} disabled={busy} className="h-10 rounded-full px-5 text-[14px] font-medium text-ink-200 transition hover:text-white active:scale-[0.97] disabled:opacity-50">
             Cancel
           </button>
           <button type="button" onClick={send} disabled={busy || tooLong || (!span && !to.size)} className="h-10 rounded-full bg-white px-6 text-[14px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-50 transition active:scale-[0.97]">
