@@ -3,6 +3,7 @@ import { deviceNameFor } from '../lib/deviceName'
 import { getPrefs } from '../lib/settings'
 import { buildDeviceProfile as buildMediaProfile } from '../lib/mediaCaps'
 import { peerBase, peerOf, tagAnswer, untag } from '../lib/peers'
+import { CONTENT_BASE } from '../lib/contentOrigin'
 
 const STORAGE_KEY = 'finesse.session'
 
@@ -429,22 +430,66 @@ export function getSessions() {
   return request<JfSession[]>('/Sessions')
 }
 
+// Rokus: Jellyfin lists the Jellyfin Roku app but can't drive it, so the Finesse server does
+// (server/src/roku.ts). They sit in the same list as every other screen; which way a title
+// gets there is decided here, out of sight.
+// Kept for the tab's life, so the mini remote still knows after a reload.
+const ROKU_KEY = 'finesse.rokuSessions'
+const rokuSessions = new Set<string>((() => {
+  try {
+    return JSON.parse(sessionStorage.getItem(ROKU_KEY) ?? '[]') as string[]
+  } catch {
+    return []
+  }
+})())
+
+/** The Finesse server's own words when a Roku cast fails ("Make sure it's on the same network…"). */
+export class CastError extends Error {}
+
+async function finesseCast(path: string, body?: unknown): Promise<unknown> {
+  const res = await fetch(`${CONTENT_BASE}api/cast/roku${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { Authorization: mediaBrowserAuthHeader(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const data = (await res.json().catch(() => null)) as { error?: string; message?: string } | null
+  if (!res.ok) throw new CastError(data?.error || data?.message || `Finesse answered ${res.status}`)
+  return data
+}
+
+/** The Roku sessions the Finesse server can play on (none when it's an older server). */
+async function rokuTargets(): Promise<Set<string>> {
+  const r = (await finesseCast('').catch(() => null)) as { sessions?: string[] } | null
+  rokuSessions.clear()
+  for (const id of r?.sessions ?? []) rokuSessions.add(id)
+  try {
+    sessionStorage.setItem(ROKU_KEY, JSON.stringify([...rokuSessions]))
+  } catch {
+    /* private mode: this tab only */
+  }
+  return rokuSessions
+}
+
 /** Other devices this user can drive from here ("Play on TV"). Server-filtered to
- *  controllable sessions; we still drop this device and ones that can't play video. */
+ *  controllable sessions; we still drop this device and ones that can't play video.
+ *  Rokus the Finesse server can reach are in the list too. */
 export async function getCastTargets(): Promise<JfSession[]> {
-  const sessions = await request<JfSession[]>(
-    '/Sessions' + qs({ ControllableByUserId: session!.userId, ActiveWithinSeconds: 600 }),
-  )
+  const [sessions, rokus] = await Promise.all([
+    request<JfSession[]>('/Sessions' + qs({ ControllableByUserId: session!.userId, ActiveWithinSeconds: 600 })),
+    rokuTargets(),
+  ])
   return sessions.filter(
     (s) =>
       s.DeviceId !== DEVICE_ID &&
-      s.SupportsRemoteControl &&
+      (s.SupportsRemoteControl || rokus.has(s.Id)) &&
       (s.PlayableMediaTypes?.some((m) => m.toLowerCase() === 'video') ?? true),
   )
 }
 
-/** Push playback to another device: tell it to play the item now, at an optional resume point. */
+/** Push playback to another device: tell it to play the item now, at an optional resume point.
+ *  (A Roku starts where Jellyfin last saved this title's place.) */
 export function playOnSession(sessionId: string, itemId: string, startPositionTicks = 0) {
+  if (rokuSessions.has(sessionId)) return finesseCast(`/${encodeURIComponent(sessionId)}/play`, { itemId })
   return request(
     `/Sessions/${sessionId}/Playing` +
       qs({ playCommand: 'PlayNow', itemIds: itemId, startPositionTicks }),
@@ -517,6 +562,7 @@ export type PlaystateCommand =
 
 /** Remote-control another device's playback (the "mini remote" after casting). */
 export function sendPlaystate(sessionId: string, command: PlaystateCommand, seekPositionTicks?: number) {
+  if (rokuSessions.has(sessionId)) return finesseCast(`/${encodeURIComponent(sessionId)}/command`, { command })
   return request(`/Sessions/${sessionId}/Playing/${command}` + qs({ seekPositionTicks }), { method: 'POST' })
 }
 

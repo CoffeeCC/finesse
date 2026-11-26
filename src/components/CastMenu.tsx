@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
-import { getCastTargets, playOnSession } from '../api/client'
+import { CastError, getCastTargets, playOnSession } from '../api/client'
 import { waitForStart } from '../lib/transfer'
 import { useToast } from './Toast'
 import { pushBackHandler } from '../lib/back'
@@ -133,8 +133,8 @@ export default function CastMenu({
         toast(started === 'gone' ? `${deviceName} isn’t answering, so it’s still playing here.` : `${deviceName} didn’t start playing, so it’s still playing here.`, 'error')
         onFailed?.()
       }
-    } catch {
-      toast(`Couldn’t play on ${deviceName}${moving ? '. It’s still playing here.' : ''}`, 'error')
+    } catch (e) {
+      toast(e instanceof CastError ? `${e.message}${moving ? ' It’s still playing here.' : ''}` : `Couldn’t play on ${deviceName}${moving ? '. It’s still playing here.' : ''}`, 'error')
       if (moving) onFailed?.()
     } finally {
       setSending(null)
