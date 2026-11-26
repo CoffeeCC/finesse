@@ -4,7 +4,9 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { gameStoreAdmin, StoreError, type StoreFeed, type StoreSettings } from '../../api/gameStore'
+import { retroApi, RetroApiError, type RetroSource, type RetroSourcesResponse } from '../../api/retro'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
 import { discover } from '../../lib/finesseServer'
@@ -100,45 +102,37 @@ export default function GameStoreAdmin() {
     }
   }
 
-  // A server from before the game store has no such endpoint: show nothing.
-  if (unsupported) return null
-  if (loading && !s) {
-    return (
-      <div className="min-w-0">
-        <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
-          Game store
-          <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-400">Beta</span>
-        </h3>
-        <div className={`${CARD} p-5`} aria-busy="true" aria-label="Loading game store settings">
-          <div className="h-16 rounded-xl shimmer" />
-        </div>
+  const pcCard = unsupported ? null : loading && !s ? (
+    <div className="min-w-0">
+      <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+        Game store
+        <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-400">Beta</span>
+      </h3>
+      <div className={`${CARD} p-5`} aria-busy="true" aria-label="Loading game store settings">
+        <div className="h-16 rounded-xl shimmer" />
       </div>
-    )
-  }
-  if (!s) {
-    return (
-      <div className="min-w-0">
-        <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
-          Game store
-          <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-400">Beta</span>
-        </h3>
-        <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
-          <p className="text-sm text-red-300">{loadErr || 'Couldn’t load game store settings.'}</p>
-          <button
-            type="button"
-            className={smallBtn}
-            onClick={() => {
-              setLoading(true)
-              void load()
-            }}
-          >
-            Retry
-          </button>
-        </div>
+    </div>
+  ) : !s ? (
+    <div className="min-w-0">
+      <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+        Game store
+        <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-400">Beta</span>
+      </h3>
+      <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+        <p className="text-sm text-red-300">{loadErr || 'Couldn’t load game store settings.'}</p>
+        <button
+          type="button"
+          className={smallBtn}
+          onClick={() => {
+            setLoading(true)
+            void load()
+          }}
+        >
+          Retry
+        </button>
       </div>
-    )
-  }
-  return (
+    </div>
+  ) : (
     <div className="min-w-0">
       <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
         Game store
@@ -311,6 +305,325 @@ export default function GameStoreAdmin() {
           }}
         >
           <p>This removes the source and all of its games from the store. Games already installed stay on your server.</p>
+        </ConfirmDialog>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="space-y-8">
+      {pcCard}
+      <RetroSourcesAdmin />
+    </div>
+  )
+}
+
+const RETRO_CONSOLE_OPTIONS: [string, string][] = [
+  ['', 'Auto-detect'],
+  ['nes', 'NES'],
+  ['snes', 'SNES'],
+  ['n64', 'N64'],
+  ['gb', 'Game Boy'],
+  ['gbc', 'Game Boy Color'],
+  ['gba', 'GBA'],
+  ['nds', 'NDS'],
+  ['3ds', '3DS'],
+  ['gamecube', 'GameCube'],
+  ['wii', 'Wii'],
+  ['psx', 'PS1'],
+  ['ps2', 'PS2'],
+  ['psp', 'PSP'],
+  ['genesis', 'Genesis'],
+  ['sms', 'Master System'],
+  ['gamegear', 'Game Gear'],
+  ['saturn', 'Saturn'],
+  ['dc', 'Dreamcast'],
+  ['tg16', 'TurboGrafx-16'],
+  ['arcade', 'Arcade'],
+]
+
+function retroSourceSummary(src: RetroSource): { text: string; bad: boolean } {
+  const st = src.status
+  if (!st) return { text: 'Not synced yet', bad: false }
+  const games = `${st.games} game${st.games === 1 ? '' : 's'}`
+  if (!st.ok) return { text: st.games ? `Couldn’t sync just now (showing ${games})` : 'Couldn’t be read', bad: true }
+  return { text: st.notes.length ? `${games}, ${st.notes.length} note${st.notes.length === 1 ? '' : 's'}` : games, bad: false }
+}
+
+function RetroSourcesAdmin() {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const [data, setData] = useState<RetroSourcesResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [unsupported, setUnsupported] = useState(false)
+  const [loadErr, setLoadErr] = useState('')
+  const [busy, setBusy] = useState('')
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [consoleSlug, setConsoleSlug] = useState('')
+  const [openNotes, setOpenNotes] = useState('')
+  const [removeTarget, setRemoveTarget] = useState<RetroSource | null>(null)
+
+  const load = useCallback(async () => {
+    setLoadErr('')
+    try {
+      const res = await retroApi.sources()
+      setData(res)
+      setUnsupported(false)
+    } catch (e) {
+      if (e instanceof RetroApiError && e.status === 404) {
+        setUnsupported(true)
+        setData(null)
+      } else {
+        setLoadErr(e instanceof Error && e.message ? e.message : 'Couldn’t load retro ROM sources.')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const act = async (key: string, fn: () => Promise<unknown>, doneMsg?: string) => {
+    setBusy(key)
+    try {
+      await fn()
+      if (doneMsg) toast(doneMsg)
+      void qc.invalidateQueries({ queryKey: ['retro'] })
+      await load()
+      return true
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message : 'Something went wrong', 'error')
+      return false
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const handleAdd = async (e: FormEvent) => {
+    e.preventDefault()
+    if (
+      await act(
+        'add',
+        () =>
+          retroApi.addSource({
+            name: name.trim(),
+            url: url.trim(),
+            ...(consoleSlug ? { console: consoleSlug } : {}),
+          }),
+        'ROM source added',
+      )
+    ) {
+      setName('')
+      setUrl('')
+      setConsoleSlug('')
+    }
+  }
+
+  const handleRescan = async () => {
+    setBusy('scan')
+    try {
+      const res = await retroApi.scan()
+      toast(res.message || 'RomM library scan started', res.ok ? 'info' : 'error')
+      void qc.invalidateQueries({ queryKey: ['games'] })
+      void qc.invalidateQueries({ queryKey: ['gamePlatforms'] })
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message : 'Couldn’t start RomM scan', 'error')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  if (unsupported) return null
+
+  return (
+    <div className="min-w-0" data-setting="retro-sources">
+      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+        Retro ROM sources &amp; Homebrew
+      </h3>
+
+      {loading && !data ? (
+        <div className={`${CARD} p-5`} aria-busy="true" aria-label="Loading retro ROM sources">
+          <div className="h-16 rounded-xl shimmer" />
+        </div>
+      ) : !data ? (
+        <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+          <p className="text-sm text-red-300">{loadErr || 'Couldn’t load retro ROM sources.'}</p>
+          <button
+            type="button"
+            className={smallBtn}
+            onClick={() => {
+              setLoading(true)
+              void load()
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <div className={`${CARD} space-y-4 px-5 py-4`}>
+          <Toggle
+            checked={data.homebrew}
+            onChange={(v) =>
+              void act(
+                'homebrew',
+                () => retroApi.setSettings({ homebrew: v }),
+                v ? 'Free homebrew starter shelf turned on' : 'Free homebrew starter shelf turned off',
+              )
+            }
+            label="Free homebrew starter shelf"
+            description="2 showcase games are always available when your retro library is empty; turn this on to show the full curated freeware & homebrew shelf."
+          />
+
+          <div className="space-y-4 border-t border-white/5 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-ink-300">
+              <span>
+                {data.sources.length
+                  ? `${data.sources.length} ROM source${data.sources.length === 1 ? '' : 's'} connected.`
+                  : 'No custom ROM sources yet.'}{' '}
+                <Link to="/games/store/retro" className="text-accent-300 hover:text-white">
+                  Open Retro store
+                </Link>
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {data.sources.length > 0 && (
+                  <button
+                    type="button"
+                    className={smallBtn}
+                    disabled={busy === 'sync'}
+                    onClick={() => void act('sync', () => retroApi.syncSources(), 'ROM sources synced')}
+                  >
+                    {busy === 'sync' && <Spinner className="h-3 w-3" />}
+                    Sync sources
+                  </button>
+                )}
+                <button type="button" className={smallBtn} disabled={busy === 'scan'} onClick={() => void handleRescan()}>
+                  {busy === 'scan' && <Spinner className="h-3 w-3" />}
+                  Rescan RomM library
+                </button>
+              </div>
+            </div>
+
+            {data.romsDir && (
+              <p className="text-[12px] text-ink-400">
+                Downloads save to <code className="rounded bg-white/[0.06] px-1.5 py-0.5 text-ink-200">{data.romsDir}</code>
+              </p>
+            )}
+
+            {data.sources.length > 0 && (
+              <ul className="divide-y divide-white/5 rounded-xl border border-white/5">
+                {data.sources.map((src) => {
+                  const sum = retroSourceSummary(src)
+                  const notes = src.status?.notes ?? []
+                  return (
+                    <li key={src.id} className="px-3.5 py-2.5">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-[14px] font-medium text-white">{src.name}</span>
+                            {src.console && (
+                              <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-200">
+                                {src.console}
+                              </span>
+                            )}
+                          </div>
+                          <div className="truncate text-[12px] text-ink-500">{src.url}</div>
+                        </div>
+                        <span className={`text-[12.5px] ${sum.bad ? 'text-amber-200' : 'text-ink-300'}`}>{sum.text}</span>
+                        {notes.length > 0 && (
+                          <button
+                            type="button"
+                            className={smallBtn}
+                            aria-expanded={openNotes === src.id}
+                            onClick={() => setOpenNotes(openNotes === src.id ? '' : src.id)}
+                          >
+                            {openNotes === src.id ? 'Hide' : 'Why'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={smallBtn}
+                          disabled={busy === `rm-${src.id}`}
+                          onClick={() => setRemoveTarget(src)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      {openNotes === src.id && (
+                        <ul className="mt-2 space-y-1 text-[12.5px] leading-relaxed text-ink-400">
+                          {notes.map((n, i) => (
+                            <li key={i}>{n}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+
+            <form onSubmit={handleAdd} className="space-y-2">
+              <div className="text-[13px] font-medium text-white">Add a ROM source</div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  className={`${field} w-40`}
+                  placeholder="Name"
+                  aria-label="ROM source name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={60}
+                  required
+                />
+                <input
+                  className={`${field} flex-1 basis-56`}
+                  placeholder="https://archive.org/details/… or HTTP directory / JSON feed"
+                  aria-label="ROM source URL"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  inputMode="url"
+                  required
+                />
+                <select
+                  value={consoleSlug}
+                  onChange={(e) => setConsoleSlug(e.target.value)}
+                  aria-label="Console for ROM source"
+                  className={`${field} w-36 bg-ink-900`}
+                >
+                  {RETRO_CONSOLE_OPTIONS.map(([slug, label]) => (
+                    <option key={slug || 'auto'} value={slug} className="bg-ink-900 text-white">
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className={smallBtn + ' h-9'} disabled={busy === 'add' || !name.trim() || !url.trim()}>
+                  {busy === 'add' && <Spinner className="h-3 w-3" />}
+                  Add source
+                </button>
+              </div>
+              <p className="text-[12.5px] leading-relaxed text-ink-400">
+                Supports HTTP directory listings, Internet Archive collection/item URLs, or JSON catalogs. Leave console on Auto-detect if the source contains multiple systems.
+              </p>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {removeTarget && (
+        <ConfirmDialog
+          title={`Remove “${removeTarget.name}”?`}
+          confirmLabel={busy === `rm-${removeTarget.id}` ? 'Removing…' : 'Remove source'}
+          busy={busy === `rm-${removeTarget.id}`}
+          onCancel={() => setRemoveTarget(null)}
+          onConfirm={() => {
+            const target = removeTarget
+            void act(`rm-${target.id}`, () => retroApi.removeSource(target.id), 'ROM source removed').then((ok) => {
+              if (ok) setRemoveTarget(null)
+            })
+          }}
+        >
+          <p>This removes the source from your Retro store catalog. Games already downloaded to your library stay untouched.</p>
         </ConfirmDialog>
       )}
     </div>

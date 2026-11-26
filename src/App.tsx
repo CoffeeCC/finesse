@@ -60,6 +60,7 @@ const GamesPage = lazyPage(() => import('./pages/GamesPage'))
 const GameDetailPage = lazyPage(() => import('./pages/GameDetailPage'))
 const PlayGamePage = lazyPage(() => import('./pages/PlayGamePage'))
 const GameStorePage = lazyPage(() => import('./pages/GameStorePage'))
+const RetroStorePage = lazyPage(() => import('./pages/RetroStorePage'))
 const GameStoreBrowsePage = lazyPage(() => import('./pages/GameStoreBrowsePage'))
 const GameStoreGamePage = lazyPage(() => import('./pages/GameStoreGamePage'))
 const GameRequestsPage = lazyPage(() => import('./pages/GameRequestsPage'))
@@ -202,6 +203,7 @@ export default function App() {
                     <Route path="/games" element={<GamesPage />} />
                     <Route path="/games/game/:romId" element={<GameDetailPage />} />
                     <Route path="/games/store" element={<GameStorePage />} />
+                    <Route path="/games/store/retro" element={<RetroStorePage />} />
                     <Route path="/games/store/browse" element={<GameStoreBrowsePage />} />
                     <Route path="/games/store/game/:gameId" element={<GameStoreGamePage />} />
                     <Route path="/games/store/requests" element={<GameRequestsPage />} />

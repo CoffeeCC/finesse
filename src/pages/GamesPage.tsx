@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getSession } from '../api/client'
 import { useGamePlatforms, useGames } from '../api/queries'
@@ -7,11 +7,13 @@ import { useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 import { CardSkeleton } from '../components/Skeletons'
 import { useMoonlightApp } from '../components/MoonlightPlay'
 import StreamingSection from '../components/StreamingSection'
+import { AddRomsModal } from '../components/gamestore/AddRomsModal'
 import { GameRequestStatusView, installerHref } from '../components/gamestore/GameRequestStatus'
 import { StoreThumb, storeGameHref } from '../components/gamestore/StoreCards'
 import { StoreHeader, StoreSearchBox } from '../components/gamestore/StoreHeader'
 import { IS_TV } from '../lib/device'
 import { useFinesse } from '../lib/finesseServer'
+import { readDrop, type Dropped } from '../lib/mediaSort'
 
 const GameCard = memo(function GameCard({ rom }: { rom: RommRom }) {
   // RomM's cover, unless it didn't load: then SteamGridDB's, then the tile.
@@ -314,6 +316,10 @@ function ConsoleShelf({
 }
 
 function GamesLibrary({ top }: { top: React.ReactNode }) {
+  const { info } = useFinesse()
+  const isAdmin = Boolean(getSession()?.isAdmin)
+  const canAddRoms = !__WEBOS__ && isAdmin && Boolean(info?.features?.addMedia || info?.features?.games)
+
   const [params, setParams] = useSearchParams()
   const urlPlatformRaw = params.get('platform')
   const platformId = urlPlatformRaw && /^\d+$/.test(urlPlatformRaw) ? Number(urlPlatformRaw) : undefined
@@ -321,6 +327,12 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
 
   const [searchInput, setSearchInput] = useState(urlQ)
   const [debouncedSearch, setDebouncedSearch] = useState(urlQ)
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [addModalTab, setAddModalTab] = useState<'upload' | 'import'>('upload')
+  const [droppedFiles, setDroppedFiles] = useState<Dropped[] | undefined>(undefined)
+  const [dragOver, setDragOver] = useState(false)
+  const dragDepth = useRef(0)
+
   const paramsRef = useRef({ platformId, urlQ })
   paramsRef.current = { platformId, urlQ }
 
@@ -356,6 +368,12 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
   const { data: platforms } = useGamePlatforms()
   const { data, isLoading, isError, refetch } = useGames(platformId, debouncedSearch || undefined)
 
+  const selectedPlatform = useMemo(
+    () => (platformId !== undefined ? platforms?.find((p) => p.id === platformId) : undefined),
+    [platformId, platforms],
+  )
+  const defaultConsole = selectedPlatform?.fs_slug || selectedPlatform?.slug
+
   const games = useMemo(() => data?.items ?? [], [data])
   const shelfMode = platformId === undefined && !debouncedSearch
 
@@ -372,6 +390,63 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       .map((p) => ({ platform: p, games: byPlat.get(p.id) ?? [] }))
       .filter((x) => x.games.length > 0)
   }, [shelfMode, games, platforms])
+
+  const openAddModal = (tab: 'upload' | 'import' = 'upload') => {
+    setDroppedFiles(undefined)
+    setAddModalTab(tab)
+    setAddModalOpen(true)
+  }
+
+  const hasDraggedFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
+
+  const handleDragEnter = (e: DragEvent) => {
+    if (!canAddRoms || addModalOpen || !hasDraggedFiles(e)) return
+    e.stopPropagation()
+    dragDepth.current += 1
+    setDragOver(true)
+  }
+
+  const handleDragOver = (e: DragEvent) => {
+    if (!canAddRoms || addModalOpen || !hasDraggedFiles(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (e: DragEvent) => {
+    if (!canAddRoms || addModalOpen || !hasDraggedFiles(e)) return
+    e.stopPropagation()
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragOver(false)
+  }
+
+  const handleDrop = (e: DragEvent) => {
+    if (!canAddRoms || addModalOpen || !hasDraggedFiles(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragDepth.current = 0
+    setDragOver(false)
+    const dt = e.dataTransfer
+    void readDrop(dt).then((items) => {
+      if (!items.length) return
+      setDroppedFiles(items)
+      setAddModalTab('upload')
+      setAddModalOpen(true)
+    })
+  }
+
+  const addRomsBtn = canAddRoms ? (
+    <button
+      type="button"
+      onClick={() => openAddModal('upload')}
+      className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-accent-fill px-4 text-sm font-semibold text-white shadow-[0_6px_20px_rgba(79,99,180,.35)] outline-none transition hover:brightness-110 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent-400"
+    >
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+      </svg>
+      Add ROMs
+    </button>
+  ) : null
 
   const searchBox = (
     <StoreSearchBox
@@ -392,10 +467,36 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
   )
 
   return (
-    <div className="px-4 py-6 sm:px-6 lg:px-12">
+    <div
+      className="relative min-h-[calc(100vh-8rem)] px-4 py-6 sm:px-6 lg:px-12"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div
+          className="pointer-events-none fixed inset-0 z-[85] grid place-items-center bg-ink-950/75 p-6 backdrop-blur-md"
+          aria-hidden
+        >
+          <div className="flex flex-col items-center gap-3.5 rounded-[2rem] border-2 border-dashed border-accent-300/80 bg-accent-500/15 px-12 py-10 text-center shadow-[0_0_80px_rgba(117,137,216,.35)]">
+            <svg viewBox="0 0 24 24" className="h-11 w-11 text-accent-300" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5" />
+              <path d="M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14" />
+            </svg>
+            <p className="font-display text-[30px] leading-tight text-white">
+              Drop ROMs to add{selectedPlatform ? ` to ${selectedPlatform.name}` : ''}
+            </p>
+            <p className="text-[13.5px] text-ink-200">
+              Single files, .zip archives, or whole console folders
+            </p>
+          </div>
+        </div>
+      )}
+
       {top ? (
         <>
-          <StoreHeader title="Games" />
+          <StoreHeader title="Games" extra={addRomsBtn} />
           {top}
           <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <h2 className="row-title text-white">Games library</h2>
@@ -403,7 +504,15 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
           </div>
         </>
       ) : (
-        <StoreHeader title="Games" extra={searchBox} />
+        <StoreHeader
+          title="Games"
+          extra={
+            <div className="flex w-full flex-wrap items-center justify-end gap-2.5 sm:w-auto">
+              {searchBox}
+              {addRomsBtn}
+            </div>
+          }
+        />
       )}
 
       {/* Platform filter */}
@@ -451,14 +560,10 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       )}
 
       {!isLoading && !isError && games.length === 0 && (
-        <div className="py-14 text-center">
-          <p className="text-base font-semibold text-white">No games found</p>
-          <p className="mt-1 text-sm text-ink-400">
-            {debouncedSearch || platformId !== undefined
-              ? 'Try clearing your search or platform filter.'
-              : 'Your retro library is empty right now.'}
-          </p>
-          {(debouncedSearch || platformId !== undefined) && (
+        debouncedSearch || platformId !== undefined ? (
+          <div className="py-14 text-center">
+            <p className="text-base font-semibold text-white">No games found</p>
+            <p className="mt-1 text-sm text-ink-400">Try clearing your search or platform filter.</p>
             <button
               type="button"
               onClick={() => {
@@ -470,8 +575,63 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
             >
               Show all games
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <section className="mx-auto my-8 max-w-2xl rounded-2xl border border-white/10 bg-gradient-to-br from-accent-500/15 via-white/[0.03] to-transparent p-7 text-center sm:p-10">
+            <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-accent-300" aria-hidden>
+              <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5h10.5a4.5 4.5 0 0 1 4.44 5.24l-.56 3.38a3.25 3.25 0 0 1-5.5 1.77l-1.4-1.39h-4.46l-1.4 1.39a3.25 3.25 0 0 1-5.5-1.77l-.56-3.38A4.5 4.5 0 0 1 6.75 7.5Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 11.25v3m-1.5-1.5h3m5.25-.75h.01M17.25 13.5h.01" />
+              </svg>
+            </div>
+            <h2 className="font-display text-2xl text-white sm:text-3xl">Build your retro game library</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-300">
+              Drop ROMs right onto this page, browse free retro titles &amp; connected ROM sources, or import an existing folder from your server or SD card.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {canAddRoms && (
+                <button
+                  type="button"
+                  onClick={() => openAddModal('upload')}
+                  className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-accent-fill px-4 text-sm font-semibold text-white transition hover:brightness-110 active:scale-[0.98]"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Add ROMs
+                </button>
+              )}
+              <Link
+                to="/games/store/retro"
+                className="inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.98]"
+              >
+                Browse Retro Store
+              </Link>
+              {canAddRoms && (
+                <button
+                  type="button"
+                  onClick={() => openAddModal('import')}
+                  className="inline-flex h-10 items-center rounded-lg border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20 active:scale-[0.98]"
+                >
+                  Import server folder
+                </button>
+              )}
+            </div>
+          </section>
+        )
+      )}
+
+      {canAddRoms && (
+        <AddRomsModal
+          open={addModalOpen}
+          onClose={() => {
+            setAddModalOpen(false)
+            setDroppedFiles(undefined)
+          }}
+          defaultConsole={defaultConsole}
+          initialTab={addModalTab}
+          initialFiles={droppedFiles}
+        />
       )}
     </div>
   )

@@ -1,4 +1,4 @@
-// Unified top header for Games + Game Store: keeps the Your games · Store · Browse · Requests
+// Unified top header for Games + Game Store: keeps the Your games · Store · Retro · Browse · Requests
 // tab bar cohesive across every games route so switching never blows away navigation.
 
 import { useRef, type ReactNode } from 'react'
@@ -10,6 +10,7 @@ import { useFinesse } from '../../lib/finesseServer'
 
 export function StoreHeader({ title = 'Game store', extra }: { title?: string; extra?: ReactNode }) {
   const { pathname } = useLocation()
+  const { info } = useFinesse()
   const mode = useStoreMode()
   const { data: requests } = useGameRequests()
   const needsYou = requests?.filter((r) => r.state === 'needs-you').length ?? 0
@@ -19,14 +20,17 @@ export function StoreHeader({ title = 'Game store', extra }: { title?: string; e
 
   const onYourGames = pathname === '/games' || pathname.startsWith('/games/game/') || pathname.startsWith('/games/play/')
   const onStore = pathname === '/games/store' || pathname.startsWith('/games/store/game/')
+  const onRetro = pathname.startsWith('/games/store/retro')
   const onBrowse = pathname.startsWith('/games/store/browse')
   const onRequests = pathname.startsWith('/games/store/requests')
+  const showRetro = Boolean(mode || info?.features?.games || onRetro)
 
   const tabs: { to: string; label: string; on: boolean; count?: number; alert?: 'you' | 'bad' | 'ok' }[] = [
     { to: '/games', label: 'Your games', on: onYourGames },
+    ...(mode ? [{ to: '/games/store', label: 'Store', on: onStore }] : []),
+    ...(showRetro ? [{ to: '/games/store/retro', label: 'Retro', on: onRetro }] : []),
     ...(mode
       ? [
-          { to: '/games/store', label: 'Store', on: onStore },
           { to: '/games/store/browse', label: 'Browse', on: onBrowse },
           {
             to: '/games/store/requests',

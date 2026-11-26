@@ -109,6 +109,8 @@ export interface Settings {
   parentalJellyfin?: Record<string, import('./parental.ts').JfPolicyNote>
   /** The game store (server/src/gamestore): off until an administrator turns it on. */
   gameStore?: { enabled?: boolean; feeds?: import('./gamestore/feed.ts').FeedConfig[]; /** How long a finished torrent is shared back before its download is removed. */ seeding?: { ratio: number; days: number } }
+  /** Retro games engine (server/src/retro): opt-in homebrew shelf and admin-configured ROM sources. */
+  retro?: { homebrew?: boolean; sources?: import('./retro/retroStore.ts').RetroSourceConfig[] }
   /** Moments (server/src/moments.ts): friends' servers may send them here (default yes). */
   momentsFromFriends?: boolean
   /** Game streaming through Wolf: its API socket (WOLF_SOCKET), and names for paired Moonlight devices. */

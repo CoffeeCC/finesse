@@ -4,13 +4,14 @@
 // its own every few seconds, so a file you drop in shows up without a restart.
 
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { consolesApi, type ConsoleView, type InstallId } from '../../api/setup'
+import { useRef, useState } from 'react'
+import { consolesApi, type ConsoleNeed, type ConsoleView, type InstallId } from '../../api/setup'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
 import { copyText } from '../../lib/clipboard'
 import { COMMUNITY_BUILD, withoutFolder } from '../../lib/consoleText'
 import { CONSOLES, mb } from '../../lib/consoles'
+import { Spinner } from '../setup/ui'
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
 const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white disabled:opacity-50 transition-colors'
@@ -47,20 +48,107 @@ function Folder({ path }: { path: string }) {
   const toast = useToast()
   return (
     <span className="mt-1 flex flex-wrap items-center gap-2">
-      <code className="min-w-0 max-w-full break-all rounded-md bg-ink-950/70 px-2 py-1 text-[12px] text-ink-100">{path}</code>
+      <code className="min-w-0 max-w-full break-all rounded-md bg-ink-950/70 px-2 py-1 text-[11.5px] text-ink-300">{path}</code>
       <button
         type="button"
-        className={smallBtn}
+        className="inline-flex h-7 items-center rounded-md border border-white/10 bg-white/[0.03] px-2.5 text-[11.5px] font-medium text-ink-400 transition-colors hover:border-white/20 hover:text-white"
         aria-label={`Copy the folder ${path}`}
         onClick={() => void copyText(path).then((ok) => toast(ok ? 'Folder copied' : 'Couldn’t copy. Select the text instead.', ok ? undefined : 'error'))}
       >
-        Copy
+        Copy path
       </button>
     </span>
   )
 }
 
-function ConsoleRow({ c, busy, onChange }: { c: ConsoleView; busy: boolean; onChange: (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => void }) {
+function NeedRow({ consoleId, need, onUploaded }: { consoleId: InstallId; need: ConsoleNeed; onUploaded: () => void }) {
+  const toast = useToast()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const needKind: 'firmware' | 'keys' | null = need.what ?? (need.folder ? (/key/i.test(need.label) ? 'keys' : 'firmware') : null)
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file || !needKind) return
+    setUploading(true)
+    try {
+      const res = await consolesApi.uploadNeed(consoleId, needKind, file)
+      toast(`Uploaded ${res.fileName} — ready!`)
+      onUploaded()
+    } catch (e) {
+      toast((e as Error).message || 'Upload failed', 'error')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <li className="rounded-xl border border-white/[0.06] bg-ink-950/40 px-3.5 py-2.5 text-[12.5px] leading-relaxed">
+      <div className="flex flex-wrap items-start justify-between gap-2.5">
+        <div className="min-w-0 flex-1">
+          <span className={need.required ? 'font-medium text-amber-100' : 'text-ink-300'}>
+            {need.required ? 'Needs' : 'Optional:'} {what(need.label)}.
+          </span>{' '}
+          <span className="text-ink-400">{withoutFolder(need.detail)}</span>
+        </div>
+        {!__WEBOS__ && needKind && (
+          <div className="shrink-0">
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => inputRef.current?.click()}
+              className={addBtn}
+            >
+              {uploading ? (
+                <>
+                  <Spinner className="h-3.5 w-3.5" />
+                  Uploading…
+                </>
+              ) : (
+                <>
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                  </svg>
+                  Upload
+                </>
+              )}
+            </button>
+            <input
+              ref={inputRef}
+              type="file"
+              hidden
+              aria-label={`Upload ${need.label}`}
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                void handleFile(file)
+              }}
+            />
+          </div>
+        )}
+      </div>
+      {need.folder && (
+        <div className="mt-1.5">
+          <span className="block text-[11.5px] text-ink-500">
+            {!__WEBOS__ && needKind ? 'Or copy it directly into this folder on the server:' : 'Put it in this folder on the server:'}
+          </span>
+          <Folder path={need.folder} />
+        </div>
+      )}
+    </li>
+  )
+}
+
+function ConsoleRow({
+  c,
+  busy,
+  onChange,
+  onUploaded,
+}: {
+  c: ConsoleView
+  busy: boolean
+  onChange: (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => void
+  onUploaded: () => void
+}) {
   const info = CONSOLES.find((x) => x.id === c.id)
   const st = consoleStatus(c)
   const [confirm, setConfirm] = useState(false)
@@ -119,18 +207,7 @@ function ConsoleRow({ c, busy, onChange }: { c: ConsoleView; busy: boolean; onCh
       {todo.length > 0 && (
         <ul className="space-y-2">
           {todo.map((n) => (
-            <li key={n.label} className="text-[12.5px] leading-relaxed">
-              <span className={n.required ? 'text-amber-100' : 'text-ink-300'}>
-                {n.required ? 'Needs' : 'Optional:'} {what(n.label)}.
-              </span>{' '}
-              <span className="text-ink-400">{withoutFolder(n.detail)}</span>
-              {n.folder && (
-                <>
-                  <span className="block text-ink-400">Put it in this folder on the server:</span>
-                  <Folder path={n.folder} />
-                </>
-              )}
-            </li>
+            <NeedRow key={n.label} consoleId={c.id} need={n} onUploaded={onUploaded} />
           ))}
         </ul>
       )}
@@ -198,7 +275,7 @@ export default function Consoles() {
       ) : (
         <ul className="divide-y divide-white/5">
           {list.map((c) => (
-            <ConsoleRow key={c.id} c={c} busy={busy} onChange={(b) => void change(b)} />
+            <ConsoleRow key={c.id} c={c} busy={busy} onChange={(b) => void change(b)} onUploaded={() => void refetch()} />
           ))}
         </ul>
       )}

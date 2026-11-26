@@ -7,9 +7,12 @@
 // emulator in the background. A download that fails says why and never stops
 // anything else. A program in your own emulators folder always wins.
 
-import { chownSync, existsSync, mkdirSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { chownSync, createWriteStream, existsSync, lstatSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { dirname, join } from 'node:path'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import type { Auth } from './auth.ts'
 import type { Settings, SettingsStore } from './config.ts'
 import { EMULATOR_PINS, INSTALL_IDS, pinFor, type InstallId } from './emucatalog.ts'
@@ -17,12 +20,15 @@ import { EmulatorDownloads, type DownloadStatus } from './emudownload.ts'
 import { emulatorCatalog, folderFor, hasOwnProgram, readiness, type EmulatorId, type EmulatorSettings } from './emulators.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { logger } from './log.ts'
+import { sanitizeFileName } from './retro/retroStore.ts'
 import type { Docker } from './stack/docker.ts'
 
 const log = logger('emulators')
+const BIOS_UPLOAD_MAX = 256 * 1024 * 1024
 
 export interface ConsoleNeed {
   label: string
+  what?: 'firmware' | 'keys'
   required: boolean
   ok: boolean
   /** What it is and what to do, in plain words. */
@@ -171,7 +177,7 @@ export function consoleViews(s: Settings, downloads: EmulatorDownloads): Console
       .filter((i) => i !== prog && i.label !== 'Games')
       .map((i) => {
         const need = emulatorCatalog(e?.switchEmulator)[p.app].needs.find((n) => n.label === i.label)
-        return { label: i.label, required: i.required, ok: i.state === 'ok', folder: need && e ? (folderLabel(s, folderFor(e, p.app, need.what) ?? '') || null) : null, detail: folderLabelIn(s, i.detail) }
+        return { label: i.label, ...(need ? { what: need.what } : {}), required: i.required, ok: i.state === 'ok', folder: need && e ? (folderLabel(s, folderFor(e, p.app, need.what) ?? '') || null) : null, detail: folderLabelIn(s, i.detail) }
       })
     const download = downloads.status(p.id)
     const programOk = own || download.state === 'ready' || (prog?.state === 'ok')
@@ -228,6 +234,72 @@ export function registerConsoles(router: Router, deps: { settings: SettingsStore
     log.info(`consoles: ${add.length ? `added ${add.join(', ')}` : ''}${remove.length ? ` removed ${remove.join(', ')}` : ''}${update.length ? ` updating ${update.join(', ')}` : ''}`)
     const s = settings.get()
     sendJson(res, 200, { consoles: consoleViews(s, downloads), notes: [...notes, ...consoleNotes(s)] })
+  })
+
+  // 1-click BIOS / firmware / keys upload into the emulator's folder (admin-only).
+  router.post('/api/emulators/consoles/:id/upload', async ({ req, res, params, url }) => {
+    await auth.requireAdmin(req)
+    const id = params.id as InstallId
+    if (!INSTALL_IDS.includes(id)) throw new ApiError(404, 'Unknown console')
+    const what = url.searchParams.get('what')
+    if (what !== 'firmware' && what !== 'keys') throw new ApiError(400, 'Specify what=firmware or what=keys')
+    const fileName = sanitizeFileName(url.searchParams.get('name'))
+    if (!fileName) throw new ApiError(400, 'Invalid file name')
+
+    const s = settings.get()
+    const basePaths = { ...(defaultFolders(s) ?? {}), ...(s.emulators?.paths ?? {}) }
+    const eff: EmulatorSettings = { ...(s.emulators ?? { apps: [] }), paths: basePaths }
+    const dir = folderFor(eff, pinFor(id).app, what)
+    if (!dir) throw new ApiError(409, 'No folder is configured for this console’s firmware or keys yet.')
+
+    const declared = Number(req.headers['content-length'])
+    if (Number.isFinite(declared) && declared > BIOS_UPLOAD_MAX) {
+      throw new ApiError(413, 'File exceeds the 256 MB upload limit.')
+    }
+
+    const made: string[] = []
+    for (let d = dir; !existsSync(d) && d !== dirname(d); d = dirname(d)) made.unshift(d)
+    mkdirSync(dir, { recursive: true })
+    if (lstatSync(dir).isSymbolicLink()) throw new ApiError(400, 'Target folder cannot be a symbolic link.')
+
+    const target = join(dir, fileName)
+    if (existsSync(target) && lstatSync(target).isSymbolicLink()) {
+      throw new ApiError(400, 'Target file cannot be a symbolic link.')
+    }
+    const part = join(dir, `.${fileName}.${randomBytes(6).toString('hex')}.part`)
+    let received = 0
+    try {
+      const cap = new Transform({
+        transform(chunk: Buffer, _enc, done) {
+          received += chunk.length
+          if (received > BIOS_UPLOAD_MAX) return done(new ApiError(413, 'File exceeds the 256 MB upload limit.'))
+          done(null, chunk)
+        },
+      })
+      await pipeline(req, cap, createWriteStream(part))
+      if (received === 0) throw new ApiError(400, 'Upload body was empty.')
+      renameSync(part, target)
+    } catch (e) {
+      rmSync(part, { force: true })
+      throw e
+    }
+
+    const { uid, gid } = owner()
+    for (const d of made) {
+      try {
+        chownSync(d, uid, gid)
+      } catch {
+        /* ignore if not root or unsupported fs */
+      }
+    }
+    try {
+      chownSync(target, uid, gid)
+    } catch {
+      /* ignore */
+    }
+
+    log.info(`uploaded ${what} for ${id}: ${fileName} (${received} bytes)`)
+    sendJson(res, 200, { ok: true, fileName, consoles: consoleViews(settings.get(), downloads) })
   })
 }
 

@@ -36,6 +36,7 @@ import { Roku, registerRoku } from './roku.ts'
 import { registerQualityRules } from './qualityRules.ts'
 import { registerGameStore, type GameStore } from './gamestore/routes.ts'
 import { plugPipeline } from './gamestore/wiring.ts'
+import { registerRetro } from './retro/routes.ts'
 import { registerAlbumRequests } from './albumRequests.ts'
 import { checkConnections, type ConnCheck, type ConnReport } from './connections.ts'
 import { ConnectionRepairLoop, FixError } from './connectionFixes.ts'
@@ -225,6 +226,7 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
   registerQualityRules(router, { settings, auth })
   deps.gameStore = registerGameStore(router, { settings, auth })
   plugPipeline(deps.gameStore, settings, { log: (t) => log.warn(t) })
+  registerRetro(router, { settings, auth })
   registerAlbumRequests(router, { settings, auth, parental })
   deps.downloadRescue = registerDownloadRescue(router, { settings, auth })
   // Each connected app's own health (Settings → Server, finesse doctor): bundle and adopt alike.

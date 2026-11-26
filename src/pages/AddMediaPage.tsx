@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useIsTouch } from '../lib/device'
-import { fromInput, plan, readDrop, repath, SYSTEM_CHOICES, type Dropped, type Kind } from '../lib/mediaSort'
+import { fromInput, plan, readDrop, repath, SYSTEM_CHOICES, type Dropped, type Kind, type Planned } from '../lib/mediaSort'
 import { cancel, cancelAllActive, confirmReview, discardReview, enqueue, mediaInfo, move, remove, retry, retryAllFailed, tidy, useUploads, type Job, type MediaInfo } from '../lib/uploads'
+import { detectConsoleFromZip } from '../lib/zipPeek'
 
 // Add media: drop files or whole folders (from this computer, a USB drive, a network share:
 // anything the browser can open). They're sorted into libraries and listed for a look first;
@@ -22,9 +23,24 @@ const size = (b: number) => (b >= 1e12 ? `${(b / 1e12).toFixed(1)} TB` : b >= 1e
 const eta = (s: number) => (s < 90 ? 'under a minute and a half' : s < 3600 ? `about ${Math.round(s / 60)} min` : `about ${(s / 3600).toFixed(1)} h`)
 const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`
 
-/** Turns dropped files into a list to review (the drop-anywhere overlay does the same). */
-function addDropped(items: Dropped[], games: boolean) {
-  enqueue(plan(items, { games }))
+/** Turns dropped files into a list to review, peeking inside .zip ROMs to auto-detect their console. */
+async function addDropped(items: Dropped[], games: boolean) {
+  const planned: Planned[] = plan(items, { games })
+  if (games) {
+    await Promise.all(
+      planned.map(async (item) => {
+        if (item.kind === 'games' && !item.system && /\.zip$/i.test(item.file.name)) {
+          const detected = await detectConsoleFromZip(item.file)
+          if (detected) {
+            item.system = detected
+            item.path = repath(item, 'games', detected)
+            item.note = undefined
+          }
+        }
+      }),
+    )
+  }
+  enqueue(planned)
 }
 
 export default function AddMediaPage() {
@@ -80,10 +96,26 @@ export default function AddMediaPage() {
     }
   }, [isAdmin, totals.done, totals.live])
 
+  // Peek inside any unassigned .zip game files in review (e.g. dropped via global DropToAdd overlay).
+  const peekedZips = useRef(new Set<string>())
+  useEffect(() => {
+    if (!games) return
+    const pending = review.filter(
+      (j) => j.kind === 'games' && !j.system && /\.zip$/i.test(j.file.name) && !peekedZips.current.has(j.key),
+    )
+    if (!pending.length) return
+    for (const j of pending) {
+      peekedZips.current.add(j.key)
+      void detectConsoleFromZip(j.file).then((detected) => {
+        if (detected) move(j.key, 'games', repath(j, 'games', detected), detected)
+      })
+    }
+  }, [games, review])
+
   const take = async (p: Promise<Dropped[]> | Dropped[]) => {
     setReading(true)
     try {
-      addDropped(await p, games)
+      await addDropped(await p, games)
     } finally {
       setReading(false)
     }

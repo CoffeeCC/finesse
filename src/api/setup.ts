@@ -461,6 +461,15 @@ export interface EmulatorSettings {
 /** The emulators Finesse can download (one per console family). */
 export type InstallId = 'pcsx2' | 'dolphin' | 'rpcs3' | 'cemu' | 'eden'
 
+export interface ConsoleNeed {
+  label: string
+  required: boolean
+  ok: boolean
+  detail: string
+  folder: string | null
+  what?: 'firmware' | 'keys'
+}
+
 export interface ConsoleView {
   id: InstallId
   name: string
@@ -474,13 +483,38 @@ export interface ConsoleView {
   download: { state: 'missing' | 'queued' | 'downloading' | 'checking' | 'ready' | 'update' | 'failed'; received: number; size: number; error: string | null; installed: string | null }
   own: boolean
   ready: boolean
-  needs: { label: string; required: boolean; ok: boolean; detail: string; folder: string | null }[]
+  needs: ConsoleNeed[]
 }
 
 export const consolesApi = {
   /** `notes`: what's wrong for the whole list, in plain words (Finesse can't find its downloads folder on the server…). */
   list: () => call<{ consoles: ConsoleView[]; folders: EmulatorSettings['paths']; notes?: string[] }>('GET', '/api/emulators/consoles'),
   change: (body: { add?: InstallId[]; remove?: InstallId[]; update?: InstallId[] }) => call<{ consoles: ConsoleView[]; notes?: string[] }>('POST', '/api/emulators/consoles', body, { timeoutMs: 60000 }),
+  uploadNeed: async (id: InstallId, what: 'firmware' | 'keys', file: File): Promise<{ ok: boolean; fileName: string; consoles: ConsoleView[] }> => {
+    const res = await fetch(
+      finesseApi(`/api/emulators/consoles/${encodeURIComponent(id)}/upload?what=${encodeURIComponent(what)}&name=${encodeURIComponent(file.name)}`),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: mediaBrowserAuthHeader(),
+          'Content-Type': 'application/octet-stream',
+        },
+        body: file,
+      },
+    )
+    const text = await res.text()
+    let data: unknown = null
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      data = text
+    }
+    if (!res.ok) {
+      const d = data as { error?: string; details?: unknown } | null
+      throw new ApiError(res.status, d?.error || res.statusText || 'Upload failed', d?.details)
+    }
+    return data as { ok: boolean; fileName: string; consoles: ConsoleView[] }
+  },
 }
 
 export interface EmulatorReadiness {

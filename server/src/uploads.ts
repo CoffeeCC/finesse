@@ -20,6 +20,7 @@ import type { SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
 import { fingerprintFile } from './fingerprint.ts'
 import { logger } from './log.ts'
+import { triggerRommScan } from './retro/retroStore.ts'
 import { jellyfinLibraries, type JellyfinLibraries } from './stack/libraries.ts'
 
 const log = logger('uploads')
@@ -145,15 +146,18 @@ function freeName(file: string): string {
 export class Uploads {
   private readonly settings: SettingsStore
   private readonly api: JellyfinLibraries
+  private readonly rommScan: () => Promise<unknown>
   private scanTimer: NodeJS.Timeout | null = null
+  private rommScanTimer: NodeJS.Timeout | null = null
   /** One write at a time per upload (a retried chunk can arrive while the first is still flowing). */
   private readonly writing = new Set<string>()
   /** Files added recently, by the receipt handed back with them: only these can be taken back. */
   private readonly receipts = new Map<string, { file: string; library: string; kind: Kind; at: number; dev: number; ino: number; size: number; mtime: number }>()
 
-  constructor(settings: SettingsStore, api: JellyfinLibraries = jellyfinLibraries) {
+  constructor(settings: SettingsStore, api: JellyfinLibraries = jellyfinLibraries, rommScan?: () => Promise<unknown>) {
     this.settings = settings
     this.api = api
+    this.rommScan = rommScan ?? (() => triggerRommScan(this.settings.get()))
   }
 
   /** The media folder, where Finesse sees it; null when Finesse didn't install the stack (nothing to add to). */
@@ -336,7 +340,8 @@ export class Uploads {
     const library = join(root, KINDS[meta.kind])
     const placed = target.slice(library.length + 1)
     log.info(`added ${meta.kind}: ${placed} (${Math.round(meta.size / 1e6)} MB)`)
-    if (meta.kind !== 'games') this.scanSoon() // RomM: the games nudger registers new console folders by itself
+    if (meta.kind === 'games') this.scanRommSoon()
+    else this.scanSoon()
     const receipt = randomBytes(18).toString('base64url')
     for (const [k, r] of this.receipts) if (Date.now() - r.at > UNDO_MS) this.receipts.delete(k)
     const st = statSync(target)
@@ -372,7 +377,8 @@ export class Uploads {
       dir = dirname(dir)
     }
     log.info(`removed ${r.kind}: ${r.file.slice(r.library.length + 1)}`)
-    if (r.kind !== 'games') this.scanSoon()
+    if (r.kind === 'games') this.scanRommSoon()
+    else this.scanSoon()
   }
 
   cancel(id: string) {
@@ -392,6 +398,17 @@ export class Uploads {
       this.api.scan(`${jf.url}${jf.basePath ?? ''}`, jf.apiKey).catch((e) => log.warn(`couldn’t ask Jellyfin to scan: ${(e as Error).message}`))
     }, 8000)
     this.scanTimer.unref?.()
+  }
+
+  /** A few seconds after a game upload lands or is removed, ask RomM to scan (best-effort, non-fatal). */
+  private scanRommSoon() {
+    if (this.rommScanTimer) clearTimeout(this.rommScanTimer)
+    this.rommScanTimer = setTimeout(() => {
+      this.rommScanTimer = null
+      if (!this.settings.get().services.romm?.url) return
+      this.rommScan().catch((e) => log.warn(`couldn’t ask RomM to scan: ${(e as Error).message}`))
+    }, 8000)
+    this.rommScanTimer.unref?.()
   }
 
   /** Forgets uploads nobody came back for. */
