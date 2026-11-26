@@ -13,7 +13,7 @@ import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
 import { cleanFeedConfig, feedProvider, httpsUrl, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
-import { liveSearchGames, prowlarrConfigured, validLiveDownloadUrl } from './prowlarrSearch.ts'
+import { liveSearchGames, prowlarrConfigured, resolveLiveDownload } from './prowlarrSearch.ts'
 import { GameTransferStore, streamDirAsTar } from './transfer.ts'
 import type { CatalogueGame, CatalogueSource, GameMode, GamePlatform, InstallerKind, StoreGameDetail, StoreQuery, StoreSort } from './types.ts'
 
@@ -371,8 +371,11 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : ''
     if (!title) throw new ApiError(400, 'Give the game a name.')
 
-    const dl = validLiveDownloadUrl(body.downloadUrl)
-    if (!dl) throw new ApiError(400, 'That download needs a valid magnet link or https:// address.')
+    const dl = await resolveLiveDownload(body.downloadUrl, {
+      prowlarr: settings.get().services.prowlarr,
+      fetch: deps.liveFetch,
+    })
+    if (!dl) throw new ApiError(400, 'That download couldn’t be resolved to a magnet link or https:// address.')
 
     const sizeBytes = Number(body.sizeBytes)
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) throw new ApiError(400, 'sizeBytes must be a positive number.')

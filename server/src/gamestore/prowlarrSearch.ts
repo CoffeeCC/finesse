@@ -8,6 +8,145 @@ import type { Endpoint } from '../config.ts'
 import { httpsUrl } from './feed.ts'
 import type { GamePlatform, InstallerKind } from './types.ts'
 
+const PROXY_PREFIX = 'prowlarr://'
+const PROXY_TTL_MS = 30 * 60_000
+const PROXY_MAX = 500
+
+interface ProxyEntry {
+  url: string
+  title: string
+  expiresAt: number
+}
+
+const proxyStore = new Map<string, ProxyEntry>()
+
+function rememberProxyDownload(id: string, url: string, title: string): string {
+  const now = Date.now()
+  for (const [k, v] of proxyStore) if (v.expiresAt <= now) proxyStore.delete(k)
+  if (proxyStore.size >= PROXY_MAX) {
+    const oldest = proxyStore.keys().next().value
+    if (oldest) proxyStore.delete(oldest)
+  }
+  proxyStore.set(id, { url, title, expiresAt: now + PROXY_TTL_MS })
+  return `${PROXY_PREFIX}${id}`
+}
+
+/** Build a valid magnet URI from a Prowlarr infoHash (40-char hex or 32-char base32). */
+export function magnetFromInfoHash(infoHash: unknown, title?: string): string | undefined {
+  if (typeof infoHash !== 'string') return undefined
+  const clean = infoHash.trim()
+  if (!/^(?:[0-9a-f]{40}|[a-z2-7]{32})$/i.test(clean)) return undefined
+  const dn = title?.trim() ? `&dn=${encodeURIComponent(title.trim().slice(0, 200))}` : ''
+  return `magnet:?xt=urn:btih:${clean.toLowerCase()}${dn}`
+}
+
+/** Extract the SHA-1 infoHash from a raw bencoded .torrent buffer (zero dependencies). */
+export function torrentInfoHash(buf: Uint8Array): string | null {
+  const len = buf.length
+  if (len < 12 || buf[0] !== 0x64) return null // must start with 'd'
+  const skip = (pos: number): number => {
+    if (pos >= len) return -1
+    const c = buf[pos]!
+    if (c === 0x69) {
+      // i<int>e
+      const end = buf.indexOf(0x65, pos + 1)
+      return end === -1 ? -1 : end + 1
+    }
+    if (c === 0x6c) {
+      // l...e
+      let p = pos + 1
+      while (p < len && buf[p] !== 0x65) {
+        p = skip(p)
+        if (p < 0) return -1
+      }
+      return p < len ? p + 1 : -1
+    }
+    if (c === 0x64) {
+      // d...e
+      let p = pos + 1
+      while (p < len && buf[p] !== 0x65) {
+        p = skip(p)
+        if (p < 0) return -1
+        p = skip(p)
+        if (p < 0) return -1
+      }
+      return p < len ? p + 1 : -1
+    }
+    if (c >= 0x30 && c <= 0x39) {
+      // <len>:<bytes>
+      const colon = buf.indexOf(0x3a, pos)
+      if (colon === -1) return -1
+      const n = Number(Buffer.from(buf.subarray(pos, colon)).toString('ascii'))
+      if (!Number.isInteger(n) || n < 0 || colon + 1 + n > len) return -1
+      return colon + 1 + n
+    }
+    return -1
+  }
+
+  let p = 1
+  while (p < len && buf[p] !== 0x65) {
+    const keyStart = p
+    const colon = buf.indexOf(0x3a, keyStart)
+    if (colon === -1) return null
+    const klen = Number(Buffer.from(buf.subarray(keyStart, colon)).toString('ascii'))
+    if (!Number.isInteger(klen) || klen < 0 || colon + 1 + klen > len) return null
+    const key = Buffer.from(buf.subarray(colon + 1, colon + 1 + klen)).toString('utf8')
+    const valStart = colon + 1 + klen
+    const valEnd = skip(valStart)
+    if (valEnd < 0) return null
+    if (key === 'info') {
+      return createHash('sha1').update(buf.subarray(valStart, valEnd)).digest('hex')
+    }
+    p = valEnd
+  }
+  return null
+}
+
+/** Resolve either a direct magnet/https URL or an opaque prowlarr://<id> token server-side. */
+export async function resolveLiveDownload(
+  rawUrl: unknown,
+  opts: { prowlarr?: Endpoint; fetch?: typeof fetch; timeoutMs?: number } = {},
+): Promise<{ magnet?: string; url?: string } | null> {
+  const direct = validLiveDownloadUrl(rawUrl)
+  if (direct) return direct
+  if (typeof rawUrl !== 'string' || !rawUrl.startsWith(PROXY_PREFIX)) return null
+
+  const id = rawUrl.slice(PROXY_PREFIX.length)
+  const entry = proxyStore.get(id)
+  if (!entry || entry.expiresAt <= Date.now()) {
+    proxyStore.delete(id)
+    return null
+  }
+  const get = opts.fetch ?? fetch
+  const headers: Record<string, string> = {}
+  if (opts.prowlarr?.apiKey) headers['X-Api-Key'] = opts.prowlarr.apiKey
+
+  try {
+    const res = await get(entry.url, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
+      headers,
+    })
+    const loc = res.headers.get('location')
+    if (loc) {
+      const m = magnetUrl(loc)
+      if (m) return { magnet: m }
+      const u = httpsUrl(loc)
+      if (u && !/[?&]api_?key=/i.test(u)) return { url: u }
+    }
+    if (!res.ok) return null
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const hash = torrentInfoHash(bytes)
+    if (hash) {
+      const m = magnetFromInfoHash(hash, entry.title)
+      if (m) return { magnet: m }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 export interface LiveGameResult {
   id: string
   /** Cleaned human-readable game title (e.g. "Elden Ring"). */
@@ -164,6 +303,8 @@ interface ProwlarrItem {
   size?: unknown
   seeders?: unknown
   indexer?: unknown
+  protocol?: unknown
+  infoHash?: unknown
   magnetUrl?: unknown
   downloadUrl?: unknown
   guid?: unknown
@@ -287,15 +428,35 @@ export async function liveSearchGames(query: string, opts: LiveSearchOptions = {
     const sizeBytes = Number(raw.size)
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) continue
 
-    // Only accept clean magnet:? links or direct https:// URLs (never internal Prowlarr API links with keys).
-    const pickedUrl =
+    // Skip Usenet (.nzb) results for now since the Game Store pipeline downloads torrents/HTTPS.
+    if (typeof raw.protocol === 'string' && raw.protocol.toLowerCase() === 'usenet') continue
+
+    // 1) Prefer direct magnet:? links or synthesized magnet from Prowlarr's infoHash
+    // 2) Accept direct https:// URLs without embedded API keys
+    // 3) Fall back to an opaque prowlarr://<id> token resolved server-side on request (never leaking API keys)
+    const rawDl = typeof raw.downloadUrl === 'string' ? raw.downloadUrl.trim() : ''
+    let pickedUrl =
       magnetUrl(raw.magnetUrl) ??
       magnetUrl(raw.downloadUrl) ??
       magnetUrl(raw.guid) ??
-      httpsUrl(raw.downloadUrl)
+      magnetFromInfoHash(raw.infoHash, releaseTitle)
+
+    if (!pickedUrl && rawDl) {
+      const cleanHttps = httpsUrl(rawDl)
+      let sameProwlarrOrigin = false
+      try {
+        sameProwlarrOrigin = new URL(rawDl).origin === new URL(base).origin
+      } catch {
+        sameProwlarrOrigin = false
+      }
+      if (cleanHttps && !/[?&]api_?key=/i.test(cleanHttps) && !sameProwlarrOrigin) {
+        pickedUrl = cleanHttps
+      } else if (sameProwlarrOrigin) {
+        const proxyId = createHash('sha256').update(rawDl).digest('hex').slice(0, 16)
+        pickedUrl = rememberProxyDownload(proxyId, rawDl, releaseTitle)
+      }
+    }
     if (!pickedUrl) continue
-    // Extra safety: never pass through anything referencing apikey or the configured Prowlarr host.
-    if (/[?&]api_?key=/i.test(pickedUrl)) continue
     if (seenUrls.has(pickedUrl)) continue
     seenUrls.add(pickedUrl)
 

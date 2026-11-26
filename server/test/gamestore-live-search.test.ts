@@ -7,7 +7,7 @@ import { Auth } from '../src/auth.ts'
 import { SettingsStore } from '../src/config.ts'
 import { Jellyfin } from '../src/jellyfin.ts'
 import { GameStoreDb, type StoredRequest } from '../src/gamestore/db.ts'
-import { cleanReleaseTitle, liveSearchGames, parseReleaseInfo, validLiveDownloadUrl } from '../src/gamestore/prowlarrSearch.ts'
+import { cleanReleaseTitle, liveSearchGames, magnetFromInfoHash, parseReleaseInfo, resolveLiveDownload, torrentInfoHash, validLiveDownloadUrl } from '../src/gamestore/prowlarrSearch.ts'
 import { LIVE, registerGameStore, type GameStore, type RequestPipeline } from '../src/gamestore/routes.ts'
 import { ApiError, Router, sendJson } from '../src/http/core.ts'
 import { listen, tmp } from './helpers.ts'
@@ -163,6 +163,85 @@ test('liveSearchGames still succeeds when Steam enrichment is offline', async ()
   assert.equal(res.items[0]!.title, 'Hades')
   assert.equal(res.items[0]!.platform, 'linux')
   assert.equal(res.items[0]!.cover, undefined)
+})
+
+test('infoHash synthesis, torrentInfoHash bencode extraction, and Prowlarr proxy download resolution', async () => {
+  const hash = '0123456789abcdef0123456789abcdef01234567'
+  assert.ok(magnetFromInfoHash(hash, 'Hades II')?.startsWith(`magnet:?xt=urn:btih:${hash}`))
+
+  // Minimal valid bencoded torrent: d4:infod4:name4:teste4:testi1ee
+  const torrentBytes = Buffer.from('d4:infod4:name4:teste4:testi1ee', 'utf8')
+  const infoHash = torrentInfoHash(torrentBytes)
+  assert.ok(infoHash && /^[0-9a-f]{40}$/.test(infoHash))
+
+  const prowlarr = { url: 'http://prowlarr:9696', apiKey: 'top-secret' }
+  const mockFetch: typeof fetch = async (input) => {
+    const u = typeof input === 'string' ? input : input.toString()
+    if (u.includes('/api/v1/search')) {
+      return new Response(
+        JSON.stringify([
+          {
+            title: 'Hades.II-RUNE',
+            size: 5_000_000_000,
+            seeders: 80,
+            infoHash: hash,
+            indexer: 'TrackerHashOnly',
+          },
+          {
+            title: 'Celeste.v1.4-GOG',
+            size: 1_200_000_000,
+            seeders: 40,
+            protocol: 'torrent',
+            downloadUrl: 'http://prowlarr:9696/1/download?apikey=top-secret&link=abc',
+            indexer: 'TrackerProxyRedirect',
+          },
+          {
+            title: 'Balatro-TorrentFile',
+            size: 150_000_000,
+            seeders: 25,
+            protocol: 'torrent',
+            downloadUrl: 'http://prowlarr:9696/2/download?apikey=top-secret&link=def',
+            indexer: 'TrackerTorrentBytes',
+          },
+          {
+            title: 'Usenet.Game-NZB',
+            size: 3_000_000_000,
+            seeders: 0,
+            protocol: 'usenet',
+            downloadUrl: 'http://prowlarr:9696/3/download?apikey=top-secret&link=nzb',
+            indexer: 'NZBGeek',
+          },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    if (u.includes('link=abc')) {
+      return new Response(null, { status: 302, headers: { Location: MAGNET_A } })
+    }
+    if (u.includes('link=def')) {
+      return new Response(torrentBytes, { status: 200, headers: { 'Content-Type': 'application/x-bittorrent' } })
+    }
+    return new Response('{}', { status: 404 })
+  }
+
+  const res = await liveSearchGames('hades', { prowlarr, fetch: mockFetch, enrich: false })
+  assert.equal(res.available, true)
+  // Usenet skipped; all 3 torrent styles kept without ever leaking the Prowlarr API key
+  assert.equal(res.items.length, 3)
+  assert.ok(res.items.every((it) => !it.downloadUrl.includes('top-secret')))
+
+  const hashItem = res.items.find((it) => it.indexer === 'TrackerHashOnly')!
+  assert.ok(hashItem.downloadUrl.startsWith(`magnet:?xt=urn:btih:${hash}`))
+
+  const redirItem = res.items.find((it) => it.indexer === 'TrackerProxyRedirect')!
+  assert.ok(redirItem.downloadUrl.startsWith('prowlarr://'))
+  const resolvedRedir = await resolveLiveDownload(redirItem.downloadUrl, { prowlarr, fetch: mockFetch })
+  assert.equal(resolvedRedir?.magnet, MAGNET_A)
+
+  const fileItem = res.items.find((it) => it.indexer === 'TrackerTorrentBytes')!
+  assert.ok(fileItem.downloadUrl.startsWith('prowlarr://'))
+  const resolvedFile = await resolveLiveDownload(fileItem.downloadUrl, { prowlarr, fetch: mockFetch })
+  assert.ok(resolvedFile?.magnet?.startsWith(`magnet:?xt=urn:btih:${infoHash}`))
 })
 
 // ---------- HTTP route tests: /live-search & /live-request ----------
