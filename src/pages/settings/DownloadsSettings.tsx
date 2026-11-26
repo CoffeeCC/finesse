@@ -80,7 +80,7 @@ function AppRow({ def, saved, loading }: { def: (typeof APPS)[number]; saved?: R
         {!loading && <span className="text-xs text-ink-400">{where}</span>}
       </div>
       {options.isLoading && <p className="mt-3 text-sm text-ink-400">Asking {def.name} what it has…</p>}
-      {options.isError && <p className="mt-3 text-sm text-red-300">Couldn’t reach {def.name}. Make sure it’s running (Settings → Server shows its health), then reload.</p>}
+      {options.isError && <p className="mt-3 text-sm text-red-300">Couldn’t reach {def.name}. Make sure it’s running (Settings → Health shows how it’s doing), then reload.</p>}
       {pick && !pick.ok && <p className="mt-3 text-sm text-amber-200">{pick.problem.replace(/, then request again\.$/, '.').replace(/ Pick (one|a folder) there again\./, ' Pick one below.')}</p>}
       {options.data && (
         <div className="mt-3 flex flex-wrap items-center gap-3">

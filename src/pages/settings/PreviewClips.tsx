@@ -1,4 +1,4 @@
-// Settings → Server → Preview clips (administrators): on or off, how many titles
+// Settings → Media → Preview clips (administrators): on or off, how many titles
 // have one, and why none are being made when they can't be (server/src/stack/clips.ts).
 // On every install: servers Finesse set up, and ones using someone's own Jellyfin.
 

@@ -173,7 +173,7 @@ export default function StreamingSection() {
                 Steam games
               </button>
             )}
-            <Link to="/settings#settings-streaming" className={pill}>
+            <Link to="/settings?s=games&at=streaming" className={pill}>
               Pair a device
             </Link>
           </div>
@@ -281,7 +281,7 @@ export default function StreamingSection() {
             app.
           </li>
           <li>Open Moonlight and pick this server. At home it usually finds it by itself.</li>
-          <li>Moonlight shows a PIN. {isAdmin ? 'Enter it under Settings → Server → Game streaming.' : 'Ask whoever runs this server to enter it in Finesse.'}</li>
+          <li>Moonlight shows a PIN. {isAdmin ? 'Enter it under Settings → Games → Game streaming.' : 'Ask whoever runs this server to enter it in Finesse.'}</li>
           {profiles.length > 0 ? (
             <li>
               In Moonlight choose <b className="font-semibold text-white">{launcher!.title}</b>, then {one ? <b className="font-semibold text-white">{one.name}</b> : 'your profile'}, then the app you want.

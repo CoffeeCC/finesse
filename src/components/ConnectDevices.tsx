@@ -87,7 +87,7 @@ export default function ConnectDevices() {
                     Open <b className="text-white select-all">{away}</b>
                   </>
                 ) : (
-                  <>This address only works at home. To watch away from home, set up remote access (Settings → Server → Downloads &amp; away from home).</>
+                  <>This address only works at home. To watch away from home, set up remote access (Settings → Downloads).</>
                 )}
               </dd>
             </div>

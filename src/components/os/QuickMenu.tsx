@@ -135,7 +135,7 @@ function Server() {
           )}
         </div>
       </div>
-      <Link to="/settings#settings-server" className={linkBtn}>
+      <Link to="/settings?s=health" className={linkBtn}>
         Server settings
       </Link>
     </section>

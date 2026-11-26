@@ -472,7 +472,7 @@ export default function SetupPage() {
           }}
           applyError={applyError}
           canRetry={Boolean(d.admin.password) || Boolean(change)}
-          onSignIn={change ? () => navigate('/settings#settings-server', { replace: true }) : signIn}
+          onSignIn={change ? () => navigate('/settings?s=downloads', { replace: true }) : signIn}
           signingIn={signingIn}
           signInError={signInError}
           dataPath={info?.defaults.dataLabel ?? info?.defaults.data}
@@ -654,7 +654,7 @@ function SkipWarning({ step, failed, onBack, onContinue }: { step: StepId; faile
           ))}
         </ul>
         <p className="mt-4 text-[14px] leading-relaxed text-ink-200">
-          You can carry on: everything else gets set up. {SKIP_EFFECT[step] ?? ''} Fix it any time in <b className="text-white">Settings → Server → Downloads &amp; away from home → Change</b>.
+          You can carry on: everything else gets set up. {SKIP_EFFECT[step] ?? ''} Fix it any time in <b className="text-white">Settings → Downloads → Change</b>.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
           <GhostButton onClick={onBack}>Go back and fix it</GhostButton>
@@ -955,7 +955,7 @@ function BuildScreen({
               </Tip>
             ) : null}
             <Tip icon="link" title="Invite people">
-              Settings → Server → Invites makes a link (or sends an email) so friends and family get their own account.
+              Settings → People → Invites makes a link (or sends an email) so friends and family get their own account.
             </Tip>
           </div>
           {signInError && <p className="mt-6 text-[13.5px] text-red-300">{signInError}</p>}

@@ -1,4 +1,4 @@
-// Settings → Server for a Finesse that runs the whole stack: how every app is
+// Settings → Health, Server, Downloads and Games for a Finesse that runs the whole stack: how every app is
 // doing, the VPN, disk space, backups, app updates, and the public address +
 // email used for invites. Administrators only.
 
@@ -35,10 +35,10 @@ const STATE_TEXT: Record<string, string> = {
   unreachable: 'Not answering',
 }
 
-function Block({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+function Block({ title, action, anchor, children }: { title: string; action?: ReactNode; anchor?: string; children: ReactNode }) {
   return (
     // min-w-0: a long path or name inside never widens the page past the screen.
-    <div className="min-w-0">
+    <div className="min-w-0" data-setting={anchor}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">{title}</h3>
         {action}
@@ -145,6 +145,7 @@ function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refre
 
   return (
     <Block
+      anchor="system-backups"
       title="Backups"
       action={
         !open && (
@@ -260,7 +261,11 @@ function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refre
   )
 }
 
-export default function SystemPanel() {
+/** The blocks of this panel, so each Settings page shows only its own. */
+export type SystemPart = 'summary' | 'apps' | 'vpn-storage' | 'setup-change' | 'app-updates' | 'games' | 'backups' | 'sharing' | 'activity'
+
+export default function SystemPanel({ parts }: { parts?: SystemPart[] } = {}) {
+  const has = (p: SystemPart) => !parts || parts.includes(p)
   const toast = useToast()
   const { info: finesse, refresh: refreshFinesse } = useFinesse()
   const [s, setS] = useState<SystemStatus | null>(null)
@@ -324,7 +329,7 @@ export default function SystemPanel() {
   return (
     <div className="space-y-7">
       {/* Summary */}
-      <div className={`${CARD} flex flex-wrap items-center justify-between gap-4 px-5 py-4`}>
+      {has('summary') && <div data-setting="system-summary" className={`${CARD} flex flex-wrap items-center justify-between gap-4 px-5 py-4`}>
         <div className="flex items-center gap-3">
           <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${problems ? 'bg-amber-300/15 text-amber-200' : 'bg-emerald-400/15 text-emerald-300'}`}>
             <StatusDot ok={problems ? null : true} />
@@ -340,10 +345,10 @@ export default function SystemPanel() {
           {busy === 'refresh' && <Spinner className="h-3 w-3" />}
           Check now
         </button>
-      </div>
+      </div>}
 
       {/* Apps */}
-      <Block title="Apps">
+      {has('apps') && <Block title="Apps" anchor="system-apps">
         <ul className={`${CARD} divide-y divide-white/5`}>
           {h.services.map((svc) => {
             const ok = svc.state === 'running' ? true : svc.state === 'starting' || svc.state === 'paused' ? null : false
@@ -384,10 +389,10 @@ export default function SystemPanel() {
             )
           })}
         </ul>
-      </Block>
+      </Block>}
 
       {/* VPN + storage */}
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      {has('vpn-storage') && <div data-setting="system-vpn-storage" className="grid grid-cols-[minmax(0,1fr)] gap-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {h.vpn && (
           <Block title="VPN">
             <div className={`${CARD} flex items-start gap-3 px-5 py-4`}>
@@ -423,11 +428,11 @@ export default function SystemPanel() {
             })}
           </div>
         </Block>
-      </div>
+      </div>}
 
       {/* Downloads and away-from-home access, any time after setup: the wizard again, only those parts. */}
-      {finesse?.mode === 'bundle' && (
-        <Block title="Downloads & away from home">
+      {has('setup-change') && finesse?.mode === 'bundle' && (
+        <Block title="Usenet, torrents, VPN and access from outside" anchor="system-setup-change">
           <div className={`${CARD} flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between`}>
             <p className="text-[13.5px] leading-relaxed text-ink-300">Add or change Usenet, torrents and the VPN, or let people (and friends’ servers) reach this server from outside your home.</p>
             <Link to="/setup?change=1" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-white px-4 text-[13.5px] font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
@@ -438,7 +443,7 @@ export default function SystemPanel() {
       )}
 
       {/* Updates */}
-      <Block title="App updates">
+      {has('app-updates') && <Block title="App updates" anchor="system-app-updates">
         <div className={`${CARD} space-y-4 px-5 py-4`}>
           <Toggle
             checked={s.updates.auto}
@@ -456,11 +461,11 @@ export default function SystemPanel() {
             </div>
           )}
         </div>
-      </Block>
+      </Block>}
 
       {/* Games (RomM) */}
-      {s.games && (
-        <Block title="Games">
+      {has('games') && s.games && (
+        <Block title="Retro games" anchor="system-games">
           <div className={`${CARD} space-y-3 px-5 py-4`}>
             {s.games.job.state === 'working' ? (
               <p className="flex items-center gap-2 text-[13.5px] text-ink-200">
@@ -513,13 +518,13 @@ export default function SystemPanel() {
       )}
 
       {/* Backups */}
-      <BackupsBlock status={s} reload={load} />
+      {has('backups') && <BackupsBlock status={s} reload={load} />}
 
-      <SharingSettings onSaved={refreshFinesse} />
+      {has('sharing') && <SharingSettings onSaved={refreshFinesse} />}
 
       {/* Activity */}
-      {h.events.length > 0 && (
-        <Block title="Recent activity">
+      {has('activity') && h.events.length > 0 && (
+        <Block title="Recent activity" anchor="system-activity">
           <ul className={`${CARD} divide-y divide-white/5`}>
             {h.events.slice(0, 8).map((e, i) => (
               <li key={i} className="flex gap-3 px-5 py-2.5 text-[12.5px]">
@@ -579,7 +584,7 @@ function SharingSettings({ onSaved }: { onSaved: () => void }) {
 
   if (!loaded) return null
   return (
-    <Block title="Invites & sharing">
+    <Block title="Public address and email" anchor="system-sharing">
       <div className={`${CARD} space-y-5 px-5 py-5`}>
         <TextField label="Public address" value={publicUrl} onChange={setPublicUrl} placeholder="https://media.example.com" optional hint="Where people reach Finesse from outside your home. Invite links and emails use it." mono />
         <Toggle checked={on} onChange={setOn} label="Email invites" description="Send invites straight to people’s inboxes." />

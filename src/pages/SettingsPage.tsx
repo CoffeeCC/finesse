@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { SelectMenu } from '../components/Menu'
 import { IS_TV, TOUCH_UI } from '../lib/device'
@@ -21,7 +22,8 @@ import ConnectDevices from '../components/ConnectDevices'
 import ReportProblem from '../components/ReportProblem'
 import GroupsAdmin from './settings/GroupsAdmin'
 import DownloadsSettings from './settings/DownloadsSettings'
-import ConnectionsHealth from './settings/ConnectionsHealth'
+import ConnectionsHealth, { connectionProblems, useConnections } from './settings/ConnectionsHealth'
+import { searchSettings, slug, visibleSections, type Ctx, type Entry, type SectionDef, type SectionId } from './settings/catalog'
 import LibraryHealth from './settings/LibraryHealth'
 import PreviewClips from './settings/PreviewClips'
 import GraphicsAdmin from './settings/GraphicsAdmin'
@@ -151,6 +153,7 @@ function Toggle({
       type="button"
       role="switch"
       aria-checked={checked}
+      data-setting={slug(label)}
       onClick={() => onChange(!checked)}
       className="w-full flex items-center justify-between gap-4 py-3.5 text-left"
     >
@@ -177,7 +180,7 @@ function Toggle({
 /** A labelled setting with a control underneath (menus, swatches, sliders). */
 function Field({ label, hint, scope, children }: { label: string; hint?: string; scope?: Scope; children: ReactNode }) {
   return (
-    <div className="py-4">
+    <div className="py-4" data-setting={slug(label)}>
       <p className="text-sm font-semibold text-white">{label}</p>
       {hint && <p className="text-[13px] leading-snug text-ink-400 mt-0.5">{hint}</p>}
       {scope && <ScopeTag scope={scope} />}
@@ -262,7 +265,7 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className={SECTION_CARD}>
-      <div className="py-4">
+      <div className="py-4" data-setting="updates-app">
         <p className="text-sm font-semibold text-white">{__WEBOS__ ? 'This TV' : 'This app'}</p>
         <p className="text-[13px] text-ink-400 mt-0.5">
           Version <span className="font-mono text-ink-200">{running}</span>
@@ -290,7 +293,7 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       {isAdmin && !__WEBOS__ && (
-        <div className="py-4">
+        <div className="py-4" data-setting="updates-server">
           <p className="text-sm font-semibold text-white">Server</p>
           {noEndpoint ? (
             <p className="text-[13px] leading-snug text-ink-400 mt-0.5">
@@ -361,20 +364,55 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
   )
 }
 
-const SECTIONS = [
-  { id: 'playback', label: 'Playback' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'sound', label: 'Sound' },
-  { id: 'account', label: 'Account' },
-] as const
+/** Light up the setting a search (or a link) jumped to, and put focus on it for the remote. */
+function flashSetting(el: HTMLElement) {
+  const reduce = document.documentElement.classList.contains('reduce-motion') || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
+  const target = el.matches('button, a, input, select, textarea') ? el : el.querySelector<HTMLElement>('button, a[href], input, select, textarea')
+  target?.focus({ preventScroll: true })
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--color-accent-400').trim() || '#7589d8'
+  el.animate?.(
+    [
+      { outline: `2px solid ${accent}`, outlineOffset: '4px', borderRadius: '12px' },
+      { outline: `2px solid ${accent}`, outlineOffset: '4px', borderRadius: '12px', offset: 0.6 },
+      { outline: '2px solid transparent', outlineOffset: '4px', borderRadius: '12px' },
+    ],
+    { duration: reduce ? 1200 : 2200, easing: 'ease-out' },
+  )
+}
+
+/** Old links (/settings#settings-server) → the page and the setting they meant. */
+const LEGACY: Record<string, [SectionId, string?]> = {
+  'settings-server': ['health'],
+  'settings-streaming': ['games', 'streaming'],
+  'settings-consoles': ['games', 'streaming'],
+  'settings-groups': ['people', 'groups'],
+  'settings-downloads': ['downloads'],
+}
+
+const AdminTag = () => <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Admin</span>
 
 export default function SettingsPage() {
   const { session, logout } = useAuth()
   const toast = useToast()
   const [prefs, setLocal] = useState<Prefs>(getPrefs())
   const [accent, setAccent] = useState(getStoredAccent())
-  const [active, setActive] = useState<string>('playback')
   const { info: finesseInfo } = useFinesse()
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const [query, setQuery] = useState('')
+  const admin = !!session?.isAdmin
+
+  const ctx: Ctx = { admin, tv: IS_TV, webos: __WEBOS__, touch: TOUCH_UI, features: finesseInfo?.features ?? {} }
+  const sections = visibleSections(ctx)
+  const legacy = LEGACY[location.hash.replace(/^#/, '')]
+  const wanted = params.get('s') ?? legacy?.[0]
+  const active: SectionId = sections.find((x) => x.id === wanted)?.id ?? (sections.some((x) => x.id === 'playback') ? 'playback' : sections[0]!.id)
+  const at = params.get('at') ?? legacy?.[1] ?? null
+  const page = sections.find((x) => x.id === active)!
+
+  const conns = useConnections(admin)
+  const attention = admin ? connectionProblems(conns.data) : 0
 
   const update = (patch: Partial<Prefs>) => {
     const next = setPrefs(patch)
@@ -388,79 +426,154 @@ export default function SettingsPage() {
     setAccentPref(name).catch(() => {})
   }
 
-  const sections = [
-    ...(__WEBOS__ ? [] : [{ id: 'devices', label: 'Other devices' }]),
-    ...SECTIONS,
-    { id: 'updates', label: 'Updates' },
-    { id: 'about', label: 'About' },
-    ...(session?.isAdmin && finesseInfo?.features?.requests ? [{ id: 'downloads', label: 'Downloads' }] : []),
-    ...(session?.isAdmin ? [{ id: 'server', label: 'Server' }] : []),
-  ]
-
-  // Highlight the section you're reading.
-  useEffect(() => {
-    const els = sections.map((x) => document.getElementById(`settings-${x.id}`)).filter((e): e is HTMLElement => !!e)
-    const io = new IntersectionObserver(
-      (entries) => {
-        const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
-        if (hit) setActive(hit.target.id.replace('settings-', ''))
-      },
-      { rootMargin: '-80px 0px -60% 0px' },
-    )
-    els.forEach((e) => io.observe(e))
-    return () => io.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections.length])
-
-  const jump = (id: string) => {
-    document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    setActive(id)
+  /** Opens a page (and lights up one setting on it). Back goes to the page you were on. */
+  const open = (id: SectionId, anchor?: string) => {
+    setQuery('')
+    const next = new URLSearchParams()
+    next.set('s', id)
+    if (anchor) next.set('at', anchor)
+    setParams(next, { replace: !params.get('s') && !location.hash })
+    if (!anchor) window.scrollTo({ top: 0 })
   }
 
-  const heading = (id: string, title: string, extra?: ReactNode) => (
-    <div className="flex items-center gap-2 mb-3">
-      <h2 id={`settings-${id}-title`} className="text-lg font-semibold text-white tracking-tight">{title}</h2>
-      {extra}
-    </div>
+  // After the page draws (panels load on their own), find the setting and light it up.
+  useEffect(() => {
+    if (!at) return
+    let tries = 0
+    const t = window.setInterval(() => {
+      const el = document.querySelector<HTMLElement>(`[data-setting="${at}"]`)
+      if (!el && ++tries < 30) return
+      window.clearInterval(t)
+      if (el) flashSetting(el)
+    }, 100)
+    return () => window.clearInterval(t)
+  }, [at, active])
+
+  // Phones: keep the open page's chip in view in the scrolling row.
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>('nav[aria-label="Settings pages"] [aria-current="page"]')
+    const row = el?.parentElement
+    if (el && row && row.scrollWidth > row.clientWidth) row.scrollLeft = el.offsetLeft - row.offsetLeft - (row.clientWidth - el.clientWidth) / 2
+  }, [active])
+
+  const results = searchSettings(query, ctx)
+  const searching = query.trim().length > 0
+  const pick = (e: Entry) => open(e.section, e.anchor ?? slug(e.label))
+
+  const navButton = (x: SectionDef) => (
+    <button
+      key={x.id}
+      type="button"
+      onClick={() => open(x.id)}
+      aria-current={!searching && active === x.id ? 'page' : undefined}
+      className={`shrink-0 flex items-center gap-2 h-9 lg:h-10 px-3.5 rounded-full lg:rounded-lg text-sm text-left transition-colors ${
+        !searching && active === x.id ? 'bg-white/10 text-white font-semibold' : 'text-ink-200 hover:text-white font-medium'
+      }`}
+    >
+      <span className="flex-1">{x.label}</span>
+      {x.id === 'health' && attention > 0 && (
+        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-300/20 px-1.5 text-[11px] font-semibold text-amber-200" aria-label={`${attention} need attention`}>
+          {attention}
+        </span>
+      )}
+    </button>
   )
+  const mine = sections.filter((x) => !x.admin)
+  const server = sections.filter((x) => x.admin)
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-12 py-8">
-      <h1 className="page-title mb-6">Settings</h1>
+      <h1 className="page-title mb-5">Settings</h1>
+
+      <div className="relative mb-6 max-w-xl">
+        <svg aria-hidden viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" fill="none" stroke="currentColor" strokeWidth={2}>
+          <circle cx="11" cy="11" r="7" />
+          <path strokeLinecap="round" d="m20 20-3.5-3.5" />
+        </svg>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && results[0]) {
+              e.preventDefault()
+              pick(results[0])
+            } else if (e.key === 'Escape' && query) {
+              e.stopPropagation()
+              setQuery('')
+            }
+          }}
+          placeholder="Search settings"
+          aria-label="Search settings"
+          className="w-full h-11 rounded-xl bg-ink-900/80 border border-white/10 pl-10 pr-3 text-sm text-white placeholder:text-ink-400 outline-none focus:border-accent-500 transition-colors"
+        />
+      </div>
 
       <div className="lg:grid lg:grid-cols-[13rem_1fr] lg:gap-10">
-        {/* Section nav: a sticky sidebar on desktop, a chip row on phones */}
-        <nav aria-label="Settings sections" className="lg:sticky lg:top-24 lg:self-start mb-6 lg:mb-0">
+        {/* Pages: a sticky sidebar on desktop, a chip row on phones */}
+        <nav aria-label="Settings pages" className="lg:sticky lg:top-24 lg:self-start mb-6 lg:mb-0">
           <div className="flex lg:flex-col gap-1.5 overflow-x-auto no-scrollbar">
-            {sections.map((x) => (
-              <button
-                key={x.id}
-                type="button"
-                onClick={() => jump(x.id)}
-                aria-current={active === x.id ? 'true' : undefined}
-                className={`shrink-0 flex items-center gap-2 h-9 lg:h-10 px-3.5 rounded-full lg:rounded-lg text-sm text-left transition-colors ${
-                  active === x.id ? 'bg-white/10 text-white font-semibold' : 'text-ink-300 hover:text-white font-medium'
-                }`}
-              >
-                {x.label}
-                {(x.id === 'server' || x.id === 'downloads') && (
-                  <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Admin</span>
-                )}
-              </button>
-            ))}
+            {mine.map(navButton)}
+            {server.length > 0 && (
+              <>
+                <p className="hidden lg:flex items-center gap-2 mt-4 mb-1 px-3.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+                  Server <AdminTag />
+                </p>
+                <span aria-hidden className="lg:hidden shrink-0 my-1.5 w-px bg-white/10" />
+                {server.map(navButton)}
+              </>
+            )}
           </div>
         </nav>
 
-        <div className="space-y-10 min-w-0">
-          {!__WEBOS__ && (
-            <section id="settings-devices" aria-labelledby="settings-devices-title" className="scroll-mt-24">
-              {heading('devices', 'Other devices')}
-              <ConnectDevices />
+        <div className="min-w-0">
+          {searching ? (
+            <section aria-label="Search results">
+              <p className="mb-3 text-sm text-ink-400">
+                {results.length ? `${results.length} setting${results.length > 1 ? 's' : ''} match “${query.trim()}”` : `Nothing matches “${query.trim()}”. Try another word, like “subtitles” or “backup”.`}
+              </p>
+              {results.length > 0 && (
+                <ul className="rounded-2xl bg-ink-900/60 border border-white/5 divide-y divide-white/5">
+                  {results.map((e) => (
+                    <li key={`${e.section}-${e.label}`}>
+                      <button type="button" onClick={() => pick(e)} className="w-full flex items-center justify-between gap-4 px-5 py-3.5 text-left hover:bg-white/[0.03] transition-colors">
+                        <span className="text-sm font-semibold text-white">{e.label}</span>
+                        <span className="shrink-0 text-[12px] text-ink-400">{e.sectionLabel}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
-          )}
+          ) : (
+            <section aria-labelledby="settings-page-title">
+              {admin && attention > 0 && active !== 'health' && (
+                <button
+                  type="button"
+                  onClick={() => open('health', 'connected-apps')}
+                  className="mb-5 w-full flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/[0.07] px-5 py-3 text-left hover:bg-amber-300/[0.11] transition-colors"
+                >
+                  <span className="text-sm text-amber-100">
+                    {attention} connected app{attention > 1 ? 's' : ''} need{attention > 1 ? '' : 's'} attention.
+                  </span>
+                  <span className="text-sm font-semibold text-white">Review and fix</span>
+                </button>
+              )}
+              <div className="mb-4">
+                <h2 id="settings-page-title" className="flex items-center gap-2 text-xl font-semibold text-white tracking-tight">
+                  {page.label}
+                  {page.admin && <AdminTag />}
+                </h2>
+                <p className="mt-0.5 text-sm text-ink-400">{page.blurb}</p>
+              </div>
 
-          <section id="settings-playback" aria-labelledby="settings-playback-title" className="scroll-mt-24">
-            {heading('playback', 'Playback')}
+              {active === 'devices' && (
+                <div data-setting="connect-devices">
+                  <ConnectDevices />
+                </div>
+              )}
+
+              {active === 'playback' && (
             <div className={SECTION_CARD}>
               <Field
                 label="Maximum streaming quality"
@@ -509,10 +622,9 @@ export default function SettingsPage() {
                 scope="device"
               />
             </div>
-          </section>
+              )}
 
-          <section id="settings-appearance" aria-labelledby="settings-appearance-title" className="scroll-mt-24">
-            {heading('appearance', 'Appearance')}
+              {active === 'appearance' && (
             <div className={SECTION_CARD}>
               <Field label="Accent color" scope="account">
                 <div role="radiogroup" aria-label="Accent color" className="flex flex-wrap gap-3">
@@ -598,10 +710,9 @@ export default function SettingsPage() {
                 />
               )}
             </div>
-          </section>
+              )}
 
-          <section id="settings-sound" aria-labelledby="settings-sound-title" className="scroll-mt-24">
-            {heading('sound', 'Sound')}
+              {active === 'sound' && (
             <div className={SECTION_CARD}>
               <Toggle
                 label="Interface sounds"
@@ -661,81 +772,125 @@ export default function SettingsPage() {
                 scope="device"
               />
             </div>
-          </section>
-
-          <section id="settings-account" aria-labelledby="settings-account-title" className="scroll-mt-24">
-            {heading('account', 'Account')}
-            <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 text-sm">
-              <div className="flex justify-between gap-4 py-1.5">
-                <span className="text-ink-400">Signed in as</span>
-                <span className="text-ink-200 font-medium">{session?.userName}</span>
-              </div>
-              <div className="flex justify-between gap-4 py-1.5">
-                <span className="text-ink-400">Server</span>
-                <span className="text-ink-200 font-mono text-xs break-all text-right">{session?.server}</span>
-              </div>
-              <button
-                type="button"
-                onClick={logout}
-                className="mt-3 inline-flex h-10 items-center rounded-lg bg-white/10 border border-white/15 px-4 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
-              >
-                Switch profile / sign out
-              </button>
-            </div>
-            {/* TV app: anyone can point it at a different server, not just admins. */}
-            <TvServerAddress className="mt-3" />
-            {!IS_TV && <SecureConnection className="mt-3" />}
-          </section>
-
-          <section id="settings-updates" aria-labelledby="settings-updates-title" className="scroll-mt-24">
-            {heading('updates', 'Updates')}
-            <UpdatesSection isAdmin={!!session?.isAdmin} />
-          </section>
-
-          <section id="settings-about" aria-labelledby="settings-about-title" className="scroll-mt-24">
-            {heading('about', 'About')}
-            <AboutSection />
-            {/* A TV can't open GitHub or type much: report from a phone or computer instead. */}
-            {!IS_TV && <ReportProblem isAdmin={!!session?.isAdmin} />}
-            <TipJar />
-          </section>
-
-          {session?.isAdmin && finesseInfo?.features?.requests && (
-            <section id="settings-downloads" aria-labelledby="settings-downloads-title" className="scroll-mt-24">
-              {heading(
-                'downloads',
-                'Downloads',
-                <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Admin</span>,
               )}
-              <DownloadsSettings />
-            </section>
-          )}
 
-          {session?.isAdmin && (
-            <section id="settings-server" aria-labelledby="settings-server-title" className="scroll-mt-24">
-              {heading(
-                'server',
-                'Server',
-                <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400">Admin</span>,
+              {active === 'account' && (
+                <>
+                  <div data-setting="account" className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 text-sm">
+                    <div className="flex justify-between gap-4 py-1.5">
+                      <span className="text-ink-400">Signed in as</span>
+                      <span className="text-ink-200 font-medium">{session?.userName}</span>
+                    </div>
+                    <div className="flex justify-between gap-4 py-1.5">
+                      <span className="text-ink-400">Server</span>
+                      <span className="text-ink-200 font-mono text-xs break-all text-right">{session?.server}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={logout}
+                      className="mt-3 inline-flex h-10 items-center rounded-lg bg-white/10 border border-white/15 px-4 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+                    >
+                      Switch profile / sign out
+                    </button>
+                  </div>
+                  {/* TV app: anyone can point it at a different server, not just admins. */}
+                  <div data-setting="tv-server">
+                    <TvServerAddress className="mt-3" />
+                  </div>
+                  {!IS_TV && (
+                    <div data-setting="secure-connection">
+                      <SecureConnection className="mt-3" />
+                    </div>
+                  )}
+                </>
               )}
-              <p className="text-sm text-ink-400 mb-3">Apps, people and invites for everyone on this server.</p>
-              <div className="space-y-8">
-                <SystemPanel />
-                <PreviewClips />
-                <GraphicsAdmin />
-                <ConnectionsHealth />
-                <LibraryHealth />
-                <GroupsAdmin />
-                <ParentalAdmin />
-                <StreamingSettings />
-                <GameStoreAdmin />
-                <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">
-                  <CreateUserForm />
-                  <div className="border-t border-white/5 pt-6">
-                    <InvitesAdmin />
+
+              {active === 'updates' && <UpdatesSection isAdmin={admin} />}
+
+              {active === 'about' && (
+                <>
+                  <div data-setting="about">
+                    <AboutSection />
+                  </div>
+                  {/* A TV can't open GitHub or type much: report from a phone or computer instead. */}
+                  {!IS_TV && (
+                    <div data-setting="report-problem">
+                      <ReportProblem isAdmin={admin} />
+                    </div>
+                  )}
+                  <div data-setting="tip-jar">
+                    <TipJar />
+                  </div>
+                </>
+              )}
+
+              {admin && active === 'health' && (
+                <div className="space-y-8">
+                  <SystemPanel parts={['summary', 'apps', 'vpn-storage']} />
+                  <div data-setting="connected-apps">
+                    <ConnectionsHealth />
+                  </div>
+                  <div data-setting="library-health">
+                    <LibraryHealth />
+                  </div>
+                  <SystemPanel parts={['activity']} />
+                </div>
+              )}
+
+              {admin && active === 'downloads' && (
+                <div className="space-y-8">
+                  {finesseInfo?.features?.requests && (
+                    <div data-setting="request-defaults">
+                      <DownloadsSettings />
+                    </div>
+                  )}
+                  <SystemPanel parts={['setup-change']} />
+                </div>
+              )}
+
+              {admin && active === 'media' && (
+                <div className="space-y-8">
+                  <div data-setting="preview-clips">
+                    <PreviewClips />
+                  </div>
+                  <div data-setting="graphics">
+                    <GraphicsAdmin />
                   </div>
                 </div>
-              </div>
+              )}
+
+              {admin && active === 'people' && (
+                <div className="space-y-8">
+                  <div className="rounded-2xl bg-ink-900/60 border border-white/5 px-5 py-4 space-y-8">
+                    <div data-setting="create-account">
+                      <CreateUserForm />
+                    </div>
+                    <div data-setting="invites" className="border-t border-white/5 pt-6">
+                      <InvitesAdmin />
+                    </div>
+                  </div>
+                  <div data-setting="groups">
+                    <GroupsAdmin />
+                  </div>
+                  <div data-setting="parental">
+                    <ParentalAdmin />
+                  </div>
+                </div>
+              )}
+
+              {admin && active === 'games' && (
+                <div className="space-y-8">
+                  <SystemPanel parts={['games']} />
+                  <div data-setting="streaming">
+                    <StreamingSettings />
+                  </div>
+                  <div data-setting="game-store">
+                    <GameStoreAdmin />
+                  </div>
+                </div>
+              )}
+
+              {admin && active === 'server' && <SystemPanel parts={['app-updates', 'backups', 'sharing']} />}
             </section>
           )}
         </div>

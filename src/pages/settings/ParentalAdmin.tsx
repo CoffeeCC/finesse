@@ -1,4 +1,4 @@
-// Settings → Server → Limits: a rating limit per profile, enforced by the server (parental.ts).
+// Settings → People → Limits: a rating limit per profile, enforced by the server (parental.ts).
 // It says plainly what the limit covers and what it doesn't.
 
 import { useState } from 'react'

@@ -205,7 +205,7 @@ function EmptyLibrary() {
           {canRequest
             ? 'Search for anything and press Request — Finesse finds it, downloads it and puts it here on its own.'
             : 'Add files to your server’s media folders and they’ll appear here within a minute or two.'}
-          {session?.isAdmin ? ' You can also copy files you already have into the Movies, TV or Music folders (Settings → Server shows where).' : ''}
+          {session?.isAdmin ? ' You can also copy files you already have into the Movies, TV or Music folders (Settings → Health shows where).' : ''}
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           {canRequest && (
@@ -217,7 +217,7 @@ function EmptyLibrary() {
             Search
           </Link>
           {session?.isAdmin && (
-            <Link to="/settings#settings-server" className="inline-flex h-11 items-center rounded-full px-5 text-[15px] font-medium text-ink-200 hover:bg-white/[0.07] hover:text-white">
+            <Link to="/settings?s=people&at=invites" className="inline-flex h-11 items-center rounded-full px-5 text-[15px] font-medium text-ink-200 hover:bg-white/[0.07] hover:text-white">
               Invite people
             </Link>
           )}

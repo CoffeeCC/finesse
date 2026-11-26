@@ -1,4 +1,4 @@
-// Settings → Server → Game store (administrators): on or off, and where its games come from.
+// Settings → Games → Game store (administrators): on or off, and where its games come from.
 // Finesse ships no games: each source is a feed (docs/game-store-feed.md), at an address or as
 // a file in the server's config folder.
 

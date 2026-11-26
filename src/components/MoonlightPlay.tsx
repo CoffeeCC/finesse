@@ -100,7 +100,7 @@ export function MoonlightSteps({ app, launcher, consoleName }: { app: StreamEmul
           {isAdmin ? (
             <>
               New device?{' '}
-              <Link className={link} to="/settings#settings-streaming">
+              <Link className={link} to="/settings?s=games&at=streaming">
                 Pair it
               </Link>
               .

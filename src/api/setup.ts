@@ -417,7 +417,7 @@ export interface StreamProfile {
   apps: StreamApp[]
 }
 
-/** What game streaming needs from the server (Settings → Server, before turning it on). */
+/** What game streaming needs from the server (Settings → Games, before turning it on). */
 export interface StreamingCheck {
   gpu: 'nvidia' | 'intel-amd' | null
   allGood: boolean
@@ -615,6 +615,10 @@ export interface ConnCheck {
   problems: string[]
   /** One click puts it right (Jellyfin's card on someone's own Jellyfin). */
   fix?: { label: string; gpu: string }
+  /** Repairs Finesse makes in the app itself (server/src/connectionFixes.ts). */
+  fixes?: { id: string; label: string; detail: string }[]
+  /** Worth knowing, nothing wrong (a newer version of someone's own app). */
+  notes?: string[]
 }
 export interface ConnReport {
   checkedAt: string
@@ -623,6 +627,8 @@ export interface ConnReport {
 }
 export const connectionsApi = {
   get: (refresh = false) => call<ConnReport>('GET', `/api/system/connections${refresh ? '?refresh' : ''}`, undefined, { timeoutMs: 60000 }),
+  /** Runs one repair; answers with what it changed. */
+  fix: (app: string, fix: string) => call<{ message: string }>('POST', '/api/system/connections/fix', { app, fix }, { timeoutMs: 60000 }),
 }
 
 // ---------- Library health (read-only; server/src/libraryHealth.ts) ----------
