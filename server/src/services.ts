@@ -4,8 +4,10 @@
 // credentials are stripped before anything leaves for a third-party service.
 
 import { capPlaybackInfo, deviceOf, TranscodeCounter } from './transcodeCap.ts'
-import type { IncomingMessage } from 'node:http'
-import type { Duplex } from 'node:stream'
+import { randomUUID } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { Readable, type Duplex } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import type { Auth } from './auth.ts'
 import type { Endpoint, SettingsStore } from './config.ts'
 import { ApiError, readBody, sendJson, type Router } from './http/core.ts'
@@ -13,7 +15,8 @@ import { joinUrl, proxyHttp, proxyUpgrade } from './http/proxy.ts'
 import type { JfUser } from './jellyfin.ts'
 import type { Parental } from './parental.ts'
 import { idsIn, refusedShape } from './parental.ts'
-import { addAllowed, arrVerdict, cleanPath, commandAllowed, hasFiles, isRead, rommAllowed, sabAllowed } from './policy.ts'
+import { actionBody, addAllowed, arrVerdict, cleanPath, hasFiles, isMediaCover, isRead, rommAllowed, sabAllowed } from './policy.ts'
+import { requestAppJson, rootFolderPaths, upstreamRecords } from './requestDefaults.ts'
 
 const isAdmin = (u: JfUser) => u.Policy?.IsAdministrator === true
 const adminOnly = () => new ApiError(403, 'Only an administrator can do that')
@@ -33,11 +36,57 @@ function parseJson(body: Buffer): unknown {
   }
 }
 
-/** A read with the service's own key (to check a non-admin's request against the app's state). */
-async function arrGet<T>(svc: Endpoint, api: string, path: string): Promise<T> {
-  const r = await fetch(joinUrl(svc.url!, `${api}/${path}`), { headers: { 'x-api-key': svc.apiKey! }, signal: AbortSignal.timeout(15000) })
-  if (!r.ok) throw new ApiError(r.status === 404 ? 404 : 502, r.status === 404 ? 'Not found' : `The app answered ${r.status}`)
-  return (await r.json()) as T
+/** Discard caller-supplied service keys and any query-form Jellyfin sign-in. */
+function withoutKeys(query: URLSearchParams): URLSearchParams {
+  return new URLSearchParams([...query].filter(([key]) => !/^(api_?key)$/i.test(key)))
+}
+
+function requestTarget(svc: Endpoint, name: string, path: string, search: string): URL {
+  const url = URL.parse(svc.url ?? '')
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) throw new ApiError(502, `${name} has an invalid server address`)
+  return joinUrl(url.href, path, search)
+}
+
+/** Stream cover bytes while only exposing headers appropriate for same-origin thumbnails. */
+async function mediaCover(req: IncomingMessage, res: ServerResponse, target: URL, svc: Endpoint, name: string) {
+  const cancel = new AbortController()
+  const onClose = () => cancel.abort()
+  res.once('close', onClose)
+  try {
+    const headers: Record<string, string> = { 'x-api-key': svc.apiKey!, 'accept-encoding': 'identity' }
+    for (const field of ['if-none-match', 'if-modified-since']) {
+      const value = req.headers[field]
+      if (typeof value === 'string') headers[field] = value
+    }
+    const upstream = await fetch(target, {
+      method: req.method, headers, redirect: 'error',
+      signal: AbortSignal.any([cancel.signal, AbortSignal.timeout(15000)]),
+    })
+    const type = upstream.headers.get('content-type') ?? ''
+    const image = /^image\/(?:jpeg|png|gif|webp|avif)(?:\s*;|$)/i.test(type)
+    const out: Record<string, string> = {
+      'X-Content-Type-Options': 'nosniff',
+      Vary: 'Authorization, X-Emby-Token, X-MediaBrowser-Token, X-Emby-Authorization',
+    }
+    if (upstream.status !== 304) {
+      out['Cache-Control'] = upstream.status === 200 && image ? 'private, max-age=86400' : 'no-store'
+      out['Content-Type'] = image || /^application\/json(?:\s*;|$)/i.test(type) ? type : 'application/octet-stream'
+    }
+    for (const field of ['etag', 'last-modified']) {
+      const value = upstream.headers.get(field)
+      if (value) out[field] = value
+    }
+    const length = upstream.headers.get('content-length')
+    if (length && !upstream.headers.has('content-encoding')) out['Content-Length'] = length
+    res.writeHead(upstream.status, out)
+    if (upstream.body) await pipeline(Readable.fromWeb(upstream.body), res)
+    else res.end()
+  } catch {
+    if (res.headersSent || res.destroyed) res.destroy()
+    else throw new ApiError(502, `Couldn’t reach ${name} for that picture. Check it’s running, then try again.`)
+  } finally {
+    res.off('close', onClose)
+  }
 }
 
 /** history/since records cut down to which title failed, when, and the app's own reason. */
@@ -81,57 +130,111 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
   }
 
   for (const [slug, def] of Object.entries(ARR)) {
+    let roots: { url: string | undefined; apiKey: string | undefined; until: number; paths: Promise<string[]> } | undefined
+    // A release's upstream GUID can itself be an indexer URL. Keep it and the grab arguments server-side.
+    const releases = new Map<string, { user: string; url: string; apiKey: string | undefined; until: number; grab: Record<string, unknown> }>()
+    const rootsFor = (svc: Endpoint) => {
+      if (roots && roots.url === svc.url && roots.apiKey === svc.apiKey && roots.until > Date.now()) return roots.paths
+      const entry = { url: svc.url, apiKey: svc.apiKey, until: Infinity, paths: requestAppJson(svc, def.name, def.api, 'rootfolder')
+        .then((value) => {
+          const paths = rootFolderPaths(value, def.name)
+          entry.until = Date.now() + 60000
+          return paths
+        })
+        .catch((e) => {
+          if (roots === entry) roots = undefined
+          throw e
+        }) }
+      roots = entry
+      return entry.paths
+    }
     router.any(`/arr/${slug}/*`, async ({ req, res, params, url }) => {
       const path = safeRest(params.rest)
       // An <img> can't send headers: a picture may carry the sign-in in its
       // address instead, which goes no further than here.
-      const picture = !def.admin && /^mediacover\//.test(path) && /^(GET|HEAD)$/i.test(req.method ?? '')
+      const picture = !def.admin && isMediaCover(path) && isRead(req.method ?? '')
       const user = def.admin ? await auth.requireAdmin(req) : await auth.requireUser(req, picture ? { query: url.searchParams } : {})
       requestsOff(user)
-      let search = url.search
-      if (picture) {
-        const q = new URLSearchParams(url.searchParams)
-        q.delete('ApiKey')
-        q.delete('api_key')
-        search = q.toString() ? `?${q}` : ''
-      }
+      const query = withoutKeys(url.searchParams)
+      let search = query.size ? `?${query}` : ''
       const svc = need(settings.get().services[def.id], def.name)
       let body: Buffer | undefined
       // Household members get what the app's screens do; the rest is admin-only.
       if (!isAdmin(user)) {
-        const v = arrVerdict(req.method ?? 'GET', path, url.searchParams)
+        const v = arrVerdict(req.method ?? 'GET', path, query)
         if (!v.ok) throw adminOnly()
         if ('body' in v && v.body) {
-          body = await readBody(req)
-          const json = parseJson(body)
-          if (v.body === 'command' && !commandAllowed(json)) throw adminOnly()
+          if (req.headers['content-encoding'] && req.headers['content-encoding'] !== 'identity') throw new ApiError(415, 'Send the request as plain JSON')
+          const json = parseJson(await readBody(req))
+          let checked = json
           if (v.body === 'add') {
-            const roots = await arrGet<{ path: string }[]>(svc, def.api, 'rootfolder')
-            if (!addAllowed(json, roots.map((r) => r.path))) throw adminOnly()
+            if (!addAllowed(json, await rootsFor(svc))) throw adminOnly()
+          } else {
+            const allowed = actionBody(v.body, json)
+            if (!allowed) throw adminOnly()
+            if (v.body === 'release') {
+              const release = releases.get(String(allowed.guid))
+              if (!release || release.user !== user.Id || release.url !== svc.url || release.apiKey !== svc.apiKey || release.until <= Date.now()) {
+                throw new ApiError(400, 'Search for releases again, then pick one from the new list.')
+              }
+              await requestAppJson(svc, def.name, def.api, path, { method: 'POST', body: release.grab, timeoutMs: 30000, preserveNotFound: true })
+              return sendJson(res, 200, { ok: true })
+            }
+            checked = allowed
           }
+          body = Buffer.from(JSON.stringify(checked))
         }
         if ('needsNoFiles' in v) {
-          const item = await arrGet<Record<string, unknown>>(svc, def.api, `${v.needsNoFiles.kind}/${v.needsNoFiles.id}`)
+          const { kind, id } = v.needsNoFiles
+          const data = await requestAppJson(svc, def.name, def.api, `${kind}/${id}`, { preserveNotFound: true })
+          if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError(502, `${def.name} sent an unexpected reply`)
+          const item = data as Record<string, unknown>
           if (hasFiles(item)) throw new ApiError(403, 'It’s already downloaded, so only an administrator can remove it')
-          search = v.query
+          if (item.id !== id || (typeof item.hasFile !== 'boolean' && typeof item.sizeOnDisk !== 'number' &&
+            !['episodeFileCount', 'trackFileCount', 'sizeOnDisk'].some((key) => typeof (item.statistics as Record<string, unknown> | null)?.[key] === 'number'))) {
+            throw new ApiError(502, `${def.name} couldn’t confirm whether that request has files`)
+          }
         }
+        search = v.query ?? search
+      }
+      if (path === 'release' && !isAdmin(user) && isRead(req.method ?? '')) {
+        const items = upstreamRecords(await requestAppJson(svc, def.name, def.api, path, { search, timeoutMs: 30000 }), def.name)
+        const until = Date.now() + 30 * 60000
+        const releasesForViewer = items.flatMap((item) => {
+          const grab = actionBody('release', item)
+          if (!grab) return []
+          const guid = randomUUID()
+          if (releases.size >= 5000) {
+            const oldest = releases.keys().next()
+            if (!oldest.done) releases.delete(oldest.value)
+          }
+          releases.set(guid, { user: user.Id, url: svc.url, apiKey: svc.apiKey, until, grab })
+          const { title, size, quality, seeders, ageHours, age, rejections, rejected, customFormatScore, isUpgrade } = item
+          return [{ guid, indexerId: grab.indexerId, title, size, quality, seeders, ageHours, age, rejections, rejected, customFormatScore, isUpgrade }]
+        })
+        return sendJson(res, 200, releasesForViewer)
       }
       // Failed downloads (a request's status): Finesse answers with only what that needs, so
       // nothing else a history record carries (release names, download clients) leaves.
       if (path === 'history/since' && !def.admin) {
         if (!/^(GET|HEAD)$/i.test(req.method ?? '')) throw adminOnly()
-        const q = new URLSearchParams(url.searchParams)
-        q.delete('apikey')
-        const r = await fetch(joinUrl(svc.url, `${def.api}/history/since`, `?${q}`), { headers: { 'x-api-key': svc.apiKey! }, signal: AbortSignal.timeout(15000) })
-        if (!r.ok) throw new ApiError(502, `${def.name} answered ${r.status}`)
-        return sendJson(res, 200, failedDownloads(await r.json()))
+        const records = upstreamRecords(await requestAppJson(svc, def.name, def.api, path, { search }), def.name)
+        return sendJson(res, 200, failedDownloads(records))
       }
-      await proxyHttp(req, res, {
-        target: joinUrl(svc.url, `${def.api}/${params.rest ?? ''}`, search),
-        stripAuth: true,
-        setHeaders: { 'x-api-key': svc.apiKey! },
-        body,
-      })
+      const target = requestTarget(svc, def.name, `${def.api}/${path.split('/').map(encodeURIComponent).join('/')}`, search)
+      if (picture) return mediaCover(req, res, target, svc, def.name)
+      const rootMutation = isAdmin(user) && !isRead(req.method ?? '') && /^rootfolder(?:\/|$)/i.test(path)
+      if (rootMutation) roots = undefined
+      try {
+        await proxyHttp(req, res, {
+          target,
+          stripAuth: true,
+          setHeaders: { 'x-api-key': svc.apiKey!, ...(body ? { 'content-type': 'application/json', 'content-encoding': null } : {}) },
+          body,
+        })
+      } finally {
+        if (rootMutation) roots = undefined
+      }
     })
   }
 
@@ -140,12 +243,23 @@ export function registerServiceProxies(router: Router, deps: { settings: Setting
     const user = await auth.requireUser(req)
     requestsOff(user)
     const sab = need(settings.get().services.sabnzbd, 'SABnzbd')
-    const q = new URLSearchParams(url.search)
+    let q = withoutKeys(url.searchParams)
     // Its settings hold your Usenet password: household members get the queue and its controls.
-    if (!isAdmin(user) && !sabAllowed(q)) throw adminOnly()
-    q.delete('apikey')
+    const household = !isAdmin(user)
+    if (household) {
+      if (!isRead(req.method ?? '') || !sabAllowed(q)) throw adminOnly()
+      const mode = q.get('mode')!
+      const name = q.get('name')
+      const useful = mode === 'queue' && name === null ? ['limit', 'start', 'search'] : ['name', 'value']
+      q = new URLSearchParams([...q].filter(([key]) => key === 'mode' || useful.includes(key)))
+      q.set('output', 'json')
+    }
     q.set('apikey', sab.apiKey!)
-    await proxyHttp(req, res, { target: joinUrl(sab.url, '/api', `?${q}`), stripAuth: true })
+    await proxyHttp(req, res, {
+      target: requestTarget(sab, 'SABnzbd', '/api', `?${q}`), stripAuth: true, timeoutMs: 15000,
+      setHeaders: { 'x-api-key': null, 'x-nzb-key': null },
+      ...(household ? { body: Buffer.alloc(0) } : {}),
+    })
   })
 
   // RomM (Games): Basic auth injected; the ROM download from EmulatorJS carries

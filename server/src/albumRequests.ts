@@ -15,7 +15,8 @@
 import type { Auth } from './auth.ts'
 import type { Endpoint, SettingsStore } from './config.ts'
 import { ApiError, readJson, sendJson, type Router } from './http/core.ts'
-import { joinUrl } from './http/proxy.ts'
+import { addAllowed, positiveId } from './policy.ts'
+import { requestAppJson, rootFolderPaths, upstreamRecords } from './requestDefaults.ts'
 
 export interface LidarrAlbum {
   id?: number
@@ -60,68 +61,58 @@ export type LidarrCall = <T>(method: string, path: string, body?: unknown) => Pr
 export function lidarrCaller(svc: Endpoint | undefined): LidarrCall {
   if (!svc?.url || !svc.apiKey) throw new ApiError(503, 'Music requests need Lidarr, and it isn’t set up on this server')
   return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    let r: Response
-    try {
-      const q = path.indexOf('?')
-      const target = q === -1 ? joinUrl(svc.url!, `/api/v1${path}`) : joinUrl(svc.url!, `/api/v1${path.slice(0, q)}`, path.slice(q))
-      r = await fetch(target, {
-        method,
-        headers: { 'x-api-key': svc.apiKey!, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(30000),
-      })
-    } catch {
-      throw new ApiError(502, 'Lidarr isn’t answering. Check it’s running, then try again.')
-    }
-    const text = await r.text()
-    if (!r.ok) {
-      let msg = ''
-      try {
-        const j = JSON.parse(text) as { message?: string } | { errorMessage?: string }[]
-        msg = Array.isArray(j) ? (j[0]?.errorMessage ?? '') : (j.message ?? '')
-      } catch {
-        /* not JSON */
-      }
-      throw new ApiError(502, `Lidarr said no${msg ? `: ${msg}` : ` (${r.status})`}.`)
-    }
-    return (text ? JSON.parse(text) : undefined) as T
+    const q = path.indexOf('?')
+    return await requestAppJson(svc, 'Lidarr', '/api/v1', q < 0 ? path : path.slice(0, q), {
+      method, body, search: q < 0 ? '' : path.slice(q), timeoutMs: 30000,
+    }) as T
   }
 }
 
-const allows = (p: MetaProfile | undefined, type: string) => Boolean(p?.primaryAlbumTypes?.some((t) => t.albumType?.name?.toLowerCase() === type.toLowerCase() && t.allowed))
+const allows = (p: MetaProfile | undefined, type: string) => Array.isArray(p?.primaryAlbumTypes) &&
+  p.primaryAlbumTypes.some((t) => typeof t?.albumType?.name === 'string' && t.albumType.name.toLowerCase() === type.toLowerCase() && t.allowed === true)
 
 /** The metadata profile for an artist asked for by one release of this type: "Albums & EPs" first, Standard if it covers it. */
 export function profileFor(type: string, profiles: MetaProfile[]): MetaProfile | undefined {
-  const ordered = [...profiles.filter((p) => p.name === 'Albums & EPs'), ...profiles.filter((p) => p.name === 'Standard'), ...profiles.filter((p) => p.name !== 'None')]
-  return ordered.find((p) => allows(p, type))
+  const valid = profiles.filter((p) => positiveId(p?.id) && typeof p.name === 'string' && p.name !== 'None' && allows(p, type))
+  return valid.find((p) => p.name === 'Albums & EPs') ?? valid.find((p) => p.name === 'Standard') ?? valid[0]
 }
 
-const yearOf = (d?: string) => (d && /^\d{4}/.test(d) ? Number(d.slice(0, 4)) : undefined)
-const artistIdOf = (a: LidarrAlbum) => a.artist?.foreignArtistId ?? a.foreignArtistId
+const yearOf = (d?: string) => (typeof d === 'string' && /^\d{4}/.test(d) ? Number(d.slice(0, 4)) : undefined)
+const str = (v: unknown) => typeof v === 'string' && v.trim() ? v : undefined
+const mbid = (value: unknown) => typeof value === 'string' && MBID.test(value) ? value.toLowerCase() : undefined
+const artistIdOf = (a: LidarrAlbum) => mbid(a.artist?.foreignArtistId) ?? mbid(a.foreignArtistId)
+const downloaded = (a: LidarrAlbum | undefined) => positiveId(a?.statistics?.trackFileCount)
+
+async function lidarrList<T>(call: LidarrCall, path: string): Promise<T[]> {
+  return upstreamRecords(await call('GET', path), 'Lidarr') as T[]
+}
 
 /** An artist's albums and EPs, from Lidarr's search and (if it has the artist) its own list. */
 export async function artistAlbums(call: LidarrCall, foreignArtistId: string, name: string): Promise<AlbumRow[]> {
   const [found, artists] = await Promise.all([
-    call<LidarrAlbum[]>('GET', `/album/lookup?term=${encodeURIComponent(name)}`).catch(() => [] as LidarrAlbum[]),
-    call<LidarrArtist[]>('GET', '/artist'),
+    lidarrList<LidarrAlbum>(call, `/album/lookup?term=${encodeURIComponent(name)}`),
+    lidarrList<LidarrArtist>(call, '/artist'),
   ])
-  const artist = artists.find((a) => a.foreignArtistId === foreignArtistId)
-  const own = artist ? await call<LidarrAlbum[]>('GET', `/album?artistId=${artist.id}`) : []
+  const wanted = mbid(foreignArtistId)
+  const artist = wanted && artists.find((a) => positiveId(a.id) && mbid(a.foreignArtistId) === wanted)
+  const own = artist ? await lidarrList<LidarrAlbum>(call, `/album?artistId=${artist.id}`) : []
+  const ownById = new Map(own.map((a) => [mbid(a.foreignAlbumId), a]))
   const rows = new Map<string, AlbumRow>()
-  for (const a of [...found.filter((x) => artistIdOf(x) === foreignArtistId), ...own]) {
-    if (!a.foreignAlbumId) continue
-    const mine = own.find((o) => o.foreignAlbumId === a.foreignAlbumId)
+  for (const a of [...found.filter((x) => wanted && artistIdOf(x) === wanted), ...own]) {
+    const id = mbid(a.foreignAlbumId)
+    if (!id) continue
+    const mine = ownById.get(id)
     // Seen in both lists: keep what either one knows.
-    const prev = rows.get(a.foreignAlbumId)
+    const prev = rows.get(id)
     const year = yearOf(a.releaseDate) ?? prev?.year
-    rows.set(a.foreignAlbumId, {
-      foreignAlbumId: a.foreignAlbumId,
-      title: a.title ?? prev?.title ?? 'Untitled',
-      type: a.albumType ?? prev?.type ?? 'Album',
+    rows.set(id, {
+      foreignAlbumId: id,
+      title: str(a.title) ?? prev?.title ?? 'Untitled',
+      type: str(a.albumType) ?? prev?.type ?? 'Album',
       ...(year !== undefined ? { year } : {}),
       inLidarr: Boolean(mine),
-      monitored: Boolean(mine?.monitored),
-      downloaded: (mine?.statistics?.trackFileCount ?? 0) > 0,
+      monitored: mine?.monitored === true,
+      downloaded: downloaded(mine),
     })
   }
   // Albums and EPs first (what people mean), newest first.
@@ -139,35 +130,37 @@ export interface AlbumAsk {
 /** Asks Lidarr for one album or EP. Says what happened, plainly. */
 export async function requestAlbum(call: LidarrCall, ask: AlbumAsk): Promise<{ state: 'searching' | 'added' | 'have'; message: string; profileChanged?: boolean }> {
   const [qps, roots, metas, artists, found] = await Promise.all([
-    call<{ id: number }[]>('GET', '/qualityprofile'),
-    call<{ path: string }[]>('GET', '/rootfolder'),
-    call<MetaProfile[]>('GET', '/metadataprofile'),
-    call<LidarrArtist[]>('GET', '/artist'),
-    call<LidarrAlbum[]>('GET', `/album/lookup?term=${encodeURIComponent(ask.artistName)}`),
+    lidarrList<{ id: number }>(call, '/qualityprofile'),
+    call('GET', '/rootfolder').then((value) => rootFolderPaths(value, 'Lidarr')),
+    lidarrList<MetaProfile>(call, '/metadataprofile'),
+    lidarrList<LidarrArtist>(call, '/artist'),
+    lidarrList<LidarrAlbum>(call, `/album/lookup?term=${encodeURIComponent(ask.artistName)}`),
   ])
   if (!qps.some((q) => q.id === ask.qualityProfileId)) throw new ApiError(400, 'Lidarr doesn’t have that quality profile any more. Reload and try again.')
-  const trim = (s: string) => s.replace(/[\\/]+$/, '')
-  if (!roots.some((r) => trim(r.path) === trim(ask.rootFolderPath))) throw new ApiError(400, 'Lidarr doesn’t have that music folder any more. Reload and try again.')
-  const album = found.find((a) => a.foreignAlbumId === ask.foreignAlbumId)
+  const root = roots.find((path) => addAllowed({ rootFolderPath: ask.rootFolderPath }, [path]))
+  if (!root) throw new ApiError(400, 'Lidarr doesn’t have that music folder any more. Reload and try again.')
+  const wanted = mbid(ask.foreignAlbumId)
+  const album = found.find((a) => wanted && mbid(a.foreignAlbumId) === wanted)
   if (!album) throw new ApiError(404, 'Lidarr couldn’t find that release any more. Search for the artist again.')
-  const type = album.albumType ?? 'Album'
-  const title = album.title ?? 'it'
-  const meta = profileFor(type, metas)
+  const type = str(album.albumType) ?? 'Album'
+  const title = str(album.title) ?? 'it'
+  const foreignArtist = artistIdOf(album)
+  if (!foreignArtist) throw new ApiError(502, 'Lidarr sent a release without an artist. Search for the artist again.')
+  const artist = artists.find((a) => positiveId(a.id) && mbid(a.foreignArtistId) === foreignArtist)
+  const own = artist ? await lidarrList<LidarrAlbum>(call, `/album?artistId=${artist.id}`) : []
+  const have = own.find((o) => positiveId(o.id) && mbid(o.foreignAlbumId) === wanted)
+  if (have?.monitored === true && downloaded(have)) return { state: 'have', message: `“${title}” is already in your music.`, profileChanged: false }
+  const current = metas.find((m) => positiveId(m.id) && m.id === artist?.metadataProfileId)
+  const meta = current?.name !== 'None' && allows(current, type) ? current : profileFor(type, metas)
   if (!meta) throw new ApiError(409, `Lidarr has no metadata profile that includes ${type}s. Add one in Lidarr (Settings → Profiles → Metadata), then try again.`)
-
-  const artist = artists.find((a) => a.foreignArtistId === artistIdOf(album))
   let profileChanged = false
   if (artist) {
     // Asked for an EP of an artist whose profile leaves EPs out: this artist (only) gets one that includes them.
-    const current = metas.find((m) => m.id === artist.metadataProfileId)
-    if (!allows(current, type)) {
+    if (meta !== current) {
       await call('PUT', `/artist/${artist.id}`, { ...artist, metadataProfileId: meta.id })
       profileChanged = true
     }
-    const own = await call<LidarrAlbum[]>('GET', `/album?artistId=${artist.id}`)
-    const have = own.find((o) => o.foreignAlbumId === ask.foreignAlbumId)
     if (have?.id) {
-      if ((have.statistics?.trackFileCount ?? 0) > 0 && have.monitored) return { state: 'have', message: `“${title}” is already in your music.`, profileChanged }
       await call('PUT', '/album/monitor', { albumIds: [have.id], monitored: true })
       await call('POST', '/command', { name: 'AlbumSearch', albumIds: [have.id] })
       return { state: 'searching', message: `Requested “${title}”. Lidarr is looking for it now.`, profileChanged }
@@ -184,7 +177,7 @@ export async function requestAlbum(call: LidarrCall, ask: AlbumAsk): Promise<{ s
           ...(album.artist ?? {}),
           qualityProfileId: ask.qualityProfileId,
           metadataProfileId: meta.id,
-          rootFolderPath: ask.rootFolderPath,
+          rootFolderPath: root,
           monitored: true,
           monitorNewItems: 'none',
           addOptions: { monitor: 'none', searchForMissingAlbums: false },
@@ -211,10 +204,12 @@ export function registerAlbumRequests(router: Router, deps: { settings: Settings
   })
   router.post('/api/requests/album', async ({ req, res }) => {
     requestsOff(await auth.requireUser(req))
-    const b = await readJson<Partial<AlbumAsk>>(req)
-    if (typeof b.foreignAlbumId !== 'string' || !MBID.test(b.foreignAlbumId)) throw new ApiError(400, 'Which album?')
+    const b = await readJson<Partial<AlbumAsk> | null>(req)
+    if (typeof b?.foreignAlbumId !== 'string' || !MBID.test(b.foreignAlbumId)) throw new ApiError(400, 'Which album?')
     if (typeof b.artistName !== 'string' || !b.artistName.trim()) throw new ApiError(400, 'Which artist?')
-    if (typeof b.qualityProfileId !== 'number' || typeof b.rootFolderPath !== 'string') throw new ApiError(400, 'Missing the quality or folder')
+    if (!positiveId(b.qualityProfileId) || typeof b.rootFolderPath !== 'string' || !b.rootFolderPath.trim() || b.rootFolderPath.length > 1000 || b.rootFolderPath.includes('\0')) {
+      throw new ApiError(400, 'Missing the quality or folder')
+    }
     const ask: AlbumAsk = { foreignAlbumId: b.foreignAlbumId, artistName: b.artistName.trim().slice(0, 200), qualityProfileId: b.qualityProfileId, rootFolderPath: b.rootFolderPath }
     sendJson(res, 200, await requestAlbum(lidarrCaller(settings.get().services.lidarr), ask))
   })
