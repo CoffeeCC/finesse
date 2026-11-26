@@ -1,10 +1,22 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { rmSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { test, type TestContext } from 'node:test'
+import { Auth } from '../src/auth.ts'
+import { SettingsStore } from '../src/config.ts'
+import { GameStoreDb, publicRequest, type StoredRequest } from '../src/gamestore/db.ts'
 import { checkSplitArchive, finishAfterPerson, install, INSTALLED, pickInstaller, UNPACKED } from '../src/gamestore/install.ts'
+import { Pipeline, type Installer, type PipelineDeps } from '../src/gamestore/pipeline.ts'
 import { detectRedistHints, findProgram, findPrograms } from '../src/gamestore/program.ts'
 import { buildProtonLaunch, parseGameManifest, serializeGameManifest } from '../src/gamestore/proton.ts'
-import type { JobFile, LaunchResult, SandboxRunner, SurveyedFile } from '../src/gamestore/types.ts'
+import { registerGameStore } from '../src/gamestore/routes.ts'
+import type { ExecutableCandidate, InstallOutcome, JobFile, LaunchResult, SandboxRunner, SurveyedFile } from '../src/gamestore/types.ts'
+import { ApiError, Router, sendError } from '../src/http/core.ts'
 import type { Sniffed } from '../src/installerSniff.ts'
+import { Jellyfin } from '../src/jellyfin.ts'
+import { listen, tmp } from './helpers.ts'
 
 const mib = 1 << 20
 const file = (path: string, size = 1): JobFile => ({ path, size })
@@ -219,4 +231,233 @@ test('native games launch without Proton or a Wine prefix, with optional Gamesco
   assert.equal(plan.prefixCloneCommand, null)
   assert.deepEqual(buildProtonLaunch({ ...input, gamescope: { fullscreen: false } }).argv, ['gamescope', '--', '/games/native/start.sh'])
   assert.throws(() => buildProtonLaunch({ ...input, gamescope: { width: 0 } }), /positive integers/)
+})
+
+const ownerId = 'a'.repeat(32)
+const choice = { path: 'bin/Orchard.exe', linux: false, reason: 'Matches the game’s name' } satisfies ExecutableCandidate
+
+function stored(overrides: Partial<StoredRequest> = {}): StoredRequest {
+  return {
+    id: 'orchard-request', gameId: 'orchard', sourceId: 'orchard-download', title: 'Orchard',
+    userId: ownerId, platform: 'windows', installer: 'unknown', state: 'failed',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    candidates: [choice], redistHints: ['d3dx9'], ...overrides,
+  }
+}
+
+function temporaryFolder(t: TestContext): string {
+  const dir = tmp()
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
+test('legacy request tables migrate in place and picker metadata survives reopening', (t) => {
+  const file = join(temporaryFolder(t), 'gamestore.db')
+  const old = new DatabaseSync(file)
+  const original = stored({ candidates: undefined, redistHints: undefined })
+  try {
+    old.exec(`
+      CREATE TABLE game_request (
+        id TEXT PRIMARY KEY, game_id TEXT NOT NULL, source_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL
+      );
+    `)
+    old.prepare('INSERT INTO game_request VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      original.id, original.gameId, original.sourceId, original.userId, original.state,
+      original.createdAt, original.updatedAt, JSON.stringify(original),
+    )
+  } finally {
+    old.close()
+  }
+
+  const migrated = new GameStoreDb(file)
+  try {
+    assert.deepEqual(migrated.request(original.id), JSON.parse(JSON.stringify(original)))
+    migrated.advance(original.id, 'needs-you', { candidates: [choice], redistHints: ['d3dx9'] })
+    const columns = migrated.db.prepare('SELECT candidates, redist_hints FROM game_request WHERE id = ?').get(original.id)
+    assert.equal(columns?.candidates, JSON.stringify([choice]))
+    assert.equal(columns?.redist_hints, '["d3dx9"]')
+  } finally {
+    migrated.db.close()
+  }
+  const reopened = new GameStoreDb(file)
+  t.after(() => reopened.db.close())
+  const updated = reopened.request(original.id)!
+  assert.deepEqual(updated.candidates, [choice])
+  assert.deepEqual(updated.redistHints, ['d3dx9'])
+  assert.deepEqual(reopened.activeRequest(original.gameId), updated)
+  assert.deepEqual(reopened.requests(), [updated])
+  assert.deepEqual(publicRequest(updated).candidates, [choice])
+  assert.deepEqual(publicRequest(updated).redistHints, ['d3dx9'])
+  assert.ok(!('candidates' in publicRequest(stored({ candidates: [] }))))
+  assert.ok(!('redistHints' in publicRequest(stored({ redistHints: [] }))))
+})
+
+function pickerPipeline(db: GameStoreDb, installer: Partial<Installer> = {}, downloaderFor: PipelineDeps['downloaderFor'] = () => { throw new Error('Unexpected downloader call') }) {
+  return new Pipeline({
+    db,
+    installer: {
+      install: async () => { throw new Error('Unexpected install call') },
+      finish: async () => { throw new Error('Unexpected finish call') },
+      remove: async () => {},
+      ...installer,
+    },
+    freeBytes: async () => Infinity,
+    downloaderFor,
+  })
+}
+
+function ready(program: string): InstallOutcome {
+  return { state: 'ready', by: 'needs-you', program, dir: INSTALLED, log: [] }
+}
+
+test('pipeline persists installer diagnostics, validates choices and clears candidates after launch', async (t) => {
+  const db = new GameStoreDb(':memory:')
+  t.after(() => db.db.close())
+  const r = stored({ state: 'installing', candidates: undefined, redistHints: undefined, folder: '/downloads/orchard' })
+  db.saveRequest(r)
+  const pipeline = pickerPipeline(db, {
+    install: async () => ({ state: 'failed', reason: 'The first three programs did not start.', candidates: [choice], redistHints: ['d3dx9'], log: [] }),
+    pickProgram: async (id, program) => {
+      assert.equal(id, r.id)
+      assert.equal(program, choice.path)
+      assert.equal(db.request(id)?.state, 'finishing')
+      assert.equal(db.request(id)?.pendingProgram, program)
+      return ready(program)
+    },
+  })
+  await pipeline.tick()
+  const failed = db.request(r.id)!
+  assert.equal(failed.state, 'failed')
+  assert.deepEqual(failed.candidates, [choice])
+  assert.deepEqual(failed.redistHints, ['d3dx9'])
+  const badRequest = (e: unknown) => e instanceof ApiError && e.status === 400
+  for (const program of ['../evil.exe', '/evil.exe', 'bin\\Orchard.exe', 'game\0.exe', 'unknown.exe']) {
+    await assert.rejects(pipeline.pickProgram(failed, program), badRequest)
+  }
+  assert.deepEqual(db.request(r.id), failed)
+
+  const result = await pipeline.pickProgram(failed, choice.path)
+  assert.equal(result.state, 'ready')
+  assert.equal(result.program, choice.path)
+  assert.equal(result.candidates, undefined)
+  assert.equal(result.pendingProgram, undefined)
+  assert.deepEqual(result.redistHints, ['d3dx9'])
+  assert.deepEqual(db.events(r.id).map((event) => event.state), ['failed', 'finishing', 'finishing', 'ready'])
+})
+
+test('failed candidate checks preserve choices and the finish fallback gets the program hint', async (t) => {
+  const db = new GameStoreDb(':memory:')
+  t.after(() => db.db.close())
+  const r = stored({ state: 'needs-you' })
+  db.saveRequest(r)
+  let complete!: (outcome: InstallOutcome) => void
+  const outcome = new Promise<InstallOutcome>((resolve) => { complete = resolve })
+  const pipeline = pickerPipeline(db, {
+    finish: async (request, opts) => {
+      assert.equal(request.id, r.id)
+      assert.equal(opts?.programHint, choice.path)
+      return outcome
+    },
+  })
+  const choosing = pipeline.pickProgram(r, choice.path)
+  await assert.rejects(pipeline.pickProgram(r, choice.path), (e: unknown) => e instanceof ApiError && e.status === 409)
+  complete({ state: 'failed', reason: 'The selected program closed.', log: [], redistHints: ['vcrun2022'] })
+  const result = await choosing
+  assert.equal(result.state, 'failed')
+  assert.deepEqual(result.candidates, [choice])
+  assert.deepEqual(result.redistHints, ['vcrun2022'])
+  assert.equal(result.pendingProgram, undefined)
+})
+
+test('retry clears candidates and an interrupted check resumes with the chosen program', async (t) => {
+  const db = new GameStoreDb(':memory:')
+  t.after(() => db.db.close())
+  const restart = stored({ state: 'finishing', pendingProgram: choice.path })
+  db.saveRequest(restart)
+  const pipeline = pickerPipeline(db, {
+    pickProgram: async (id, program) => {
+      assert.equal(id, restart.id)
+      assert.equal(program, choice.path)
+      return ready(program)
+    },
+  })
+  await pipeline.tick()
+  assert.equal(db.request(restart.id)?.state, 'ready')
+  assert.equal(db.request(restart.id)?.pendingProgram, undefined)
+
+  const failed = stored({
+    id: 'retry-request', gameId: 'pear',
+    source: { id: 'pear-source', gameId: 'pear', platform: 'windows', installer: 'unknown', sizeBytes: 100 },
+  })
+  db.saveRequest(failed)
+  let availabilityChecks = 0
+  const retrying = pickerPipeline(db, {}, () => ({
+    available: async () => ++availabilityChecks === 1 ? { ok: true } : { ok: false, why: 'Waiting for downloads' },
+    add: async () => { throw new Error('Unexpected add call') },
+    status: async () => ({ state: 'missing', progress: 0 }),
+    pause: async () => {},
+    resume: async () => {},
+    remove: async () => {},
+  }))
+  const retry = await retrying.retry(failed)
+  assert.equal(retry.state, 'queued')
+  assert.equal(retry.candidates, undefined)
+  assert.equal(db.request(failed.id)?.candidates, undefined)
+  await retrying.tick()
+})
+
+test('POST /api/games/store/requests/:id/program checks ownership and returns the public request', async (t) => {
+  const dir = temporaryFolder(t)
+  const settings = new SettingsStore({
+    configDir: dir, settingsFile: join(dir, 'finesse.json'), invitesDb: join(dir, 'invites.db'),
+    bakedWeb: dir, updatedWeb: dir, backups: dir, previews: dir,
+  })
+  settings.update((s) => { s.gameStore = { enabled: true } })
+  const jf = new Jellyfin(settings)
+  t.mock.method(jf, 'me', async (token: string) => {
+    if (token === 'owner') return { Id: ownerId, Name: 'Owner' }
+    if (token === 'other') return { Id: 'b'.repeat(32), Name: 'Other' }
+    return null
+  })
+  const db = new GameStoreDb(':memory:')
+  t.after(() => db.db.close())
+  const router = new Router()
+  const store = registerGameStore(router, { settings, auth: new Auth(settings, jf), db })
+  store.pipeline = pickerPipeline(db, { pickProgram: async (_id, program) => ready(program) })
+  const row = stored({ state: 'needs-you' })
+  db.saveRequest(row)
+  const server = createServer((req, res) => {
+    const url = new URL(req.url!, 'http://localhost')
+    void router.dispatch({ req, res, url, path: url.pathname }).catch((error) => sendError(res, error))
+  })
+  const base = await listen(server)
+  t.after(() => {
+    server.closeAllConnections()
+    return new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+  const endpoint = `${base}/api/games/store/requests/${row.id}/program`
+  const post = (token: string, program: unknown) => fetch(endpoint, {
+    method: 'POST', headers: { 'X-Emby-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ program }),
+  })
+  for (const [token, program, status] of [
+    ['', choice.path, 401], ['other', choice.path, 403], ['owner', ' ', 400],
+    ['owner', '../evil.exe', 400], ['owner', 'other.exe', 400],
+  ] as const) {
+    const res = await post(token, program)
+    assert.equal(res.status, status)
+    await res.json()
+  }
+  assert.equal(db.request(row.id)?.state, 'needs-you')
+  const list = await fetch(`${base}/api/games/store/requests`, { headers: { 'X-Emby-Token': 'owner' } })
+  assert.deepEqual(await list.json(), [publicRequest(row)])
+
+  const res = await post('owner', choice.path)
+  assert.equal(res.status, 200)
+  const updated = await res.json()
+  assert.deepEqual(updated, publicRequest(db.request(row.id)!))
+  assert.equal(updated.state, 'ready')
+  assert.deepEqual(updated.redistHints, ['d3dx9'])
+  for (const field of ['candidates', 'userId', 'program', 'pendingProgram', 'installDir']) assert.ok(!(field in updated))
 })

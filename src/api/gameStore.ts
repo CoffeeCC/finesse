@@ -122,6 +122,16 @@ export type GameRequestState =
   | 'ready'
   | 'failed'
 
+/** A program in an unpacked archive that might be the game, best first (server/src/gamestore/program.ts). */
+export interface ExecutableCandidate {
+  /** Relative to the game's folder, with forward slashes. */
+  path: string
+  /** A Linux program (no Windows layer needed). */
+  linux: boolean
+  /** Why it was picked out, in words ("Unity game executable"). */
+  reason: string
+}
+
 export interface GameRequest {
   id: string
   gameId: string
@@ -139,6 +149,10 @@ export interface GameRequest {
   /** Plain words on what's happening, or why it failed and what to do. */
   detail?: string
   requestedBy?: string
+  /** "needs-you" or "failed" after unpacking: programs to choose from, best first. */
+  candidates?: ExecutableCandidate[]
+  /** Windows runtimes the game needs (e.g. "vcrun2022"), installed into its prefix. */
+  redistHints?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -160,6 +174,8 @@ export interface GameStoreApi {
   /** Pause and carry on a download (the real store only: the demo has none). */
   pause?(requestId: string): Promise<GameRequest>
   resume?(requestId: string): Promise<GameRequest>
+  /** Use this program (one of the request's candidates) as the game: on to "finishing". */
+  pickProgram?(requestId: string, program: string): Promise<GameRequest>
   /** The installer's screen (a noVNC websocket), or null where there isn't one (the demo). */
   installerScreenUrl(requestId: string): string | null
 }
@@ -257,6 +273,18 @@ export function browseHref(q: StoreQuery): string {
   return `/games/store/browse${s ? `?${s}` : ''}`
 }
 
+/** "Binaries/Win64/Game-Win64-Shipping.exe" → { name, folder }; folder is "" at the top. */
+export function splitProgramPath(path: string): { name: string; folder: string } {
+  const p = path.replace(/\\/g, '/')
+  const i = p.lastIndexOf('/')
+  return i < 0 ? { name: p, folder: '' } : { name: p.slice(i + 1), folder: p.slice(0, i + 1) }
+}
+
+/** The request is stuck on which program is the game: one press away from carrying on. */
+export function needsProgramPick(r: GameRequest): boolean {
+  return (r.state === 'needs-you' || r.state === 'failed') && Boolean(r.candidates?.length)
+}
+
 /** A request that's still moving (worth polling). */
 export function isActive(r: GameRequest): boolean {
   return r.state !== 'ready' && r.state !== 'failed' && r.state !== 'needs-you'
@@ -312,6 +340,7 @@ const serverStore: GameStoreApi = {
   installerDone: (id) => call('POST', `/requests/${encodeURIComponent(id)}/installer-done`),
   pause: (id) => call('POST', `/requests/${encodeURIComponent(id)}/pause`),
   resume: (id) => call('POST', `/requests/${encodeURIComponent(id)}/resume`),
+  pickProgram: (id, program) => call('POST', `/requests/${encodeURIComponent(id)}/program`, { program }),
   installerScreenUrl: (id) => {
     const u = new URL(finesseApi(`/api/games/store/requests/${encodeURIComponent(id)}/screen`), window.location.href)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'

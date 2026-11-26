@@ -1,7 +1,8 @@
 // A game request's status: the words, a bar while it moves, and a second line. The same on
 // cards, the game's page and the requests list (lib/gameRequestStatus.ts decides the words).
 
-import type { GameRequest } from '../../api/gameStore'
+import { Link } from 'react-router-dom'
+import { needsProgramPick, type GameRequest } from '../../api/gameStore'
 import { gameRequestView, type GameRequestView } from '../../lib/gameRequestStatus'
 
 const TONE: Record<GameRequestView['tone'], string> = {
@@ -41,6 +42,12 @@ export function GameRequestStatusView({ request, size = 'sm', className = '' }: 
         </span>
       )}
       {v.detail && <span className={`mt-1 block text-ink-400 break-words ${lg ? 'text-[13px] max-w-md' : 'text-[11.5px] leading-snug'}`}>{v.detail}</span>}
+      {/* Words only: this view sits inside card links, so the link itself is ChooseProgramLink. */}
+      {needsProgramPick(request) && (
+        <span className={`mt-1 block font-medium text-sky-200 ${lg ? 'text-[13px]' : 'text-[11.5px]'}`}>
+          {request.candidates!.length === 1 ? 'Found 1 program: check it’s the game' : `Found ${request.candidates!.length} programs: choose the one that starts the game`}
+        </span>
+      )}
     </div>
   )
 }
@@ -50,4 +57,23 @@ export function GameRequestBadge({ request }: { request: GameRequest }) {
   const v = gameRequestView(request)
   const label = request.state === 'ready' ? 'Ready' : request.state === 'needs-you' ? 'Needs you' : request.state === 'failed' ? 'Didn’t work' : v.progress !== undefined ? `${v.progress}%` : 'Requested'
   return <span className={`rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold ${TONE[v.tone]}`}>{label}</span>
+}
+
+/** Where a request that needs a hand is finished: the installer's screen, or the program picker. */
+export const installerHref = (r: GameRequest) => `/games/store/requests/${encodeURIComponent(r.id)}/installer`
+
+/** "Choose executable": one press from a stuck archive (needs-you or failed) to the picker. */
+export function ChooseProgramLink({ request, className = '' }: { request: GameRequest; className?: string }) {
+  if (!needsProgramPick(request)) return null
+  return (
+    <Link
+      to={installerHref(request)}
+      className={`inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97] ${className}`}
+    >
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z" />
+      </svg>
+      Choose executable
+    </Link>
+  )
 }

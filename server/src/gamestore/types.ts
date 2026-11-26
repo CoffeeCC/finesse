@@ -93,6 +93,8 @@ export interface StoreHome {
 export const REQUEST_STATES = ['queued', 'downloading', 'paused', 'checking', 'installing', 'needs-you', 'finishing', 'ready', 'failed'] as const
 export type GameRequestState = (typeof REQUEST_STATES)[number]
 
+export type ExecutableCandidate = { path: string; linux: boolean; reason: string }
+
 export interface GameRequest {
   id: string
   gameId: string
@@ -107,6 +109,8 @@ export interface GameRequest {
   etaSeconds?: number
   sizeBytes?: number
   detail?: string
+  candidates?: ExecutableCandidate[]
+  redistHints?: string[]
   requestedBy?: string
   createdAt: string
   updatedAt: string
@@ -287,7 +291,7 @@ interface InstallHints {
 }
 
 interface InstallChoices extends InstallHints {
-  candidates?: { path: string; linux: boolean; reason: string }[]
+  candidates?: ExecutableCandidate[]
 }
 
 export type InstallOutcome =

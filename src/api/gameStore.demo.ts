@@ -7,6 +7,7 @@ import {
   genreSlug,
   MODE_LABEL,
   PLATFORM_LABEL,
+  type ExecutableCandidate,
   type Facet,
   type GameMode,
   type GamePlatform,
@@ -176,8 +177,33 @@ interface DemoRequest {
   installerDoneAt?: number
   /** This attempt fails its checksum. */
   failChecksum?: boolean
+  /** When the person chose which program is the game (archives in PICK), and which. */
+  programAt?: number
+  program?: string
   createdAt: number
 }
+
+/** Demo archives with more than one program in them: after unpacking they wait for the person to
+ *  pick the game, as the server does when its ranker can't tell (server/src/gamestore/program.ts). */
+const PICK: Record<string, { candidates: ExecutableCandidate[]; redistHints: string[] }> = {
+  flare: {
+    candidates: [
+      { path: 'Flare/Binaries/Win64/Flare-Win64-Shipping.exe', linux: false, reason: 'Unreal Engine shipping executable' },
+      { path: 'Flare/Flare.exe', linux: false, reason: 'Matches the game’s name' },
+      { path: 'Flare/Tools/ModLauncher.exe', linux: false, reason: 'Windows executable' },
+    ],
+    redistHints: ['vcrun2022', 'd3dcompiler_47'],
+  },
+  cdda: {
+    candidates: [
+      { path: 'cataclysm-tiles.exe', linux: false, reason: 'Matches the game’s name' },
+      { path: 'CDDA_Launcher/Launcher.exe', linux: false, reason: 'Windows executable' },
+    ],
+    redistHints: ['vcrun2019'],
+  },
+}
+
+const PICK_DETAIL = 'Finesse found more than one program that could be the game. Pick the one that starts it.'
 
 const KEY = 'finesse.gameStoreDemo.requests'
 
@@ -205,6 +231,8 @@ function load(): DemoRequest[] {
     { id: 'r-0ad', gameId: '0ad', sourceId: '0ad-win', startedAt: now - 20_000, createdAt: now - 20_000 },
     { id: 'r-veloren', gameId: 'veloren', sourceId: 'veloren-win', startedAt: now - 10 * 60_000, createdAt: now - 10 * 60_000 },
     { id: 'r-warzone2100', gameId: 'warzone2100', sourceId: 'warzone2100-win', startedAt: now - 10 * 60_000, createdAt: now - 10 * 60_000, failChecksum: true },
+    // Unpacked, waiting on "which program is the game".
+    { id: 'r-flare', gameId: 'flare', sourceId: 'flare-win', startedAt: now - 15 * 60_000, createdAt: now - 15 * 60_000 },
   ]
   save(seed)
   return seed
@@ -271,6 +299,11 @@ function view(r: DemoRequest, now = Date.now()): GameRequest {
     if (!r.installerDoneAt) return { ...base, state: 'needs-you', detail: 'The installer is asking questions. Open its screen and click through it.', updatedAt: at(checked + 3) }
     return finishing(base, r.installerDoneAt, now)
   }
+  const pick = src.platform === 'windows' && (src.installer === 'archive' || src.installer === 'portable') ? PICK[r.gameId] : undefined
+  if (pick) {
+    if (!r.programAt) return { ...base, state: 'needs-you', detail: PICK_DETAIL, candidates: pick.candidates, redistHints: pick.redistHints, updatedAt: at(installed) }
+    return { ...finishing(base, r.programAt, now), redistHints: pick.redistHints }
+  }
   if (t < installed + FINISH) return { ...base, state: 'finishing', detail: 'Adding it to game streaming', updatedAt: at(installed) }
   return { ...base, state: 'ready', detail: 'It’s in Your games', updatedAt: at(installed + FINISH) }
 }
@@ -330,7 +363,7 @@ export const demoStore: GameStoreApi = {
     const list = load()
     const r = list.find((x) => x.id === id) ?? notFound()
     // The demo's tampered download only fails once.
-    Object.assign(r, { startedAt: Date.now(), installerDoneAt: undefined, failChecksum: false })
+    Object.assign(r, { startedAt: Date.now(), installerDoneAt: undefined, programAt: undefined, program: undefined, failChecksum: false })
     save(list)
     return wait(view(r))
   },
@@ -338,6 +371,16 @@ export const demoStore: GameStoreApi = {
     const list = load()
     const r = list.find((x) => x.id === id) ?? notFound()
     r.installerDoneAt = Date.now()
+    save(list)
+    return wait(view(r))
+  },
+  async pickProgram(id, program) {
+    const list = load()
+    const r = list.find((x) => x.id === id) ?? notFound()
+    const now = Date.now()
+    const v = view(r, now)
+    if (v.state !== 'needs-you' || !v.candidates?.some((c) => c.path === program)) throw new Error('That program isn’t one Finesse found in this game')
+    Object.assign(r, { programAt: now, program })
     save(list)
     return wait(view(r))
   },

@@ -62,7 +62,8 @@ class TickLookups {
 export interface Installer {
   install(r: StoredRequest, folder: string, onStep: (text: string) => void): Promise<InstallOutcome>
   /** A person finished the installer on its screen. */
-  finish(r: StoredRequest): Promise<InstallOutcome>
+  finish(r: StoredRequest, opts?: { programHint?: string }): Promise<InstallOutcome>
+  pickProgram?(requestId: string, program: string): Promise<InstallOutcome>
   /** Stop anything running for this request and delete what it installed. */
   remove(r: StoredRequest): Promise<void>
 }
@@ -87,6 +88,8 @@ const GB = 1024 ** 3
 const ACTIVE: GameRequestState[] = ['queued', 'downloading', 'paused', 'checking', 'installing', 'finishing']
 
 const roughSize = (bytes: number) => (bytes >= GB ? `${Math.ceil((bytes / GB) * 10) / 10} GB` : `${Math.max(1, Math.ceil(bytes / 1024 ** 2))} MB`)
+const cleanProgram = (program: string) =>
+  !/[:\\\x00-\x1f]/.test(program) && program.split('/').every((part) => part && !/[. ]$/.test(part))
 
 export class Pipeline implements RequestPipeline {
   private readonly deps: PipelineDeps
@@ -181,40 +184,85 @@ export class Pipeline implements RequestPipeline {
   }
 
   async cancel(r: StoredRequest): Promise<void> {
-    if (r.source) await this.deps.downloaderFor(r.source).remove(r.id, { files: true }).catch(() => {})
-    await this.deps.installer.remove(r)
-    this.busy.delete(r.id)
-    if (this.installing === r.id) this.installing = null
+    const current = this.deps.db.request(r.id)
+    if (this.busy.has(r.id) && (current?.pendingProgram || current?.state === 'failed')) throw new ApiError(409, 'Finesse is already working on this request.')
+    this.busy.add(r.id)
+    try {
+      if (r.source) await this.deps.downloaderFor(r.source).remove(r.id, { files: true }).catch(() => {})
+      await this.deps.installer.remove(r)
+    } finally {
+      this.busy.delete(r.id)
+      if (this.installing === r.id) this.installing = null
+    }
   }
 
   async retry(r: StoredRequest): Promise<StoredRequest> {
+    r = this.requestForCheck(r.id)
+    if (r.state !== 'failed') throw new ApiError(409, 'That request is still going.')
     if (!r.source) throw new ApiError(409, 'That game isn’t in the store any more, so it can’t be tried again.')
-    await this.deps.installer.remove(r)
-    // A download that finished is kept: only what came after it is done again.
-    const status = r.added ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
-    const have = status?.state === 'done'
-    if (!have && r.source.local) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
-    if (!have) {
-      const ready = await this.deps.downloaderFor(r.source).available()
-      if (!ready.ok) throw new ApiError(503, ready.why)
-      await this.room(r.source.sizeBytes)
+    this.busy.add(r.id)
+    try {
+      // A download that finished is kept: only what came after it is done again.
+      const status = r.added ? await this.deps.downloaderFor(r.source).status(r.id).catch(() => null) : null
+      const have = status?.state === 'done'
+      if (!have && r.source.local) throw new ApiError(409, 'The file for this game isn’t on the server any more. Add it again from Settings.')
+      if (!have) {
+        const ready = await this.deps.downloaderFor(r.source).available()
+        if (!ready.ok) throw new ApiError(503, ready.why)
+        await this.room(r.source.sizeBytes)
+      }
+      await this.deps.installer.remove(r)
+      const next = this.deps.db.advance(r.id, have ? 'checking' : 'queued', { detail: undefined, progress: have ? 100 : 0, added: have, waitingOn: undefined, candidates: undefined, pendingProgram: undefined }, 'Trying again.')
+      if (!next) throw new ApiError(404, 'That request isn’t here any more.')
+      return next
+    } finally {
+      this.busy.delete(r.id)
+      void this.tick()
     }
-    const next = this.deps.db.advance(r.id, have ? 'checking' : 'queued', { detail: undefined, progress: have ? 100 : 0, added: have, waitingOn: undefined }, 'Trying again.')!
-    void this.tick()
-    return next
   }
 
   async installerDone(r: StoredRequest): Promise<StoredRequest> {
-    this.deps.db.advance(r.id, 'finishing', { detail: undefined }, 'The installer was finished by hand.')
+    const current = this.requestForCheck(r.id)
+    if (current.state !== r.state || (current.state !== 'needs-you' && current.state !== 'finishing')) throw new ApiError(409, 'That request isn’t waiting for you.')
+    return this.finishRequest(current, current.pendingProgram)
+  }
+
+  async pickProgram(r: StoredRequest, program: string): Promise<StoredRequest> {
+    if (!cleanProgram(program)) throw new ApiError(400, 'Choose a valid program path from the list.')
+    const current = this.requestForCheck(r.id)
+    if ((current.state !== 'needs-you' && current.state !== 'failed') || !current.candidates?.length) {
+      throw new ApiError(409, 'This request isn’t waiting for an executable choice.')
+    }
+    if (!current.candidates.some((candidate) => candidate.path === program)) throw new ApiError(400, 'Choose one of the listed programs.')
+    const active = this.deps.db.activeRequest(current.gameId)
+    if (active && active.id !== current.id) throw new ApiError(409, 'Another request for this game is already active.')
+    return this.finishRequest(current, program)
+  }
+
+  private requestForCheck(id: string): StoredRequest {
+    const current = this.deps.db.request(id)
+    if (!current) throw new ApiError(404, 'That request isn’t here any more.')
+    if (this.busy.has(id)) throw new ApiError(409, 'Finesse is already working on this request.')
+    return current
+  }
+
+  private async finishRequest(r: StoredRequest, program?: string): Promise<StoredRequest> {
+    const { db, installer } = this.deps
     this.busy.add(r.id)
     try {
-      this.settle(r.id, await this.deps.installer.finish(r))
+      db.advance(r.id, 'finishing', { detail: undefined, pendingProgram: program }, program ? 'Checking the selected program.' : 'The installer was finished by hand.')
+      const outcome = program
+        ? await (installer.pickProgram ? installer.pickProgram(r.id, program) : installer.finish(r, { programHint: program }))
+        : await installer.finish(r)
+      this.settle(r.id, outcome)
     } catch (e) {
       this.fail(r.id, 'Finesse couldn’t check the installed game. Try again.', e)
     } finally {
       this.busy.delete(r.id)
     }
-    return this.deps.db.request(r.id)!
+    const updated = db.request(r.id)
+    if (!updated) throw new ApiError(404, 'That request isn’t here any more.')
+    return updated
   }
 
   // ---------- the steps ----------
@@ -240,7 +288,9 @@ export class Pipeline implements RequestPipeline {
         else if (r.state === 'checking') this.check(r)
         else if (r.state === 'installing') this.install(r)
         // Interrupted between "installed" and "ready" by a restart: the game is there; check it again.
-        else if (r.state === 'finishing' && !this.busy.has(r.id)) void this.installerDone(r)
+        else if (r.state === 'finishing' && !this.busy.has(r.id)) {
+          void this.installerDone(r).catch((e) => this.deps.log?.(`game request ${r.id}: ${e instanceof Error ? e.message : String(e)}`))
+        }
         else if (r.state === 'ready') await this.seeded(r, look)
       } catch (e) {
         // One request's trouble never stops the others; it's looked at again next time.
@@ -251,7 +301,7 @@ export class Pipeline implements RequestPipeline {
 
   private fail(id: string, reason: string, e?: unknown) {
     if (e) this.deps.log?.(`game request ${id}: ${e instanceof Error ? e.message : String(e)}`)
-    this.deps.db.advance(id, 'failed', { detail: reason, bytesPerSecond: undefined, etaSeconds: undefined }, reason)
+    this.deps.db.advance(id, 'failed', { detail: reason, bytesPerSecond: undefined, etaSeconds: undefined, pendingProgram: undefined }, reason)
   }
 
   private async queued(r: StoredRequest, look?: TickLookups) {
@@ -326,9 +376,19 @@ export class Pipeline implements RequestPipeline {
     const r = db.request(id)
     // Cancelled while it ran.
     if (!r) return
-    if (out.state === 'failed') return this.fail(id, out.reason)
-    if (out.state === 'needs-you') return void db.advance(id, 'needs-you', { detail: out.why, waitingOn: out.waitingOn }, out.why)
-    db.advance(id, 'finishing', { installDir: out.dir, program: out.program, screenshot: out.screenshot, waitingOn: undefined, detail: undefined }, 'Installed, and it starts.')
+    const redistHints = out.redistHints ?? r.redistHints
+    if (out.state !== 'ready') {
+      const detail = out.state === 'failed' ? out.reason : out.why
+      db.advance(id, out.state, {
+        detail, waitingOn: out.state === 'needs-you' ? out.waitingOn : undefined, bytesPerSecond: undefined, etaSeconds: undefined,
+        candidates: out.candidates ?? r.candidates, redistHints, pendingProgram: undefined,
+      }, detail)
+      return
+    }
+    db.advance(id, 'finishing', {
+      installDir: out.dir, program: out.program, screenshot: out.screenshot, waitingOn: undefined, detail: undefined,
+      candidates: undefined, redistHints, pendingProgram: undefined,
+    }, 'Installed, and it starts.')
     db.advance(id, 'ready', { readyAt: this.now() }, 'Ready to play.')
     // A direct download has done its job; a torrent is shared back for a while first (seeded()).
     if (r.source && !r.source.magnet) void this.dropDownload(db.request(id)!)

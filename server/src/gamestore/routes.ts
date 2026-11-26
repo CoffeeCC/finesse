@@ -22,6 +22,7 @@ export interface RequestPipeline {
   retry(r: StoredRequest): Promise<StoredRequest>
   /** The person finished the installer by hand ("Needs you"). */
   installerDone(r: StoredRequest): Promise<StoredRequest>
+  pickProgram(r: StoredRequest, program: string): Promise<StoredRequest>
   pause(r: StoredRequest): Promise<StoredRequest>
   resume(r: StoredRequest): Promise<StoredRequest>
 }
@@ -385,6 +386,13 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     const r = await mine(req, params.id)
     if (r.state !== 'needs-you') throw new ApiError(409, 'That request isn’t waiting for you.')
     sendJson(res, 200, publicRequest(await pipeline().installerDone(r)))
+  })
+
+  router.post('/api/games/store/requests/:id/program', async ({ req, res, params }) => {
+    const r = await mine(req, params.id)
+    const body = await readJson<{ program?: unknown } | null>(req)
+    if (typeof body?.program !== 'string' || !body.program.trim()) throw new ApiError(400, 'Choose a program to start.')
+    sendJson(res, 200, publicRequest(await pipeline().pickProgram(r, body.program)))
   })
 
   // The installer's screen ("Needs you") is a websocket the sandbox runner serves (WS4); a plain

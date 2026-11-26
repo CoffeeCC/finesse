@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { artPath } from './art.ts'
-import type { CatalogueGame, CatalogueSource, GameRequest, GameRequestState, StoreSource } from './types.ts'
+import type { CatalogueGame, CatalogueSource, ExecutableCandidate, GameRequest, GameRequestState, StoreSource } from './types.ts'
 
 /** A request as the server keeps it: what the app sees, plus who asked and what the pipeline needs. */
 export interface StoredRequest extends GameRequest {
@@ -15,6 +15,8 @@ export interface StoredRequest extends GameRequest {
   /** Where the installed game is and what starts it, once it's ready. */
   installDir?: string
   program?: string
+  /** The person's selected executable while a start check is in progress. */
+  pendingProgram?: string
   /** The start check's screenshot, relative to the games folder. */
   screenshot?: string
   /** What a person has to answer, when it needs them. */
@@ -42,6 +44,22 @@ const json = <T>(v: string | null | undefined, fallback: T): T => {
   } catch {
     return fallback
   }
+}
+
+interface RequestRow {
+  data: string
+  candidates: string | null
+  redist_hints: string | null
+}
+
+function readRequest(row: RequestRow | undefined): StoredRequest | null {
+  const request = json<StoredRequest | null>(row?.data, null)
+  if (!request || !row) return null
+  const candidates = json<ExecutableCandidate[] | null>(row.candidates, null)
+  const redistHints = json<string[] | null>(row.redist_hints, null)
+  if (Array.isArray(candidates) && candidates.length) request.candidates = candidates
+  if (Array.isArray(redistHints) && redistHints.length) request.redistHints = redistHints
+  return request
 }
 
 /** Requests in these states are over: a new one for the same game may start. */
@@ -83,7 +101,9 @@ export class GameStoreDb {
         state TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        data TEXT NOT NULL
+        data TEXT NOT NULL,
+        candidates TEXT,
+        redist_hints TEXT
       );
       CREATE INDEX IF NOT EXISTS game_request_state ON game_request(state);
       CREATE TABLE IF NOT EXISTS game_request_event (
@@ -94,6 +114,16 @@ export class GameStoreDb {
       );
       CREATE INDEX IF NOT EXISTS game_request_event_request ON game_request_event(request_id, at);
     `)
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const columns = new Set(this.db.prepare('PRAGMA table_info(game_request)').all().map((column) => column.name))
+      if (!columns.has('candidates')) this.db.exec('ALTER TABLE game_request ADD COLUMN candidates TEXT')
+      if (!columns.has('redist_hints')) this.db.exec('ALTER TABLE game_request ADD COLUMN redist_hints TEXT')
+      this.db.exec('COMMIT')
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
+    }
   }
 
   // ---------- the catalogue ----------
@@ -171,22 +201,23 @@ export class GameStoreDb {
   // ---------- requests ----------
 
   saveRequest(r: StoredRequest) {
+    const { candidates, redistHints, ...data } = r
     this.db
-      .prepare('INSERT OR REPLACE INTO game_request (id, game_id, source_id, user_id, state, created_at, updated_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(r.id, r.gameId, r.sourceId, r.userId, r.state, r.createdAt, r.updatedAt, JSON.stringify(r))
+      .prepare('INSERT OR REPLACE INTO game_request (id, game_id, source_id, user_id, state, created_at, updated_at, data, candidates, redist_hints) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(r.id, r.gameId, r.sourceId, r.userId, r.state, r.createdAt, r.updatedAt, JSON.stringify(data),
+        candidates?.length ? JSON.stringify(candidates) : null, redistHints?.length ? JSON.stringify(redistHints) : null)
   }
 
   request(id: string): StoredRequest | null {
-    const r = this.db.prepare('SELECT data FROM game_request WHERE id = ?').get(id) as { data: string } | undefined
-    return json<StoredRequest | null>(r?.data, null)
+    return readRequest(this.db.prepare('SELECT data, candidates, redist_hints FROM game_request WHERE id = ?').get(id) as RequestRow | undefined)
   }
 
   /** The request for this game that's still going (or done), newest first: anything but failed. */
   activeRequest(gameId: string): StoredRequest | null {
     const r = this.db
-      .prepare(`SELECT data FROM game_request WHERE game_id = ? AND state NOT IN (${FINISHED_STATES.map(() => '?').join(', ')}) ORDER BY created_at DESC LIMIT 1`)
-      .get(gameId, ...FINISHED_STATES) as { data: string } | undefined
-    return json<StoredRequest | null>(r?.data, null)
+      .prepare(`SELECT data, candidates, redist_hints FROM game_request WHERE game_id = ? AND state NOT IN (${FINISHED_STATES.map(() => '?').join(', ')}) ORDER BY created_at DESC LIMIT 1`)
+      .get(gameId, ...FINISHED_STATES) as RequestRow | undefined
+    return readRequest(r)
   }
 
   /**
@@ -214,7 +245,8 @@ export class GameStoreDb {
 
   /** Newest first. */
   requests(): StoredRequest[] {
-    return (this.db.prepare('SELECT data FROM game_request ORDER BY created_at DESC').all() as { data: string }[]).map((r) => json<StoredRequest | null>(r.data, null)).filter((x): x is StoredRequest => x !== null)
+    return (this.db.prepare('SELECT data, candidates, redist_hints FROM game_request ORDER BY created_at DESC').all() as unknown as RequestRow[])
+      .map(readRequest).filter((x): x is StoredRequest => x !== null)
   }
 
   removeRequest(id: string) {
@@ -245,6 +277,9 @@ export function publicSource(s: CatalogueSource): StoreSource {
 
 /** What a browser may know of a request: not who asked by id, nor where things are on disk. */
 export function publicRequest(r: StoredRequest): GameRequest {
-  const { userId: _u, installDir: _d, program: _p, screenshot: _s, waitingOn: _w, source: _src, added: _a, folder: _f, readyAt: _r, downloadRemoved: _g, ...pub } = r
-  return { ...pub, ...(pub.cover ? { cover: artPath(pub.cover) } : {}) }
+  const { userId: _u, installDir: _d, program: _p, pendingProgram: _pending, screenshot: _s, waitingOn: _w, source: _src, added: _a, folder: _f, readyAt: _r, downloadRemoved: _g, candidates, redistHints, ...pub } = r
+  return {
+    ...pub, ...(pub.cover ? { cover: artPath(pub.cover) } : {}),
+    ...(candidates?.length ? { candidates } : {}), ...(redistHints?.length ? { redistHints } : {}),
+  }
 }

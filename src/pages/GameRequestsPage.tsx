@@ -2,11 +2,11 @@
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatSize, PLATFORM_LABEL, type GameRequest } from '../api/gameStore'
+import { formatSize, needsProgramPick, PLATFORM_LABEL, type GameRequest } from '../api/gameStore'
 import { useGameRequestActions, useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
-import { GameRequestStatusView } from '../components/gamestore/GameRequestStatus'
+import { ChooseProgramLink, GameRequestStatusView, installerHref } from '../components/gamestore/GameRequestStatus'
 import { StoreThumb, storeGameHref } from '../components/gamestore/StoreCards'
 import { StoreHeader } from '../components/gamestore/StoreHeader'
 
@@ -68,6 +68,7 @@ function RequestRow({ r }: { r: GameRequest }) {
   const [confirm, setConfirm] = useState(false)
   const facts = [PLATFORM_LABEL[r.platform], formatSize(r.sizeBytes), r.requestedBy ? `requested by ${r.requestedBy}` : null].filter(Boolean).join(' · ')
   const fail = (e: unknown) => toast(e instanceof Error ? e.message : 'That didn’t work', 'error')
+  const picking = needsProgramPick(r)
   return (
     <li className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
       <Link to={storeGameHref(r.gameId)} className="shrink-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent-400" tabIndex={-1} aria-hidden>
@@ -81,13 +82,19 @@ function RequestRow({ r }: { r: GameRequest }) {
         <GameRequestStatusView request={r} />
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
-        {r.state === 'needs-you' && (
-          <Link to={`/games/store/requests/${encodeURIComponent(r.id)}/installer`} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
+        <ChooseProgramLink request={r} />
+        {r.state === 'needs-you' && !picking && (
+          <Link to={installerHref(r)} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
             Finish installing
           </Link>
         )}
         {r.state === 'failed' && (
-          <button type="button" onClick={() => actions.retry.mutate(r.id, { onError: fail })} className="inline-flex h-9 items-center rounded-lg bg-white px-3.5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
+          <button
+            type="button"
+            onClick={() => actions.retry.mutate(r.id, { onError: fail })}
+            disabled={actions.retry.isPending}
+            className={`inline-flex h-9 items-center rounded-lg px-3.5 text-sm font-semibold transition active:scale-[0.97] disabled:opacity-50 ${picking ? 'border border-white/15 bg-white/10 text-white hover:bg-white/20' : 'bg-white text-ink-950 hover:bg-ink-200'}`}
+          >
             Try again
           </button>
         )}

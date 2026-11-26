@@ -120,5 +120,15 @@ export function useGameRequestActions() {
       onSuccess: put,
       onSettled: refresh,
     }),
+    /** "This program is the game" for an unpacked archive with more than one. */
+    pickProgram: useMutation({
+      mutationFn: async (v: { id: string; program: string }) => {
+        const store = await api(mode)
+        if (!store.pickProgram) throw new Error('This store can’t choose a program yet')
+        return store.pickProgram(v.id, v.program)
+      },
+      onSuccess: put,
+      onSettled: refresh,
+    }),
   }
 }
