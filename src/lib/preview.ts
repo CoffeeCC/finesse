@@ -78,13 +78,32 @@ export function releasePreview(stop: () => void): void {
 const warmed = new Set<string>()
 const queue: string[] = []
 let inFlight = 0
-const MAX_CONCURRENT = 2
+const MAX_CONCURRENT = 1
+const MAX_QUEUED = 8
+let activeCtrl: AbortController | null = null
+let pumpTimer = 0
+let readyAt = typeof performance !== 'undefined' ? performance.now() + 1500 : 0
+
+function abortPrefetch(): void {
+  if (pumpTimer) {
+    window.clearTimeout(pumpTimer)
+    pumpTimer = 0
+  }
+  activeCtrl?.abort()
+  activeCtrl = null
+  queue.length = 0
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', abortPrefetch)
+  window.addEventListener('beforeunload', abortPrefetch)
+}
 
 /** Reset module-level preview cache and expire the scoped media cookie on sign-out. */
 export function resetPreviewState(): void {
   cookieFor = ''
   warmed.clear()
-  queue.length = 0
+  abortPrefetch()
   if (typeof document !== 'undefined') {
     const secure = window.location.protocol === 'https:' ? '; Secure' : ''
     const path = new URL(`${CONTENT_BASE}previews/`, window.location.href).pathname
@@ -93,24 +112,47 @@ export function resetPreviewState(): void {
   }
 }
 
+function saveData(): boolean {
+  const conn = typeof navigator !== 'undefined' ? (navigator as Navigator & { connection?: { saveData?: boolean } }).connection : undefined
+  return Boolean(conn?.saveData)
+}
+
 function pump(): void {
-  while (inFlight < MAX_CONCURRENT && queue.length) {
-    const url = queue.shift()!
-    inFlight++
-    // A plain GET populates the HTTP cache; the <video> then starts instantly.
-    // Same-origin clips authenticate via the scoped finesse_media_token cookie.
-    fetch(url, { credentials: 'same-origin' })
-      .catch(() => {})
-      .finally(() => {
-        inFlight--
+  if (inFlight >= MAX_CONCURRENT || !queue.length) return
+  // Let initial page HTML, API calls, and poster thumbnails load before warming clips.
+  const wait = typeof performance !== 'undefined' ? Math.max(0, readyAt - performance.now()) : 0
+  if (wait > 0) {
+    if (!pumpTimer) {
+      pumpTimer = window.setTimeout(() => {
+        pumpTimer = 0
         pump()
-      })
+      }, wait)
+    }
+    return
   }
+  const url = queue.shift()!
+  inFlight++
+  const ctrl = new AbortController()
+  activeCtrl = ctrl
+  // Consume the body before starting the next clip: resolving on headers alone leaves
+  // unread MP4 streams open and exhausts the browser's 6-connection HTTP/1.1 pool.
+  fetch(url, { credentials: 'same-origin', signal: ctrl.signal, priority: 'low' } as RequestInit)
+    .then(async (res) => {
+      if (res.ok) await res.arrayBuffer()
+      else await res.body?.cancel().catch(() => {})
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (activeCtrl === ctrl) activeCtrl = null
+      inFlight--
+      pump()
+    })
 }
 
 /** Queue a clip to warm the browser cache (deduped, concurrency-capped). */
 export function prefetchClip(url: string | null): void {
-  if (!url || warmed.has(url)) return
+  if (!url || warmed.has(url) || saveData()) return
+  if (queue.length >= MAX_QUEUED) return
   warmed.add(url)
   queue.push(url)
   pump()

@@ -135,6 +135,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react(), tailwindcss(), ...(isWebos ? [] : [versionFile()])],
     server: { port: 5173, proxy },
+    preview: { port: 5173, proxy },
     ...(isWebos
       ? {
           build: {
