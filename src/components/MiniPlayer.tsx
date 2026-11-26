@@ -16,9 +16,28 @@ function trackArt(t: JfItem): string | null {
   return null
 }
 
+function VolumeIcon({ muted, volume }: { muted: boolean; volume: number }) {
+  if (muted || volume === 0) {
+    return (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5 6 9H3v6h3l5 4V5Zm6.5 4.5-4 4m0-4 4 4" />
+      </svg>
+    )
+  }
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5 6 9H3v6h3l5 4V5Z" />
+      {volume > 0.01 && <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 8.5a5 5 0 0 1 0 7" />}
+      {volume > 0.5 && <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 5.5a9 9 0 0 1 0 13" />}
+    </svg>
+  )
+}
+
 export default function MiniPlayer() {
-  const { current, playing, position, duration, toggle, next, prev, seek, stop, index, queue, expanded, setExpanded, repeat } =
-    useAudio()
+  const {
+    current, playing, position, duration, volume, muted, setVolume, toggleMute,
+    toggle, next, prev, seek, stop, index, queue, expanded, setExpanded, repeat,
+  } = useAudio()
   if (!current || expanded) return null
 
   const art = trackArt(current)
@@ -28,9 +47,10 @@ export default function MiniPlayer() {
   const seekAt = (clientX: number, el: HTMLElement) => {
     if (!known) return
     const r = el.getBoundingClientRect()
+    if (r.width <= 0) return
     seek(Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * duration)
   }
-  const btn = 'h-9 w-9 flex items-center justify-center rounded-full text-ink-200 hover:text-white hover:bg-white/10 active:scale-90 transition'
+  const btn = 'h-8 w-8 sm:h-9 sm:w-9 shrink-0 flex items-center justify-center rounded-full text-ink-200 hover:text-white hover:bg-white/10 active:scale-90 transition'
 
   return (
     // Plain offsets first (the TV's Chromium 68 has no env()/max(): those rules would drop and
@@ -60,11 +80,11 @@ export default function MiniPlayer() {
         </div>
       </div>
 
-      <div className="h-16 px-3 sm:px-6 flex items-center gap-3">
+      <div className="h-16 px-2.5 sm:px-6 flex items-center gap-1.5 sm:gap-3">
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="flex items-center gap-3 min-w-0 flex-1 text-left group/np rounded-lg"
+          className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 text-left group/np rounded-lg"
           title="Open now playing"
         >
           <div className="h-11 w-11 shrink-0 rounded-md overflow-hidden bg-ink-800 ring-1 ring-white/10 group-hover/np:ring-accent-400 transition-all">
@@ -84,13 +104,13 @@ export default function MiniPlayer() {
           {fmt(position)} / {fmt(duration)}
         </span>
 
-        <button type="button" onClick={prev} className={btn} aria-label="Previous">
+        <button type="button" onClick={prev} className={`${btn} hidden min-[380px]:flex`} aria-label="Previous">
           <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg>
         </button>
         <button
           type="button"
           onClick={toggle}
-          className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-white text-ink-950 hover:scale-105 active:scale-95 transition-transform"
+          className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 flex items-center justify-center rounded-full bg-white text-ink-950 hover:scale-105 active:scale-95 transition-transform"
           aria-label={playing ? 'Pause' : 'Play'}
         >
           {playing ? (
@@ -103,7 +123,35 @@ export default function MiniPlayer() {
           <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zM16 6v12h2V6z" /></svg>
         </button>
 
-        <button type="button" onClick={stop} className="h-9 w-9 hidden sm:flex items-center justify-center rounded-full text-ink-400 hover:text-white hover:bg-white/10 active:scale-90 transition" aria-label="Close player">
+        <div className="hidden md:flex items-center gap-1.5 ml-1">
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="h-8 w-8 flex items-center justify-center rounded-full text-ink-300 hover:text-white hover:bg-white/10 transition"
+            aria-label={muted || volume === 0 ? 'Unmute' : 'Mute'}
+            title={muted || volume === 0 ? 'Unmute' : 'Mute'}
+          >
+            <VolumeIcon muted={muted} volume={volume} />
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.02}
+            value={muted ? 0 : volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            aria-label="Volume"
+            className="w-20 accent-[var(--color-accent-400,#7589d8)] cursor-pointer"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={stop}
+          className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 flex items-center justify-center rounded-full text-ink-400 hover:text-white hover:bg-white/10 active:scale-90 transition"
+          aria-label="Stop and close player"
+          title="Stop"
+        >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>

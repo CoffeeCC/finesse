@@ -31,11 +31,13 @@ export interface ConnCheck {
   fixes?: ConnFix[]
   /** Worth knowing, but nothing's wrong (a newer version of someone's own app). */
   notes?: string[]
+  /** Browser-reachable web UI address when known (e.g. LAN IP/hostname; omitted for Docker-internal hostnames). */
+  openUrl?: string
 }
 
 /** A repair: POST /api/system/connections/fix { app: check id, fix: id }. */
 export interface ConnFix {
-  id: 'sab-hostname' | 'remote-paths'
+  id: 'sab-hostname' | 'sab-resume' | 'remote-paths' | 'prowlarr-sync' | 'arr-rootfolder' | 'arr-refresh' | 'restart-app'
   label: string
   /** What the click changes, said before it's clicked. */
   detail: string
@@ -92,11 +94,37 @@ export function unreachable(name: string, e: unknown): string {
   return `Can’t reach ${name} (${msg.slice(0, 80)}). Check it’s running and the address is right.`
 }
 
-/** "download client qBittorrent places downloads in /data/Torrents but this directory does not appear to exist inside the container" (and older wordings). */
-export const REMOTE_PATH = /download client (.+?) (?:places downloads|reports files) in (.+?) but this directory does not appear to exist/i
+/** "download client qBittorrent places/is placing downloads in /data/Torrents but this directory does not appear to exist inside the container" (and older/quoted wordings). */
+export const REMOTE_PATH = /download client (.+?) (?:(?:is )?placing downloads|places downloads|reports files) in ["']?([^"']+?)["']? but this directory does not appear to exist/i
+
+/** A browser-clickable URL for the app's own web UI, or undefined if it's an internal Docker-only name. */
+export function browserUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return undefined
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return undefined
+  const h = u.hostname.toLowerCase()
+  if (h === 'host.docker.internal' || h === 'gateway.docker.internal') return undefined
+  // Single-label hostnames like "radarr", "lidarr", "sabnzbd" only resolve inside Docker's bridge network.
+  if (!h.includes('.') && !h.includes(':') && h !== 'localhost') return undefined
+  return `${u.origin}${u.pathname === '/' ? '' : u.pathname.replace(/\/+$/, '')}`
+}
 
 /** Their own "a newer version is out": not a fault, and on a server Finesse set up it's Finesse's to bring. */
 const isUpdateNotice = (item: ArrHealthItem) => item.source === 'UpdateCheck' || /^new update is available/i.test(item.message ?? '')
+
+/** Indexer health issues that Prowlarr app sync can repair. */
+export const INDEXER_HEALTH = (item: ArrHealthItem) =>
+  /Indexer(Status|LongTermStatus|Rss|Search)Check/i.test(item.source ?? '') ||
+  /no indexers available|indexers? (?:are )?unavailable|all (?:rss-capable|search-capable) indexers/i.test(item.message ?? '')
+
+/** Missing root folder warning (e.g. leftover old path after moving folders). */
+export const ROOT_FOLDER_HEALTH = (item: ArrHealthItem) =>
+  /RootFolderCheck/i.test(item.source ?? '') || /missing root folder/i.test(item.message ?? '')
 
 interface ArrHealthItem {
   source?: string
@@ -109,14 +137,26 @@ interface ArrTest {
   validationFailures?: { errorMessage?: string }[]
 }
 
-async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetch, mode: Settings['mode']): Promise<ConnCheck> {
+async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetch, s: Settings): Promise<ConnCheck> {
+  const mode = s.mode
+  const hasProwlarr = Boolean(def.id !== 'prowlarr' && s.services.prowlarr?.url && s.services.prowlarr?.apiKey)
   const headers = { 'x-api-key': svc.apiKey ?? '' }
   const url = (p: string) => joinUrl(svc.url!, `${def.api}/${p}`)
-  const out: ConnCheck = { id: def.id, name: def.name, ok: true, summary: 'Working', problems: [] }
+  const out: ConnCheck = { id: def.id, name: def.name, ok: true, summary: 'Working', problems: [], ...(browserUrl(svc.url) ? { openUrl: browserUrl(svc.url) } : {}) }
+  const addFix = (fix: ConnFix) => {
+    if (!out.fixes?.some((f) => f.id === fix.id)) (out.fixes ??= []).push(fix)
+  }
   let status: Awaited<ReturnType<ConnFetch>>
   try {
     status = await get(url('system/status'), { headers })
   } catch (e) {
+    if (mode === 'bundle') {
+      addFix({
+        id: 'restart-app',
+        label: `Restart ${def.name}`,
+        detail: `Finesse restarts the ${def.name} container and checks it again.`,
+      })
+    }
     return { ...out, ok: false, summary: unreachable(def.name, e) }
   }
   if (status.status === 401 || status.status === 403) return { ...out, ok: false, summary: `${def.name} turned down Finesse’s API key. Copy the key from ${def.name} (Settings → General) into Finesse again.` }
@@ -132,11 +172,23 @@ async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetc
         if (mode === 'adopt') (out.notes ??= []).push(`${item.message.trim().replace(/^New update is available/i, 'A newer version is out')}. Update ${def.name} the way you installed it.`)
         continue
       }
-      if (REMOTE_PATH.test(item.message) && !out.fixes?.some((f) => f.id === 'remote-paths')) {
-        ;(out.fixes ??= []).push({
+      if (REMOTE_PATH.test(item.message)) {
+        addFix({
           id: 'remote-paths',
           label: 'Fix the folder mapping',
-          detail: `Finesse works out where the download client’s folder is inside ${def.name} and adds a remote path mapping for it.`,
+          detail: `Finesse locates the download client’s folder inside ${def.name} and adds a remote path mapping automatically.`,
+        })
+      } else if (hasProwlarr && INDEXER_HEALTH(item)) {
+        addFix({
+          id: 'prowlarr-sync',
+          label: 'Sync indexers from Prowlarr',
+          detail: `Finesse tells Prowlarr to push fresh indexers into ${def.name} and re-runs its health check.`,
+        })
+      } else if (ROOT_FOLDER_HEALTH(item)) {
+        addFix({
+          id: 'arr-rootfolder',
+          label: 'Fix library folder',
+          detail: `Finesse removes unused broken library folders (or recreates a missing Finesse folder) in ${def.name}.`,
         })
       }
       if (item.type === 'error') out.ok = false
@@ -159,17 +211,37 @@ async function checkArr(def: (typeof ARRS)[number], svc: Endpoint, get: ConnFetc
       const label = names.get(t.id) || (def.clients ? 'A download client' : 'An indexer')
       const why = t.validationFailures?.map((f) => f.errorMessage).filter(Boolean).join('; ') || 'its test failed'
       out.problems.push(`${label} (in ${def.name}): ${why}`)
+      if (def.id === 'prowlarr') {
+        addFix({
+          id: 'prowlarr-sync',
+          label: 'Sync & re-test indexers',
+          detail: 'Finesse re-tests Prowlarr’s indexers and pushes working ones to your connected apps.',
+        })
+      } else {
+        addFix({
+          id: 'arr-refresh',
+          label: `Re-test & refresh ${def.name}`,
+          detail: `Finesse re-tests ${def.name}’s connections and refreshes its health status.`,
+        })
+      }
     }
   } catch {
     /* the list itself was checked above; a failing test call isn't a verdict */
   }
   const n = out.problems.length
-  if (n) out.summary = out.ok === false ? `${n} problem${n > 1 ? 's' : ''}: ${out.fixes ? (n > 1 ? 'Finesse can fix some of them here' : 'Finesse can fix it here') : `open ${def.name} to fix ${n > 1 ? 'them' : 'it'}`}` : 'Working, with warnings'
+  if (n && !out.fixes?.length) {
+    addFix({
+      id: 'arr-refresh',
+      label: `Refresh ${def.name} health`,
+      detail: `Finesse tells ${def.name} to re-check its health and clear stale warnings.`,
+    })
+  }
+  if (n) out.summary = out.ok === false ? `${n} problem${n > 1 ? 's' : ''}: ${out.fixes?.length ? (n > 1 ? 'Finesse can fix them here' : 'Finesse can fix it here') : `open ${def.name} to fix ${n > 1 ? 'them' : 'it'}`}` : 'Working, with warnings'
   return out
 }
 
 async function checkSab(svc: Endpoint, get: ConnFetch): Promise<ConnCheck> {
-  const out: ConnCheck = { id: 'sabnzbd', name: 'SABnzbd', ok: true, summary: 'Working', problems: [] }
+  const out: ConnCheck = { id: 'sabnzbd', name: 'SABnzbd', ok: true, summary: 'Working', problems: [], ...(browserUrl(svc.url) ? { openUrl: browserUrl(svc.url) } : {}) }
   const q = (mode: string) => joinUrl(svc.url!, '/api', `?mode=${mode}&output=json&apikey=${encodeURIComponent(svc.apiKey ?? '')}`)
   let r: Awaited<ReturnType<ConnFetch>>
   try {
@@ -195,13 +267,14 @@ async function checkSab(svc: Endpoint, get: ConnFetch): Promise<ConnCheck> {
   if (j.queue?.paused) {
     out.ok = null
     out.summary = 'Downloads are paused'
-    out.problems.push('SABnzbd is paused: nothing downloads until it’s resumed (Requests → Downloads, or SABnzbd itself).')
+    out.problems.push('SABnzbd is paused: nothing downloads until it’s resumed.')
+    out.fixes = [{ id: 'sab-resume', label: 'Resume downloads', detail: 'Finesse unpauses SABnzbd so queued downloads start moving again.' }]
   }
   return out
 }
 
 async function checkQbit(svc: Endpoint, get: ConnFetch): Promise<ConnCheck> {
-  const out: ConnCheck = { id: 'qbittorrent', name: 'qBittorrent', ok: true, summary: 'Answering', problems: [] }
+  const out: ConnCheck = { id: 'qbittorrent', name: 'qBittorrent', ok: true, summary: 'Answering', problems: [], ...(browserUrl(svc.url) ? { openUrl: browserUrl(svc.url) } : {}) }
   try {
     // Answers 403 without a sign-in: that still means it's there.
     await get(joinUrl(svc.url!, '/api/v2/app/version'), {})
@@ -232,22 +305,34 @@ const DOWN_HINT = /unable to (communicate|connect)|connection refused|timed? ?ou
 
 /** Background probes only read the health endpoints needed to decide on a repair. */
 export async function connectionRepairs(s: Settings, get: ConnFetch = liveFetch): Promise<{ app: string; fix: ConnFix['id'] }[]> {
-  const tasks: Promise<{ app: string; fix: ConnFix['id'] } | null>[] = []
+  const tasks: Promise<{ app: string; fix: ConnFix['id'] }[]>[] = []
+  const hasProwlarr = Boolean(s.services.prowlarr?.url && s.services.prowlarr?.apiKey)
   for (const def of ARRS) {
     const svc = s.services[def.id]
     if (!def.clients || !svc?.url || !svc.apiKey) continue
     tasks.push(Promise.resolve().then(async () => {
       const r = await get(joinUrl(svc.url!, `${def.api}/health`), { headers: { 'x-api-key': svc.apiKey! } })
-      return r.status === 200 && Array.isArray(r.json) && r.json.some((item) => typeof item?.message === 'string' && REMOTE_PATH.test(item.message))
-        ? { app: def.id, fix: 'remote-paths' as const } : null
-    }).catch(() => null))
+      if (r.status !== 200 || !Array.isArray(r.json)) return []
+      const items = r.json as ArrHealthItem[]
+      const found: { app: string; fix: ConnFix['id'] }[] = []
+      if (items.some((item) => typeof item?.message === 'string' && REMOTE_PATH.test(item.message))) {
+        found.push({ app: def.id, fix: 'remote-paths' })
+      }
+      if (hasProwlarr && items.some((item) => typeof item?.message === 'string' && INDEXER_HEALTH(item))) {
+        found.push({ app: def.id, fix: 'prowlarr-sync' })
+      }
+      if (items.some((item) => typeof item?.message === 'string' && ROOT_FOLDER_HEALTH(item))) {
+        found.push({ app: def.id, fix: 'arr-rootfolder' })
+      }
+      return found
+    }).catch(() => []))
   }
   const sab = s.services.sabnzbd
   if (sab?.url && sab.apiKey) {
     tasks.push(checkSab(sab, get).then((r) => r.fixes?.some((f) => f.id === 'sab-hostname')
-      ? { app: 'sabnzbd', fix: 'sab-hostname' as const } : null).catch(() => null))
+      ? [{ app: 'sabnzbd', fix: 'sab-hostname' as const }] : []).catch(() => []))
   }
-  return (await Promise.all(tasks)).filter((r) => r !== null)
+  return (await Promise.all(tasks)).flat()
 }
 
 /** Every connected app, checked. */
@@ -256,7 +341,7 @@ export async function checkConnections(s: Settings, get: ConnFetch = liveFetch):
   const jobs: Promise<ConnCheck>[] = []
   for (const def of ARRS) {
     const e = svc[def.id]
-    if (e?.url && e.apiKey) jobs.push(checkArr(def, e, get, s.mode))
+    if (e?.url && e.apiKey) jobs.push(checkArr(def, e, get, s))
   }
   if (svc.sabnzbd?.url && svc.sabnzbd.apiKey) jobs.push(checkSab(svc.sabnzbd, get))
   if (svc.qbittorrent?.url) jobs.push(checkQbit(svc.qbittorrent, get))

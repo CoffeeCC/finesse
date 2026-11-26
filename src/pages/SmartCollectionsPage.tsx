@@ -6,7 +6,9 @@ import AlbumCard from '../components/AlbumCard'
 import { CardSkeleton } from '../components/Skeletons'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
-import { posterUrl } from '../api/client'
+import { pushBackHandler } from '../lib/back'
+import { IS_TV } from '../lib/device'
+import { getItems, posterUrl } from '../api/client'
 import { createSmart, deleteSmart, updateSmart, useGenresFor, useSmartCollections, useSmartMatches, useSmartOn, type SmartCollection } from '../api/smart'
 import {
   ADDED_CHOICES,
@@ -79,16 +81,157 @@ export default function SmartCollectionsPage() {
   )
 }
 
-function Card({ item, rules }: { item: JfItem; rules: SmartRules }) {
+function Card({
+  item,
+  rules,
+  onRemove,
+  removeLabel,
+}: {
+  item: JfItem
+  rules: SmartRules
+  onRemove?: (item: JfItem) => void
+  removeLabel?: string
+}) {
   const why = reasons(item, rules)
   return (
-    <div className="min-w-0">
-      {item.Type === 'MusicAlbum' ? <AlbumCard album={item} /> : <MediaCard item={item} />}
+    <div className="group/scard relative min-w-0">
+      {item.Type === 'MusicAlbum' ? (
+        <AlbumCard album={item} />
+      ) : (
+        <MediaCard item={item} onDismiss={onRemove} />
+      )}
+      {item.Type === 'MusicAlbum' && onRemove && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onRemove(item)
+          }}
+          aria-label={removeLabel ?? `Remove ${item.Name}`}
+          title={removeLabel ?? 'Remove from collection'}
+          className="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-black/75 text-ink-200 opacity-0 transition group-hover/scard:opacity-100 group-focus-within/scard:opacity-100 focus:opacity-100 hover:bg-black hover:text-white"
+        >
+          ×
+        </button>
+      )}
       {why.length > 0 && (
         <p className="mt-1 truncate text-[11.5px] text-ink-400" title={why.join(' · ')}>
           <span className="sr-only">In because: </span>
           {why.join(' · ')}
         </p>
+      )}
+    </div>
+  )
+}
+
+/** Live library search box to hand-pick movies, shows, or albums into any collection. */
+function LibrarySearchAdder({
+  kind,
+  includedIds,
+  onToggle,
+  placeholder,
+}: {
+  kind: SmartKind
+  includedIds: string[]
+  onToggle: (item: JfItem) => void
+  placeholder?: string
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<JfItem[]>([])
+  const [searching, setSearching] = useState(false)
+  const includedSet = useMemo(() => new Set(includedIds), [includedIds])
+
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) {
+      setResults([])
+      setSearching(false)
+      return
+    }
+    let alive = true
+    setSearching(true)
+    const t = window.setTimeout(() => {
+      void getItems({
+        searchTerm: q,
+        includeItemTypes: kind,
+        recursive: true,
+        limit: 8,
+        fields: 'PrimaryImageAspectRatio,ProductionYear',
+      })
+        .then((res) => {
+          if (alive) setResults(res.Items ?? [])
+        })
+        .catch(() => {
+          if (alive) setResults([])
+        })
+        .finally(() => {
+          if (alive) setSearching(false)
+        })
+    }, 220)
+    return () => {
+      alive = false
+      window.clearTimeout(t)
+    }
+  }, [query, kind])
+
+  const what = KIND_LABEL[kind].toLowerCase()
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={placeholder ?? `Search your ${what} to add…`}
+          aria-label={`Search ${what} to add`}
+          className="h-10 w-full rounded-xl border border-white/15 bg-ink-950/75 px-3.5 text-sm text-white placeholder:text-ink-500 outline-none focus:border-accent-400/70"
+        />
+        {searching && (
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-400">
+            Searching…
+          </span>
+        )}
+      </div>
+      {query.trim() !== '' && !searching && results.length === 0 && (
+        <p className="px-1 text-xs text-ink-400">No {what} in your library match “{query.trim()}”.</p>
+      )}
+      {results.length > 0 && (
+        <ul className="max-h-64 divide-y divide-white/5 overflow-y-auto rounded-xl border border-white/10 bg-ink-950/85">
+          {results.map((item) => {
+            const added = includedSet.has(item.Id)
+            const poster = posterUrl(item, 120)
+            return (
+              <li key={item.Id} className="flex items-center gap-3 px-3 py-2">
+                {poster ? (
+                  <img src={poster} alt="" className="h-11 w-8 shrink-0 rounded object-cover bg-ink-800" />
+                ) : (
+                  <span className="flex h-11 w-8 shrink-0 items-center justify-center rounded bg-ink-800 text-[10px] text-ink-400">
+                    {KIND_LABEL[kind][0]}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-white">{item.Name}</p>
+                  <p className="truncate text-xs text-ink-400">
+                    {item.ProductionYear ?? item.AlbumArtist ?? KIND_LABEL[kind]}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onToggle(item)}
+                  className={`h-8 shrink-0 rounded-full px-3 text-xs font-semibold transition active:scale-[0.97] ${
+                    added
+                      ? 'border border-emerald-400/30 bg-emerald-500/15 text-emerald-200 hover:bg-red-500/20 hover:border-red-400/30 hover:text-red-200'
+                      : 'bg-white text-ink-950 hover:bg-ink-200'
+                  }`}
+                >
+                  {added ? '✓ Added' : '+ Add'}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
       )}
     </div>
   )
@@ -196,9 +339,9 @@ function SmartList() {
     <div className="px-4 pb-16 pt-6 sm:px-6 lg:px-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="max-w-2xl">
-          <h1 className="page-title mb-1.5">Smart collections</h1>
+          <h1 className="page-title mb-1.5">Collections</h1>
           <p className="text-sm text-ink-300">
-            Auto-updating shelves built from simple filters. New movies, shows, or albums appear automatically, and watched titles drop off when you finish them — only visible on your profile.
+            Make custom shelves your way: search and hand-pick specific movies, shows, or albums — or turn on automatic filters (like “unwatched movies under 2h”) so a shelf updates itself as your library grows.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -208,11 +351,14 @@ function SmartList() {
               onClick={() => setShowStarters((v) => !v)}
               className={BTN_SOFT}
             >
-              {showStarters ? 'Hide starters' : 'Starter ideas'}
+              {showStarters ? 'Hide ideas' : 'Auto-shelf ideas'}
             </button>
           )}
+          <Link to="/smart/new?mode=manual" className={BTN_SOFT}>
+            + Hand-picked collection
+          </Link>
           <Link to="/smart/new" className={BTN_MAIN}>
-            + Build your own
+            + Smart shelf
           </Link>
         </div>
       </div>
@@ -323,10 +469,19 @@ function SmartDetail() {
   const c = list?.find((x) => x.id === id)
   const { data, isLoading } = useSmartMatches(c?.rules)
   const [removing, setRemoving] = useState(false)
+  const [addingOpen, setAddingOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const qc = useQueryClient()
   const navigate = useNavigate()
   const toast = useToast()
+
+  useEffect(() => {
+    if (!addingOpen) return
+    return pushBackHandler(() => {
+      setAddingOpen(false)
+      return true
+    })
+  }, [addingOpen])
 
   if (listLoading) return <div className="mx-4 mt-8 h-48 rounded-2xl shimmer sm:mx-6 lg:mx-12" />
   if (!c)
@@ -334,12 +489,48 @@ function SmartDetail() {
       <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
         <h1 className="page-title">That collection is gone</h1>
         <Link to="/smart" className={`${BTN_SOFT} mt-4`}>
-          Back to smart collections
+          Back to collections
         </Link>
       </div>
     )
 
   const items = data?.items ?? []
+  const includedIds = c.rules.includeIds ?? []
+  const excludedIds = c.rules.excludeIds ?? []
+
+  const saveRules = async (next: SmartRules, msg: string) => {
+    try {
+      await updateSmart(c.id, { rules: cleanRules(next) })
+      await qc.invalidateQueries({ queryKey: ['smart'] })
+      toast(msg)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const toggleItem = (item: JfItem) => {
+    const has = includedIds.includes(item.Id)
+    const nextInclude = has ? includedIds.filter((x) => x !== item.Id) : [...includedIds, item.Id]
+    const nextExclude = excludedIds.filter((x) => x !== item.Id)
+    void saveRules(
+      { ...c.rules, includeIds: nextInclude, excludeIds: nextExclude },
+      has ? `Removed “${item.Name}” from ${c.name}` : `Added “${item.Name}” to ${c.name}`,
+    )
+  }
+
+  const removeCard = (item: JfItem) => {
+    if (includedIds.includes(item.Id)) {
+      void saveRules(
+        { ...c.rules, includeIds: includedIds.filter((x) => x !== item.Id) },
+        `Removed “${item.Name}” from ${c.name}`,
+      )
+    } else {
+      void saveRules(
+        { ...c.rules, excludeIds: [...excludedIds, item.Id] },
+        `Hid “${item.Name}” from ${c.name}`,
+      )
+    }
+  }
 
   const pickRandom = () => {
     if (!items.length) return
@@ -367,7 +558,7 @@ function SmartDetail() {
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
         </svg>
-        Smart collections
+        Collections
       </Link>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -375,13 +566,16 @@ function SmartDetail() {
           <p className="text-sm text-ink-400">{describe(c.rules)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setAddingOpen((v) => !v)} className={BTN_MAIN}>
+            {addingOpen ? 'Done adding' : `+ Add ${KIND_LABEL[c.rules.kind].toLowerCase()}`}
+          </button>
           {items.length > 1 && (
-            <button type="button" onClick={pickRandom} className={BTN_MAIN}>
+            <button type="button" onClick={pickRandom} className={BTN_SOFT}>
               Pick one for me
             </button>
           )}
           <Link to={`/smart/${c.id}/edit`} className={BTN_SOFT}>
-            Edit filters
+            Edit
           </Link>
           <button type="button" onClick={() => setRemoving(true)} className={BTN_SOFT}>
             Remove
@@ -389,22 +583,37 @@ function SmartDetail() {
         </div>
       </div>
 
+      {addingOpen && (
+        <div className="mt-5 max-w-xl rounded-2xl border border-white/10 bg-ink-900/75 p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink-400">
+            Search your library to add to “{c.name}”
+          </p>
+          <LibrarySearchAdder kind={c.rules.kind} includedIds={includedIds} onToggle={toggleItem} />
+        </div>
+      )}
+
       <p className="mt-6 text-[13px] text-ink-400">
-        {isLoading ? 'Looking…' : `${items.length} ${items.length === 1 ? 'title matches' : 'titles match'} right now.`}
+        {isLoading ? 'Looking…' : `${items.length} ${items.length === 1 ? 'title' : 'titles'} in this collection.`}
         {data?.partial && ' Only the first titles the library returned were checked; narrow the filters to see everything.'}
+        {items.length > 0 && !IS_TV && ' Hover any poster and click × to remove it from this collection.'}
       </p>
       <div className={`${GRID} mt-3`}>
         {isLoading
           ? Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)
           : items.map((it) => (
               <div key={it.Id} className="cv-card">
-                <Card item={it} rules={c.rules} />
+                <Card
+                  item={it}
+                  rules={c.rules}
+                  onRemove={removeCard}
+                  removeLabel={includedIds.includes(it.Id) ? `Remove ${it.Name}` : `Hide ${it.Name} from ${c.name}`}
+                />
               </div>
             ))}
       </div>
       {removing && (
         <ConfirmDialog title={`Remove “${c.name}”?`} confirmLabel="Remove" busy={busy} onConfirm={remove} onCancel={() => setRemoving(false)}>
-          Only the smart shelf goes. Nothing is removed from your library.
+          Only the collection goes. Nothing is removed from your library.
         </ConfirmDialog>
       )}
     </div>
@@ -420,9 +629,14 @@ function SmartEditor() {
   const existing = list?.find((x) => x.id === id)
   const [search] = useSearchParams()
   const presetId = search.get('preset')
+  const startManual = search.get('mode') === 'manual'
   const preset = useMemo(() => PRESETS.find((p) => p.id === presetId), [presetId])
   const [name, setName] = useState(preset?.name ?? '')
-  const [rules, setRules] = useState<SmartRules>(() => ({ ...emptyRules(preset?.rules.kind), ...(preset?.rules ?? {}) }))
+  const [rules, setRules] = useState<SmartRules>(() => ({
+    ...emptyRules(preset?.rules.kind),
+    ...(preset?.rules ?? {}),
+    ...(startManual && !preset ? { manualOnly: true } : {}),
+  }))
   const [loaded, setLoaded] = useState(!editing)
   const [customRuntime, setCustomRuntime] = useState(false)
   const [customYears, setCustomYears] = useState(false)
@@ -520,8 +734,10 @@ function SmartEditor() {
         </svg>
         Smart collections
       </Link>
-      <h1 className="page-title mb-1">{editing ? 'Edit smart collection' : 'Build a smart collection'}</h1>
-      <p className="text-sm text-ink-400">Pick a few filters on the left — the live preview updates automatically from your library.</p>
+      <h1 className="page-title mb-1">{editing ? 'Edit collection' : 'Create a collection'}</h1>
+      <p className="text-sm text-ink-400">
+        Hand-pick specific titles from your library, use automatic filters so the shelf updates itself, or mix both.
+      </p>
 
       <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)] items-start">
         <form
@@ -531,7 +747,45 @@ function SmartEditor() {
             void save()
           }}
         >
-          {!editing && (
+          <div>
+            <span className={label}>How it fills</span>
+            <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="How this collection fills">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={Boolean(rules.manualOnly)}
+                onClick={() => set({ manualOnly: true })}
+                className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                  rules.manualOnly
+                    ? 'border-white bg-white text-ink-950'
+                    : 'border-white/12 bg-white/[0.03] text-ink-200 hover:border-white/25 hover:text-white'
+                }`}
+              >
+                <span className="block text-xs font-semibold">Hand-picked</span>
+                <span className={`block text-[11px] ${rules.manualOnly ? 'text-ink-700' : 'text-ink-400'}`}>
+                  Only titles you search & add
+                </span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!rules.manualOnly}
+                onClick={() => set({ manualOnly: false })}
+                className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                  !rules.manualOnly
+                    ? 'border-white bg-white text-ink-950'
+                    : 'border-white/12 bg-white/[0.03] text-ink-200 hover:border-white/25 hover:text-white'
+                }`}
+              >
+                <span className="block text-xs font-semibold">Auto-updating</span>
+                <span className={`block text-[11px] ${!rules.manualOnly ? 'text-ink-700' : 'text-ink-400'}`}>
+                  Filters + pinned titles
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {!editing && !rules.manualOnly && (
             <div>
               <span className={label}>Quick templates</span>
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -555,12 +809,12 @@ function SmartEditor() {
           )}
 
           <label className="block">
-            <span className={label}>Shelf name</span>
+            <span className={label}>Collection name</span>
             <input
               value={name}
               maxLength={NAME_MAX}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Tonight’s short films"
+              placeholder={rules.manualOnly ? 'Date night favorites' : 'Tonight’s short films'}
               className={`${field} w-full`}
             />
           </label>
@@ -575,6 +829,38 @@ function SmartEditor() {
               ))}
             </div>
           </div>
+
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className={label}>
+                {rules.manualOnly ? 'Search & add titles' : 'Pin specific titles (optional)'}
+                {(rules.includeIds?.length ?? 0) > 0 ? ` · ${rules.includeIds!.length} added` : ''}
+              </span>
+              {(rules.includeIds?.length ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => set({ includeIds: [] })}
+                  className="text-[11.5px] font-medium text-ink-400 hover:text-white transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <LibrarySearchAdder
+              kind={rules.kind}
+              includedIds={rules.includeIds ?? []}
+              onToggle={(item) => {
+                const cur = rules.includeIds ?? []
+                const has = cur.includes(item.Id)
+                const nextInclude = has ? cur.filter((x) => x !== item.Id) : [...cur, item.Id]
+                const nextExclude = (rules.excludeIds ?? []).filter((x) => x !== item.Id)
+                set({ includeIds: nextInclude, excludeIds: nextExclude })
+              }}
+            />
+          </div>
+
+          {!rules.manualOnly && (
+            <>
 
           {f.watched.length > 0 && (
             <div>
@@ -716,6 +1002,8 @@ function SmartEditor() {
               })}
             </div>
           </div>
+            </>
+          )}
 
           <div>
             <span className={label}>Order</span>
@@ -766,15 +1054,29 @@ function SmartEditor() {
           </div>
           {!problem && !preview.isLoading && shown && items.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/12 bg-white/[0.02] px-6 py-12 text-center">
-              <p className="text-base font-semibold text-white">No matches in your library right now</p>
-              <p className="mt-1 text-sm text-ink-400">Loosen a filter on the left, or save it anyway — it’ll populate automatically when matching titles arrive.</p>
+              <p className="text-base font-semibold text-white">
+                {rules.manualOnly ? 'No titles added yet' : 'No matches in your library right now'}
+              </p>
+              <p className="mt-1 text-sm text-ink-400">
+                {rules.manualOnly
+                  ? 'Use the search box on the left to find and add movies, shows, or albums.'
+                  : 'Loosen a filter on the left, pin titles with the search box, or save it anyway — it’ll populate automatically when matching titles arrive.'}
+              </p>
             </div>
           ) : (
             <div className={`${GRID} transition-opacity ${pending ? 'opacity-50' : ''}`}>
               {items.slice(0, 18).map((it) =>
                 shown ? (
                   <div key={it.Id} className="cv-card">
-                    <Card item={it} rules={shown} />
+                    <Card
+                      item={it}
+                      rules={shown}
+                      onRemove={(target) => {
+                        const cur = rules.includeIds ?? []
+                        if (cur.includes(target.Id)) set({ includeIds: cur.filter((x) => x !== target.Id) })
+                        else set({ excludeIds: [...(rules.excludeIds ?? []), target.Id] })
+                      }}
+                    />
                   </div>
                 ) : null,
               )}
@@ -792,6 +1094,8 @@ function cleanLoose(r: SmartRules): SmartRules {
   return {
     ...r,
     genres: [],
+    includeIds: [],
+    excludeIds: [],
     minMinutes: f.runtime ? r.minMinutes : null,
     maxMinutes: f.runtime ? r.maxMinutes : null,
     watched: r.watched && f.watched.includes(r.watched) ? r.watched : null,

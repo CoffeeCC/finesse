@@ -5,10 +5,21 @@
 import { useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { arrAdd, arrMovieDetails, ArrError, toMovieDetails, type MovieDetails } from '../api/arr'
+import {
+  arrAdd,
+  arrCancelRequest,
+  arrMovieDetails,
+  arrSearchAgain,
+  ArrError,
+  toMovieDetails,
+  type MovieDetails,
+} from '../api/arr'
+import { useMyLimits } from '../api/parental'
 import { noteRequested, useLibraryMatch } from '../api/queries'
-import { RequestStatusView, useRequestStatus } from '../components/RequestStatus'
-import { ACTION_BTN, ActionButton, PLAY_BTN } from '../components/ActionButton'
+import { CONFIRM_AGAIN, RequestStatusView, useConfirmPress, useLater, useRequestStatus } from '../components/RequestStatus'
+import { ACTION_BTN, ACTION_CIRCLE, PLAY_BTN, START_OVER_BTN } from '../components/ActionButton'
+import QualityModal from '../components/QualityModal'
+import WhyNothingModal from '../components/WhyNothingModal'
 import TrailerHero from '../components/TrailerHero'
 import { useToast } from '../components/Toast'
 import { goBack } from '../lib/back'
@@ -19,25 +30,44 @@ export interface RequestMovieState {
   raw?: Record<string, unknown>
 }
 
+function titleHue(title: string): number {
+  let h = 0
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) % 360
+  return h
+}
+
 export default function RequestMoviePage() {
   const { tmdbId: param } = useParams()
   const tmdbId = Number(param)
   const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
+  const later = useLater()
+  const limits = useMyLimits()
+  const canRequest = !limits || limits.requests
   const passed = (useLocation().state as RequestMovieState | null)?.raw
   const valid = Number.isFinite(tmdbId) && tmdbId > 0
   const [requested, setRequested] = useState<'idle' | 'adding' | 'requested'>('idle')
+  const [cancelled, setCancelled] = useState(false)
   const [trailerOn, setTrailerOn] = useState(false)
   const [trailerLive, setTrailerLive] = useState(false)
+  const [qualityOpen, setQualityOpen] = useState(false)
+  const [whyOpen, setWhyOpen] = useState(false)
+  const [reqActionBusy, setReqActionBusy] = useState<'again' | 'cancel' | null>(null)
+  const confirmCancel = useConfirmPress()
+
   // Another movie opened over this one (the route stays mounted): start it afresh, not as
   // "requested" or with the last one's trailer playing.
   const [shownId, setShownId] = useState(tmdbId)
   if (shownId !== tmdbId) {
     setShownId(tmdbId)
     setRequested('idle')
+    setCancelled(false)
     setTrailerOn(false)
     setTrailerLive(false)
+    setQualityOpen(false)
+    setWhyOpen(false)
+    setReqActionBusy(null)
   }
 
   const details = useQuery({
@@ -50,18 +80,29 @@ export default function RequestMoviePage() {
   })
   const m = details.data
   const inLibrary = Boolean(m && m.id > 0 && m.hasFile)
-  const inRadarr = Boolean(m && m.id > 0) || requested === 'requested'
+  const inRadarr = !cancelled && (Boolean(m && m.id > 0) || requested === 'requested')
+  const isAvailable = m?.raw?.isAvailable !== false
 
   // Where the request stands: searching, downloading (how far), stuck, searching again…
-  const status = useRequestStatus(m, { justRequested: requested === 'requested', available: m?.raw?.isAvailable === false ? false : undefined })
+  const status = useRequestStatus(cancelled ? undefined : m, {
+    justRequested: requested === 'requested',
+    available: isAvailable ? undefined : false,
+  })
 
   // In the library: find it in Jellyfin (same TMDb id) so Play can open it. The same lookup the
   // Request page's Ready links use, so it's shared (and refreshed when a download lands).
   const libraryItem = useLibraryMatch(m, inLibrary)
 
+  const refreshAll = () => {
+    for (const key of [['arrRequested'], ['arrQueue'], ['arrLookup'], ['arrLookupAll'], ['arrDiscover'], ['arrMovieDetails', tmdbId], ['arrFailures']]) {
+      void qc.invalidateQueries({ queryKey: key })
+    }
+  }
+
   const request = async () => {
-    if (!m || requested !== 'idle') return
+    if (!m || requested !== 'idle' || !canRequest) return
     setRequested('adding')
+    setCancelled(false)
     try {
       const id = await arrAdd(m)
       setRequested('requested')
@@ -70,6 +111,39 @@ export default function RequestMoviePage() {
     } catch (e) {
       setRequested('idle')
       toast(e instanceof ArrError && e.status === 401 ? 'Sign in again to request' : e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t request “${m.title}”`, 'error')
+    }
+  }
+
+  const searchAgain = async () => {
+    if (!m || !m.id || reqActionBusy) return
+    setReqActionBusy('again')
+    try {
+      await arrSearchAgain({ kind: 'movie', id: m.id })
+      toast(`Looking for “${m.title}” again`)
+      later(refreshAll, 1200)
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t search for “${m.title}” right now`, 'error')
+    } finally {
+      setReqActionBusy(null)
+    }
+  }
+
+  const cancelRequest = async () => {
+    if (!m || !m.id || reqActionBusy) return
+    if (!confirmCancel.armed) return confirmCancel.arm()
+    confirmCancel.disarm()
+    setReqActionBusy('cancel')
+    try {
+      await arrCancelRequest({ kind: 'movie', id: m.id })
+      setCancelled(true)
+      setRequested('idle')
+      toast(`Cancelled request for “${m.title}”`)
+      refreshAll()
+      later(refreshAll, 1200)
+    } catch (e) {
+      toast(e instanceof Error && e.message ? e.message.slice(0, 180) : `Couldn’t cancel “${m.title}”`, 'error')
+    } finally {
+      setReqActionBusy(null)
     }
   }
 
@@ -83,7 +157,7 @@ export default function RequestMoviePage() {
         : null
     return (
       <div className="px-4 sm:px-6 lg:px-12 py-10">
-        <BackButton onClick={() => goBack(navigate)} />
+        {!IS_TV && <BackButton onClick={() => goBack(navigate)} />}
         {problem ? (
           <div className="mt-16 max-w-xl">
             <p className="text-sm text-ink-300" role="alert">
@@ -121,6 +195,15 @@ export default function RequestMoviePage() {
   ].filter((f): f is { label: string; value: string } => Boolean(f))
   const canTrailer = Boolean(m.trailer) && !__WEBOS__
 
+  // Decide which CTA gets initial TV D-pad focus so the remote always lands on a real action.
+  const focusOpen = Boolean(inLibrary && libraryItem.data)
+  const focusRequest = !inLibrary && !inRadarr && canRequest
+  const focusRequestedAction = !inLibrary && inRadarr && canRequest && m.id > 0 && isAvailable
+  const focusTrailer = canTrailer && !focusOpen && !focusRequest && !focusRequestedAction
+
+  const hue = titleHue(m.title)
+  const fallbackGrad = `radial-gradient(120% 90% at 70% 25%, hsla(${hue}, 55%, 36%, 0.55) 0%, hsla(${(hue + 38) % 360}, 45%, 18%, 0.45) 48%, var(--color-ink-950) 85%)`
+
   return (
     <div className="pb-16">
       {m.backdrop && (
@@ -135,8 +218,20 @@ export default function RequestMoviePage() {
           </div>
         )}
         <div className="hero-melt relative h-[calc(var(--vh)*48)] min-h-[360px] w-full overflow-hidden">
-          {m.backdrop && (
+          {m.backdrop ? (
             <img decoding="async" src={m.backdrop} alt="" className={`h-full w-full object-cover fade-in transition-opacity duration-700 ${trailerOn && trailerLive ? 'opacity-0' : 'opacity-100'}`} />
+          ) : (
+            <div className="h-full w-full relative overflow-hidden" style={{ backgroundImage: fallbackGrad }}>
+              {m.poster && !IS_TV && (
+                <img
+                  decoding="async"
+                  src={m.poster}
+                  alt=""
+                  aria-hidden
+                  className={`h-full w-full object-cover scale-125 blur-3xl opacity-35 transition-opacity duration-700 ${trailerOn && trailerLive ? 'opacity-0' : 'opacity-35'}`}
+                />
+              )}
+            </div>
           )}
           {trailerOn && m.trailer && (
             <TrailerHero
@@ -168,40 +263,129 @@ export default function RequestMoviePage() {
             </div>
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6">
               {inLibrary ? (
-                libraryItem.data ? (
-                  <button type="button" className={PLAY_BTN} onClick={() => navigate(`/item/${libraryItem.data!.Id}`)}>
-                    <PlayIcon /> Open in Finesse
-                  </button>
-                ) : (
-                  <span className="inline-flex h-11 items-center gap-2 text-[15px] font-semibold text-emerald-300">
-                    <CheckIcon /> In your library
-                  </span>
-                )
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {libraryItem.data ? (
+                    <button
+                      type="button"
+                      className={PLAY_BTN}
+                      autoFocus={IS_TV && focusOpen}
+                      onClick={() => navigate(`/item/${libraryItem.data!.Id}`)}
+                    >
+                      <PlayIcon /> Open in Finesse
+                    </button>
+                  ) : (
+                    <span className="inline-flex h-11 items-center gap-2 text-[15px] font-semibold text-emerald-300">
+                      <CheckIcon /> In your library
+                    </span>
+                  )}
+                  {canRequest && (
+                    <button
+                      type="button"
+                      className={START_OVER_BTN}
+                      onClick={() => setQualityOpen(true)}
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      Upgrade quality
+                    </button>
+                  )}
+                </div>
               ) : inRadarr && status ? (
-                <RequestStatusView status={status} size="lg" className="sm:pt-2.5" />
-              ) : (
-                <button type="button" className={PLAY_BTN} onClick={request} disabled={requested === 'adding'} autoFocus={IS_TV}>
+                <div className="space-y-3">
+                  <RequestStatusView status={status} size="lg" className="sm:pt-1" />
+                  {canRequest && m.id > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isAvailable && (
+                        <button
+                          type="button"
+                          onClick={searchAgain}
+                          disabled={reqActionBusy !== null}
+                          autoFocus={IS_TV && focusRequestedAction}
+                          className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-xs font-semibold text-white hover:bg-white/15 transition active:scale-[0.97] disabled:opacity-50"
+                        >
+                          {reqActionBusy === 'again' ? 'Searching…' : 'Search again'}
+                        </button>
+                      )}
+                      {isAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => setWhyOpen(true)}
+                          className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-3.5 text-xs font-semibold text-white hover:bg-white/15 transition active:scale-[0.97]"
+                        >
+                          Why nothing yet?
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={cancelRequest}
+                        onBlur={confirmCancel.disarm}
+                        disabled={reqActionBusy !== null}
+                        className={`inline-flex h-9 items-center rounded-lg px-3.5 text-xs font-semibold transition active:scale-[0.97] disabled:opacity-50 ${
+                          confirmCancel.armed
+                            ? 'bg-red-500 text-white hover:bg-red-400'
+                            : 'border border-white/15 bg-white/5 text-ink-200 hover:border-red-400/60 hover:text-red-300'
+                        }`}
+                      >
+                        {reqActionBusy === 'cancel' ? 'Cancelling…' : confirmCancel.armed ? CONFIRM_AGAIN : 'Cancel request'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : canRequest ? (
+                <button
+                  type="button"
+                  className={PLAY_BTN}
+                  onClick={request}
+                  disabled={requested === 'adding'}
+                  autoFocus={IS_TV && focusRequest}
+                >
                   <PlusIcon /> {requested === 'adding' ? 'Adding…' : 'Request'}
                 </button>
+              ) : (
+                <p className="inline-flex h-11 items-center text-sm text-ink-400">Requests are off for this profile.</p>
               )}
+
               <div className="flex items-start gap-1 sm:gap-2">
                 {canTrailer && (
-                  <ActionButton
-                    label="Trailer"
-                    onClick={() => setTrailerOn(true)}
-                    active={trailerOn}
-                    icon={
+                  <button
+                    type="button"
+                    autoFocus={IS_TV && focusTrailer}
+                    aria-pressed={trailerOn}
+                    aria-label={trailerOn ? 'Stop trailer' : 'Play trailer'}
+                    onClick={() =>
+                      setTrailerOn((v) => {
+                        if (v) setTrailerLive(false)
+                        return !v
+                      })
+                    }
+                    className={ACTION_BTN}
+                  >
+                    <span
+                      className={`${ACTION_CIRCLE} ${
+                        trailerOn
+                          ? 'bg-accent-500/25 border-accent-400/40 text-accent-300 group-hover/act:bg-accent-500/35'
+                          : 'bg-white/10 border-white/15 text-white group-hover/act:bg-white/20'
+                      }`}
+                    >
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
                         <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
                         <path d="M10.5 9.5v5l4-2.5z" fill="currentColor" />
                       </svg>
-                    }
-                  />
+                    </span>
+                    <span className="leading-tight text-center">{trailerOn ? 'Stop' : 'Trailer'}</span>
+                  </button>
                 )}
                 {m.imdbId && !IS_TV && (
-                  <a href={`https://www.imdb.com/title/${m.imdbId}/`} target="_blank" rel="noopener noreferrer" className={ACTION_BTN}>
+                  <a
+                    href={`https://www.imdb.com/title/${m.imdbId}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open on IMDb"
+                    className={ACTION_BTN}
+                  >
                     <span className="h-11 w-11 rounded-full flex items-center justify-center backdrop-blur-md border bg-white/10 border-white/15 text-white text-[11px] font-bold">IMDb</span>
-                    <span className="leading-tight text-center">Details</span>
+                    <span className="leading-tight text-center">IMDb</span>
                   </a>
                 )}
               </div>
@@ -235,6 +419,14 @@ export default function RequestMoviePage() {
           </dl>
         )}
       </div>
+
+      {qualityOpen && <QualityModal item={m} onClose={() => setQualityOpen(false)} />}
+      {whyOpen && m.id > 0 && (
+        <WhyNothingModal
+          item={{ kind: 'movie', id: m.id, title: m.title, year: m.year }}
+          onClose={() => setWhyOpen(false)}
+        />
+      )}
     </div>
   )
 }

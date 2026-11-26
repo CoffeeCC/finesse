@@ -39,7 +39,14 @@ export default function DownloadsSettings() {
   const apps = APPS.filter((a) => info?.features?.[a.feature])
   if (!apps.length) return null
   if (config.isError) {
-    return <p className="text-sm text-ink-400">Couldn’t load where requests go. Try again in a moment; if it keeps happening, update the Finesse server.</p>
+    return (
+      <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+        <p className="text-sm text-ink-300">Couldn’t load where requests go. Try again in a moment; if it keeps happening, update the Finesse server.</p>
+        <button type="button" onClick={() => void config.refetch()} disabled={config.isFetching} className={QUIET}>
+          {config.isFetching ? 'Loading…' : 'Retry'}
+        </button>
+      </div>
+    )
   }
   return (
     <div className="space-y-4">
@@ -61,11 +68,13 @@ function AppRow({ def, saved, loading }: { def: (typeof APPS)[number]; saved?: R
 
   // What requests use today, as the app has it now (or why it can't be used).
   const pick = options.data ? pickArrConfig(def.kind, options.data.profiles, options.data.roots, saved ?? null) : null
+  const pickProfileId = pick?.ok ? pick.profile.id : 0
+  const pickRoot = pick?.ok ? pick.root.path : ''
   useEffect(() => {
-    if (!pick?.ok) return
-    setProfileId((v) => v || pick.profile.id)
-    setRoot((v) => v || pick.root.path)
-  }, [pick?.ok, pick && pick.ok ? pick.profile.id : 0, pick && pick.ok ? pick.root.path : ''])
+    if (!pickProfileId && !pickRoot) return
+    setProfileId(pickProfileId)
+    setRoot(pickRoot)
+  }, [pickProfileId, pickRoot])
 
   const save = async (clear = false) => {
     setBusy(true)
@@ -97,7 +106,14 @@ function AppRow({ def, saved, loading }: { def: (typeof APPS)[number]; saved?: R
           <div className="h-10 w-20 rounded-lg shimmer" />
         </div>
       )}
-      {options.isError && <p className="mt-3 text-sm text-red-300">Couldn’t reach {def.name}. Make sure it’s running (Settings → Health shows how it’s doing), then reload.</p>}
+      {options.isError && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-red-300">Couldn’t reach {def.name}. Make sure it’s running (Settings → Health shows how it’s doing), then try again.</p>
+          <button type="button" onClick={() => void options.refetch()} disabled={options.isFetching} className={QUIET}>
+            {options.isFetching ? 'Checking…' : 'Retry'}
+          </button>
+        </div>
+      )}
       {pick && !pick.ok && <p className="mt-3 text-sm text-amber-200">{pick.problem.replace(/, then request again\.$/, '.').replace(/ Pick (one|a folder) there again\./, ' Pick one below.')}</p>}
       {options.data && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -223,7 +239,15 @@ export function DownloadRescue() {
         <div className="h-10 w-48 rounded-lg shimmer" />
       </div>
     )
-  if (q.isError) return <p className="text-sm text-ink-400">Couldn’t load automatic rescue. Try again in a moment.</p>
+  if (q.isError)
+    return (
+      <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+        <p className="text-sm text-ink-300">Couldn’t load automatic rescue. Try again in a moment.</p>
+        <button type="button" onClick={() => void q.refetch()} disabled={q.isFetching} className={QUIET}>
+          {q.isFetching ? 'Loading…' : 'Retry'}
+        </button>
+      </div>
+    )
   const st = q.data
   // A server from before automatic rescue: say so once, quietly.
   if (!st) return <p className={`${CARD} px-5 py-4 text-sm text-ink-400`}>Automatic download rescue comes with a newer Finesse server. Update it in Settings → Updates to turn it on.</p>
@@ -254,7 +278,7 @@ export function DownloadRescue() {
           </span>
         </button>
 
-        <div className={`py-4 transition-opacity ${on ? '' : 'opacity-50'}`}>
+        <fieldset disabled={!on || change.isPending} className={`py-4 border-0 m-0 p-0 min-w-0 transition-opacity ${on ? '' : 'opacity-50'}`}>
           <p className="text-sm font-semibold text-white">Wait before rescuing</p>
           <p className="mt-0.5 text-[13px] leading-snug text-ink-400">How long a download can sit without moving before it’s swapped. Slow ones get a little longer.</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -263,8 +287,8 @@ export function DownloadRescue() {
               prefix="Wait:"
               value={st.stalledMinutes}
               options={waits.filter((m) => m >= RESCUE_WAIT_RANGE[0] && m <= RESCUE_WAIT_RANGE[1]).map((m) => ({ value: m, label: waitLabel(m) }))}
-              onChange={(m) => m !== st.stalledMinutes && change.mutate({ stalledMinutes: m })}
-              triggerClassName={TRIGGER}
+              onChange={(m) => on && !change.isPending && m !== st.stalledMinutes && change.mutate({ stalledMinutes: m })}
+              triggerClassName={`${TRIGGER} disabled:cursor-not-allowed`}
             />
             {st.both && (
               <div className="inline-flex rounded-lg border border-white/10 bg-ink-800/80 p-0.5" role="group" aria-label="Try first">
@@ -273,9 +297,9 @@ export function DownloadRescue() {
                     key={p}
                     type="button"
                     aria-pressed={st.prefer === p}
-                    onClick={() => st.prefer !== p && change.mutate({ prefer: p })}
-                    disabled={change.isPending}
-                    className={`h-9 rounded-md px-3 text-[13px] font-medium transition active:scale-[0.97] ${st.prefer === p ? 'bg-white/10 text-white' : 'text-ink-300 hover:text-white'}`}
+                    onClick={() => on && st.prefer !== p && change.mutate({ prefer: p })}
+                    disabled={!on || change.isPending}
+                    className={`h-9 rounded-md px-3 text-[13px] font-medium transition active:scale-[0.97] disabled:cursor-not-allowed disabled:active:scale-100 ${st.prefer === p ? 'bg-white/10 text-white' : 'text-ink-300 hover:text-white'}`}
                   >
                     {p === 'usenet' ? 'Usenet first' : 'Torrents first'}
                   </button>
@@ -283,7 +307,7 @@ export function DownloadRescue() {
               </div>
             )}
           </div>
-        </div>
+        </fieldset>
 
         <div className="flex flex-wrap items-center justify-between gap-3 py-3.5">
           <p className="text-[13px] text-ink-400">{st.lastRun ? `Last looked ${ago(st.lastRun)}` : 'Hasn’t looked yet: it checks every few minutes'}</p>

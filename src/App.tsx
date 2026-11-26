@@ -219,6 +219,8 @@ export default function App() {
                     <Route path="/moments/*" element={<MomentsPage />} />
                     {!__WEBOS__ && <Route path="/add-media" element={<AddMediaPage />} />}
                     {!__WEBOS__ && <Route path="/remote" element={<RemotePage />} />}
+                    <Route path="/invite" element={<InvitePage />} />
+                    <Route path="/invite/:code" element={<InvitePage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/login" element={<Navigate to="/" replace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />

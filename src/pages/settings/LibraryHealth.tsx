@@ -2,6 +2,7 @@
 // follow, files that look cut short, and episodes without numbers. Read-only: it
 // says what it found and where; nothing is changed, moved or deleted from here.
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { libraryHealthApi, type LibraryFinding } from '../../api/setup'
@@ -16,11 +17,16 @@ const GROUPS: { kind: LibraryFinding['kind']; label: string }[] = [
 export default function LibraryHealth() {
   // Reads whole libraries, so only when asked.
   const q = useQuery({ queryKey: ['libraryHealth'], queryFn: () => libraryHealthApi.get(true), enabled: false, retry: false, staleTime: Infinity })
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const d = q.data
+  const checkedLabel = d?.checkedAt ? new Date(d.checkedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : null
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Library health</h3>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-2.5">
+          <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Library health</h3>
+          {checkedLabel && <span className="text-[11.5px] text-ink-500">Checked {checkedLabel}</span>}
+        </div>
         <button
           type="button"
           onClick={() => void q.refetch()}
@@ -42,26 +48,51 @@ export default function LibraryHealth() {
           GROUPS.map((g) => {
             const list = d.findings.filter((f) => f.kind === g.kind)
             if (!list.length) return null
+            const showAll = Boolean(expanded[g.kind])
+            const shown = showAll ? list : list.slice(0, 50)
             return (
               <section key={g.kind} className="mt-3 first:mt-0 min-w-0">
                 <p className="text-[13px] font-semibold text-white">
                   {g.label} <span className="font-normal text-ink-400">({list.length})</span>
                 </p>
                 <ul className="mt-1 space-y-1.5">
-                  {list.slice(0, 50).map((f, i) => (
+                  {shown.map((f, i) => (
                     <li key={i} className="min-w-0 text-[12.5px] leading-relaxed">
-                      {f.items.length === 1 || (f.kind !== 'unfollowed' && f.items[0]) ? (
-                        <Link to={`/item/${f.items[0]}`} className="font-medium text-ink-100 hover:underline">
-                          {f.title}
-                        </Link>
-                      ) : (
-                        <span className="font-medium text-ink-100">{f.title}</span>
-                      )}
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        {f.items.length === 1 ? (
+                          <Link to={`/item/${f.items[0]}`} className="font-medium text-ink-100 hover:underline">
+                            {f.title}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-ink-100">{f.title}</span>
+                        )}
+                        {f.items.length > 1 && (
+                          <span className="inline-flex flex-wrap items-center gap-1.5 text-[11.5px]">
+                            {f.items.map((id, idx) => (
+                              <Link
+                                key={`${id}-${idx}`}
+                                to={`/item/${id}`}
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-accent-300 hover:border-white/25 hover:text-white transition-colors"
+                              >
+                                {f.kind === 'duplicate' ? `Copy ${idx + 1}` : `Open #${idx + 1}`}
+                              </Link>
+                            ))}
+                          </span>
+                        )}
+                      </div>
                       <span className="block break-words text-ink-400">{f.detail}</span>
                     </li>
                   ))}
                 </ul>
-                {list.length > 50 && <p className="mt-1 text-[12px] text-ink-400">…and {list.length - 50} more.</p>}
+                {list.length > 50 && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((e) => ({ ...e, [g.kind]: !e[g.kind] }))}
+                    className="mt-2 text-[12px] font-medium text-accent-300 hover:text-accent-200"
+                  >
+                    {showAll ? 'Show fewer' : `Show all ${list.length.toLocaleString()}`}
+                  </button>
+                )}
               </section>
             )
           })}

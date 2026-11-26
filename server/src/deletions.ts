@@ -47,6 +47,8 @@ export interface DeletePlan {
   files: string[]
   /** Whole folders to delete (a movie's or show's own folder). */
   folders: string[]
+  /** Files delegated to Radarr/Sonarr/Lidarr when the media lives outside Finesse's mount. */
+  delegatedFiles: number
   bytes: number
   /** "Radarr won't download it again", or null when nothing was tracking it. */
   downloader: string | null
@@ -137,112 +139,230 @@ export class Deleter {
     const files: string[] = []
     const folders: string[] = []
     const steps: ArrStep[] = []
+    const delegatedGone: string[] = []
+    let delegatedFiles = 0
+    let delegatedBytes = 0
     let title = item.Name
-    const kids = async (types: string) => (await this.items(`ParentId=${item.Id}&Recursive=true&IncludeItemTypes=${types}`)).map((k) => this.host(root, k.Path)).filter((p): p is string => Boolean(p))
+    const rawKids = async (types: string) => this.items(`ParentId=${item.Id}&Recursive=true&IncludeItemTypes=${types}`)
+    const pathTail = (p?: string) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop()?.toLowerCase() ?? '' : '')
 
     switch (item.Type) {
       case 'Movie': {
         const file = this.host(root, item.Path)
-        if (!file) throw new ApiError(409, 'This movie isn’t in Finesse’s media folder, so Finesse can’t delete it')
         title = item.ProductionYear && !item.Name.includes(`(${item.ProductionYear})`) ? `${item.Name} (${item.ProductionYear})` : item.Name
-        const folder = dirname(file)
-        // Its own folder (nothing else to play in there): the whole folder goes. In a shared folder: just its files.
-        const others = this.host(root, item.Path!.slice(0, item.Path!.lastIndexOf('/'))) && readdirSync(folder).filter((n) => VIDEO_OR_AUDIO.test(n) && join(folder, n) !== file && !n.toLowerCase().startsWith(basename(file, extname(file)).toLowerCase()))
-        if (others && others.length === 0) folders.push(folder)
-        else files.push(...this.withSidecars(file))
         const radarr = this.arr('radarr')
+        let matchedMovie: { id: number; path: string; tmdbId: number; sizeOnDisk?: number; movieFile?: { size?: number } } | undefined
         if (radarr) {
           const tmdb = item.ProviderIds?.Tmdb
-          const movies = await this.ask('radarr', () => radarr.req<{ id: number; path: string; tmdbId: number }[]>('GET', tmdb ? `/movie?tmdbId=${encodeURIComponent(tmdb)}` : '/movie'))
-          const m = movies.find((x) => (tmdb && String(x.tmdbId) === tmdb) || x.path === item.Path!.slice(0, item.Path!.lastIndexOf('/')))
-          if (m) steps.push({ app: 'radarr', say: 'Radarr won’t download it again', run: () => radarr.req('DELETE', `/movie/${m.id}?deleteFiles=false&addImportExclusion=false`) })
+          const movies = await this.ask('radarr', () =>
+            radarr.req<{ id: number; path: string; tmdbId: number; sizeOnDisk?: number; movieFile?: { size?: number } }[]>(
+              'GET',
+              tmdb ? `/movie?tmdbId=${encodeURIComponent(tmdb)}` : '/movie',
+            ),
+          )
+          const jfDir = item.Path ? item.Path.slice(0, item.Path.lastIndexOf('/')) : ''
+          const jfFolderName = pathTail(jfDir)
+          matchedMovie = movies.find(
+            (x) =>
+              (tmdb && String(x.tmdbId) === tmdb) ||
+              (jfDir && x.path === jfDir) ||
+              (!file && jfFolderName && pathTail(x.path) === jfFolderName),
+          )
+        }
+        if (file) {
+          const folder = dirname(file)
+          // Its own folder (nothing else to play in there): the whole folder goes. In a shared folder: just its files.
+          const others = this.host(root, item.Path!.slice(0, item.Path!.lastIndexOf('/'))) && readdirSync(folder).filter((n) => VIDEO_OR_AUDIO.test(n) && join(folder, n) !== file && !n.toLowerCase().startsWith(basename(file, extname(file)).toLowerCase()))
+          if (others && others.length === 0) folders.push(folder)
+          else files.push(...this.withSidecars(file))
+          if (radarr && matchedMovie) {
+            const m = matchedMovie
+            steps.push({ app: 'radarr', say: 'Radarr won’t download it again', run: () => radarr.req('DELETE', `/movie/${m.id}?deleteFiles=false&addImportExclusion=false`) })
+          }
+        } else if (radarr && matchedMovie) {
+          // Custom mount (e.g. TrueNAS /movies): Finesse can't see the file directly, so ask Radarr to remove it.
+          const m = matchedMovie
+          delegatedFiles = 1
+          delegatedBytes = m.sizeOnDisk ?? m.movieFile?.size ?? 0
+          if (item.Path) delegatedGone.push(item.Path)
+          steps.push({ app: 'radarr', say: 'Radarr deletes the files and won’t download it again', run: () => radarr.req('DELETE', `/movie/${m.id}?deleteFiles=true&addImportExclusion=false`) })
+        } else {
+          throw new ApiError(409, 'This movie isn’t in Finesse’s media folder, so Finesse can’t delete it')
         }
         break
       }
       case 'Series': {
         const folder = this.host(root, item.Path)
-        if (!folder) throw new ApiError(409, 'This show isn’t in Finesse’s media folder, so Finesse can’t delete it')
-        folders.push(folder)
-        const series = await this.sonarrSeries(item)
-        if (series) {
-          const { sonarr, id } = series
-          steps.push({ app: 'sonarr', say: 'Sonarr won’t download it again', run: () => sonarr.req('DELETE', `/series/${id}?deleteFiles=false&addImportListExclusion=false`) })
+        const series = await this.sonarrSeries(item, !folder)
+        if (folder) {
+          folders.push(folder)
+          if (series) {
+            const { sonarr, id } = series
+            steps.push({ app: 'sonarr', say: 'Sonarr won’t download it again', run: () => sonarr.req('DELETE', `/series/${id}?deleteFiles=false&addImportListExclusion=false`) })
+          }
+        } else if (series) {
+          const { sonarr, id, sizeOnDisk } = series
+          delegatedFiles = 1
+          delegatedBytes = sizeOnDisk
+          if (item.Path) delegatedGone.push(item.Path)
+          steps.push({ app: 'sonarr', say: 'Sonarr deletes the files and won’t download it again', run: () => sonarr.req('DELETE', `/series/${id}?deleteFiles=true&addImportListExclusion=false`) })
+        } else {
+          throw new ApiError(409, 'This show isn’t in Finesse’s media folder, so Finesse can’t delete it')
         }
         break
       }
       case 'Season': {
         title = `${item.SeriesName ?? ''} ${item.Name}`.trim()
-        const eps = await kids('Episode')
-        if (!eps.length) throw new ApiError(409, 'There are no files to delete in this season')
-        for (const f of eps) files.push(...this.withSidecars(f))
+        const allEps = await rawKids('Episode')
+        const eps = allEps.map((k) => this.host(root, k.Path)).filter((p): p is string => Boolean(p))
         const [show] = item.SeriesId ? await this.items(`Ids=${item.SeriesId}`) : []
-        const series = show ? await this.sonarrSeries(show) : null
-        if (series && typeof item.IndexNumber === 'number') {
+        const series = show ? await this.sonarrSeries(show, eps.length === 0) : null
+        if (eps.length) {
+          for (const f of eps) files.push(...this.withSidecars(f))
+          if (series && typeof item.IndexNumber === 'number') {
+            const { sonarr, id } = series
+            const n = item.IndexNumber
+            steps.push({
+              app: 'sonarr',
+              say: 'Sonarr stops looking for this season',
+              run: async () => {
+                const s = await sonarr.req<{ seasons: { seasonNumber: number; monitored: boolean }[] }>('GET', `/series/${id}`)
+                s.seasons = s.seasons.map((x) => (x.seasonNumber === n ? { ...x, monitored: false } : x))
+                await sonarr.req('PUT', `/series/${id}`, s)
+              },
+            })
+          }
+        } else if (allEps.length && series && typeof item.IndexNumber === 'number') {
           const { sonarr, id } = series
           const n = item.IndexNumber
+          const epFiles = (await this.ask('sonarr', () => sonarr.req<{ id: number; seasonNumber: number; size?: number }[]>('GET', `/episodefile?seriesId=${id}`))).filter((f) => f.seasonNumber === n)
+          if (!epFiles.length) throw new ApiError(409, 'There are no files to delete in this season')
+          delegatedFiles = epFiles.length
+          delegatedBytes = epFiles.reduce((a, f) => a + (f.size ?? 0), 0)
+          for (const e of allEps) if (e.Path) delegatedGone.push(e.Path)
           steps.push({
             app: 'sonarr',
-            say: 'Sonarr stops looking for this season',
+            say: 'Sonarr deletes the season’s files and stops looking for it',
             run: async () => {
               const s = await sonarr.req<{ seasons: { seasonNumber: number; monitored: boolean }[] }>('GET', `/series/${id}`)
               s.seasons = s.seasons.map((x) => (x.seasonNumber === n ? { ...x, monitored: false } : x))
               await sonarr.req('PUT', `/series/${id}`, s)
+              for (const ef of epFiles) await sonarr.req('DELETE', `/episodefile/${ef.id}`)
             },
           })
+        } else {
+          throw new ApiError(409, 'There are no files to delete in this season')
         }
         break
       }
       case 'Episode': {
         const file = this.host(root, item.Path)
-        if (!file) throw new ApiError(409, 'This episode isn’t in Finesse’s media folder, so Finesse can’t delete it')
         title = `${item.SeriesName ?? ''} S${String(item.ParentIndexNumber ?? 0).padStart(2, '0')}E${String(item.IndexNumber ?? 0).padStart(2, '0')}`.trim()
-        files.push(...this.withSidecars(file))
         const [show] = item.SeriesId ? await this.items(`Ids=${item.SeriesId}`) : []
-        const series = show ? await this.sonarrSeries(show) : null
-        if (series) {
+        const series = show ? await this.sonarrSeries(show, !file) : null
+        if (file) {
+          files.push(...this.withSidecars(file))
+          if (series) {
+            const { sonarr, id } = series
+            steps.push({
+              app: 'sonarr',
+              say: 'Sonarr stops looking for this episode',
+              run: async () => {
+                const eps = await sonarr.req<{ id: number; seasonNumber: number; episodeNumber: number }[]>('GET', `/episode?seriesId=${id}`)
+                const ep = eps.find((e) => e.seasonNumber === item.ParentIndexNumber && e.episodeNumber === item.IndexNumber)
+                if (ep) await sonarr.req('PUT', '/episode/monitor', { episodeIds: [ep.id], monitored: false })
+              },
+            })
+          }
+        } else if (series) {
           const { sonarr, id } = series
+          const eps = await this.ask('sonarr', () => sonarr.req<{ id: number; seasonNumber: number; episodeNumber: number; episodeFileId?: number }[]>('GET', `/episode?seriesId=${id}`))
+          const ep = eps.find((e) => e.seasonNumber === item.ParentIndexNumber && e.episodeNumber === item.IndexNumber)
+          if (!ep?.episodeFileId) throw new ApiError(409, 'This episode isn’t in Finesse’s media folder, so Finesse can’t delete it')
+          const efId = ep.episodeFileId
+          const ef = await sonarr.req<{ size?: number }>('GET', `/episodefile/${efId}`).catch(() => null)
+          delegatedFiles = 1
+          delegatedBytes = ef?.size ?? 0
+          if (item.Path) delegatedGone.push(item.Path)
           steps.push({
             app: 'sonarr',
-            say: 'Sonarr stops looking for this episode',
+            say: 'Sonarr deletes the episode’s file and stops looking for it',
             run: async () => {
-              const eps = await sonarr.req<{ id: number; seasonNumber: number; episodeNumber: number }[]>('GET', `/episode?seriesId=${id}`)
-              const ep = eps.find((e) => e.seasonNumber === item.ParentIndexNumber && e.episodeNumber === item.IndexNumber)
-              if (ep) await sonarr.req('PUT', '/episode/monitor', { episodeIds: [ep.id], monitored: false })
+              await sonarr.req('PUT', '/episode/monitor', { episodeIds: [ep.id], monitored: false })
+              await sonarr.req('DELETE', `/episodefile/${efId}`)
             },
           })
+        } else {
+          throw new ApiError(409, 'This episode isn’t in Finesse’s media folder, so Finesse can’t delete it')
         }
         break
       }
       case 'MusicArtist': {
         const folder = this.host(root, item.Path)
-        if (!folder) throw new ApiError(409, 'This artist isn’t in Finesse’s media folder, so Finesse can’t delete them')
-        folders.push(folder)
         const lidarr = this.arr('lidarr')
         const mbid = item.ProviderIds?.MusicBrainzArtist
+        let matchedArtist: { id: number; foreignArtistId: string; statistics?: { sizeOnDisk?: number } } | undefined
         if (lidarr && mbid) {
-          const artists = await this.ask('lidarr', () => lidarr.req<{ id: number; foreignArtistId: string }[]>('GET', '/artist'))
-          const a = artists.find((x) => x.foreignArtistId === mbid)
-          if (a) steps.push({ app: 'lidarr', say: 'Lidarr won’t download them again', run: () => lidarr.req('DELETE', `/artist/${a.id}?deleteFiles=false`) })
+          const artists = await this.ask('lidarr', () => lidarr.req<{ id: number; foreignArtistId: string; statistics?: { sizeOnDisk?: number } }[]>('GET', '/artist'))
+          matchedArtist = artists.find((x) => x.foreignArtistId === mbid)
+        }
+        if (folder) {
+          folders.push(folder)
+          if (lidarr && matchedArtist) {
+            const a = matchedArtist
+            steps.push({ app: 'lidarr', say: 'Lidarr won’t download them again', run: () => lidarr.req('DELETE', `/artist/${a.id}?deleteFiles=false`) })
+          }
+        } else if (lidarr && matchedArtist) {
+          const a = matchedArtist
+          delegatedFiles = 1
+          delegatedBytes = a.statistics?.sizeOnDisk ?? 0
+          if (item.Path) delegatedGone.push(item.Path)
+          steps.push({ app: 'lidarr', say: 'Lidarr deletes the files and won’t download them again', run: () => lidarr.req('DELETE', `/artist/${a.id}?deleteFiles=true`) })
+        } else {
+          throw new ApiError(409, 'This artist isn’t in Finesse’s media folder, so Finesse can’t delete them')
         }
         break
       }
       case 'MusicAlbum': {
         title = item.AlbumArtist ? `${item.AlbumArtist}: ${item.Name}` : item.Name
-        const tracks = await kids('Audio')
-        if (!tracks.length) throw new ApiError(409, 'There are no files to delete in this album')
-        for (const f of tracks) files.push(...this.withSidecars(f))
-        // The album's own folder, with its cover art, when every track lives there.
-        const dirs = [...new Set(tracks.map((t) => dirname(t)))]
-        if (dirs.length === 1 && readdirSync(dirs[0]!).every((n) => !VIDEO_OR_AUDIO.test(n) || tracks.includes(join(dirs[0]!, n))) && this.host(root, hostToApp(root, dirs[0]!))) {
-          files.length = 0
-          folders.push(dirs[0]!)
-        }
+        const allTracks = await rawKids('Audio')
+        const tracks = allTracks.map((k) => this.host(root, k.Path)).filter((p): p is string => Boolean(p))
         const lidarr = this.arr('lidarr')
         const mbid = item.ProviderIds?.MusicBrainzReleaseGroup
+        let matchedAlbum: { id: number; foreignAlbumId: string } | undefined
         if (lidarr && mbid) {
           const albums = await this.ask('lidarr', () => lidarr.req<{ id: number; foreignAlbumId: string }[]>('GET', `/album?foreignAlbumId=${encodeURIComponent(mbid)}`))
-          const al = albums.find((x) => x.foreignAlbumId === mbid)
-          if (al) steps.push({ app: 'lidarr', say: 'Lidarr stops looking for this album', run: () => lidarr.req('PUT', '/album/monitor', { albumIds: [al.id], monitored: false }) })
+          matchedAlbum = albums.find((x) => x.foreignAlbumId === mbid)
+        }
+        if (tracks.length) {
+          for (const f of tracks) files.push(...this.withSidecars(f))
+          // The album's own folder, with its cover art, when every track lives there.
+          const dirs = [...new Set(tracks.map((t) => dirname(t)))]
+          if (dirs.length === 1 && readdirSync(dirs[0]!).every((n) => !VIDEO_OR_AUDIO.test(n) || tracks.includes(join(dirs[0]!, n))) && this.host(root, hostToApp(root, dirs[0]!))) {
+            files.length = 0
+            folders.push(dirs[0]!)
+          }
+          if (lidarr && matchedAlbum) {
+            const al = matchedAlbum
+            steps.push({ app: 'lidarr', say: 'Lidarr stops looking for this album', run: () => lidarr.req('PUT', '/album/monitor', { albumIds: [al.id], monitored: false }) })
+          }
+        } else if (allTracks.length && lidarr && matchedAlbum) {
+          const al = matchedAlbum
+          const trackFiles = await this.ask('lidarr', () => lidarr.req<{ id: number; size?: number }[]>('GET', `/trackfile?albumId=${al.id}`))
+          if (!trackFiles.length) throw new ApiError(409, 'There are no files to delete in this album')
+          delegatedFiles = trackFiles.length
+          delegatedBytes = trackFiles.reduce((a, f) => a + (f.size ?? 0), 0)
+          for (const t of allTracks) if (t.Path) delegatedGone.push(t.Path)
+          steps.push({
+            app: 'lidarr',
+            say: 'Lidarr deletes the album’s files and stops looking for it',
+            run: async () => {
+              await lidarr.req('PUT', '/album/monitor', { albumIds: [al.id], monitored: false })
+              for (const tf of trackFiles) await lidarr.req('DELETE', `/trackfile/${tf.id}`)
+            },
+          })
+        } else {
+          throw new ApiError(409, 'There are no files to delete in this album')
         }
         break
       }
@@ -256,18 +376,25 @@ export class Deleter {
         throw new ApiError(400, 'Only movies, shows, seasons, episodes, artists, albums and songs can be deleted here')
     }
 
-    const bytes = [...files, ...folders].reduce((a, p) => a + this.size(p), 0)
-    const gone = [...folders, ...files.filter((f) => VIDEO_OR_AUDIO.test(f))].map((p) => hostToApp(root, p))
-    return { title, type: item.Type, files: [...new Set(files)], folders, bytes, downloader: steps[0]?.say ?? null, gone, steps }
+    const bytes = [...files, ...folders].reduce((a, p) => a + this.size(p), 0) + delegatedBytes
+    const gone = [...[...folders, ...files.filter((f) => VIDEO_OR_AUDIO.test(f))].map((p) => hostToApp(root, p)), ...delegatedGone]
+    return { title, type: item.Type, files: [...new Set(files)], folders, delegatedFiles, bytes, downloader: steps[0]?.say ?? null, gone, steps }
   }
 
-  private async sonarrSeries(show: JfItem): Promise<{ sonarr: Arr; id: number } | null> {
+  private async sonarrSeries(show: JfItem, matchFolderName = false): Promise<{ sonarr: Arr; id: number; sizeOnDisk: number } | null> {
     const sonarr = this.arr('sonarr')
     if (!sonarr) return null
     const tvdb = show.ProviderIds?.Tvdb
-    const all = await this.ask('sonarr', () => sonarr.req<{ id: number; tvdbId: number; path: string }[]>('GET', tvdb ? `/series?tvdbId=${encodeURIComponent(tvdb)}` : '/series'))
-    const s = all.find((x) => (tvdb && String(x.tvdbId) === tvdb) || x.path === show.Path)
-    return s ? { sonarr, id: s.id } : null
+    const all = await this.ask('sonarr', () => sonarr.req<{ id: number; tvdbId: number; path: string; statistics?: { sizeOnDisk?: number } }[]>('GET', tvdb ? `/series?tvdbId=${encodeURIComponent(tvdb)}` : '/series'))
+    const tail = (p?: string) => (p ? p.replace(/[\\/]+$/, '').split(/[\\/]/).pop()?.toLowerCase() ?? '' : '')
+    const showTail = tail(show.Path)
+    const s = all.find(
+      (x) =>
+        (tvdb && String(x.tvdbId) === tvdb) ||
+        x.path === show.Path ||
+        (matchFolderName && showTail && tail(x.path) === showTail),
+    )
+    return s ? { sonarr, id: s.id, sizeOnDisk: s.statistics?.sizeOnDisk ?? 0 } : null
   }
 
   async run(itemId: string): Promise<{ title: string; freed: number }> {
@@ -332,7 +459,7 @@ export function registerDeletions(router: Router, deps: { deleter: Deleter; auth
   router.get('/api/media/items/:id/delete', async ({ req, res, params }) => {
     await auth.requireAdmin(req)
     const p = await deleter.plan(params.id!)
-    sendJson(res, 200, { title: p.title, type: p.type, bytes: p.bytes, files: p.files.length + p.folders.length, downloader: p.downloader })
+    sendJson(res, 200, { title: p.title, type: p.type, bytes: p.bytes, files: p.files.length + p.folders.length + p.delegatedFiles, downloader: p.downloader })
   })
   router.post('/api/media/items/:id/delete', async ({ req, res, params }) => {
     await auth.requireAdmin(req)

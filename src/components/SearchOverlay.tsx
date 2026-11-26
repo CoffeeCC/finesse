@@ -1,15 +1,18 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import SearchPanel from './SearchPanel'
 import { closeSearch, openSearch, useSearchOverlay } from '../lib/searchOverlay'
 import { isTypingTarget, pushBackHandler } from '../lib/back'
+import { useOverlayFocus } from '../lib/overlayFocus'
 
 /** Desktop universal search: "/" (or ⌘K / Ctrl+K) from anywhere, or the navbar
  *  field. Closes on Escape / Back, a click outside, or opening a result. */
 export default function SearchOverlay() {
   const { open, query } = useSearchOverlay()
   const location = useLocation()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useOverlayFocus(open, dialogRef)
 
   // Opening a result navigates — the overlay goes with it.
   useEffect(() => {
@@ -66,7 +69,7 @@ export default function SearchOverlay() {
         if (e.target === e.currentTarget) closeSearch()
       }}
     >
-      <div className="os-menu relative mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[26px] shadow-[0_32px_90px_rgba(0,0,0,0.78)] toast-in">
+      <div ref={dialogRef} className="os-menu relative mx-auto flex max-h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-[26px] shadow-[0_32px_90px_rgba(0,0,0,0.78)] toast-in">
         {/* Subtle top accent specular line */}
         <div
           aria-hidden

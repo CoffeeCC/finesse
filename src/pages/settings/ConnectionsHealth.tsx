@@ -6,11 +6,17 @@
 // everything" runs them all.
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { connectionsApi, graphicsApi, type ConnAutoFix, type ConnCheck, type ConnReport } from '../../api/setup'
+import { IS_TV } from '../../lib/device'
+import { useFinesse } from '../../lib/finesseServer'
 import { useToast } from '../../components/Toast'
 
-type Row = Pick<ConnCheck, 'id' | 'name' | 'ok' | 'summary' | 'problems' | 'fix' | 'fixes' | 'notes'>
+type Row = Pick<ConnCheck, 'id' | 'name' | 'ok' | 'summary' | 'problems' | 'fix' | 'fixes' | 'notes' | 'openUrl'>
+type FixJob =
+  | { kind: 'conn'; app: string; name: string; fix: string }
+  | { kind: 'gpu'; app: string; name: string; gpu: string }
 
 function Dot({ ok }: { ok: boolean | null }) {
   return <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${ok === true ? 'bg-emerald-400' : ok === null ? 'bg-amber-300' : 'bg-red-400'}`} />
@@ -95,8 +101,10 @@ const primary = `${pill} bg-white text-ink-950 hover:bg-ink-200`
 export default function ConnectionsHealth() {
   const toast = useToast()
   const qc = useQueryClient()
+  const { info } = useFinesse()
   const q = useConnections()
   const [busy, setBusy] = useState('')
+  const serverBehind = Boolean(info?.version && info?.web && info.version !== info.web)
 
   const recheck = async () => {
     const fresh = await connectionsApi.get(true)
@@ -104,23 +112,41 @@ export default function ConnectionsHealth() {
     return fresh
   }
 
-  /** Runs repairs one after another, says what each did, then looks again. */
-  const run = async (key: string, jobs: { app: string; name: string; fix: string }[]) => {
+  /** Runs repairs one after another, then looks again. Batch runs emit one clean summary toast. */
+  const run = async (key: string, jobs: FixJob[]) => {
     setBusy(key)
     let fixed = 0
+    let failed = 0
+    let firstError = ''
+    const batch = jobs.length > 1
     try {
       for (const j of jobs) {
         try {
-          toast((await connectionsApi.fix(j.app, j.fix)).message)
+          if (j.kind === 'gpu') {
+            const res = await graphicsApi.fixJellyfin(j.gpu)
+            if (!batch) toast(`Jellyfin now converts video on ${res.card}`)
+          } else {
+            const res = await connectionsApi.fix(j.app, j.fix)
+            if (!batch) toast(res.message)
+          }
           fixed++
         } catch (e) {
-          toast(`${j.name}: ${(e as Error).message}`, 'error')
+          const msg = `${j.name}: ${(e as Error).message}`
+          if (!batch) toast(msg, 'error')
+          else if (!firstError) firstError = msg
+          failed++
         }
       }
       const fresh = await recheck().catch(() => null)
-      if (fresh && fixed && jobs.length > 1) {
-        const left = connectionProblems(fresh)
-        toast(left ? `Fixed what Finesse could. ${left} still need${left > 1 ? '' : 's'} a look.` : 'All fixed. Every app is working.')
+      if (batch) {
+        if (failed === 0 && fixed > 0) {
+          const left = fresh ? connectionProblems(fresh) : 0
+          toast(left ? `Fixed ${fixed} ${fixed === 1 ? 'issue' : 'issues'}. ${left} still need${left > 1 ? '' : 's'} a look.` : 'All fixed. Every app is working.')
+        } else if (fixed > 0 && failed > 0) {
+          toast(`Fixed ${fixed} of ${jobs.length}; ${failed} failed (${firstError})`, 'error')
+        } else if (failed > 0) {
+          toast(firstError || `Couldn’t fix ${failed} ${failed === 1 ? 'issue' : 'issues'}`, 'error')
+        }
       }
     } finally {
       setBusy('')
@@ -128,12 +154,23 @@ export default function ConnectionsHealth() {
   }
 
   const data = q.data
-  if (q.isError && !data) return <p className="text-sm text-ink-400">Couldn’t check the connected apps. Try again in a moment.</p>
+  if (q.isError && !data)
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-ink-900/60 px-5 py-4">
+        <p className="text-sm text-ink-300">Couldn’t check the connected apps. Try again in a moment.</p>
+        <button type="button" onClick={() => void q.refetch()} disabled={q.isFetching} className={`${pill} border border-white/10 bg-white/5 font-medium text-ink-200 hover:text-white`}>
+          {q.isFetching ? 'Checking…' : 'Retry'}
+        </button>
+      </div>
+    )
   if (!data) return <div className="h-24 rounded-2xl shimmer" />
   const rows = rowsOf(data)
   if (!rows.length) return null
   const bad = rows.filter((r) => r.ok !== true).length
-  const all = rows.flatMap((r) => (r.fixes ?? []).map((f) => ({ app: r.id, name: r.name, fix: f.id })))
+  const all: FixJob[] = rows.flatMap((r) => [
+    ...(r.fixes ?? []).map((f) => ({ kind: 'conn' as const, app: r.id, name: r.name, fix: f.id })),
+    ...(r.fix ? [{ kind: 'gpu' as const, app: r.id, name: r.name, gpu: r.fix.gpu }] : []),
+  ])
   const healed = healedOf(data)
   const nameOf = (app: string) => rows.find((r) => r.id === app)?.name ?? app.charAt(0).toUpperCase() + app.slice(1)
   const healedAt = new Map<string, string>()
@@ -144,9 +181,9 @@ export default function ConnectionsHealth() {
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Connected apps</h3>
         <div className="flex gap-2">
-          {all.length > 1 && (
+          {all.length > 0 && (
             <button type="button" disabled={!!busy} onClick={() => void run('all', all)} className={primary}>
-              {busy === 'all' ? 'Fixing…' : `Fix everything (${all.length})`}
+              {busy === 'all' ? 'Fixing…' : all.length === 1 ? 'Fix automatically' : `Fix everything (${all.length})`}
             </button>
           )}
           <button
@@ -172,6 +209,17 @@ export default function ConnectionsHealth() {
         {bad ? `${bad} need${bad > 1 ? '' : 's'} attention.` : 'Every app answers, and its own checks pass.'} Indexers and download clients are tested the way their Test buttons do.
         {all.length > 0 && ' Finesse can fix the ones with a button.'}
       </p>
+      {serverBehind && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-300/20 bg-amber-400/[0.06] px-4 py-2.5 text-[12.5px] text-amber-100">
+          <span>
+            Web app is <span className="font-semibold">v{info?.web}</span>, while the Finesse server container is still on{' '}
+            <span className="font-semibold">v{info?.version}</span>. Update the server so the newest auto-repairs and health fixes run.
+          </span>
+          <Link to="/settings?s=updates" className={`${pill} border border-amber-200/30 bg-amber-200/15 text-amber-50 hover:bg-amber-200/25`}>
+            Update server
+          </Link>
+        </div>
+      )}
       <AutoHealed fixes={healed} nameOf={nameOf} />
       <ul className="divide-y divide-white/5 rounded-2xl border border-white/5 bg-ink-900/60">
         {rows.map((r) => (
@@ -186,6 +234,19 @@ export default function ConnectionsHealth() {
                   <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200" title={`Finesse fixed something here ${ago(healedAt.get(r.id)!)}`}>
                     Auto-healed {ago(healedAt.get(r.id)!)}
                   </span>
+                )}
+                {!IS_TV && r.openUrl && (
+                  <a
+                    href={r.openUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto inline-flex h-7 items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2.5 text-[11.5px] font-medium text-ink-200 hover:border-white/25 hover:bg-white/10 hover:text-white transition"
+                  >
+                    Open {r.name}
+                    <svg className="h-3 w-3 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                    </svg>
+                  </a>
                 )}
               </p>
               {r.ok !== true || r.summary !== 'Working' ? <p className="break-words text-[12.5px] leading-relaxed text-ink-200">{r.summary}</p> : null}
@@ -207,7 +268,7 @@ export default function ConnectionsHealth() {
               {Boolean(r.fix || r.fixes?.length) && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {r.fixes?.map((f) => (
-                    <button key={f.id} type="button" title={f.detail} disabled={!!busy} aria-busy={busy === `${r.id}:${f.id}` || undefined} onClick={() => void run(`${r.id}:${f.id}`, [{ app: r.id, name: r.name, fix: f.id }])} className={primary}>
+                    <button key={f.id} type="button" title={f.detail} disabled={!!busy} aria-busy={busy === `${r.id}:${f.id}` || undefined} onClick={() => void run(`${r.id}:${f.id}`, [{ kind: 'conn', app: r.id, name: r.name, fix: f.id }])} className={primary}>
                       {busy === `${r.id}:${f.id}` ? 'Fixing…' : f.label}
                     </button>
                   ))}
@@ -215,18 +276,7 @@ export default function ConnectionsHealth() {
                     <button
                       type="button"
                       disabled={!!busy}
-                      onClick={async () => {
-                        setBusy(r.id)
-                        try {
-                          const res = await graphicsApi.fixJellyfin(r.fix!.gpu)
-                          toast(`Jellyfin now converts video on ${res.card}`)
-                          await recheck()
-                        } catch (e) {
-                          toast((e as Error).message, 'error')
-                        } finally {
-                          setBusy('')
-                        }
-                      }}
+                      onClick={() => void run(r.id, [{ kind: 'gpu', app: r.id, name: r.name, gpu: r.fix!.gpu }])}
                       className={primary}
                     >
                       {busy === r.id ? 'Switching…' : r.fix.label}
@@ -235,6 +285,15 @@ export default function ConnectionsHealth() {
                 </div>
               )}
               {r.fixes?.length === 1 && <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-400 opacity-80">{r.fixes[0]!.detail}</p>}
+              {r.fixes && r.fixes.length > 1 && (
+                <ul className="mt-2 space-y-1 text-[11.5px] leading-relaxed text-ink-400">
+                  {r.fixes.map((f) => (
+                    <li key={f.id}>
+                      <span className="font-medium text-ink-300">{f.label}:</span> {f.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </li>
         ))}

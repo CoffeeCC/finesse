@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { getSession } from '../api/client'
 import { playApi, type PlaySession } from '../api/setup'
 import FullscreenButton from '../components/FullscreenButton'
+import { goBack, pushBackHandler } from '../lib/back'
 import { finesseRoot } from '../lib/finesseServer'
 import { exitFullscreen } from '../lib/fullscreen'
+import { useOverlayFocus } from '../lib/overlayFocus'
 
 /** The player's page and its video WebSocket can't send our sign-in header, so it rides in a cookie scoped to /game-stream. */
 function primePlayAuth() {
@@ -39,38 +41,61 @@ export default function StreamPlayPage() {
   const navigate = useNavigate()
   const [s, setS] = useState<PlaySession | null>(null)
   const [err, setErr] = useState('')
+  const [retrySeq, setRetrySeq] = useState(0)
+  const [confirmQuit, setConfirmQuit] = useState(false)
   const frame = useRef<HTMLIFrameElement>(null)
   const stopped = useRef(false)
+  const padTimerRef = useRef(0)
+  const quitDialogRef = useRef<HTMLDivElement>(null)
   const [touch] = useState(isTouch)
   const [pad, setPad] = useState<'off' | 'on' | 'hidden'>('off')
   const box = useRef<HTMLDivElement>(null)
   const [firstStart, setFirstStart] = useState(false)
   const focusGame = useCallback(() => frame.current?.focus(), [])
 
+  useOverlayFocus(confirmQuit, quitDialogRef)
+
   // Phones and tablets: the touch controller comes up with the game. The player is on our own address, so we can tell it.
-  const showPad = (visible: boolean) => {
-    const w = frame.current?.contentWindow
-    if (!w) return
-    const origin = window.location.origin
-    if (pad === 'off') w.postMessage({ type: 'TOUCH_GAMEPAD_SETUP', payload: { targetDivId: PAD_HOST, visible } }, origin)
-    else w.postMessage({ type: 'TOUCH_GAMEPAD_VISIBILITY', payload: { targetDivId: PAD_HOST, visible } }, origin)
-    setPad(visible ? 'on' : 'hidden')
-  }
+  const showPad = useCallback(
+    (visible: boolean) => {
+      const w = frame.current?.contentWindow
+      if (!w) return
+      const origin = window.location.origin
+      setPad((prev) => {
+        if (prev === 'off') w.postMessage({ type: 'TOUCH_GAMEPAD_SETUP', payload: { targetDivId: PAD_HOST, visible } }, origin)
+        else w.postMessage({ type: 'TOUCH_GAMEPAD_VISIBILITY', payload: { targetDivId: PAD_HOST, visible } }, origin)
+        return visible ? 'on' : 'hidden'
+      })
+    },
+    [],
+  )
+
+  useEffect(() => {
+    return () => window.clearTimeout(padTimerRef.current)
+  }, [])
 
   useEffect(() => {
     primePlayAuth()
     let t = 0
+    let active = true
     const poll = () =>
       playApi
         .get(sessionId)
         .then((x) => {
+          if (!active) return
+          setErr('')
           setS(x)
           if (x.state === 'starting') t = window.setTimeout(poll, 1000)
         })
-        .catch((e: Error) => setErr(e.message))
+        .catch((e: Error) => {
+          if (active) setErr(e.message)
+        })
     void poll()
-    return () => clearTimeout(t)
-  }, [sessionId])
+    return () => {
+      active = false
+      clearTimeout(t)
+    }
+  }, [sessionId, retrySeq])
 
   // Leaving the page ends the game, so the graphics card is free for the next one.
   useEffect(() => {
@@ -99,8 +124,27 @@ export default function StreamPlayPage() {
   // Leaving in full screen: the app behind mustn't stay full screen (or sideways).
   useEffect(() => () => void exitFullscreen(), [])
 
-  const leave = () => navigate(-1)
   const ready = s?.state === 'ready'
+  const leave = useCallback(() => goBack(navigate), [navigate])
+  const requestLeave = useCallback(() => {
+    if (ready) setConfirmQuit(true)
+    else leave()
+  }, [ready, leave])
+
+  // Guard Escape / Back when the stream is live so accidental presses don't kill the session.
+  useEffect(() => {
+    if (!ready) return
+    return pushBackHandler(() => {
+      setConfirmQuit((open) => !open)
+      return true
+    })
+  }, [ready])
+
+  const retry = () => {
+    setErr('')
+    setS(null)
+    setRetrySeq((n) => n + 1)
+  }
 
   return (
     <div ref={box} className="fixed inset-0 z-50 bg-black">
@@ -115,7 +159,10 @@ export default function StreamPlayPage() {
           onLoad={() => {
             focusGame()
             // Give the player a moment to start its touch controller, then show it.
-            if (touch) window.setTimeout(() => showPad(true), 1500)
+            if (touch) {
+              window.clearTimeout(padTimerRef.current)
+              padTimerRef.current = window.setTimeout(() => showPad(true), 1500)
+            }
           }}
         />
       ) : (
@@ -124,6 +171,22 @@ export default function StreamPlayPage() {
             <>
               <p className="text-[15px] font-semibold text-white">The game didn’t start</p>
               <p className="max-w-md text-[13px] leading-relaxed text-ink-300">{err || s?.error}</p>
+              <div className="mt-1 flex flex-wrap justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="inline-flex h-10 items-center rounded-full bg-white px-5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+                >
+                  Try again
+                </button>
+                <button
+                  type="button"
+                  onClick={leave}
+                  className="inline-flex h-10 items-center rounded-full bg-white/10 border border-white/15 px-5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+                >
+                  Back
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -139,6 +202,36 @@ export default function StreamPlayPage() {
           )}
         </div>
       )}
+
+      {confirmQuit && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/65 p-4" onClick={() => setConfirmQuit(false)}>
+          <div ref={quitDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="quit-stream-title" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+            <p id="quit-stream-title" className="text-[15px] font-semibold text-white">Quit streamed game?</p>
+            <p className="mt-1 text-[13px] text-ink-300">This ends the game session on the server.</p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                data-autofocus
+                onClick={() => {
+                  setConfirmQuit(false)
+                  focusGame()
+                }}
+                className="rounded-xl bg-white px-4 py-3 text-center text-[14px] font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+              >
+                Keep playing
+              </button>
+              <button
+                type="button"
+                onClick={leave}
+                className="rounded-xl bg-white/[0.06] px-4 py-3 text-center text-[14px] font-medium text-ink-200 ring-1 ring-white/10 hover:bg-red-500/20 hover:text-red-200 transition-colors"
+              >
+                Quit game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top right, out of the game's way: the touch controls, full screen (it takes a tap: a
           controller's buttons can't start full screen), and Quit. */}
       <div className="absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-10 flex items-center gap-2">
@@ -159,7 +252,7 @@ export default function StreamPlayPage() {
         <FullscreenButton target={box} refocus={focusGame} />
         <button
           type="button"
-          onClick={leave}
+          onClick={requestLeave}
           className="inline-flex h-10 items-center gap-1.5 rounded-full bg-black/55 px-3.5 text-[13px] font-medium text-white ring-1 ring-white/15 hover:bg-black/80"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>

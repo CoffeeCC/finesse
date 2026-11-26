@@ -8,31 +8,13 @@ import { useState } from 'react'
 import { consolesApi, type ConsoleView, type InstallId } from '../../api/setup'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
+import { copyText } from '../../lib/clipboard'
 import { COMMUNITY_BUILD, withoutFolder } from '../../lib/consoleText'
 import { CONSOLES, mb } from '../../lib/consoles'
 
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
 const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white disabled:opacity-50 transition-colors'
 const addBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent-fill px-3 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50 transition'
-
-/** Copies even where the page isn't https (a home server's plain address). */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand('copy')
-    ta.remove()
-    return ok
-  }
-}
 
 /** A thing still missing, as a short phrase: "the PS2 BIOS", "prod.keys"… */
 const what = (label: string) => (/^(PS2 BIOS|Switch firmware)/.test(label) ? `the ${label.replace(/ \(.*\)$/, '')}` : label.replace(/ \(.*\)$/, ''))
@@ -113,6 +95,11 @@ function ConsoleRow({ c, busy, onChange }: { c: ConsoleView; busy: boolean; onCh
               {d.state === 'failed' && (
                 <button type="button" className={smallBtn} disabled={busy} onClick={() => onChange(d.installed ? { update: [c.id] } : { add: [c.id] })}>
                   Try again
+                </button>
+              )}
+              {d.state === 'missing' && !c.own && (
+                <button type="button" className={addBtn} disabled={busy} onClick={() => onChange({ add: [c.id] })}>
+                  Download
                 </button>
               )}
               <button type="button" className={smallBtn} disabled={busy || d.state === 'downloading' || d.state === 'checking'} onClick={() => setConfirm(true)}>

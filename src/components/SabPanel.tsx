@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSabStatus } from '../api/queries'
 import { sabPauseAll, sabResumeAll, sabSetLimit, type SabStatus } from '../api/sab'
+import { useAuth } from '../auth/AuthContext'
 import { useLater } from './RequestStatus'
 import { useToast } from './Toast'
 
@@ -21,8 +22,10 @@ function fmtSpeed(bps: number): string {
 }
 
 /** Global downloader (SABnzbd) status + controls: pause everything, cap speed.
- *  Renders nothing when SAB is unreachable. */
+ *  Renders nothing when SAB is unreachable. Controls are admin-only. */
 export default function SabPanel() {
+  const { session } = useAuth()
+  const isAdmin = Boolean(session?.isAdmin)
   const { data, isError } = useSabStatus()
   const toast = useToast()
   const qc = useQueryClient()
@@ -37,7 +40,7 @@ export default function SabPanel() {
   const said = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback)
 
   const togglePause = async () => {
-    if (busy) return
+    if (busy || !isAdmin) return
     setBusy(true)
     try {
       if (data.paused) {
@@ -58,7 +61,7 @@ export default function SabPanel() {
   }
 
   const changeLimit = async (mbps: number) => {
-    if (busy) return
+    if (busy || !isAdmin) return
     setBusy(true)
     try {
       await sabSetLimit(mbps)
@@ -94,36 +97,40 @@ export default function SabPanel() {
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
-          <select
-            value={activeMbps}
-            onChange={(e) => changeLimit(Number(e.target.value))}
-            disabled={busy}
-            aria-label="Download speed limit"
-            className="h-9 rounded-lg bg-ink-800 border border-white/10 px-2 text-xs outline-none focus:border-accent-500 text-ink-200 disabled:opacity-50"
-          >
-            {LIMITS.map((l) => (
-              <option key={l.mbps} value={l.mbps}>
-                {l.mbps === 0 ? 'No speed limit' : `Limit ${l.label}`}
-              </option>
-            ))}
-            {activeMbps > 0 && !LIMITS.some((l) => l.mbps === activeMbps) && (
-              <option value={activeMbps}>Limit {activeMbps} MB/s</option>
-            )}
-          </select>
-          <button
-            type="button"
-            onClick={togglePause}
-            disabled={busy}
-            className={`h-9 rounded-lg px-3.5 text-xs font-semibold transition active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 ${
-              data.paused
-                ? 'bg-accent-fill hover:brightness-110 text-white'
-                : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500'
-            }`}
-          >
-            {data.paused ? 'Resume all' : 'Pause all'}
-          </button>
-        </div>
+        {isAdmin ? (
+          <div className="ml-auto flex items-center gap-2">
+            <select
+              value={activeMbps}
+              onChange={(e) => changeLimit(Number(e.target.value))}
+              disabled={busy}
+              aria-label="Download speed limit"
+              className="h-9 rounded-lg bg-ink-800 border border-white/10 px-2 text-xs outline-none focus:border-accent-500 text-ink-200 disabled:opacity-50"
+            >
+              {LIMITS.map((l) => (
+                <option key={l.mbps} value={l.mbps}>
+                  {l.mbps === 0 ? 'No speed limit' : `Limit ${l.label}`}
+                </option>
+              ))}
+              {activeMbps > 0 && !LIMITS.some((l) => l.mbps === activeMbps) && (
+                <option value={activeMbps}>Limit {activeMbps} MB/s</option>
+              )}
+            </select>
+            <button
+              type="button"
+              onClick={togglePause}
+              disabled={busy}
+              className={`h-9 rounded-lg px-3.5 text-xs font-semibold transition active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 ${
+                data.paused
+                  ? 'bg-accent-fill hover:brightness-110 text-white'
+                  : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500'
+              }`}
+            >
+              {data.paused ? 'Resume all' : 'Pause all'}
+            </button>
+          </div>
+        ) : activeMbps > 0 ? (
+          <span className="ml-auto text-xs tabular-nums text-ink-400">Speed limit {activeMbps} MB/s</span>
+        ) : null}
       </div>
     </section>
   )

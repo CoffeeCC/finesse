@@ -9,7 +9,18 @@ import type { SettingsStore } from '../src/config.ts'
 import { Deleter } from '../src/deletions.ts'
 import { listen, tmp } from './helpers.ts'
 
-const ids = { movie: 'a'.repeat(32), loose: 'b'.repeat(32), show: 'c'.repeat(32), season: 'd'.repeat(32), episode: 'e'.repeat(32), album: 'f'.repeat(32), outside: '1'.repeat(32) }
+const ids = {
+  movie: 'a'.repeat(32),
+  loose: 'b'.repeat(32),
+  show: 'c'.repeat(32),
+  season: 'd'.repeat(32),
+  episode: 'e'.repeat(32),
+  album: 'f'.repeat(32),
+  outside: '1'.repeat(32),
+  customMovie: '2'.repeat(32),
+  customShow: '3'.repeat(32),
+  customEpisode: '4'.repeat(32),
+}
 let jf: Server, arr: Server
 let jfUrl = '', arrUrl = ''
 const seen: string[] = []
@@ -45,6 +56,9 @@ before(async () => {
     [ids.episode]: { Id: ids.episode, Name: 'Pilot', Type: 'Episode', SeriesId: ids.show, SeriesName: 'Show', ParentIndexNumber: 2, IndexNumber: 1, Path: '/data/media/tv/Show (2010)/Season 02/Show.S02E01.mkv' },
     [ids.album]: { Id: ids.album, Name: 'Album', Type: 'MusicAlbum', AlbumArtist: 'Artist' },
     [ids.outside]: { Id: ids.outside, Name: 'Elsewhere', Type: 'Movie', Path: '/mnt/somewhere/else.mkv' },
+    [ids.customMovie]: { Id: ids.customMovie, Name: 'Hells Angels', Type: 'Movie', ProductionYear: 1930, Path: '/movies/Hells Angels (1930)/Hells Angels.mkv', ProviderIds: { Tmdb: '949' } },
+    [ids.customShow]: { Id: ids.customShow, Name: 'Show', Type: 'Series', Path: '/shows/Show (2010)', ProviderIds: { Tvdb: '77' } },
+    [ids.customEpisode]: { Id: ids.customEpisode, Name: 'Pilot', Type: 'Episode', SeriesId: ids.customShow, SeriesName: 'Show', ParentIndexNumber: 2, IndexNumber: 1, Path: '/shows/Show (2010)/Season 02/Show.S02E01.mkv' },
   }
   const children: Record<string, object[]> = {
     [ids.season]: [{ Id: '9', Type: 'Episode', Path: '/data/media/tv/Show (2010)/Season 01/Show.S01E01.mkv' }, { Id: '8', Type: 'Episode', Path: '/data/media/tv/Show (2010)/Season 01/Show.S01E02.mkv' }],
@@ -66,10 +80,11 @@ before(async () => {
     seen.push(`arr ${req.method} ${u.pathname}${u.search}`)
     res.setHeader('Content-Type', 'application/json')
     if (failArr) return void (res.statusCode = 500, res.end('{}'))
-    if (u.pathname === '/api/v3/movie') return res.end(JSON.stringify([{ id: 5, tmdbId: 949, path: '/data/media/movies/Heat (1995)' }]))
-    if (u.pathname === '/api/v3/series') return res.end(JSON.stringify([{ id: 3, tvdbId: 77, path: '/data/media/tv/Show (2010)' }]))
+    if (u.pathname === '/api/v3/movie') return res.end(JSON.stringify([{ id: 5, tmdbId: 949, path: '/data/media/movies/Heat (1995)', sizeOnDisk: 4_500_000_000 }]))
+    if (u.pathname === '/api/v3/series') return res.end(JSON.stringify([{ id: 3, tvdbId: 77, path: '/data/media/tv/Show (2010)', statistics: { sizeOnDisk: 12_000_000_000 } }]))
     if (u.pathname === '/api/v3/series/3' && req.method === 'GET') return res.end(JSON.stringify({ id: 3, seasons: [{ seasonNumber: 1, monitored: true }, { seasonNumber: 2, monitored: true }] }))
-    if (u.pathname === '/api/v3/episode') return res.end(JSON.stringify([{ id: 41, seasonNumber: 2, episodeNumber: 1 }]))
+    if (u.pathname === '/api/v3/episode') return res.end(JSON.stringify([{ id: 41, seasonNumber: 2, episodeNumber: 1, episodeFileId: 99 }]))
+    if (u.pathname === '/api/v3/episodefile/99' && req.method === 'GET') return res.end(JSON.stringify({ id: 99, size: 800_000_000 }))
     res.end('{}')
   })
   jfUrl = await listen(jf)
@@ -153,4 +168,29 @@ test('a folder that is a shortcut out of the library is never deleted through', 
   // Jellyfin would report it at /data/media/movies/Linked (1999)/precious.mkv
   assert.equal((d as unknown as { host: (r: string, p: string) => string | null }).host(data, '/data/media/movies/Linked (1999)/precious.mkv'), null)
   assert.ok(existsSync(join(outside, 'precious.mkv')))
+})
+
+test('media on a custom mount (e.g. TrueNAS /movies): delegates deletion to Radarr/Sonarr and tells Jellyfin', async () => {
+  const d = deleter()
+  seen.length = 0
+  const mPlan = await d.plan(ids.customMovie)
+  assert.equal(mPlan.title, 'Hells Angels (1930)')
+  assert.equal(mPlan.bytes, 4_500_000_000)
+  assert.equal(mPlan.delegatedFiles, 1)
+  assert.match(mPlan.downloader ?? '', /Radarr deletes the files/)
+  await d.run(ids.customMovie)
+  assert.ok(seen.includes('arr DELETE /api/v3/movie/5?deleteFiles=true&addImportExclusion=false'))
+  assert.ok(seen.includes('jf POST /Library/Media/Updated'))
+
+  seen.length = 0
+  const sPlan = await d.plan(ids.customShow)
+  assert.equal(sPlan.bytes, 12_000_000_000)
+  await d.run(ids.customShow)
+  assert.ok(seen.includes('arr DELETE /api/v3/series/3?deleteFiles=true&addImportListExclusion=false'))
+
+  seen.length = 0
+  const ePlan = await d.plan(ids.customEpisode)
+  assert.equal(ePlan.bytes, 800_000_000)
+  await d.run(ids.customEpisode)
+  assert.ok(seen.includes('arr DELETE /api/v3/episodefile/99'))
 })

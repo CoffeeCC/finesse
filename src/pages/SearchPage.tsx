@@ -8,7 +8,7 @@ export default function SearchPage() {
   const term = searchParams.get('q') ?? ''
 
   return (
-    <div className="pb-16 px-4 sm:px-6 lg:px-12 py-6 max-w-5xl">
+    <div className="mx-auto max-w-5xl pb-16 px-4 sm:px-6 lg:px-12 py-6">
       <h1 className="page-title mb-4">Search</h1>
       <SearchPanel
         mode="page"

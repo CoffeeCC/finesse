@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/client'
 import { ticksToSeconds } from '../api/types'
+import { isTypingTarget } from '../lib/back'
 import { episodeCode } from '../lib/episodes'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../components/Toast'
@@ -42,7 +43,7 @@ const buzz = () => {
 export default function RemotePage() {
   const [params, setParams] = useSearchParams()
   const chosen = params.get('d')
-  const { data: displays = [], isFetched, isError } = useQuery({
+  const { data: displays = [], isFetched, isError, refetch, isFetching } = useQuery({
     queryKey: ['remoteDisplays'],
     queryFn: api.getRemoteDisplays,
     refetchInterval: POLL_MS,
@@ -52,11 +53,19 @@ export default function RemotePage() {
   const pick = (id: string | null) => setParams(id ? { d: id } : {}, { replace: false })
 
   return (
-    <div className="mx-auto max-w-xl px-4 pb-28 pt-6 sm:pt-8">
+    <div className={`mx-auto px-4 pb-28 pt-6 sm:pt-8 ${target ? 'max-w-xl lg:max-w-5xl' : 'max-w-xl'}`}>
       {target ? (
         <Controller s={target} onBack={() => pick(null)} />
       ) : (
-        <DisplayList displays={displays} loading={!isFetched} failed={isError} lost={Boolean(chosen && isFetched)} onPick={pick} />
+        <DisplayList
+          displays={displays}
+          loading={!isFetched}
+          failed={isError}
+          lost={Boolean(chosen && isFetched)}
+          refreshing={isFetching}
+          onRefresh={() => void refetch()}
+          onPick={pick}
+        />
       )}
     </div>
   )
@@ -66,7 +75,23 @@ export default function RemotePage() {
 // The list of screens
 // ---------------------------------------------------------------------------
 
-function DisplayList({ displays, loading, failed, lost, onPick }: { displays: api.JfSession[]; loading: boolean; failed: boolean; lost: boolean; onPick: (id: string) => void }) {
+function DisplayList({
+  displays,
+  loading,
+  failed,
+  lost,
+  refreshing,
+  onRefresh,
+  onPick,
+}: {
+  displays: api.JfSession[]
+  loading: boolean
+  failed: boolean
+  lost: boolean
+  refreshing: boolean
+  onRefresh: () => void
+  onPick: (id: string) => void
+}) {
   const { session } = useAuth()
   const toast = useToast()
   const qc = useQueryClient()
@@ -82,7 +107,20 @@ function DisplayList({ displays, loading, failed, lost, onPick }: { displays: ap
 
   return (
     <>
-      <h1 className="page-title">Remote</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="page-title">Remote</h1>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={refreshing}
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3.5 text-xs font-semibold text-ink-200 hover:bg-white/10 hover:text-white disabled:opacity-50 transition-colors"
+        >
+          <svg className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Refresh
+        </button>
+      </div>
       <p className="mt-2 text-[14.5px] leading-relaxed text-ink-300">Control what’s playing on any screen in the house: TVs, computers, other phones. Pick one.</p>
 
       {lost && (
@@ -97,7 +135,18 @@ function DisplayList({ displays, loading, failed, lost, onPick }: { displays: ap
 
       <div className="mt-5 space-y-3">
         {loading && <p className="text-[14px] text-ink-400">Looking for screens…</p>}
-        {failed && !displays.length && <p className="text-[14px] text-red-300">Couldn’t ask the server which screens are on. Check this phone is connected, then pull down to try again.</p>}
+        {failed && !displays.length && (
+          <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-5">
+            <p className="text-[14px] text-red-200">Couldn’t ask the server which screens are on. Check this device is connected, then try again.</p>
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="mt-3 inline-flex h-9 items-center rounded-full bg-white px-4 text-xs font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
         {!loading && !failed && displays.length === 0 && (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
             <p className="text-[15px] font-semibold text-white">No screens to control yet</p>
@@ -162,6 +211,7 @@ function Controller({ s, onBack }: { s: api.JfSession; onBack: () => void }) {
   const qc = useQueryClient()
   const can = api.commandsOf(s)
   const canNavigate = can.has('MoveUp') && can.has('Select')
+  const canSearch = can.has('GoToSearch')
   const item = s.NowPlayingItem
   const paused = s.PlayState?.IsPaused ?? false
   const name = s.DeviceName || 'this screen'
@@ -182,18 +232,81 @@ function Controller({ s, onBack }: { s: api.JfSession; onBack: () => void }) {
 
   // While dragging the seek bar, show where it'll land rather than where it is.
   const [scrub, setScrub] = useState<number | null>(null)
+  // Two-tap guard on Stop so it isn't a fat-finger trap.
+  const [confirmStop, setConfirmStop] = useState(false)
+  useEffect(() => {
+    if (!confirmStop) return
+    const t = window.setTimeout(() => setConfirmStop(false), 3500)
+    return () => window.clearTimeout(t)
+  }, [confirmStop])
 
-  const refresh = () => window.setTimeout(() => qc.invalidateQueries({ queryKey: ['remoteDisplays'] }), 400)
-  const fail = () => toast(`Couldn’t reach ${name}. Is Finesse still open there?`, 'error')
-  const playstate = (cmd: api.PlaystateCommand, seekTicks?: number) => {
-    buzz()
-    api.sendPlaystate(s.Id, cmd, seekTicks).then(refresh, fail)
-  }
-  const command = (cmd: string, args?: Record<string, string>) => {
-    buzz()
-    api.sendCommand(s.Id, cmd, args).then(refresh, fail)
-  }
+  const refresh = useCallback(() => {
+    window.setTimeout(() => qc.invalidateQueries({ queryKey: ['remoteDisplays'] }), 400)
+  }, [qc])
+  const fail = useCallback(() => {
+    toast(`Couldn’t reach ${name}. Is Finesse still open there?`, 'error')
+  }, [toast, name])
+  const playstate = useCallback(
+    (cmd: api.PlaystateCommand, seekTicks?: number) => {
+      buzz()
+      api.sendPlaystate(s.Id, cmd, seekTicks).then(refresh, fail)
+    },
+    [s.Id, refresh, fail],
+  )
+  const command = useCallback(
+    (cmd: string, args?: Record<string, string>) => {
+      buzz()
+      api.sendCommand(s.Id, cmd, args).then(refresh, fail)
+    },
+    [s.Id, refresh, fail],
+  )
   const seekTo = (sec: number) => playstate('Seek', Math.max(0, Math.round(sec * TICKS)))
+
+  // Desktop keyboard shortcuts: arrows, Enter, Space, Backspace drive the target screen.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (canNavigate) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          command('MoveUp')
+          return
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          command('MoveDown')
+          return
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault()
+          command('MoveLeft')
+          return
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          command('MoveRight')
+          return
+        }
+        if (e.key === 'Enter' && tag !== 'BUTTON' && tag !== 'A' && tag !== 'SELECT') {
+          e.preventDefault()
+          command('Select')
+          return
+        }
+        if (e.key === 'Backspace') {
+          e.preventDefault()
+          command('Back')
+          return
+        }
+      }
+      if (e.key === ' ' && item && tag !== 'BUTTON' && tag !== 'SELECT') {
+        e.preventDefault()
+        playstate('PlayPause')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [canNavigate, item, command, playstate])
 
   // Audio and subtitle tracks of what's playing.
   const { data: full } = useQuery({
@@ -226,152 +339,181 @@ function Controller({ s, onBack }: { s: api.JfSession; onBack: () => void }) {
         {s.UserName ? ` · ${s.UserName}` : ''}
       </p>
 
-      {/* What's playing, and playback */}
-      <section className="mt-5 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
-        {item ? (
-          <>
-            {art && <img decoding="async" src={art} alt="" className="aspect-video w-full object-cover" />}
-            <div className="p-4">
-              <p className="text-[12px] font-semibold uppercase tracking-wider text-accent-300">{paused ? 'Paused' : 'Now playing'}</p>
-              <p className="mt-0.5 text-[16px] font-semibold leading-snug text-white">{titleOf(item)}</p>
-              {runtime > 0 && (
-                <div className="mt-3">
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.round(runtime)}
-                    step={1}
-                    value={Math.round(scrub ?? pos)}
-                    onChange={(e) => setScrub(Number(e.target.value))}
-                    onPointerUp={() => {
-                      if (scrub != null) seekTo(scrub)
-                      setScrub(null)
-                    }}
-                    onKeyUp={() => {
-                      if (scrub != null) seekTo(scrub)
-                      setScrub(null)
-                    }}
-                    aria-label="Position"
-                    className="w-full accent-[var(--color-accent-400,#7589d8)]"
-                  />
-                  <div className="flex justify-between text-[12px] tabular-nums text-ink-400">
-                    <span>{fmt(scrub ?? pos)}</span>
-                    <span>-{fmt(runtime - (scrub ?? pos))}</span>
+      <div className="mt-5 space-y-4 lg:grid lg:grid-cols-[1fr_20rem] lg:items-start lg:gap-6 lg:space-y-0">
+        <div className="space-y-4 min-w-0">
+          {/* What's playing, and playback */}
+          <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
+            {item ? (
+              <>
+                {art && <img decoding="async" src={art} alt="" className="aspect-video w-full object-cover" />}
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-semibold uppercase tracking-wider text-accent-300">{paused ? 'Paused' : 'Now playing'}</p>
+                      <p className="mt-0.5 text-[16px] font-semibold leading-snug text-white">{titleOf(item)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirmStop) {
+                          setConfirmStop(false)
+                          playstate('Stop')
+                        } else {
+                          setConfirmStop(true)
+                        }
+                      }}
+                      className={`shrink-0 h-8 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                        confirmStop
+                          ? 'border-red-400/60 bg-red-500/20 text-red-100'
+                          : 'border-white/10 text-ink-300 hover:border-red-400/50 hover:text-red-200'
+                      }`}
+                    >
+                      {confirmStop ? 'Tap again to stop' : 'Stop'}
+                    </button>
+                  </div>
+                  {runtime > 0 && (
+                    <div className="mt-3">
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.round(runtime)}
+                        step={1}
+                        value={Math.round(scrub ?? pos)}
+                        onChange={(e) => setScrub(Number(e.target.value))}
+                        onPointerUp={() => {
+                          if (scrub != null) seekTo(scrub)
+                          setScrub(null)
+                        }}
+                        onPointerCancel={() => setScrub(null)}
+                        onBlur={() => setScrub(null)}
+                        onKeyUp={() => {
+                          if (scrub != null) seekTo(scrub)
+                          setScrub(null)
+                        }}
+                        aria-label="Position"
+                        className="w-full accent-[var(--color-accent-400,#7589d8)]"
+                      />
+                      <div className="flex justify-between text-[12px] tabular-nums text-ink-400">
+                        <span>{fmt(scrub ?? pos)}</span>
+                        <span>-{fmt(runtime - (scrub ?? pos))}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="mt-3 flex items-center justify-between">
+                    <RoundBtn label="Previous" onClick={() => playstate('PreviousTrack')}>
+                      <PrevIcon />
+                    </RoundBtn>
+                    <RoundBtn label="Back 10 seconds" onClick={() => seekTo(pos - 10)}>
+                      <span className="text-[13px] font-bold">-10</span>
+                    </RoundBtn>
+                    <button type="button" aria-label={paused ? 'Play' : 'Pause'} onClick={() => playstate('PlayPause')} className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-ink-950 shadow-lg transition active:scale-90">
+                      {paused ? <PlayIcon /> : <PauseIcon big />}
+                    </button>
+                    <RoundBtn label="Forward 30 seconds" onClick={() => seekTo(pos + 30)}>
+                      <span className="text-[13px] font-bold">+30</span>
+                    </RoundBtn>
+                    <RoundBtn label="Next" onClick={() => playstate('NextTrack')}>
+                      <NextIcon />
+                    </RoundBtn>
                   </div>
                 </div>
-              )}
-              <div className="mt-3 flex items-center justify-between">
-                <RoundBtn label="Previous" onClick={() => playstate('PreviousTrack')}>
-                  <PrevIcon />
-                </RoundBtn>
-                <RoundBtn label="Back 10 seconds" onClick={() => seekTo(pos - 10)}>
-                  <span className="text-[13px] font-bold">-10</span>
-                </RoundBtn>
-                <button type="button" aria-label={paused ? 'Play' : 'Pause'} onClick={() => playstate('PlayPause')} className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-ink-950 shadow-lg transition active:scale-90">
-                  {paused ? <PlayIcon /> : <PauseIcon big />}
-                </button>
-                <RoundBtn label="Forward 30 seconds" onClick={() => seekTo(pos + 30)}>
-                  <span className="text-[13px] font-bold">+30</span>
-                </RoundBtn>
-                <RoundBtn label="Next" onClick={() => playstate('NextTrack')}>
-                  <NextIcon />
-                </RoundBtn>
-              </div>
-              <button type="button" onClick={() => playstate('Stop')} className="mt-3 h-10 w-full rounded-full border border-white/10 text-[13.5px] font-semibold text-ink-200 hover:border-red-400/50 hover:text-red-200">
-                Stop
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="p-5 text-[14px] leading-relaxed text-ink-300">
-            Nothing is playing on {name}. {canNavigate ? 'Use the arrows below to pick something there, or' : 'To start something,'} open a title on this phone and choose <b className="text-white">Play on…</b>
-          </p>
-        )}
-      </section>
+              </>
+            ) : (
+              <p className="p-5 text-[14px] leading-relaxed text-ink-300">
+                Nothing is playing on {name}. {canNavigate ? 'Use the arrows to pick something there, or' : 'To start something,'} open a title on this device and choose <b className="text-white">Play on…</b>
+              </p>
+            )}
+          </section>
 
-      {/* Volume and tracks */}
-      {(can.has('VolumeUp') || audio.length > 1 || subs.length > 0) && (
-        <section className="mt-4 space-y-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-          {can.has('VolumeUp') && (
-            <div className="flex items-center gap-3">
-              <span className="w-20 text-[13.5px] font-semibold text-white">Volume</span>
-              <RoundBtn label="Volume down" onClick={() => command('VolumeDown')}>
-                <span className="text-xl font-bold">−</span>
-              </RoundBtn>
-              <span className="w-12 text-center text-[13px] tabular-nums text-ink-300">{s.PlayState?.IsMuted ? 'Muted' : s.PlayState?.VolumeLevel != null ? `${s.PlayState.VolumeLevel}%` : ''}</span>
-              <RoundBtn label="Volume up" onClick={() => command('VolumeUp')}>
-                <span className="text-xl font-bold">+</span>
-              </RoundBtn>
-              {can.has('ToggleMute') && (
-                <button type="button" onClick={() => command('ToggleMute')} className="ml-auto h-10 rounded-full bg-white/10 px-4 text-[13px] font-semibold text-white hover:bg-white/15">
-                  {s.PlayState?.IsMuted ? 'Unmute' : 'Mute'}
-                </button>
+          {/* Volume and tracks */}
+          {(can.has('VolumeUp') || audio.length > 1 || subs.length > 0) && (
+            <section className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+              {can.has('VolumeUp') && (
+                <div className="flex items-center gap-3">
+                  <span className="w-20 text-[13.5px] font-semibold text-white">Volume</span>
+                  <RoundBtn label="Volume down" onClick={() => command('VolumeDown')}>
+                    <span className="text-xl font-bold">−</span>
+                  </RoundBtn>
+                  <span className="w-12 text-center text-[13px] tabular-nums text-ink-300">{s.PlayState?.IsMuted ? 'Muted' : s.PlayState?.VolumeLevel != null ? `${s.PlayState.VolumeLevel}%` : ''}</span>
+                  <RoundBtn label="Volume up" onClick={() => command('VolumeUp')}>
+                    <span className="text-xl font-bold">+</span>
+                  </RoundBtn>
+                  {can.has('ToggleMute') && (
+                    <button type="button" onClick={() => command('ToggleMute')} className="ml-auto h-10 rounded-full bg-white/10 px-4 text-[13px] font-semibold text-white hover:bg-white/15">
+                      {s.PlayState?.IsMuted ? 'Unmute' : 'Mute'}
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
+              {item && audio.length > 1 && can.has('SetAudioStreamIndex') && (
+                <TrackPick label="Audio" value={s.PlayState?.AudioStreamIndex} options={audio.map((m) => ({ value: m.Index, label: m.DisplayTitle || m.Title || m.Language || `Track ${m.Index}` }))} onPick={(i) => command('SetAudioStreamIndex', { Index: String(i) })} />
+              )}
+              {item && subs.length > 0 && can.has('SetSubtitleStreamIndex') && (
+                <TrackPick
+                  label="Subtitles"
+                  value={s.PlayState?.SubtitleStreamIndex ?? -1}
+                  options={[{ value: -1, label: 'Off' }, ...subs.map((m) => ({ value: m.Index, label: m.DisplayTitle || m.Title || m.Language || `Track ${m.Index}` }))]}
+                  onPick={(i) => command('SetSubtitleStreamIndex', { Index: String(i) })}
+                />
+              )}
+            </section>
           )}
-          {item && audio.length > 1 && can.has('SetAudioStreamIndex') && (
-            <TrackPick label="Audio" value={s.PlayState?.AudioStreamIndex} options={audio.map((m) => ({ value: m.Index, label: m.DisplayTitle || m.Title || m.Language || `Track ${m.Index}` }))} onPick={(i) => command('SetAudioStreamIndex', { Index: String(i) })} />
-          )}
-          {item && subs.length > 0 && can.has('SetSubtitleStreamIndex') && (
-            <TrackPick
-              label="Subtitles"
-              value={s.PlayState?.SubtitleStreamIndex ?? -1}
-              options={[{ value: -1, label: 'Off' }, ...subs.map((m) => ({ value: m.Index, label: m.DisplayTitle || m.Title || m.Language || `Track ${m.Index}` }))]}
-              onPick={(i) => command('SetSubtitleStreamIndex', { Index: String(i) })}
-            />
+        </div>
+
+        {/* The D-pad and the keyboard */}
+        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+          {canNavigate ? (
+            <>
+              <div className="mx-auto grid w-64 grid-cols-3 grid-rows-3 gap-2" role="group" aria-label="Arrows">
+                <span />
+                <PadBtn label="Up" onClick={() => command('MoveUp')}>▲</PadBtn>
+                <span />
+                <PadBtn label="Left" onClick={() => command('MoveLeft')}>◀</PadBtn>
+                <button type="button" aria-label="OK" onClick={() => command('Select')} className="flex aspect-square items-center justify-center rounded-full bg-accent-fill text-[17px] font-bold text-white shadow-lg transition active:scale-90">
+                  OK
+                </button>
+                <PadBtn label="Right" onClick={() => command('MoveRight')}>▶</PadBtn>
+                <span />
+                <PadBtn label="Down" onClick={() => command('MoveDown')}>▼</PadBtn>
+                <span />
+              </div>
+              <div className={`mt-4 grid gap-2 ${canSearch ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-2' : 'grid-cols-3'}`}>
+                <WideBtn onClick={() => command('Back')}>Back</WideBtn>
+                <WideBtn onClick={() => command('GoHome')}>Home</WideBtn>
+                {canSearch && <WideBtn onClick={() => command('GoToSearch')}>Search</WideBtn>}
+                <WideBtn onClick={() => command('ToggleContextMenu')}>Menu</WideBtn>
+              </div>
+              {can.has('SendString') && (
+                <form
+                  className="mt-4 flex gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    sendText()
+                  }}
+                >
+                  <input
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder={`Search or type on ${name}`}
+                    enterKeyHint="send"
+                    className="h-12 min-w-0 flex-1 rounded-full border border-white/10 bg-black/30 px-4 text-[15px] text-white placeholder:text-ink-400 focus:border-accent-400 focus:outline-none"
+                  />
+                  <button type="submit" className="h-12 shrink-0 rounded-full bg-white/10 px-5 text-[14px] font-semibold text-white hover:bg-white/15">
+                    Send
+                  </button>
+                </form>
+              )}
+              <p className="hidden lg:block mt-3 text-center text-[11.5px] text-ink-400">
+                Keyboard: Arrow keys, Enter, Space, Backspace
+              </p>
+            </>
+          ) : (
+            <p className="text-[13.5px] leading-relaxed text-ink-300">
+              The arrows and keyboard need Finesse 2.8 or newer on that screen ({name} is running {s.Client || 'another app'}). You can still pause, skip, seek and stop what plays there from here.
+            </p>
           )}
         </section>
-      )}
-
-      {/* The D-pad and the keyboard */}
-      <section className="mt-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-        {canNavigate ? (
-          <>
-            <div className="mx-auto grid w-64 grid-cols-3 grid-rows-3 gap-2" role="group" aria-label="Arrows">
-              <span />
-              <PadBtn label="Up" onClick={() => command('MoveUp')}>▲</PadBtn>
-              <span />
-              <PadBtn label="Left" onClick={() => command('MoveLeft')}>◀</PadBtn>
-              <button type="button" aria-label="OK" onClick={() => command('Select')} className="flex aspect-square items-center justify-center rounded-full bg-accent-fill text-[17px] font-bold text-white shadow-lg transition active:scale-90">
-                OK
-              </button>
-              <PadBtn label="Right" onClick={() => command('MoveRight')}>▶</PadBtn>
-              <span />
-              <PadBtn label="Down" onClick={() => command('MoveDown')}>▼</PadBtn>
-              <span />
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              <WideBtn onClick={() => command('Back')}>Back</WideBtn>
-              <WideBtn onClick={() => command('GoHome')}>Home</WideBtn>
-              <WideBtn onClick={() => command('ToggleContextMenu')}>Menu</WideBtn>
-            </div>
-            {can.has('SendString') && (
-              <form
-                className="mt-4 flex gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  sendText()
-                }}
-              >
-                <input
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder={`Search or type on ${name}`}
-                  enterKeyHint="send"
-                  className="h-12 min-w-0 flex-1 rounded-full border border-white/10 bg-black/30 px-4 text-[15px] text-white placeholder:text-ink-400 focus:border-accent-400 focus:outline-none"
-                />
-                <button type="submit" className="h-12 shrink-0 rounded-full bg-white/10 px-5 text-[14px] font-semibold text-white hover:bg-white/15">
-                  Send
-                </button>
-              </form>
-            )}
-          </>
-        ) : (
-          <p className="text-[13.5px] leading-relaxed text-ink-300">
-            The arrows and keyboard need Finesse 2.8 or newer on that screen ({name} is running {s.Client || 'another app'}). You can still pause, skip, seek and stop what plays there from here.
-          </p>
-        )}
-      </section>
+      </div>
     </>
   )
 }

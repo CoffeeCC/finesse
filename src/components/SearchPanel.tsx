@@ -114,17 +114,29 @@ export default function SearchPanel({
   onQueryChange?: (term: string) => void
 }) {
   const [input, setInput] = useState(initialQuery)
-  const [term, setTerm] = useState(initialQuery)
+  const [term, setTerm] = useState(initialQuery.trim())
   const [scope, setScope] = useState<Scope>('all')
   const [where, setWhere] = useState<Where>('all')
   const [recent, setRecent] = useState<string[]>(readRecent)
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const lastEmittedRef = useRef(initialQuery.trim())
   const navigate = useNavigate()
   const { surprise, busy } = useSurprise()
   const { data: views } = useViews()
   const hasMusic = !!views?.Items.some((v) => v.CollectionType === 'music')
   const scopes = hasMusic ? SCOPES : SCOPES.filter((s) => s.key !== 'music')
+
+  // Sync external initialQuery changes (e.g. URL navigation or reopening overlay with a query),
+  // without clobbering mid-keystroke input when onQueryChange echoes back our own term.
+  useEffect(() => {
+    const trimmed = initialQuery.trim()
+    if (trimmed !== lastEmittedRef.current) {
+      lastEmittedRef.current = trimmed
+      setInput(initialQuery)
+      setTerm(trimmed)
+    }
+  }, [initialQuery])
 
   useEffect(() => {
     const t = setTimeout(() => setTerm(input.trim()), 200)
@@ -133,6 +145,7 @@ export default function SearchPanel({
   // A new search starts from every source again.
   useEffect(() => setWhere('all'), [term])
   useEffect(() => {
+    lastEmittedRef.current = term
     onQueryChange?.(term)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [term])
@@ -185,11 +198,16 @@ export default function SearchPanel({
   }, [request.data, scope, term])
 
   const top = scope !== 'people' ? ranked[0] : undefined
+  const showTop = Boolean(top) && (where === 'all' || where === 'library')
   const rest = useMemo(() => new Set(scope !== 'people' ? ranked.slice(1, scope === 'all' ? 9 : 30) : []), [ranked, scope])
   const merged = useMemo(() => (scope === 'people' || scope === 'music' ? [] : mergeSources(ranked, friendHits, requestable)), [ranked, friendHits, requestable, scope])
   const topAlso = useMemo(() => (top ? merged.find((t) => t.key === top.Id)?.sources.slice(1) ?? [] : []), [merged, top])
   const listed = useMemo(() => merged.filter((t) => (t.sources[0]!.source === 'library' ? rest.has((t.sources[0] as { item: JfItem }).item) : true)), [merged, rest])
-  const kinds = useMemo(() => new Set(listed.flatMap((t) => t.sources.map((s) => s.source))), [listed])
+  const kinds = useMemo(() => {
+    const s = new Set(listed.flatMap((t) => t.sources.map((x) => x.source)))
+    if (top) s.add('library')
+    return s
+  }, [listed, top])
   const titles = useMemo(
     () =>
       listed.filter((t) =>
@@ -261,10 +279,32 @@ export default function SearchPanel({
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       if (stepFocus(1)) e.preventDefault()
-    } else if (e.key === 'Enter' && (top || albums[0])) {
-      e.preventDefault()
-      opened()
-      navigate(top ? `/item/${top.Id}` : `/album/${albums[0].Id}`)
+    } else if (e.key === 'Enter') {
+      const trimmed = input.trim()
+      if (trimmed !== term) {
+        e.preventDefault()
+        setTerm(trimmed)
+        return
+      }
+      if (showTop && top) {
+        e.preventDefault()
+        opened()
+        navigate(`/item/${top.Id}`)
+      } else if (titles[0]?.sources[0]?.source === 'library' || titles[0]?.sources[0]?.source === 'friend') {
+        e.preventDefault()
+        opened()
+        navigate(`/item/${titles[0].sources[0].item.Id}`)
+      } else if (albums[0]) {
+        e.preventDefault()
+        opened()
+        navigate(`/album/${albums[0].Id}`)
+      } else if (peopleList[0]) {
+        e.preventDefault()
+        opened()
+        navigate(`/person/${peopleList[0].Id}`)
+      } else if (stepFocus(1)) {
+        e.preventDefault()
+      }
     }
   }
 
@@ -285,7 +325,17 @@ export default function SearchPanel({
     setRecent(next)
   }
 
-  const searching = active && (scope === 'music' ? music.isLoading : lib.isLoading)
+  const searching =
+    active &&
+    (scope === 'music'
+      ? music.isLoading
+      : scope === 'people'
+        ? people.isLoading
+        : scope === 'episodes'
+          ? lib.isLoading
+          : scope === 'movies' || scope === 'shows'
+            ? lib.isLoading || request.isLoading
+            : lib.isLoading || people.isLoading || request.isLoading || (hasMusic && music.isLoading))
   const fetching = active && (lib.isFetching || music.isFetching || request.isFetching || people.isFetching)
   const hasAny =
     ranked.length > 0 ||
@@ -412,7 +462,7 @@ export default function SearchPanel({
               </div>
             )}
 
-            {top && <TopResult item={top} also={topAlso} onOpen={opened} />}
+            {showTop && top && <TopResult item={top} also={topAlso} onOpen={opened} />}
 
             {friendSearch.failed.length > 0 && (
               <p className="mx-2.5 mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[12.5px] text-amber-200">
@@ -420,10 +470,10 @@ export default function SearchPanel({
               </p>
             )}
 
-            {listed.length > 0 && (
+            {(listed.length > 0 || (top && kinds.size > 1)) && (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className={SECTION}>{top ? 'More titles' : 'Titles'}</p>
+                  <p className={SECTION}>{showTop ? 'More titles' : 'Titles'}</p>
                   {kinds.size > 1 && (
                     <div role="radiogroup" aria-label="Where" className="flex flex-wrap gap-1.5 px-2.5 pt-3">
                       {(
@@ -452,7 +502,11 @@ export default function SearchPanel({
                     </div>
                   )}
                 </div>
-                {titles.length === 0 && <p className="px-2.5 py-2 text-[13px] text-ink-400">None of these titles are there. Choose Everywhere to see them all.</p>}
+                {titles.length === 0 && (
+                  <p className="px-2.5 py-2 text-[13px] text-ink-400">
+                    {showTop ? 'No other titles match this filter.' : 'None of these titles are there. Choose Everywhere to see them all.'}
+                  </p>
+                )}
                 <div className="space-y-0.5">
                   {titles.map((t) => (
                     <TitleRow key={t.key} t={t} onOpen={opened} />
@@ -897,7 +951,7 @@ function EmptyState({
   const movieLib = views?.Items.find((v) => v.CollectionType === 'movies')
   const showLib = views?.Items.find((v) => v.CollectionType === 'tvshows')
   const hasMusic = views?.Items.some((v) => v.CollectionType === 'music') ?? false
-  const { data: genres } = useGenres(movieLib?.Id)
+  const { data: genres } = useGenres((movieLib ?? showLib)?.Id)
   const names = (genres?.Items ?? []).map((g) => g.Name).slice(0, 12)
 
   const jumps = [

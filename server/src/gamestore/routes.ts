@@ -3,6 +3,7 @@
 // checking, installing: WS2–WS5 of docs/agents/game-store-plan.md); until one is plugged in they
 // answer 501 in plain words. Nothing here ever sends where a download comes from.
 
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Auth } from '../auth.ts'
@@ -11,8 +12,10 @@ import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
 import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
-import { cleanFeedConfig, feedProvider, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
-import type { CatalogueGame, CatalogueSource, GameMode, GamePlatform, StoreGameDetail, StoreQuery, StoreSort } from './types.ts'
+import { cleanFeedConfig, feedProvider, httpsUrl, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
+import { liveSearchGames, prowlarrConfigured, validLiveDownloadUrl } from './prowlarrSearch.ts'
+import { GameTransferStore, streamDirAsTar } from './transfer.ts'
+import type { CatalogueGame, CatalogueSource, GameMode, GamePlatform, InstallerKind, StoreGameDetail, StoreQuery, StoreSort } from './types.ts'
 
 /** What turns a request into an installed game. WS2 onwards provide it. */
 export interface RequestPipeline {
@@ -91,8 +94,11 @@ export function gameStoreEnabled(settings: SettingsStore): boolean {
 const SYNC_EVERY_MS = 12 * 60 * 60 * 1000
 /** Games added from files by an administrator: not from any feed, so a sync leaves them alone. */
 export const YOURS = 'yours'
+/** Games requested from live Prowlarr search: also excluded from feed sync wipes. */
+export const LIVE = 'live'
+const INSTALLERS: InstallerKind[] = ['inno', 'nsis', 'msi', 'archive', 'portable', 'linux', 'unknown']
 
-export function registerGameStore(router: Router, deps: { settings: SettingsStore; auth: Auth; db?: GameStoreDb; get?: Fetcher; art?: ArtCache }): GameStore {
+export function registerGameStore(router: Router, deps: { settings: SettingsStore; auth: Auth; db?: GameStoreDb; get?: Fetcher; art?: ArtCache; liveFetch?: typeof fetch }): GameStore {
   const { settings, auth } = deps
   const db = deps.db ?? new GameStoreDb(join(settings.paths.configDir, 'gamestore.db'))
   const feeds = (): FeedConfig[] => settings.get().gameStore?.feeds ?? []
@@ -119,7 +125,7 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
   const syncOnce = async () => {
     const list = feeds()
     const files = localFeeds()
-    const ids = [...list.map((f) => f.id), ...files.map((f) => f.id), YOURS]
+    const ids = [...list.map((f) => f.id), ...files.map((f) => f.id), YOURS, LIVE]
     db.keepProviders(ids)
     for (const id of Object.keys(status)) if (!ids.includes(id)) delete status[id]
     for (const f of files) {
@@ -272,6 +278,19 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     sendJson(res, 200, detail)
   })
 
+  // Live PC-game search via Prowlarr (never leaks API keys or internal URLs).
+  router.get('/api/games/store/live-search', async ({ req, res, url }) => {
+    await auth.requireUser(req)
+    on()
+    const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200)
+    const prowlarr = settings.get().services.prowlarr
+    if (q.length < 2) {
+      return sendJson(res, 200, { available: prowlarrConfigured(prowlarr), items: [] })
+    }
+    const result = await liveSearchGames(q, { prowlarr, fetch: deps.liveFetch })
+    sendJson(res, 200, result)
+  })
+
   // Pictures (art.ts). No sign-in: an <img> can't send one, and a picture is only served for
   // an address that's in the catalogue, by a hash nobody can turn back into that address.
   const art = deps.art ?? new ArtCache(join(settings.paths.configDir, 'gamestore-art'))
@@ -329,6 +348,92 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
       sendJson(res, 201, publicRequest(await p))
     } finally {
       if (starting.get(game.id) === p) starting.delete(game.id)
+    }
+  })
+
+  // Request a game found via live Prowlarr search: validates the magnet/https URL, upserts the
+  // game under the protected 'live' provider, and hands it straight to the normal request pipeline.
+  router.post('/api/games/store/live-request', async ({ req, res }) => {
+    const user = await auth.requirePerson(req)
+    on()
+    const body = await readJson<{
+      title?: unknown
+      downloadUrl?: unknown
+      sizeBytes?: unknown
+      platform?: unknown
+      installer?: unknown
+      cover?: unknown
+      summary?: unknown
+      year?: unknown
+      genres?: unknown
+    }>(req)
+
+    const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : ''
+    if (!title) throw new ApiError(400, 'Give the game a name.')
+
+    const dl = validLiveDownloadUrl(body.downloadUrl)
+    if (!dl) throw new ApiError(400, 'That download needs a valid magnet link or https:// address.')
+
+    const sizeBytes = Number(body.sizeBytes)
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) throw new ApiError(400, 'sizeBytes must be a positive number.')
+
+    const platform: GamePlatform = body.platform === undefined ? 'windows' : (oneOf(typeof body.platform === 'string' ? body.platform : null, PLATFORMS, 'platform') ?? 'windows')
+    const installer: InstallerKind = body.installer === undefined ? 'unknown' : (oneOf(typeof body.installer === 'string' ? body.installer : null, INSTALLERS, 'installer') ?? 'unknown')
+    const cover = httpsUrl(body.cover)
+    const summary = typeof body.summary === 'string' && body.summary.trim() ? body.summary.trim().slice(0, 300) : 'Found via live PC game search.'
+    const yearNum = Number(body.year)
+    const year = Number.isInteger(yearNum) && yearNum > 1950 && yearNum < 2200 ? yearNum : undefined
+    const genres = Array.isArray(body.genres)
+      ? [...new Set(body.genres.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim().slice(0, 40)))].slice(0, 8)
+      : []
+
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64) || 'game'
+    const dlHash = createHash('sha256').update(dl.magnet ?? dl.url!).digest('hex').slice(0, 8)
+    const gameId = `${LIVE}-${slug}`
+    const sourceId = `${gameId}-${dlHash}`
+
+    // Reuse existing active request for the same game if one is already going.
+    const going = db.activeRequest(gameId)
+    if (going) return sendJson(res, 200, publicRequest(going))
+    const pending = starting.get(gameId)
+    if (pending) return sendJson(res, 200, publicRequest(await pending))
+
+    const existing = db.game(gameId)
+    const now = new Date().toISOString()
+    const game: CatalogueGame = {
+      id: gameId,
+      title,
+      summary: existing?.summary || summary,
+      ...(year ? { year } : existing?.year ? { year: existing.year } : {}),
+      genres: genres.length ? genres : (existing?.genres ?? []),
+      modes: existing?.modes?.length ? existing.modes : ['single'],
+      platforms: existing?.platforms?.includes(platform) ? existing.platforms : [...(existing?.platforms ?? []), platform],
+      ...(cover ? { cover } : existing?.cover ? { cover: existing.cover } : {}),
+      addedAt: existing?.addedAt ?? now,
+      popularity: existing?.popularity ?? 0,
+      provider: LIVE,
+    }
+    const source: CatalogueSource = {
+      id: sourceId,
+      gameId,
+      platform,
+      installer,
+      sizeBytes: Math.round(sizeBytes),
+      ...dl,
+    }
+
+    // Ensure pipeline is available before mutating the catalogue.
+    const pipe = pipeline()
+    const prevSources = db.sources(gameId).filter((s) => s.id !== sourceId)
+    db.putGame(game, [source, ...prevSources])
+    known = null
+
+    const p = pipe.start(game, source, { id: user.id, name: user.Name })
+    starting.set(gameId, p)
+    try {
+      sendJson(res, 201, publicRequest(await p))
+    } finally {
+      if (starting.get(gameId) === p) starting.delete(gameId)
     }
   })
 
@@ -393,6 +498,22 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     const body = await readJson<{ program?: unknown } | null>(req)
     if (typeof body?.program !== 'string' || !body.program.trim()) throw new ApiError(400, 'Choose a program to start.')
     sendJson(res, 200, publicRequest(await pipeline().pickProgram(r, body.program)))
+  })
+
+  // One-click game transfer to another PC / Steam Deck / browser: creates a short-lived signed
+  // link that streams the game folder as an uncompressed .tar with zero temp disk usage.
+  const transfers = new GameTransferStore()
+  router.post('/api/games/store/requests/:id/transfer', async ({ req, res, params }) => {
+    await auth.requireUser(req)
+    on()
+    const r = requestOr404(params.id)
+    sendJson(res, 200, transfers.create(r))
+  })
+  router.get('/api/games/store/transfer/:token', async ({ res, params }) => {
+    on()
+    const ticket = transfers.get(params.token)
+    if (!ticket) throw new ApiError(404, 'That transfer link has expired or doesn’t exist. Create a new one in Finesse.')
+    await streamDirAsTar(ticket.dir, ticket.fileName, res)
   })
 
   // The installer's screen ("Needs you") is a websocket the sandbox runner serves (WS4); a plain

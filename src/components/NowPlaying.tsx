@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAudio } from '../audio/AudioPlayerContext'
@@ -10,22 +10,36 @@ import { getPrefs, setPrefs, VISUALIZER_STYLES, type VisualizerStyle } from '../
 import { activeLine } from '../lib/lyrics'
 import { blurhashAverageColor } from '../lib/blurhash'
 import { vividRgb } from '../lib/accent'
-import { pushBackHandler } from '../lib/back'
+import { isTypingTarget, pushBackHandler } from '../lib/back'
+import { useOverlayFocus } from '../lib/overlayFocus'
 import { IS_TV } from '../lib/device'
 import AudioVisualizer from './AudioVisualizer'
 import LyricVideo from './LyricVideo'
+import PixelVisualizer, { PIXEL_SCENES, type PixelScene } from './PixelVisualizer'
 
 // Full-screen "Now Playing": the record on the left, lyrics (or what's up next)
 // on the right; on phones the artwork swaps for lyrics / the queue in place.
-// The whole room takes the album's colour. The "Lyric video" style takes over
-// the whole screen instead (components/LyricVideo), controls fading away.
+// The whole room takes the album's colour. The "Lyric video" and "Pixel" styles
+// take over the whole screen instead, controls fading away while you vibe.
 
 const VIZ_LABEL: Record<VisualizerStyle, string> = {
   lyrics: 'Lyric video',
+  pixel: 'Pixel',
   bars: 'Bars',
   waveform: 'Wave',
   radial: 'Radial',
   particles: 'Bloom',
+}
+
+const PIXEL_SCENE_KEY = 'finesse.pixelScene'
+function getStoredPixelScene(): PixelScene {
+  try {
+    const v = localStorage.getItem(PIXEL_SCENE_KEY) as PixelScene | null
+    if (v && PIXEL_SCENES.some((s) => s.id === v)) return v
+  } catch {
+    /* ignore */
+  }
+  return 'auto'
 }
 
 function fmt(s: number): string {
@@ -33,13 +47,6 @@ function fmt(s: number): string {
   const m = Math.floor(s / 60)
   const sec = Math.floor(s % 60)
   return `${m}:${String(sec).padStart(2, '0')}`
-}
-
-
-/** "r, g, b" from the artwork's blurhash, for the room's glow. */
-function moodOf(t: JfItem): string | null {
-  const avg = blurhashAverageColor(artBlurhash(t))
-  return avg ? vividRgb(avg[0], avg[1], avg[2]).join(', ') : null
 }
 
 function useIsWide(): boolean {
@@ -224,6 +231,23 @@ function FillIcon({ d, className = 'h-7 w-7' }: { d: string; className?: string 
   )
 }
 
+function VolumeIcon({ muted, volume }: { muted: boolean; volume: number }) {
+  if (muted || volume === 0) {
+    return (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5 6 9H3v6h3l5 4V5Zm6.5 4.5-4 4m0-4 4 4" />
+      </svg>
+    )
+  }
+  return (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5 6 9H3v6h3l5 4V5Z" />
+      {volume > 0.01 && <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 8.5a5 5 0 0 1 0 7" />}
+      {volume > 0.5 && <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 5.5a9 9 0 0 1 0 13" />}
+    </svg>
+  )
+}
+
 function IconFullscreen({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -237,6 +261,89 @@ function IconExitFullscreen({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
     </svg>
+  )
+}
+
+/** Seek bar supporting drag scrubbing (clamped 0..1) and keyboard/TV Left/Right seeking. */
+function SeekBar({
+  position,
+  duration,
+  onSeek,
+  compact,
+}: {
+  position: number
+  duration: number
+  onSeek: (sec: number) => void
+  compact?: boolean
+}) {
+  const known = Number.isFinite(duration) && duration > 0
+  const pct = known ? Math.max(0, Math.min(100, (position / duration) * 100)) : 0
+  const dragging = useRef(false)
+
+  const seekAt = (clientX: number, el: HTMLElement) => {
+    if (!known) return
+    const r = el.getBoundingClientRect()
+    if (r.width <= 0) return
+    const frac = Math.max(0, Math.min(1, (clientX - r.left) / r.width))
+    onSeek(frac * duration)
+  }
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!known) return
+    dragging.current = true
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    seekAt(e.clientX, e.currentTarget)
+  }
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return
+    seekAt(e.clientX, e.currentTarget)
+  }
+  const endDrag = () => {
+    dragging.current = false
+  }
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!known) return
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      onSeek(Math.max(0, position - 5))
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      onSeek(Math.min(duration, position + 5))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      onSeek(0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      onSeek(duration)
+    }
+  }
+
+  return (
+    <div
+      className={`group/seek ${compact ? 'h-4' : 'mt-5 h-5'} flex items-center touch-none rounded outline-none focus-visible:ring-2 focus-visible:ring-accent-400 ${known ? 'cursor-pointer' : ''}`}
+      role="slider"
+      tabIndex={0}
+      aria-label="Seek"
+      aria-valuemin={0}
+      aria-valuemax={Math.round(duration) || 0}
+      aria-valuenow={Math.round(position)}
+      aria-valuetext={`${fmt(position)} of ${fmt(duration)}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onKeyDown={onKeyDown}
+    >
+      <div className={`relative w-full ${compact ? 'h-1 bg-white/25' : 'h-1.5 bg-white/20'} rounded-full`}>
+        <div className="absolute h-full rounded-full bg-white" style={{ width: `${pct}%` }} />
+        {!compact && (
+          <div
+            className="absolute h-3.5 w-3.5 rounded-full bg-white shadow -translate-y-1/2 top-1/2 -translate-x-1/2 opacity-0 group-hover/seek:opacity-100 group-focus-visible/seek:opacity-100 transition-opacity"
+            style={{ left: `${pct}%` }}
+          />
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -282,29 +389,44 @@ function useFullscreen(open: boolean) {
 
 export default function NowPlaying() {
   const {
-    current, expanded, setExpanded, playing, position, duration, toggle, next, prev, seek, index, queue, jumpTo,
+    current, expanded, setExpanded, playing, position, duration, volume, muted, setVolume, toggleMute,
+    toggle, next, prev, seek, stop, index, queue, jumpTo,
     shuffle, toggleShuffle, repeat, cycleRepeat,
   } = useAudio()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const wide = useIsWide()
   const fullscreen = useFullscreen(expanded)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useOverlayFocus(expanded && Boolean(current), dialogRef)
+
   const [viz, setViz] = useState<VisualizerStyle>(() => getPrefs().visualizer)
+  const [pixelScene, setPixelScene] = useState<PixelScene>(getStoredPixelScene)
   const [panel, setPanel] = useState<'lyrics' | 'queue'>('lyrics')
   // Phones: what fills the space above the controls.
   const [phoneView, setPhoneView] = useState<'art' | 'lyrics' | 'queue'>('art')
   const pickViz = (v: VisualizerStyle) => {
-    if (viz !== 'lyrics') lastCanvasViz.current = viz
+    if (viz !== 'lyrics' && viz !== 'pixel') lastCanvasViz.current = viz
     setViz(v)
     setPrefs({ visualizer: v })
   }
-  // Leaving the lyric video returns to the visualizer you had before it.
-  const lastCanvasViz = useRef<VisualizerStyle>(viz === 'lyrics' ? 'bars' : viz)
+  const pickPixelScene = (s: PixelScene) => {
+    setPixelScene(s)
+    try {
+      localStorage.setItem(PIXEL_SCENE_KEY, s)
+    } catch {
+      /* ignore */
+    }
+  }
+  // Leaving full-bleed Lyric Video / Pixel mode returns to the visualizer you had before it.
+  const lastCanvasViz = useRef<VisualizerStyle>(viz === 'lyrics' || viz === 'pixel' ? 'bars' : viz)
   const lyricVideo = viz === 'lyrics'
-  // Lyric video: controls fade out after a few idle seconds; any input brings them back.
+  const pixelStage = viz === 'pixel'
+  const fullStage = lyricVideo || pixelStage
+  // Full-stage modes: controls fade out after a few idle seconds; any input brings them back.
   const [chrome, setChrome] = useState(true)
   useEffect(() => {
-    if (!expanded || !lyricVideo) {
+    if (!expanded || !fullStage) {
       setChrome(true)
       return
     }
@@ -312,7 +434,7 @@ export default function NowPlaying() {
     const wake = () => {
       setChrome(true)
       window.clearTimeout(timer)
-      timer = window.setTimeout(() => setChrome(false), 3500)
+      timer = window.setTimeout(() => setChrome(false), 3800)
     }
     wake()
     const evs = ['pointermove', 'pointerdown', 'keydown', 'touchstart'] as const
@@ -321,7 +443,7 @@ export default function NowPlaying() {
       window.clearTimeout(timer)
       evs.forEach((e) => window.removeEventListener(e, wake))
     }
-  }, [expanded, lyricVideo])
+  }, [expanded, fullStage])
 
   // Escape / remote Back collapses the overlay (instead of also navigating away).
   useEffect(() => {
@@ -332,17 +454,52 @@ export default function NowPlaying() {
     })
   }, [expanded, setExpanded])
 
+  // Desktop keyboard shortcuts while Now Playing is open.
+  const posRef = useRef(position)
+  posRef.current = position
+  const durRef = useRef(duration)
+  durRef.current = duration
+  useEffect(() => {
+    if (!expanded || !current) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return
+      const target = e.target as HTMLElement | null
+      if (e.key === ' ' && target?.tagName !== 'BUTTON') {
+        e.preventDefault()
+        toggle()
+      } else if ((e.key === 'm' || e.key === 'M')) {
+        e.preventDefault()
+        toggleMute()
+      } else if (!IS_TV && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && target?.getAttribute('role') !== 'slider') {
+        const d = durRef.current
+        if (!Number.isFinite(d) || d <= 0) return
+        e.preventDefault()
+        const delta = e.key === 'ArrowLeft' ? -5 : 5
+        seek(Math.max(0, Math.min(d, posRef.current + delta)))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded, current, toggle, toggleMute, seek])
+
   // Have the next song's lyrics ready before it starts.
   useEffect(() => {
     if (expanded) prefetchTrackLyrics(qc, queue[index + 1])
   }, [expanded, qc, queue, index])
 
+  const { data: stageLyrics } = useTrackLyrics(pixelStage ? current : null)
+
   if (!expanded || !current) return null
 
   const cover = trackArt(current, 900)
   const bg = trackArt(current, 400)
-  const mood = moodOf(current)
-  const pct = duration ? Math.min(100, (position / duration) * 100) : 0
+  const moodAvg = blurhashAverageColor(artBlurhash(current))
+  const moodTuple: [number, number, number] | null = moodAvg ? vividRgb(moodAvg[0], moodAvg[1], moodAvg[2]) : null
+  const mood = moodTuple ? moodTuple.join(', ') : null
+  const currentStageLyric =
+    pixelStage && stageLyrics?.synced && stageLyrics.lines.length > 0
+      ? stageLyrics.lines[activeLine(stageLyrics.lines, position)]?.text ?? ''
+      : ''
   const openAlbum = current.AlbumId
     ? () => {
         setExpanded(false)
@@ -372,77 +529,195 @@ export default function NowPlaying() {
     `h-9 px-4 rounded-full text-sm font-semibold transition-colors ${active ? 'bg-white text-ink-950' : 'text-white/70 hover:text-white hover:bg-white/10'}`
 
   const topBar = (
-      <div
-        className="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 sm:px-6 pt-4"
-        style={{
-          paddingTop: 'max(1rem, env(safe-area-inset-top))',
-          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-          paddingRight: 'max(1rem, env(safe-area-inset-right))',
-        }}
+    <div
+      className="absolute top-0 inset-x-0 z-10 flex items-center gap-2 sm:gap-3 px-4 sm:px-6 pt-4"
+      style={{
+        paddingTop: 'max(1rem, env(safe-area-inset-top))',
+        paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1rem, env(safe-area-inset-right))',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded(false)}
+        className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+        aria-label="Minimize now playing"
+        title="Minimize"
       >
-        <button
-          onClick={() => setExpanded(false)}
-          className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
-          aria-label="Close now playing"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
-        <p className="flex-1 min-w-0 text-center text-xs font-semibold uppercase tracking-[0.14em] text-white/55 truncate">
-          {current.Album ? `Playing from ${current.Album}` : 'Now playing'}
-        </p>
-        <div className="hidden sm:flex shrink-0 gap-0.5 rounded-full bg-black/50 border border-white/10 p-0.5" aria-label="Visualizer">
-          {VISUALIZER_STYLES.map((v) => (
-            <button
-              key={v}
-              onClick={() => pickViz(v)}
-              aria-pressed={v === viz}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${v === viz ? 'bg-white/90 text-ink-950' : 'text-white/60 hover:text-white'}`}
-            >
-              {VIZ_LABEL[v]}
-            </button>
-          ))}
-        </div>
-        {fullscreen.supported ? (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+      <p className="flex-1 min-w-0 text-center text-xs font-semibold uppercase tracking-[0.14em] text-white/55 truncate">
+        {current.Album ? `Playing from ${current.Album}` : 'Now playing'}
+      </p>
+      <div className="hidden sm:flex shrink-0 gap-0.5 rounded-full bg-black/50 border border-white/10 p-0.5" aria-label="Visualizer">
+        {VISUALIZER_STYLES.map((v) => (
           <button
-            onClick={() => void fullscreen.toggle()}
-            className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
-            aria-label={fullscreen.on ? 'Exit full screen' : 'Full screen'}
-            title={fullscreen.on ? 'Exit full screen' : 'Full screen'}
+            key={v}
+            type="button"
+            onClick={() => pickViz(v)}
+            aria-pressed={v === viz}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${v === viz ? 'bg-white/90 text-ink-950' : 'text-white/60 hover:text-white'}`}
           >
-            {fullscreen.on ? <IconExitFullscreen className="h-5 w-5" /> : <IconFullscreen className="h-5 w-5" />}
+            {VIZ_LABEL[v]}
           </button>
-        ) : (
-          <span className="sm:hidden w-10" />
-        )}
+        ))}
       </div>
+      {fullscreen.supported && (
+        <button
+          type="button"
+          onClick={() => void fullscreen.toggle()}
+          className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+          aria-label={fullscreen.on ? 'Exit full screen' : 'Full screen'}
+          title={fullscreen.on ? 'Exit full screen' : 'Full screen'}
+        >
+          {fullscreen.on ? <IconExitFullscreen className="h-5 w-5" /> : <IconFullscreen className="h-5 w-5" />}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={stop}
+        className="h-10 w-10 shrink-0 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+        aria-label="Stop playback"
+        title="Stop playback"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
   )
+
+  if (pixelStage) {
+    return (
+      <div
+        ref={dialogRef}
+        className={`fixed inset-0 z-[75] overflow-hidden bg-[#060612] text-white ${chrome ? '' : 'cursor-none'}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Now playing — Pixel visualizer"
+      >
+        <PixelVisualizer scene={pixelScene} moodRgb={moodTuple} className="absolute inset-0 h-full w-full" />
+
+        {/* Subtle bottom vignette so controls & synced lyric line stay crisp */}
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/80 via-black/30 to-transparent transition-opacity duration-500 ${
+            chrome || currentStageLyric ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+
+        {/* Floating synced lyric subtitle line when lyrics are available */}
+        {currentStageLyric && (
+          <div
+            className={`pointer-events-none absolute inset-x-6 z-10 text-center transition-all duration-500 ${
+              chrome ? 'bottom-40 sm:bottom-36' : 'bottom-10'
+            }`}
+          >
+            <p className="inline-block max-w-3xl rounded-2xl bg-black/55 px-4 py-2 font-display italic text-xl sm:text-3xl text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] backdrop-blur-sm">
+              {currentStageLyric}
+            </p>
+          </div>
+        )}
+
+        <div className={`transition-opacity duration-500 ${chrome ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          {topBar}
+          <div
+            className="absolute bottom-0 inset-x-0 z-10 px-4 sm:px-8 pt-10 pb-5"
+            style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+          >
+            {/* Pixel world scene switcher */}
+            <div className="mb-3 flex flex-wrap items-center justify-center gap-1.5" role="group" aria-label="Pixel world">
+              {PIXEL_SCENES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => pickPixelScene(s.id)}
+                  aria-pressed={pixelScene === s.id}
+                  className={`rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors ${
+                    pixelScene === s.id
+                      ? 'bg-white text-ink-950 shadow-md'
+                      : 'bg-black/55 border border-white/15 text-white/75 hover:bg-black/75 hover:text-white'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            <SeekBar position={position} duration={duration} onSeek={seek} compact />
+            <div className="mt-1 flex justify-between text-[11px] tabular-nums text-white/60">
+              <span>{fmt(position)}</span>
+              <span>-{fmt(Math.max(0, duration - position))}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                {bg && <img src={bg} alt="" className="h-11 w-11 rounded-md object-cover ring-1 ring-white/20" />}
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold">{current.Name}</p>
+                  <p className="truncate text-[13px] text-white/65">{artistOf(current)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-3">
+                <button type="button" onClick={prev} className="h-11 w-11 flex items-center justify-center text-white/85 hover:text-white" aria-label="Previous">
+                  <FillIcon d={I.prev} className="h-7 w-7" />
+                </button>
+                <button
+                  type="button"
+                  data-autofocus
+                  onClick={toggle}
+                  className="h-12 w-12 rounded-full bg-white text-ink-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+                  aria-label={playing ? 'Pause' : 'Play'}
+                >
+                  <FillIcon d={playing ? I.pause : I.play} className={`h-6 w-6 ${playing ? '' : 'translate-x-0.5'}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={next}
+                  disabled={index >= queue.length - 1 && repeat !== 'all'}
+                  className="h-11 w-11 flex items-center justify-center text-white/85 hover:text-white disabled:opacity-30"
+                  aria-label="Next"
+                >
+                  <FillIcon d={I.next} className="h-7 w-7" />
+                </button>
+              </div>
+              <div className="flex-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => pickViz(lastCanvasViz.current)}
+                  className="h-9 px-4 rounded-full bg-white/15 hover:bg-white/25 text-sm font-semibold transition-colors"
+                >
+                  <span className="hidden sm:inline">Exit pixel stage</span>
+                  <span className="sm:hidden">Exit</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (lyricVideo) {
     return (
-      <div className={`fixed inset-0 z-[75] overflow-hidden bg-black text-white ${chrome ? '' : 'cursor-none'}`} role="dialog" aria-label="Now playing">
+      <div
+        ref={dialogRef}
+        className={`fixed inset-0 z-[75] overflow-hidden bg-black text-white ${chrome ? '' : 'cursor-none'}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Now playing"
+      >
         <LyricVideo track={current} />
         <div className={`transition-opacity duration-500 ${chrome ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           {topBar}
           <div className="absolute bottom-0 inset-x-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-4 sm:px-8 pt-20 pb-5" style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
-            <div
-              className="group/seek h-4 flex items-center cursor-pointer"
-              role="slider"
-              aria-label="Seek"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(duration)}
-              aria-valuenow={Math.round(position)}
-              onPointerDown={(e) => {
-                const r = e.currentTarget.getBoundingClientRect()
-                seek(((e.clientX - r.left) / r.width) * duration)
-              }}
-            >
-              <div className="relative w-full h-1 rounded-full bg-white/25">
-                <div className="absolute h-full rounded-full bg-white" style={{ width: `${pct}%` }} />
-              </div>
+            <SeekBar position={position} duration={duration} onSeek={seek} compact />
+            <div className="mt-1 flex justify-between text-[11px] tabular-nums text-white/55">
+              <span>{fmt(position)}</span>
+              <span>-{fmt(Math.max(0, duration - position))}</span>
             </div>
-            <div className="mt-3 flex items-center gap-3">
+            <div className="mt-2 flex items-center gap-3">
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 {bg && <img src={bg} alt="" className="h-11 w-11 rounded-md object-cover ring-1 ring-white/15" />}
                 <div className="min-w-0">
@@ -451,10 +726,12 @@ export default function NowPlaying() {
                 </div>
               </div>
               <div className="flex items-center gap-1 sm:gap-3">
-                <button onClick={prev} className="h-11 w-11 flex items-center justify-center text-white/85 hover:text-white" aria-label="Previous">
+                <button type="button" onClick={prev} className="h-11 w-11 flex items-center justify-center text-white/85 hover:text-white" aria-label="Previous">
                   <FillIcon d={I.prev} className="h-7 w-7" />
                 </button>
                 <button
+                  type="button"
+                  data-autofocus
                   onClick={toggle}
                   className="h-12 w-12 rounded-full bg-white text-ink-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
                   aria-label={playing ? 'Pause' : 'Play'}
@@ -462,6 +739,7 @@ export default function NowPlaying() {
                   <FillIcon d={playing ? I.pause : I.play} className={`h-6 w-6 ${playing ? '' : 'translate-x-0.5'}`} />
                 </button>
                 <button
+                  type="button"
                   onClick={next}
                   disabled={index >= queue.length - 1 && repeat !== 'all'}
                   className="h-11 w-11 flex items-center justify-center text-white/85 hover:text-white disabled:opacity-30"
@@ -488,7 +766,13 @@ export default function NowPlaying() {
   }
 
   return (
-    <div className="fixed inset-0 z-[75] overflow-hidden bg-ink-950 text-white" role="dialog" aria-label="Now playing">
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-[75] overflow-hidden bg-ink-950 text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Now playing"
+    >
       {/* The room takes the record's colour */}
       {bg && <img src={bg} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover blur-3xl brightness-[0.3] saturate-150 scale-125" />}
       {mood && (
@@ -527,34 +811,19 @@ export default function NowPlaying() {
               {current.Album && (
                 <>
                   <span className="text-white/35"> · </span>
-                  <button type="button" onClick={openAlbum} className="hover:text-white hover:underline underline-offset-2">
-                    {current.Album}
-                  </button>
+                  {openAlbum ? (
+                    <button type="button" onClick={openAlbum} className="hover:text-white hover:underline underline-offset-2">
+                      {current.Album}
+                    </button>
+                  ) : (
+                    <span>{current.Album}</span>
+                  )}
                 </>
               )}
             </p>
 
             {/* Seek */}
-            <div
-              className="group/seek mt-5 h-5 flex items-center cursor-pointer"
-              role="slider"
-              aria-label="Seek"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(duration)}
-              aria-valuenow={Math.round(position)}
-              onPointerDown={(e) => {
-                const r = e.currentTarget.getBoundingClientRect()
-                seek(((e.clientX - r.left) / r.width) * duration)
-              }}
-            >
-              <div className="relative w-full h-1.5 rounded-full bg-white/20">
-                <div className="absolute h-full rounded-full bg-white" style={{ width: `${pct}%` }} />
-                <div
-                  className="absolute h-3.5 w-3.5 rounded-full bg-white shadow -translate-y-1/2 top-1/2 -translate-x-1/2 opacity-0 group-hover/seek:opacity-100 transition-opacity"
-                  style={{ left: `${pct}%` }}
-                />
-              </div>
-            </div>
+            <SeekBar position={position} duration={duration} onSeek={seek} />
             <div className="flex justify-between text-xs tabular-nums text-white/50 mt-1.5">
               <span>{fmt(position)}</span>
               <span>-{fmt(Math.max(0, duration - position))}</span>
@@ -563,6 +832,7 @@ export default function NowPlaying() {
             {/* Transport */}
             <div className="mt-3 flex items-center justify-between max-w-sm mx-auto lg:mx-0">
               <button
+                type="button"
                 onClick={toggleShuffle}
                 aria-label="Shuffle"
                 aria-pressed={shuffle}
@@ -570,10 +840,12 @@ export default function NowPlaying() {
               >
                 <StrokeIcon d={I.shuffle} className="h-5 w-5" />
               </button>
-              <button onClick={prev} className="h-12 w-12 flex items-center justify-center text-white/85 hover:text-white active:scale-90 transition" aria-label="Previous">
+              <button type="button" onClick={prev} className="h-12 w-12 flex items-center justify-center text-white/85 hover:text-white active:scale-90 transition" aria-label="Previous">
                 <FillIcon d={I.prev} className="h-8 w-8" />
               </button>
               <button
+                type="button"
+                data-autofocus
                 onClick={toggle}
                 className="h-16 w-16 rounded-full bg-white text-ink-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
                 aria-label={playing ? 'Pause' : 'Play'}
@@ -581,6 +853,7 @@ export default function NowPlaying() {
                 <FillIcon d={playing ? I.pause : I.play} className={`h-8 w-8 ${playing ? '' : 'translate-x-0.5'}`} />
               </button>
               <button
+                type="button"
                 onClick={next}
                 disabled={index >= queue.length - 1 && repeat !== 'all'}
                 className="h-12 w-12 flex items-center justify-center text-white/85 hover:text-white active:scale-90 disabled:opacity-30 transition"
@@ -589,6 +862,7 @@ export default function NowPlaying() {
                 <FillIcon d={I.next} className="h-8 w-8" />
               </button>
               <button
+                type="button"
                 onClick={cycleRepeat}
                 aria-label={repeat === 'one' ? 'Repeat this song' : repeat === 'all' ? 'Repeat all' : 'Repeat off'}
                 aria-pressed={repeat !== 'off'}
@@ -601,19 +875,59 @@ export default function NowPlaying() {
               </button>
             </div>
 
-            {/* Phones: swap the artwork for lyrics / the queue */}
+            {/* Desktop volume / mute */}
+            <div className="hidden md:flex items-center gap-2.5 mt-4 max-w-sm">
+              <button
+                type="button"
+                onClick={toggleMute}
+                aria-label={muted || volume === 0 ? 'Unmute' : 'Mute'}
+                title={muted || volume === 0 ? 'Unmute (M)' : 'Mute (M)'}
+                className="h-8 w-8 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <VolumeIcon muted={muted} volume={volume} />
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.02}
+                value={muted ? 0 : volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                aria-label="Volume"
+                className="flex-1 accent-white cursor-pointer"
+              />
+            </div>
+
+            {/* Phones: visualizer switcher + swap artwork for lyrics / queue */}
             {!wide && (
-              <div className="mt-4 flex justify-center gap-2">
-                <button type="button" onClick={() => setPhoneView((v) => (v === 'lyrics' ? 'art' : 'lyrics'))} aria-pressed={phoneView === 'lyrics'} className={tabBtn(phoneView === 'lyrics')}>
-                  Lyrics
-                </button>
-                <button type="button" onClick={() => setPhoneView((v) => (v === 'queue' ? 'art' : 'queue'))} aria-pressed={phoneView === 'queue'} className={tabBtn(phoneView === 'queue')}>
-                  Up next
-                </button>
-                <button type="button" onClick={() => pickViz('lyrics')} className={tabBtn(false)}>
-                  ✦ Video
-                </button>
-              </div>
+              <>
+                <div className="mt-4 flex justify-center gap-2">
+                  <button type="button" onClick={() => setPhoneView((v) => (v === 'lyrics' ? 'art' : 'lyrics'))} aria-pressed={phoneView === 'lyrics'} className={tabBtn(phoneView === 'lyrics')}>
+                    Lyrics
+                  </button>
+                  <button type="button" onClick={() => setPhoneView((v) => (v === 'queue' ? 'art' : 'queue'))} aria-pressed={phoneView === 'queue'} className={tabBtn(phoneView === 'queue')}>
+                    Up next
+                  </button>
+                  <button type="button" onClick={() => pickViz('lyrics')} className={tabBtn(false)}>
+                    ✦ Video
+                  </button>
+                </div>
+                <div className="sm:hidden mt-3 flex justify-center">
+                  <div className="inline-flex max-w-full overflow-x-auto no-scrollbar gap-0.5 rounded-full bg-black/45 border border-white/10 p-0.5" aria-label="Visualizer">
+                    {VISUALIZER_STYLES.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => pickViz(v)}
+                        aria-pressed={v === viz}
+                        className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${v === viz ? 'bg-white/90 text-ink-950' : 'text-white/60 hover:text-white'}`}
+                      >
+                        {VIZ_LABEL[v]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </section>

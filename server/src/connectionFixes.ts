@@ -11,6 +11,7 @@
 // Works on someone's own apps (adopt) and on Finesse's alike. Never logs a key.
 
 import { lookup } from 'node:dns/promises'
+import { mkdirSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { isIP } from 'node:net'
@@ -20,6 +21,7 @@ import type { Endpoint, Settings, SettingsStore } from './config.ts'
 import { ARRS, connectionRepairs, liveFetch, REMOTE_PATH, unreachable, type AutoConnectionFix, type ConnFetch, type ConnFix } from './connections.ts'
 import { logger } from './log.ts'
 import { joinUrl } from './http/proxy.ts'
+import { fromApp } from './stack/apppaths.ts'
 
 export interface FixDeps {
   get: ConnFetch
@@ -195,7 +197,10 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
   const health = await json<{ message?: string }[]>('health')
   if (!Array.isArray(health)) throw new FixError(`${def.name} sent an invalid health report.`)
   const missing = health.map((h) => typeof h?.message === 'string' ? REMOTE_PATH.exec(h.message) : null)
-    .filter((m): m is RegExpExecArray => Boolean(m)).map((m) => ({ client: m[1]!.trim(), remote: m[2]!.trim().replace(/\.$/, '') }))
+    .filter((m): m is RegExpExecArray => Boolean(m)).map((m) => ({
+      client: m[1]!.trim(),
+      remote: m[2]!.trim().replace(/^["']|["']$/g, '').replace(/\.$/, ''),
+    }))
   if (!missing.length) return `${def.name} can find its download folders now. Nothing to change.`
   const clients = await json<{ name?: string; implementation?: string; fields?: { name?: string; value?: unknown }[] }[]>('downloadclient')
   const mappings = await json<Mapping[]>('remotepathmapping')
@@ -209,13 +214,18 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
   const appBox = list && findContainer(list, appUrl.hostname, Number(appUrl.port || 80), def.id)
   const appMounts = appBox ? await inspect(appBox.Id).catch(() => []) : []
 
+  /** Lists subdirectories inside `dir` as seen by the app. */
+  const listDirs = async (dir: string): Promise<string[]> => {
+    const r = await json<{ directories?: { path?: string }[] }>(`filesystem?path=${encodeURIComponent(slash(trim(dir)))}&includeFiles=false`).catch(() => null)
+    return Array.isArray(r?.directories) ? r.directories.map((x) => x?.path).filter(cleanDir) : []
+  }
+
   /** Whether the app can see this folder (it lists the parent and looks for it). */
   const sees = async (dir: string) => {
     const d = trim(dir)
     if (d === '/') return true
     const parent = d.slice(0, d.lastIndexOf('/')) || '/'
-    const r = await json<{ directories?: { path?: string }[] }>(`filesystem?path=${encodeURIComponent(slash(parent))}&includeFiles=false`).catch(() => null)
-    return Boolean(Array.isArray(r?.directories) && r.directories.some((x) => cleanDir(x?.path) && trim(x.path) === d))
+    return (await listDirs(parent)).some((p) => trim(p) === d)
   }
 
   const done: string[] = []
@@ -244,6 +254,38 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
       for (const m of Array.isArray(r?.json) ? (r!.json as Mapping[]) : [])
         if (m?.host === host && cleanDir(m.remotePath) && cleanDir(m.localPath) && under(trim(remote), m.remotePath)) candidates.push({ remotePath: m.remotePath, localPath: m.localPath })
     }
+    // Case mismatch or nested mount discovery straight from the app's own /filesystem API
+    // (works on TrueNAS / Docker even without Docker socket access, e.g. /data/Torrents → /data/data/Torrents).
+    const rTrim = trim(remote)
+    if (rTrim !== '/') {
+      const parent = rTrim.slice(0, rTrim.lastIndexOf('/')) || '/'
+      const leaf = rTrim.slice(rTrim.lastIndexOf('/') + 1).toLowerCase()
+      const parentDirs = await listDirs(parent)
+      const sibling = parentDirs.find((p) => {
+        const t = trim(p)
+        return t !== rTrim && t.slice(t.lastIndexOf('/') + 1).toLowerCase() === leaf
+      })
+      if (sibling) {
+        candidates.push({ remotePath: slash(rTrim), localPath: slash(trim(sibling)) })
+      } else {
+        // Check 1 level deeper inside the parent and common mount roots (bounded to 12 probes).
+        const probeRoots = [...new Set([...parentDirs, '/data', '/downloads', '/mnt', '/media'])]
+          .map(trim)
+          .filter((d) => d !== rTrim && !/^\/(?:proc|sys|dev|etc|usr|var|bin|lib|config|tmp)(?:\/|$)/i.test(d))
+          .slice(0, 12)
+        for (const dir of probeRoots) {
+          const children = await listDirs(dir)
+          const hit = children.find((p) => {
+            const t = trim(p)
+            return t !== rTrim && t.slice(t.lastIndexOf('/') + 1).toLowerCase() === leaf
+          })
+          if (hit) {
+            candidates.push({ remotePath: slash(rTrim), localPath: slash(trim(hit)) })
+            break
+          }
+        }
+      }
+    }
     let fixed = false
     for (const m of candidates) {
       if (!(await sees(translate(trim(remote), m.remotePath, m.localPath)))) continue
@@ -262,17 +304,126 @@ async function fixRemotePaths(def: (typeof ARRS)[number], s: Settings, deps: Fix
   }
   if (!done.length)
     throw new FixError(
-      `Finesse couldn’t work out where ${failed.join(' and ')} saves inside ${def.name}. Give both apps the same downloads folder, or add a remote path mapping in ${def.name} (Settings → Download Clients).`,
+      `Finesse couldn’t find ${failed.join(' and ')}’s downloads folder inside ${def.name}. On TrueNAS or Docker, edit ${def.name}’s storage so it mounts the same downloads dataset as ${failed.join(' / ')} (for example at /data), then click Fix again.`,
     )
+  // Ask the app to re-run its health check so the warning clears right away.
+  await deps.get(url('command'), { method: 'POST', headers, body: { name: 'CheckHealth' } }).catch(() => {})
   return `Added to ${def.name}: ${done.join(', ')}.${failed.length ? ` ${failed.join(' and ')} still need${failed.length > 1 ? '' : 's'} a look.` : ''}`
+}
+
+async function fixSabResume(svc: Endpoint, deps: FixDeps): Promise<string> {
+  const r = await deps.get(joinUrl(svc.url!, '/api', `?mode=resume&output=json&apikey=${encodeURIComponent(svc.apiKey ?? '')}`), {}).catch((e) => {
+    throw new FixError(unreachable('SABnzbd', e))
+  })
+  const j = (r.json ?? {}) as { error?: string }
+  if (r.status >= 400 || j.error) throw new FixError(`Couldn’t resume SABnzbd${j.error ? `: ${j.error}` : ` (${r.status})`}.`)
+  return 'Resumed SABnzbd downloads.'
+}
+
+async function fixProwlarrSync(target: (typeof ARRS)[number], s: Settings, deps: FixDeps): Promise<string> {
+  const prowlarr = s.services.prowlarr
+  if (!prowlarr?.url || !prowlarr.apiKey) throw new FixError('Prowlarr isn’t connected, so Finesse can’t sync indexers automatically.')
+  const pHeaders = { 'x-api-key': prowlarr.apiKey }
+  if (target.id === 'prowlarr') {
+    await deps.get(joinUrl(prowlarr.url, '/api/v1/indexer/testall'), { method: 'POST', headers: pHeaders }).catch(() => {})
+  }
+  const sync = await deps
+    .get(joinUrl(prowlarr.url, '/api/v1/command'), { method: 'POST', headers: pHeaders, body: { name: 'ApplicationIndexerSync' } })
+    .catch((e) => {
+      throw new FixError(unreachable('Prowlarr', e))
+    })
+  if (sync.status >= 400) throw new FixError(`Prowlarr couldn’t sync indexers (${sync.status}).`)
+  if (target.id !== 'prowlarr') {
+    const svc = s.services[target.id]
+    if (svc?.url && svc.apiKey) {
+      await deps.get(joinUrl(svc.url, `${target.api}/command`), { method: 'POST', headers: { 'x-api-key': svc.apiKey }, body: { name: 'CheckHealth' } }).catch(() => {})
+    }
+    return `Synced indexers from Prowlarr into ${target.name} and refreshed health.`
+  }
+  await deps.get(joinUrl(prowlarr.url, '/api/v1/command'), { method: 'POST', headers: pHeaders, body: { name: 'CheckHealth' } }).catch(() => {})
+  return 'Re-tested Prowlarr indexers and synced them to your connected apps.'
+}
+
+async function fixArrRootFolder(def: (typeof ARRS)[number], s: Settings, deps: FixDeps): Promise<string> {
+  const svc = s.services[def.id]!
+  const headers = { 'x-api-key': svc.apiKey ?? '' }
+  const url = (p: string) => joinUrl(svc.url!, `${def.api}/${p}`)
+  const rfRes = await deps.get(url('rootfolder'), { headers }).catch((e) => {
+    throw new FixError(unreachable(def.name, e))
+  })
+  if (rfRes.status >= 400 || !Array.isArray(rfRes.json)) throw new FixError(`Couldn’t read ${def.name}’s library folders.`)
+  const folders = rfRes.json as { id?: number; path?: string; accessible?: boolean }[]
+  const broken = folders.filter((f) => f.accessible === false && typeof f.path === 'string')
+  if (!broken.length) {
+    await deps.get(url('command'), { method: 'POST', headers, body: { name: 'CheckHealth' } }).catch(() => {})
+    return `${def.name}’s library folders look fine now.`
+  }
+  const fixed: string[] = []
+  const healthyCount = folders.filter((f) => f.accessible !== false).length
+  for (const rf of broken) {
+    // In bundle mode, recreate a missing folder inside Finesse's own /data mount.
+    if (s.mode === 'bundle' && s.stack?.hostData && rf.path) {
+      const host = fromApp(s.stack.hostData, rf.path)
+      if (host) {
+        try {
+          mkdirSync(host, { recursive: true })
+          fixed.push(`created ${rf.path}`)
+          continue
+        } catch {
+          /* fall through to stale removal */
+        }
+      }
+    }
+    // If another valid root folder already exists, remove the unused dead one.
+    if (healthyCount > 0 && typeof rf.id === 'number') {
+      const del = await deps.get(url(`rootfolder/${rf.id}`), { method: 'DELETE', headers }).catch(() => null)
+      if (del && del.status >= 200 && del.status < 300) fixed.push(`removed dead folder ${rf.path}`)
+    }
+  }
+  if (!fixed.length) {
+    throw new FixError(`${def.name} can’t see its library folder (${broken.map((b) => b.path).join(', ')}). Check the container’s storage mount and try again.`)
+  }
+  await deps.get(url('command'), { method: 'POST', headers, body: { name: 'CheckHealth' } }).catch(() => {})
+  return `Fixed ${def.name} folders: ${fixed.join(', ')}.`
+}
+
+async function fixArrRefresh(def: (typeof ARRS)[number], s: Settings, deps: FixDeps): Promise<string> {
+  const svc = s.services[def.id]!
+  const headers = { 'x-api-key': svc.apiKey ?? '' }
+  const url = (p: string) => joinUrl(svc.url!, `${def.api}/${p}`)
+  const what = def.clients ? 'downloadclient' : 'indexer'
+  await deps.get(url(`${what}/testall`), { method: 'POST', headers }).catch(() => {})
+  const r = await deps.get(url('command'), { method: 'POST', headers, body: { name: 'CheckHealth' } }).catch((e) => {
+    throw new FixError(unreachable(def.name, e))
+  })
+  if (r.status >= 400) throw new FixError(`${def.name} couldn’t refresh its health check (${r.status}).`)
+  return `Re-tested connections and refreshed ${def.name}’s health check.`
+}
+
+async function fixRestartApp(app: string, s: Settings, deps: FixDeps): Promise<string> {
+  if (!deps.docker) throw new FixError(`Finesse doesn’t have Docker access to restart ${app}. Restart it from your host or NAS.`)
+  const svc = s.services[app as keyof Settings['services']]
+  const list = await bounded(deps.docker.call<Summary[]>('GET', '/containers/json?all=true')).catch(() => null)
+  if (!list) throw new FixError(`Couldn’t reach Docker to restart ${app}.`)
+  const u = svc?.url ? new URL(svc.url) : null
+  const box = findContainer(list, u?.hostname ?? app, Number(u?.port ?? 0), app)
+  if (!box) throw new FixError(`Couldn’t find a Docker container for ${app}.`)
+  await bounded(deps.docker.call('POST', `/containers/${box.Id}/restart?t=10`))
+  const label = ARRS.find((x) => x.id === app)?.name ?? app
+  return `Restarted ${label}. Give it a few seconds to finish starting up.`
 }
 
 /** Runs one repair; answers in a sentence, or throws a FixError that says what to do instead. */
 export async function runConnectionFix(s: Settings, app: string, fix: string, deps: Partial<FixDeps> = {}): Promise<string> {
   const d: FixDeps = { get: deps.get ?? liveFetch, byIp: deps.byIp ?? liveByIp, docker: deps.docker }
   if (fix === 'sab-hostname' && app === 'sabnzbd' && s.services.sabnzbd?.url) return fixSabHostname(s.services.sabnzbd, d)
+  if (fix === 'sab-resume' && app === 'sabnzbd' && s.services.sabnzbd?.url) return fixSabResume(s.services.sabnzbd, d)
+  if (fix === 'restart-app') return fixRestartApp(app, s, d)
   const def = ARRS.find((x) => x.id === app)
   if (fix === 'remote-paths' && def?.clients && s.services[def.id]?.url && s.services[def.id]?.apiKey) return fixRemotePaths(def, s, d)
+  if (fix === 'prowlarr-sync' && def) return fixProwlarrSync(def, s, d)
+  if (fix === 'arr-rootfolder' && def && s.services[def.id]?.url && s.services[def.id]?.apiKey) return fixArrRootFolder(def, s, d)
+  if (fix === 'arr-refresh' && def && s.services[def.id]?.url && s.services[def.id]?.apiKey) return fixArrRefresh(def, s, d)
   throw new FixError('Finesse doesn’t know that fix. Check again for the latest list.')
 }
 

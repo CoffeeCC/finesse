@@ -3,7 +3,7 @@
 // On every install: servers Finesse set up, and ones using someone's own Jellyfin.
 
 import { useCallback, useEffect, useState } from 'react'
-import { systemApi, type PreviewStatus } from '../../api/setup'
+import { ApiError, systemApi, type PreviewStatus } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { Spinner, Toggle } from '../setup/ui'
 
@@ -21,13 +21,25 @@ export function previewSummary(p: PreviewStatus): string {
 export default function PreviewClips() {
   const toast = useToast()
   const [p, setP] = useState<PreviewStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
+  const [unsupported, setUnsupported] = useState(false)
   const [busy, setBusy] = useState('')
 
   const load = useCallback(async () => {
+    setLoadErr('')
     try {
       setP(await systemApi.previews())
-    } catch {
-      setP(null)
+      setUnsupported(false)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        setUnsupported(true)
+        setP(null)
+      } else {
+        setLoadErr(e instanceof Error && e.message ? e.message : 'Couldn’t load preview clips status.')
+      }
+    } finally {
+      setLoading(false)
     }
   }, [])
   useEffect(() => {
@@ -49,7 +61,38 @@ export default function PreviewClips() {
     }
   }
 
-  if (!p) return null
+  if (unsupported) return null
+  if (loading && !p) {
+    return (
+      <div className="min-w-0">
+        <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Preview clips</h3>
+        <div className={`${CARD} p-5`} aria-busy="true" aria-label="Loading preview clips status">
+          <div className="h-16 rounded-xl shimmer" />
+        </div>
+      </div>
+    )
+  }
+  if (!p) {
+    return (
+      <div className="min-w-0">
+        <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Preview clips</h3>
+        <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+          <p className="text-sm text-red-300">{loadErr || 'Couldn’t load preview clips status.'}</p>
+          <button
+            type="button"
+            className={smallBtn}
+            onClick={() => {
+              setLoading(true)
+              void load()
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+  const pct = p.total > 0 ? Math.min(100, Math.round((p.made / p.total) * 100)) : 0
   return (
     <div className="min-w-0">
       <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">Preview clips</h3>
@@ -71,6 +114,23 @@ export default function PreviewClips() {
                 </button>
               )}
             </div>
+            {p.state === 'making' && p.total > 0 && (
+              <div className="space-y-1">
+                <div
+                  className="h-1.5 overflow-hidden rounded-full bg-white/10"
+                  role="progressbar"
+                  aria-valuenow={pct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Preview clip generation progress"
+                >
+                  <div className="h-full rounded-full bg-accent-400 transition-[width] duration-500" style={{ width: `${pct}%` }} />
+                </div>
+                <p className="text-[11.5px] tabular-nums text-ink-400">
+                  {pct}% · {p.made.toLocaleString()} of {p.total.toLocaleString()}
+                </p>
+              </div>
+            )}
             {p.reason && <p className={`text-[12.5px] leading-relaxed ${p.state === 'blocked' ? 'text-amber-200' : 'text-ink-400'}`}>{p.reason}</p>}
             {p.removed > 0 && <p className="text-[12.5px] text-ink-400">Removed {p.removed} old clip{p.removed > 1 ? 's' : ''} of titles Jellyfin no longer has.</p>}
             {p.failed > 0 && <p className="text-[12.5px] text-ink-400">{p.failed} title{p.failed > 1 ? 's' : ''} couldn’t be made into a clip; Finesse tries again after it restarts.</p>}

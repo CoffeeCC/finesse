@@ -10,10 +10,16 @@ interface AudioState {
   playing: boolean
   position: number
   duration: number
+  volume: number
+  muted: boolean
+  setVolume: (v: number) => void
+  toggleMute: () => void
   expanded: boolean
   setExpanded: (v: boolean) => void
   getAnalyser: () => AnalyserNode | null
   playQueue: (items: JfItem[], startIndex?: number, opts?: { shuffle?: boolean }) => void
+  /** Add songs right after the current track ('next') or at the end of the queue ('end'). */
+  enqueue: (items: JfItem[], mode?: 'next' | 'end') => void
   /** Play the queue's item at this position. */
   jumpTo: (index: number) => void
   toggle: () => void
@@ -51,6 +57,27 @@ function randomId() {
 }
 
 const PROGRESS_MS = 10_000
+const VOLUME_KEY = 'finesse.audioVolume'
+const MUTED_KEY = 'finesse.audioMuted'
+
+function readStoredVolume(): number {
+  try {
+    const raw = localStorage.getItem(VOLUME_KEY)
+    if (raw == null) return 1
+    const n = Number(raw)
+    return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1
+  } catch {
+    return 1
+  }
+}
+
+function readStoredMuted(): boolean {
+  try {
+    return localStorage.getItem(MUTED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -59,6 +86,8 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const [playing, setPlaying] = useState(false)
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [volume, setVolumeState] = useState<number>(readStoredVolume)
+  const [muted, setMutedState] = useState<boolean>(readStoredMuted)
   const [expanded, setExpanded] = useState(false)
   const [shuffle, setShuffle] = useState(false)
   const [repeat, setRepeat] = useState<RepeatMode>('off')
@@ -197,11 +226,58 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     setLoadSeq((n) => n + 1)
   }, [])
 
+  // Sync volume & mute to the underlying <audio> element and localStorage.
+  useEffect(() => {
+    const a = audioRef.current
+    if (a) {
+      a.volume = volume
+      a.muted = muted
+    }
+    try {
+      localStorage.setItem(VOLUME_KEY, String(volume))
+      localStorage.setItem(MUTED_KEY, muted ? '1' : '0')
+    } catch {
+      /* private mode */
+    }
+  }, [volume, muted])
+
+  const setVolume = useCallback((v: number) => {
+    const clamped = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 1))
+    setVolumeState(clamped)
+    if (clamped > 0) setMutedState(false)
+  }, [])
+
+  const toggleMute = useCallback(() => {
+    setMutedState((m) => !m)
+  }, [])
+
   const jumpTo = useCallback((i: number) => {
     if (i < 0 || i >= queue.length) return
     setIndex(i)
     setLoadSeq((n) => n + 1)
   }, [queue.length])
+
+  const enqueue = useCallback(
+    (items: JfItem[], mode: 'next' | 'end' = 'end') => {
+      if (!items.length) return
+      setQueue((prev) => {
+        if (prev.length === 0) {
+          unshuffled.current = null
+          setShuffle(false)
+          failures.current = 0
+          setIndex(0)
+          setLoadSeq((n) => n + 1)
+          return items
+        }
+        if (mode === 'next') {
+          const insertAt = Math.min(prev.length, index + 1)
+          return [...prev.slice(0, insertAt), ...items, ...prev.slice(insertAt)]
+        }
+        return [...prev, ...items]
+      })
+    },
+    [index],
+  )
 
   // Shuffle keeps the current song playing and reorders everything around it.
   const toggleShuffle = useCallback(() => {
@@ -447,10 +523,11 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AudioState>(
     () => ({
-      queue, index, current, playing, position, duration, expanded, setExpanded, getAnalyser,
-      playQueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat,
+      queue, index, current, playing, position, duration, volume, muted, setVolume, toggleMute,
+      expanded, setExpanded, getAnalyser,
+      playQueue, enqueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat,
     }),
-    [queue, index, current, playing, position, duration, expanded, getAnalyser, playQueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat],
+    [queue, index, current, playing, position, duration, volume, muted, setVolume, toggleMute, expanded, getAnalyser, playQueue, enqueue, jumpTo, toggle, next, prev, seek, stop, shuffle, toggleShuffle, repeat, cycleRepeat],
   )
 
   return (

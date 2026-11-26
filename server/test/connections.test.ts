@@ -66,7 +66,8 @@ test('Radarr answers, but its indexers and download client fail: that’s report
   const radarr = r.apps.find((a) => a.id === 'radarr')!
   assert.equal(radarr.ok, false)
   assert.deepEqual(radarr.problems, ['Radarr: All indexers are unavailable due to failures', 'qBittorrent (in Radarr): Unable to connect to qBittorrent'])
-  assert.match(radarr.summary, /2 problems: open Radarr to fix them/)
+  assert.match(radarr.summary, /2 problems: Finesse can fix them here/)
+  assert.deepEqual(radarr.fixes?.map((f) => f.id), ['prowlarr-sync', 'arr-refresh'])
   const prowlarr = r.apps.find((a) => a.id === 'prowlarr')!
   assert.equal(prowlarr.ok, false)
   assert.ok(prowlarr.problems.includes('NZBgeek (in Prowlarr): Invalid API key'))

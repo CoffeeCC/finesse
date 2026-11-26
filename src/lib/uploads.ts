@@ -75,9 +75,13 @@ export function enqueue(items: Planned[]) {
   emit()
 }
 
-/** Add: everything in review goes (files marked "not added" stay behind). */
+/** Add: everything in review goes (files marked "not added" stay behind; games without a console stay in review). */
 export function confirmReview() {
-  state.jobs = state.jobs.map((j) => (j.status !== 'review' ? j : { ...j, status: j.kind === 'skip' ? 'skipped' : 'waiting' }))
+  state.jobs = state.jobs.map((j) => {
+    if (j.status !== 'review') return j
+    if (j.kind === 'games' && !j.system) return j
+    return { ...j, status: j.kind === 'skip' ? 'skipped' : 'waiting' }
+  })
   emit()
   pump()
 }
@@ -121,8 +125,25 @@ export function cancel(key: string) {
   if (j.id) void api('DELETE', `/api/media/uploads/${j.id}`).catch(() => {})
 }
 
+export function cancelAllActive() {
+  const active = state.jobs.filter((j) => j.status === 'waiting' || j.status === 'sending')
+  if (!active.length) return
+  state.jobs = state.jobs.map((j) => (j.status === 'waiting' || j.status === 'sending' ? { ...j, status: 'cancelled' } : j))
+  emit()
+  for (const j of active) {
+    if (j.id) void api('DELETE', `/api/media/uploads/${j.id}`).catch(() => {})
+  }
+}
+
 export function retry(key: string) {
   patch(key, { status: 'waiting', error: undefined })
+  pump()
+}
+
+export function retryAllFailed() {
+  if (!state.jobs.some((j) => j.status === 'failed')) return
+  state.jobs = state.jobs.map((j) => (j.status === 'failed' ? { ...j, status: 'waiting', error: undefined } : j))
+  emit()
   pump()
 }
 

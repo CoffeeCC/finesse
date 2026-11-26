@@ -3,7 +3,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFinesse } from '../lib/finesseServer'
-import { gameStoreApi, gameStoreMode, isActive, type GameRequest, type StoreMode, type StoreQuery } from './gameStore'
+import { gameStoreApi, gameStoreMode, isActive, type GameRequest, type LiveRequestInput, type LiveSearchResponse, type StoreMode, type StoreQuery } from './gameStore'
 
 const PAGE = 24
 
@@ -60,6 +60,23 @@ export function useStoreGame(id: string | undefined) {
     staleTime: 10 * 60_000,
     retry: 1,
     queryFn: async () => (await api(mode)).game(id!),
+  })
+}
+
+/** Live PC-game indexer search via Prowlarr (server mode only, debounced by caller). */
+export function useStoreLiveSearch(q: string) {
+  const mode = useStoreMode()
+  const trimmed = q.trim()
+  return useQuery<LiveSearchResponse>({
+    queryKey: ['gameStore', mode, 'liveSearch', trimmed],
+    enabled: mode === 'server' && trimmed.length >= 2,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
+      const store = await api(mode)
+      if (!store.liveSearch) return { available: false, items: [] }
+      return store.liveSearch(trimmed)
+    },
   })
 }
 
@@ -129,6 +146,19 @@ export function useGameRequestActions() {
       },
       onSuccess: put,
       onSettled: refresh,
+    }),
+    /** Request a game discovered via live PC-game search. */
+    liveRequest: useMutation({
+      mutationFn: async (input: LiveRequestInput) => {
+        const store = await api(mode)
+        if (!store.liveRequest) throw new Error('Live PC game requests require a Finesse server')
+        return store.liveRequest(input)
+      },
+      onSuccess: put,
+      onSettled: () => {
+        refresh()
+        qc.invalidateQueries({ queryKey: ['gameStore', mode, 'home'] })
+      },
     }),
   }
 }

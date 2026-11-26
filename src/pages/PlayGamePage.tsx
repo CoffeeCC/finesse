@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { getSession } from '../api/client'
 import { useGame } from '../api/queries'
 import { biosUrl, EJS_NIGHTLY, ejsCore, isBeta, needsThreads, primeGamesAuth, rommContentUrl } from '../api/romm'
+import { pushBackHandler } from '../lib/back'
 import { CONTENT_BASE } from '../lib/contentOrigin'
+import { useOverlayFocus } from '../lib/overlayFocus'
 import { bindPads, pressedPad, type PadState } from '../lib/retroPads'
 import { keepSaves, type Ejs, type SaveConflict, type SaveNote } from '../lib/retroSaves'
 
@@ -30,43 +32,71 @@ async function emulatorData(): Promise<string> {
   return EJS_CDN
 }
 
-// The game's save, flushed before Exit reloads the page (set once the emulator is up).
-let flushSave: (() => Promise<void>) | null = null
-let exiting = false
-
-async function exitToGames() {
-  if (exiting) return
-  exiting = true
-  await flushSave?.().catch(() => {})
-  window.location.href = `${CONTENT_BASE}games`
-}
-
 export default function PlayGamePage() {
   const { romId } = useParams()
-  const { data: rom, isLoading } = useGame(romId)
+  const { data: rom, isLoading, isError, refetch } = useGame(romId)
   const started = useRef(false)
+  const exitingRef = useRef(false)
+  const flushSaveRef = useRef<(() => Promise<void>) | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState<{ note: SaveNote; at: number } | null>(null)
   const [conflict, setConflict] = useState<SaveConflict | null>(null)
   const [pads, setPads] = useState<PadState | null>(null)
   const [picking, setPicking] = useState(false)
+  const [confirmExit, setConfirmExit] = useState(false)
   const choosePad = useRef<((id: string) => void) | null>(null)
   const asked = useRef(false)
+  const pickerDialogRef = useRef<HTMLDivElement>(null)
+  const exitDialogRef = useRef<HTMLDivElement>(null)
+  const conflictDialogRef = useRef<HTMLDivElement>(null)
+
+  useOverlayFocus(picking, pickerDialogRef)
+  useOverlayFocus(confirmExit, exitDialogRef)
+  useOverlayFocus(Boolean(conflict), conflictDialogRef)
 
   const core = rom ? ejsCore(rom.platform_slug) : null
 
-  useEffect(() => {
-    // Back / Escape leaves the game (hard reload kills the emulator cleanly).
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'BrowserBack' ||
-          (e as KeyboardEvent & { keyCode?: number }).keyCode === 461) {
-        e.preventDefault()
-        void exitToGames()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+  const exitToGames = useCallback(async () => {
+    if (exitingRef.current) return
+    exitingRef.current = true
+    await flushSaveRef.current?.().catch(() => {})
+    window.location.href = `${CONTENT_BASE}games`
   }, [])
+
+  const requestExit = useCallback(() => {
+    if (error || isError || !rom || !started.current) {
+      void exitToGames()
+      return
+    }
+    setConfirmExit(true)
+  }, [error, isError, rom, exitToGames])
+
+  // Base Back/Escape handler: ask before leaving an active game (instead of letting App's
+  // router navigate away without tearing down EmulatorJS).
+  useEffect(() => {
+    return pushBackHandler(() => {
+      requestExit()
+      return true
+    })
+  }, [requestExit])
+
+  // Controller picker Back/Escape handler (pushed above the base handler).
+  useEffect(() => {
+    if (!picking) return
+    return pushBackHandler(() => {
+      setPicking(false)
+      return true
+    })
+  }, [picking])
+
+  // Exit confirmation Back/Escape handler (topmost: dismisses dialog and resumes).
+  useEffect(() => {
+    if (!confirmExit) return
+    return pushBackHandler(() => {
+      setConfirmExit(false)
+      return true
+    })
+  }, [confirmExit])
 
   useEffect(() => {
     if (!rom || started.current) return
@@ -119,7 +149,7 @@ export default function PlayGamePage() {
               setSaved((prev) => (note.kind === 'offline' && prev?.note.kind === 'offline' ? prev : { note, at: Date.now() })),
             onConflict: setConflict,
           })
-          flushSave = saves.flush
+          flushSaveRef.current = saves.flush
         }
         choosePad.current = bindPads(emu as unknown as Parameters<typeof bindPads>[0], (st) => {
           setPads(st)
@@ -181,7 +211,8 @@ export default function PlayGamePage() {
         </div>
       )}
       <button
-        onClick={() => void exitToGames()}
+        type="button"
+        onClick={requestExit}
         className="absolute top-3 left-3 supports-[top:max(0px,env(safe-area-inset-top))]:top-[max(0.75rem,env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:left-[max(0.75rem,env(safe-area-inset-left))] z-[60] inline-flex items-center gap-2 rounded-lg bg-black/70 hover:bg-black/85 px-3 py-2 text-sm font-medium text-white transition-[background-color,transform] active:scale-[0.97]"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -192,6 +223,7 @@ export default function PlayGamePage() {
 
       {pads && pads.pads.length > 1 && !picking && (
         <button
+          type="button"
           onClick={() => setPicking(true)}
           className="absolute top-3 right-3 supports-[top:max(0px,env(safe-area-inset-top))]:top-[max(0.75rem,env(safe-area-inset-top))] supports-[top:max(0px,env(safe-area-inset-top))]:right-[max(0.75rem,env(safe-area-inset-right))] z-[60] inline-flex max-w-[45vw] items-center gap-2 rounded-lg bg-black/70 hover:bg-black/85 px-3 py-2 text-sm font-medium text-white transition-[background-color,transform] active:scale-[0.97]"
           title="Choose the controller you play with"
@@ -205,13 +237,14 @@ export default function PlayGamePage() {
       )}
       {picking && pads && pads.pads.length > 0 && (
         <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" onClick={() => setPicking(false)}>
-          <div role="dialog" aria-modal="true" aria-label="Choose your controller" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+          <div ref={pickerDialogRef} role="dialog" aria-modal="true" aria-label="Choose your controller" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
             <p className="text-[15px] font-semibold text-white">Which controller are you playing with?</p>
             <p className="mt-1 text-[13px] text-ink-300">Press any button on it, or tap its name. This device remembers it.</p>
             <div className="mt-4 flex flex-col gap-2">
               {pads.pads.map((p) => (
                 <button
                   key={p.key}
+                  type="button"
                   onClick={() => pick(p.key)}
                   className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-left text-[14px] font-medium ring-1 transition-colors ${
                     p.key === pads.chosen ? 'bg-white/10 text-white ring-accent-400/60' : 'bg-white/[0.04] text-ink-200 ring-white/10 hover:bg-white/10'
@@ -226,22 +259,50 @@ export default function PlayGamePage() {
         </div>
       )}
 
+      {confirmExit && (
+        <div className="absolute inset-0 z-[75] flex items-center justify-center bg-black/65 p-4" onClick={() => setConfirmExit(false)}>
+          <div ref={exitDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="exit-game-title" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+            <p id="exit-game-title" className="text-[15px] font-semibold text-white">Leave this game?</p>
+            <p className="mt-1 text-[13px] text-ink-300">Your latest save will be synced before returning to Games.</p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                data-autofocus
+                onClick={() => setConfirmExit(false)}
+                className="rounded-xl bg-white px-4 py-3 text-center text-[14px] font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+              >
+                Keep playing
+              </button>
+              <button
+                type="button"
+                onClick={() => void exitToGames()}
+                className="rounded-xl bg-white/[0.06] px-4 py-3 text-center text-[14px] font-medium text-ink-200 ring-1 ring-white/10 hover:bg-red-500/20 hover:text-red-200 transition-colors"
+              >
+                Leave game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {conflict && (
         <div className="absolute inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
-          <div role="alertdialog" aria-modal="true" aria-labelledby="save-conflict" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10">
+          <div ref={conflictDialogRef} role="alertdialog" aria-modal="true" aria-labelledby="save-conflict" className="w-full max-w-sm rounded-2xl bg-ink-900 p-5 text-left shadow-2xl ring-1 ring-white/10">
             <p id="save-conflict" className="text-[15px] font-semibold text-white">This game was saved on another device.</p>
             <p className="mt-1 text-[13px] text-ink-300">
               Use that save to carry on from there (the game restarts), or keep this one and it replaces the other on Finesse. The one you don’t pick is kept on this device.
             </p>
             <div className="mt-4 flex flex-col gap-2">
               <button
-                autoFocus
+                type="button"
+                data-autofocus
                 onClick={() => conflict.choose('theirs')}
                 className="rounded-xl bg-accent-fill px-4 py-3 text-left text-[14px] font-semibold text-white hover:brightness-110"
               >
                 Use that save
               </button>
               <button
+                type="button"
                 onClick={() => conflict.choose('mine')}
                 className="rounded-xl bg-white/[0.04] px-4 py-3 text-left text-[14px] font-medium text-ink-200 ring-1 ring-white/10 hover:bg-white/10"
               >
@@ -252,12 +313,30 @@ export default function PlayGamePage() {
         </div>
       )}
 
-      {error ? (
+      {isError && !rom ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-ink-200">{error}</p>
-          <button onClick={() => void exitToGames()} className="rounded-lg bg-accent-fill hover:brightness-110 px-4 py-2 text-sm font-semibold text-white transition-colors">
-            Back to Games
-          </button>
+          <p className="text-base font-semibold text-white">Couldn’t load this game</p>
+          <p className="text-sm text-ink-400">Check that RomM is running and try again.</p>
+          <div className="mt-2 flex flex-wrap justify-center gap-2.5">
+            <button type="button" onClick={() => void refetch()} className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors">
+              Try again
+            </button>
+            <button type="button" onClick={() => void exitToGames()} className="rounded-full bg-white/10 border border-white/15 px-5 py-2 text-sm font-semibold text-white hover:bg-white/15 transition-colors">
+              Back to Games
+            </button>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="h-full flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="max-w-md text-ink-200">{error}</p>
+          <div className="mt-2 flex flex-wrap justify-center gap-2.5">
+            <button type="button" onClick={() => window.location.reload()} className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors">
+              Try again
+            </button>
+            <button type="button" onClick={() => void exitToGames()} className="rounded-full bg-accent-fill hover:brightness-110 px-5 py-2 text-sm font-semibold text-white transition-colors">
+              Back to Games
+            </button>
+          </div>
         </div>
       ) : isLoading || !rom ? (
         <div className="h-full flex items-center justify-center">

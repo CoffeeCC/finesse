@@ -109,6 +109,43 @@ export interface StoreHome {
   shelves: StoreShelf[]
 }
 
+// ---------- live PC-game search (Prowlarr) ----------
+
+export interface LiveGameResult {
+  id: string
+  title: string
+  releaseTitle: string
+  group?: string
+  platform: GamePlatform
+  installer: InstallerKind
+  sizeBytes: number
+  seeders: number
+  indexer: string
+  downloadUrl: string
+  cover?: string
+  summary?: string
+  year?: number
+  genres?: string[]
+  steamAppId?: number
+}
+
+export interface LiveSearchResponse {
+  available: boolean
+  items: LiveGameResult[]
+}
+
+export interface LiveRequestInput {
+  title: string
+  downloadUrl: string
+  sizeBytes: number
+  platform: GamePlatform
+  installer: InstallerKind
+  cover?: string
+  summary?: string
+  year?: number
+  genres?: string[]
+}
+
 // ---------- requests ----------
 
 export type GameRequestState =
@@ -176,6 +213,10 @@ export interface GameStoreApi {
   resume?(requestId: string): Promise<GameRequest>
   /** Use this program (one of the request's candidates) as the game: on to "finishing". */
   pickProgram?(requestId: string, program: string): Promise<GameRequest>
+  /** Live PC-game indexer search via Prowlarr (server only). */
+  liveSearch?(q: string): Promise<LiveSearchResponse>
+  /** Request a release found via live PC-game search (server only). */
+  liveRequest?(input: LiveRequestInput): Promise<GameRequest>
   /** The installer's screen (a noVNC websocket), or null where there isn't one (the demo). */
   installerScreenUrl(requestId: string): string | null
 }
@@ -341,11 +382,30 @@ const serverStore: GameStoreApi = {
   pause: (id) => call('POST', `/requests/${encodeURIComponent(id)}/pause`),
   resume: (id) => call('POST', `/requests/${encodeURIComponent(id)}/resume`),
   pickProgram: (id, program) => call('POST', `/requests/${encodeURIComponent(id)}/program`, { program }),
+  liveSearch: (q) => call('GET', `/live-search?q=${encodeURIComponent(q)}`),
+  liveRequest: (input) => call('POST', '/live-request', input),
   installerScreenUrl: (id) => {
     const u = new URL(finesseApi(`/api/games/store/requests/${encodeURIComponent(id)}/screen`), window.location.href)
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
     return u.toString()
   },
+}
+
+export interface GameTransferTicket {
+  token: string
+  url: string
+  fileName: string
+  folderName: string
+  title: string
+  bytes: number
+  files: number
+  kind: 'installed' | 'download'
+  expiresAt: string
+}
+
+/** Creates a 2-hour streaming transfer link for a downloaded or installed game. */
+export async function createGameTransfer(requestId: string): Promise<GameTransferTicket> {
+  return call<GameTransferTicket>('POST', `/requests/${encodeURIComponent(requestId)}/transfer`)
 }
 
 // ---------- Settings → Games → Game store (administrators) ----------

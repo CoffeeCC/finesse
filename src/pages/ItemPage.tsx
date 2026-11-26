@@ -9,6 +9,7 @@ import { useClipManifest, useCollectionItems, useEpisodes, useItem, useSeasons }
 import {
   backdropUrl,
   episodeThumbUrl,
+  getItems,
   getSeriesNextUp,
   imageUrl,
   logoUrl,
@@ -19,10 +20,11 @@ import {
   setPlayed,
   waitForImageChange,
 } from '../api/client'
+import { browseHref } from './BrowsePage'
 import { blurhashAverageColor, primaryBlurhash } from '../lib/blurhash'
 import { fillFor, shadesFromRgb, vividRgb } from '../lib/accent'
-import { getPrefs } from '../lib/settings'
-import { previewClipUrl, EMPTY_MANIFEST } from '../lib/preview'
+import { getPrefs, reducedMotion } from '../lib/settings'
+import { claimPreview, previewClipUrl, releasePreview, EMPTY_MANIFEST } from '../lib/preview'
 import { morphNavigate, posterMorphName, setReturnMorph } from '../lib/motion'
 import { useDepthParallax } from '../lib/depth'
 import { goBack } from '../lib/back'
@@ -45,7 +47,7 @@ import MediaCard, { playHref } from '../components/MediaCard'
 import { useAuth } from '../auth/AuthContext'
 import { CardSkeleton } from '../components/Skeletons'
 import { formatRuntime, ticksToSeconds } from '../api/types'
-import type { JfItem } from '../api/types'
+import type { JfItem, JfMediaStream } from '../api/types'
 import { episodeCode, groupEpisodeVersions } from '../lib/episodes'
 import ItemUnavailable from '../components/ItemUnavailable'
 import AddToShortlist from '../components/AddToShortlist'
@@ -127,17 +129,37 @@ function PlayLink({ item }: { item: JfItem }) {
   return <PlayChoices item={item} />
 }
 
-/** Series pages play the next-up episode directly, matching the big streaming apps. */
+/** Series pages play the next-up episode directly, matching the big streaming apps.
+ *  When every episode is watched, offer "Watch again" from S1:E1 instead of hiding Play. */
 function SeriesPlayLink({ seriesId }: { seriesId: string }) {
-  const { data } = useQuery({
+  const nextUp = useQuery({
     queryKey: ['seriesNextUp', seriesId],
     queryFn: () => getSeriesNextUp(seriesId),
     staleTime: 60_000,
   })
-  const ep = data?.Items?.[0]
-  if (!ep) return null
-  // "Play S2:E3", or "Resume S2:E3 from 12:40" with Start over beside it.
-  return <PlayChoices item={ep} suffix={episodeCode(ep)} episodeName={ep.Name} />
+  const ep = nextUp.data?.Items?.[0]
+  const first = useQuery({
+    queryKey: ['seriesFirstEpisode', seriesId],
+    enabled: !nextUp.isLoading && !ep,
+    queryFn: () =>
+      getItems({
+        parentId: seriesId,
+        includeItemTypes: 'Episode',
+        recursive: true,
+        sortBy: 'ParentIndexNumber,IndexNumber',
+        sortOrder: 'Ascending',
+        isMissing: false,
+        limit: 1,
+      }),
+    staleTime: 5 * 60_000,
+  })
+  if (ep) {
+    // "Play S2:E3", or "Resume S2:E3 from 12:40" with Start over beside it.
+    return <PlayChoices item={ep} suffix={episodeCode(ep)} episodeName={ep.Name} />
+  }
+  const firstEp = first.data?.Items?.[0]
+  if (!firstEp) return null
+  return <PlayChoices item={firstEp} word="Watch again" suffix={episodeCode(firstEp)} episodeName={firstEp.Name} />
 }
 
 const EpisodeRow = memo(function EpisodeRow({ ep, upNext, versions = [ep] }: { ep: JfItem; upNext?: boolean; versions?: JfItem[] }) {
@@ -304,17 +326,69 @@ function SimilarGrid({ itemId }: { itemId: string }) {
     return <p className="text-sm text-ink-400 py-6">{peerOf(itemId) ? 'Nothing similar shared with you yet.' : 'Nothing similar in your library yet.'}</p>
   }
   return (
-    <div className="grid gap-3 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+    <div className="grid gap-4 sm:gap-5 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))]">
       {isLoading
-        ? Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
+        ? Array.from({ length: 8 }).map((_, i) => <CardSkeleton key={i} />)
         : data!.Items.map((m) => <MediaCard key={m.Id} item={m} />)}
     </div>
   )
 }
 
+function mediaSpecPills(item: JfItem): string[] {
+  const streams = item.MediaSources?.[0]?.MediaStreams ?? []
+  if (!streams.length) return []
+  const pills: string[] = []
+  const video = streams.find((s) => s.Type === 'Video') as
+    | (JfMediaStream & { VideoRange?: string; VideoRangeType?: string })
+    | undefined
+  if (video) {
+    const w = video.Width ?? 0
+    const h = video.Height ?? 0
+    if (w >= 3800 || h >= 2000) pills.push('4K')
+    else if (w >= 1900 || h >= 1000) pills.push('1080p')
+    else if (w >= 1200 || h >= 700) pills.push('720p')
+    else if (h > 0) pills.push(`${h}p`)
+
+    const range = video.VideoRangeType || video.VideoRange
+    if (range && range.toUpperCase() !== 'SDR') {
+      if (/dovi|dolby/i.test(range)) pills.push('Dolby Vision')
+      else if (/hdr10\+/i.test(range)) pills.push('HDR10+')
+      else if (/hdr/i.test(range)) pills.push('HDR')
+      else pills.push(range)
+    }
+
+    if (video.Codec) {
+      const c = video.Codec.toLowerCase()
+      pills.push(c === 'h264' || c === 'avc' ? 'H.264' : c === 'h265' || c === 'hevc' ? 'HEVC' : c.toUpperCase())
+    }
+  }
+  const audios = streams.filter((s) => s.Type === 'Audio')
+  const mainAudio = (audios.find((s) => s.IsDefault) ?? audios[0]) as
+    | (JfMediaStream & { Channels?: number; ChannelLayout?: string; Profile?: string })
+    | undefined
+  if (mainAudio) {
+    const layout = mainAudio.ChannelLayout
+    const ch = mainAudio.Channels
+    if (layout && /^\d+\.\d+$/.test(layout)) pills.push(layout)
+    else if (ch === 8) pills.push('7.1')
+    else if (ch === 6) pills.push('5.1')
+    else if (ch === 2) pills.push('Stereo')
+    else if (ch === 1) pills.push('Mono')
+
+    const profile = mainAudio.Profile ?? ''
+    if (/atmos/i.test(profile) || /atmos/i.test(mainAudio.DisplayTitle ?? '')) pills.push('Atmos')
+    else if (mainAudio.Codec) pills.push(mainAudio.Codec.toUpperCase())
+  }
+  const subCount = streams.filter((s) => s.Type === 'Subtitle').length
+  if (subCount > 0) pills.push(`${subCount} ${subCount === 1 ? 'subtitle' : 'subtitles'}`)
+  return pills
+}
+
 function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<JfItem['People']>; showPath: boolean }) {
+  const directors = item.People?.filter((p) => p.Type === 'Director') ?? []
+  const writers = item.People?.filter((p) => p.Type === 'Writer') ?? []
+  const specs = mediaSpecPills(item)
   const facts: [string, string][] = []
-  if (item.Genres?.length) facts.push(['Genres', item.Genres.join(', ')])
   if (item.PremiereDate) facts.push(['Released', new Date(item.PremiereDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })])
   else if (item.ProductionYear) facts.push(['Released', String(item.ProductionYear)])
   if (item.Type !== 'Series' && item.RunTimeTicks) facts.push(['Runtime', formatRuntime(item.RunTimeTicks)])
@@ -324,6 +398,18 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
 
   return (
     <div className="space-y-8">
+      {specs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" aria-label="Media specs">
+          {specs.map((s, i) => (
+            <span
+              key={`${s}-${i}`}
+              className="rounded-md border border-white/15 bg-white/[0.06] px-2.5 py-1 font-mono text-xs font-medium text-ink-100"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
       {cast.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wider text-ink-400 mb-4">Cast</h3>
@@ -356,8 +442,54 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
           </div>
         </div>
       )}
-      {facts.length > 0 && (
+      {(directors.length > 0 || writers.length > 0 || (item.Genres?.length ?? 0) > 0 || facts.length > 0) && (
         <dl className="grid grid-cols-1 sm:grid-cols-[8rem_1fr] gap-x-6 gap-y-3 max-w-3xl text-sm">
+          {directors.length > 0 && (
+            <div className="contents">
+              <dt className="text-ink-400">Directed by</dt>
+              <dd className="flex flex-wrap gap-x-2 gap-y-1 text-ink-200">
+                {directors.map((p, i) => (
+                  <span key={`${p.Id}-${i}`}>
+                    <Link to={`/person/${p.Id}`} className="hover:text-white underline-offset-2 hover:underline">
+                      {p.Name}
+                    </Link>
+                    {i < directors.length - 1 ? ',' : ''}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          )}
+          {writers.length > 0 && (
+            <div className="contents">
+              <dt className="text-ink-400">Written by</dt>
+              <dd className="flex flex-wrap gap-x-2 gap-y-1 text-ink-200">
+                {writers.map((p, i) => (
+                  <span key={`${p.Id}-${i}`}>
+                    <Link to={`/person/${p.Id}`} className="hover:text-white underline-offset-2 hover:underline">
+                      {p.Name}
+                    </Link>
+                    {i < writers.length - 1 ? ',' : ''}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          )}
+          {item.Genres && item.Genres.length > 0 && (
+            <div className="contents">
+              <dt className="text-ink-400">Genres</dt>
+              <dd className="flex flex-wrap gap-1.5">
+                {item.Genres.map((g) => (
+                  <Link
+                    key={g}
+                    to={browseHref(g, { includeItemTypes: 'Movie,Series', genres: g, sortBy: 'SortName' })}
+                    className="rounded-full bg-white/[0.07] px-2.5 py-0.5 text-xs text-ink-200 hover:bg-white/15 hover:text-white transition-colors"
+                  >
+                    {g}
+                  </Link>
+                ))}
+              </dd>
+            </div>
+          )}
           {facts.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-ink-400">{k}</dt>
@@ -411,6 +543,11 @@ export default function ItemPage() {
     setPreviewLive(false)
   }, [])
   const previewPlaying = useCallback(() => setPreviewLive(true), [])
+  useEffect(() => {
+    if (!previewOn) return
+    claimPreview(stopPreview)
+    return () => releasePreview(stopPreview)
+  }, [previewOn, stopPreview])
   const [tabSel, setTabSel] = useState<Tab | null>(null)
   const collection = useCollectionItems(itemId, item?.Type === 'BoxSet')
   const { data: clipSet } = useClipManifest()
@@ -423,10 +560,10 @@ export default function ItemPage() {
 
   // Auto-play the hero preview after a dwell (muted, dimmed), Netflix-style. Long enough to
   // read the title and overview first.
-  // Skipped on the TV build: video decode + the page UI fight for the TV SoC.
+  // Skipped on the TV build and when reduced motion is enabled.
   useEffect(() => {
     stopPreview()
-    if (!previewKind || __WEBOS__) return
+    if (!previewKind || __WEBOS__ || reducedMotion()) return
     const t = setTimeout(() => {
       setPreviewAuto(true)
       setPreviewOn(true)
@@ -557,7 +694,7 @@ export default function ItemPage() {
         </div>
       )}
 
-      <div ref={heroRef} className="relative -mt-16">
+      <div ref={heroRef} className="relative -mt-16 supports-[top:max(0px,env(safe-area-inset-top))]:-mt-[calc(4rem+env(safe-area-inset-top))]">
         {/* An in-app Back everywhere but TVs (their remote has one): phones and the
             installed app have no browser Back, and on a computer it's easier to
             find than the browser's. It plays the reverse morph into the card you came from. */}
@@ -614,6 +751,25 @@ export default function ItemPage() {
             />
           )}
           <div className="min-w-0 pb-2">
+            {item.Type === 'Episode' && (item.SeriesName || episodeCode(item)) && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-accent-300">
+                {item.SeriesId ? (
+                  <Link to={`/item/${item.SeriesId}`} className="inline-flex items-center gap-1.5 hover:text-white transition-colors">
+                    <span>{item.SeriesName ?? 'Series'}</span>
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </Link>
+                ) : (
+                  item.SeriesName && <span>{item.SeriesName}</span>
+                )}
+                {episodeCode(item) && (
+                  <span className="rounded-md bg-white/10 px-2 py-0.5 text-xs font-mono text-white/90">
+                    {episodeCode(item)}
+                  </span>
+                )}
+              </div>
+            )}
             {logo ? (
               <TitleLogo
                 src={logo}
@@ -650,16 +806,20 @@ export default function ItemPage() {
                 </span>
               )}
               {item.Genres?.slice(0, 3).map((g) => (
-                <span key={g} className="text-ink-400">
+                <Link
+                  key={g}
+                  to={browseHref(g, { includeItemTypes: 'Movie,Series', genres: g, sortBy: 'SortName' })}
+                  className="rounded-full bg-white/[0.08] px-2.5 py-0.5 text-xs font-medium text-ink-200 hover:bg-white/15 hover:text-white transition-colors"
+                >
                   {g}
-                </span>
+                </Link>
               ))}
               {friendName && <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-100">From {friendName}</span>}
             </div>
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6">
               {isPlayable && <PlayLink item={item} />}
               {isSeries && <SeriesPlayLink seriesId={item.Id} />}
-              <div className="flex items-start gap-1 sm:gap-2">
+              <div className="flex flex-wrap items-start gap-1 sm:gap-2">
                 {(item.Type === 'Movie' || item.Type === 'Series') && <WatchlistButton item={item} labelled />}
                 {(item.Type === 'Movie' || item.Type === 'Series') && !friendId && <SoundtrackButton item={item} />}
                 <ActionButton
@@ -680,10 +840,14 @@ export default function ItemPage() {
                   <ActionButton
                     label={previewKind === 'clip' ? 'Preview' : 'Trailer'}
                     onClick={() => {
-                      setPreviewAuto(false)
-                      setPreviewOn(true)
+                      if (previewOn && !previewAuto) {
+                        stopPreview()
+                      } else {
+                        setPreviewAuto(false)
+                        setPreviewOn(true)
+                      }
                     }}
-                    active={previewOn}
+                    active={previewOn && !previewAuto}
                     icon={
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
                         <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />

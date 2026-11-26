@@ -11,6 +11,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useFriends, useViews } from '../api/queries'
 import { useAuth } from '../auth/AuthContext'
 import { pushBackHandler } from '../lib/back'
+import { useOverlayFocus } from '../lib/overlayFocus'
 import { openSearch } from '../lib/searchOverlay'
 import { openQuickMenu } from '../lib/quickMenu'
 import { useArrQueue } from '../api/queries'
@@ -24,15 +25,25 @@ import { gameStoreMode } from '../api/gameStore'
 import { prefetchRoute } from '../lib/prefetch'
 
 const NAV_COLLECTIONS = new Set(['movies', 'tvshows'])
+const HANDLED_COLLECTIONS = new Set(['movies', 'tvshows', 'music', 'boxsets', 'playlists'])
 
 export const ANIME_HREF = '/browse?title=Anime&tags=anime&includeItemTypes=Movie,Series&sortBy=SortName'
 export const COLLECTIONS_HREF = '/browse?title=Collections&includeItemTypes=BoxSet&sortBy=SortName'
 
+export interface SecondaryDestination {
+  label: string
+  to: string
+  match: (p: string, s: string) => boolean
+  viewId?: string
+  collectionType?: string
+}
+
 /** Everything that isn't Movies / Shows — one "More" menu on desktop and the
  *  TV, the Library tab on phones (pages/LibrariesPage). */
-export function useSecondaryDestinations() {
+export function useSecondaryDestinations(): SecondaryDestination[] {
   const { data: views } = useViews()
   const { hasAnime, hasGames } = useOptionalLibraries()
+  const { info } = useFinesse()
   const { data: friends } = useFriends()
   const friendMusic = useFriendMusic()
   const hasCollections = views?.Items.some((v) => v.CollectionType === 'boxsets') ?? false
@@ -42,17 +53,29 @@ export function useSecondaryDestinations() {
   const limits = useMyLimits()
   // Music shows when there's music here, or a friend shares theirs (Groups).
   const hasMusic = (views?.Items.some((v) => v.CollectionType === 'music') ?? false) || friendMusic.rows.length > 0
+  // Friends is always reachable on a Finesse server (to add friends, see live household activity, Watch Together, and shared libraries).
+  const hasFriends = Boolean(friends?.length || info)
+  const extraLibraries: SecondaryDestination[] = (views?.Items ?? [])
+    .filter((v) => !HANDLED_COLLECTIONS.has(v.CollectionType ?? ''))
+    .map((v) => ({
+      label: v.Name,
+      to: `/library/${v.Id}`,
+      match: (p: string) => p === `/library/${v.Id}`,
+      viewId: v.Id,
+      collectionType: v.CollectionType,
+    }))
   return [
     ...(hasAnime ? [{ label: 'Anime', to: ANIME_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('tags=anime') }] : []),
     ...(hasMusic ? [{ label: 'Music', to: '/music', match: (p: string) => p.startsWith('/music') || p.startsWith('/album') }] : []),
     ...(hasGames ? [{ label: 'Games', to: '/games', match: (p: string) => p.startsWith('/games') }] : []),
-    ...(friends?.length ? [{ label: 'Friends', to: '/friends', match: (p: string) => p === '/friends' }] : []),
+    ...(hasFriends ? [{ label: 'Friends', to: '/friends', match: (p: string) => p === '/friends' }] : []),
     ...(hasCollections
       ? [{ label: 'Collections', to: COLLECTIONS_HREF, match: (p: string, s: string) => p === '/browse' && s.includes('BoxSet') }]
       : []),
+    ...extraLibraries,
     ...(together ? [{ label: 'Watch together', to: '/together', match: (p: string) => p.startsWith('/together') }] : []),
     ...(momentCollections ? [{ label: 'Moments', to: '/moments', match: (p: string) => p.startsWith('/moments') }] : []),
-    ...(smart ? [{ label: 'Smart collections', to: '/smart', match: (p: string) => p.startsWith('/smart') }] : []),
+    ...(smart ? [{ label: 'My collections', to: '/smart', match: (p: string) => p.startsWith('/smart') }] : []),
     ...(limits && !limits.requests ? [] : [{ label: 'Requests and downloads', to: '/request', match: (p: string) => p === '/request' }]),
     { label: 'Activity', to: '/activity', match: (p: string) => p === '/activity' },
   ]
@@ -77,13 +100,20 @@ export default function NavBar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(window.scrollY > 24)
   const menuRef = useRef<HTMLDivElement>(null)
+  const avatarRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const more = useSecondaryDestinations()
   // Admins: the NAS is behind the latest release — offer to update it.
   const { data: server } = useServerUpdate()
   const serverUpdate = server?.available && server.latest ? server.latest : null
   const { info: finesse } = useFinesse()
+  const limits = useMyLimits()
   const canAddMedia = !__WEBOS__ && Boolean(session?.isAdmin && finesse?.features?.addMedia)
+
+  const closeMenu = (refocus = false) => {
+    setMenuOpen(false)
+    if (refocus) avatarRef.current?.focus({ preventScroll: true })
+  }
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -100,7 +130,7 @@ export default function NavBar() {
   useEffect(() => {
     if (!menuOpen) return
     return pushBackHandler(() => {
-      setMenuOpen(false)
+      closeMenu(true)
       return true
     })
   }, [menuOpen])
@@ -123,7 +153,6 @@ export default function NavBar() {
   const libraries = views?.Items.filter((v) => NAV_COLLECTIONS.has(v.CollectionType ?? '')) ?? []
   // 2.0: Music, Games and Friends are spaces of their own in the pill; the rest
   // stays under More. (The TV's stylesheet drops the glass blur it can't draw.)
-  const lux = true
   const SPACES = new Set(['Music', 'Games', 'Friends'])
   // Narrower screens (a tablet, an unfolded phone held sideways, a small
   // window) keep the spaces under More, so the bar never runs off the edge.
@@ -142,25 +171,21 @@ export default function NavBar() {
   useLayoutEffect(() => {
     const el = navRef.current
     if (el && crowd < 2 && el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) setCrowd(crowd + 1)
-  })
-  const spaces = lux && wide && crowd < 1 ? more.filter((d) => SPACES.has(d.label)) : []
+  }, [crowd, crowdKey])
+  const spaces = wide && crowd < 1 ? more.filter((d) => SPACES.has(d.label)) : []
   const barLibraries = crowd < 2 ? libraries : []
   const rest = [
     ...(crowd < 2 ? [] : libraries.map((lib) => ({ label: lib.Name, to: `/library/${lib.Id}`, match: (p: string) => p === `/library/${lib.Id}` }))),
-    ...(lux && wide && crowd < 1 ? more.filter((d) => !SPACES.has(d.label)) : more),
+    ...(wide && crowd < 1 ? more.filter((d) => !SPACES.has(d.label)) : more),
   ]
   const moreActive = rest.some((d) => d.match(pathname, search))
-  const { data: queue } = useArrQueue(lux)
+  const { data: queue } = useArrQueue(Boolean(finesse?.features?.requests) && (!limits || limits.requests))
   const downloading = (queue ?? []).filter((d) => !d.done).length
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
-    lux
-      ? `px-4 py-2 rounded-full text-[14px] font-medium transition-all duration-300 ${
-          isActive ? 'text-ink-950 bg-[#f5f3ee] shadow-[0_0_28px_rgba(255,255,255,0.35)]' : 'text-white/70 hover:text-white'
-        }`
-      : `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-          isActive ? 'text-white bg-white/10' : 'text-ink-400 hover:text-white'
-        }`
+    `px-4 py-2 rounded-full text-[14px] font-medium transition-all duration-300 ${
+      isActive ? 'text-ink-950 bg-[#f5f3ee] shadow-[0_0_28px_rgba(255,255,255,0.35)]' : 'text-white/70 hover:text-white'
+    }`
 
   return (
     <header
@@ -168,31 +193,23 @@ export default function NavBar() {
       // hairline under the bar. The scrolled bar's shadow separates it instead.
       className={`vt-nav fixed top-0 inset-x-0 z-50 transition-all duration-500 ${
         scrolled
-          ? lux
-            ? 'bg-ink-950/55 backdrop-blur-2xl backdrop-saturate-150 shadow-lg shadow-black/25'
-            : 'bg-ink-950/70 backdrop-blur-xl shadow-lg shadow-black/20'
+          ? 'bg-ink-950/55 backdrop-blur-2xl backdrop-saturate-150 shadow-lg shadow-black/25'
           : 'bg-gradient-to-b from-ink-950/70 to-transparent'
       }`}
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       <div
-        className={`h-16 max-w-[1800px] mx-auto px-4 sm:px-6 flex items-center ${lux ? 'gap-2 lg:px-12' : 'gap-2'}`}
+        className="h-16 max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-12 flex items-center gap-2"
         style={{
           paddingLeft: 'max(1rem, env(safe-area-inset-left))',
           paddingRight: 'max(1rem, env(safe-area-inset-right))',
         }}
       >
-        {lux ? (
-          <Link to="/" className="font-display italic text-[30px] leading-none tracking-tight text-white mr-5 shrink-0">
-            Finesse<span style={{ color: 'rgb(var(--mood-rgb, 117, 137, 216))', transition: 'color 1s ease' }}>.</span>
-          </Link>
-        ) : (
-          <Link to="/" className="text-xl font-semibold tracking-tight text-white mr-4 shrink-0">
-            Finesse<span className="text-accent-400">.</span>
-          </Link>
-        )}
+        <Link to="/" className="font-display italic text-[30px] leading-none tracking-tight text-white mr-5 shrink-0">
+          Finesse<span style={{ color: 'rgb(var(--mood-rgb, 117, 137, 216))', transition: 'color 1s ease' }}>.</span>
+        </Link>
 
-        <nav ref={navRef} aria-label="Main" className={lux ? 'hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass' : 'hidden md:flex items-center gap-1'}>
+        <nav ref={navRef} aria-label="Main" className="hidden md:flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar p-1 rounded-full os-glass">
           <NavLink to="/" end className={linkClass}>
             Home
           </NavLink>
@@ -216,15 +233,9 @@ export default function NavBar() {
             label="More"
             align="left"
             items={rest.map((d) => ({ label: d.label, onSelect: () => navigate(d.to) }))}
-            triggerClassName={
-              lux
-                ? `inline-flex items-center gap-1 px-4 py-2 rounded-full text-[14px] font-medium transition-all duration-300 ${
-                    moreActive ? 'text-ink-950 bg-[#f5f3ee]' : 'text-white/70 hover:text-white'
-                  }`
-                : `inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    moreActive ? 'text-white bg-white/10' : 'text-ink-400 hover:text-white'
-                  }`
-            }
+            triggerClassName={`inline-flex items-center gap-1 px-4 py-2 rounded-full text-[14px] font-medium transition-all duration-300 ${
+              moreActive ? 'text-ink-950 bg-[#f5f3ee]' : 'text-white/70 hover:text-white'
+            }`}
           >
             More
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
@@ -255,79 +266,63 @@ export default function NavBar() {
             type="button"
             onClick={() => openSearch()}
             aria-label="Search (press /)"
-            className={
-              lux
-                ? 'hidden md:flex shrink-0 items-center justify-center xl:justify-start gap-2.5 w-10 xl:w-60 h-10 rounded-full os-glass xl:pl-4 xl:pr-2 text-sm text-white/65 hover:text-white transition-colors'
-                : 'hidden md:flex items-center gap-2.5 w-56 lg:w-64 h-9 rounded-lg bg-ink-800/70 border border-white/10 pl-3 pr-2 text-sm text-ink-400 hover:text-ink-200 hover:border-white/20 transition-colors'
-            }
+            className="hidden md:flex shrink-0 items-center justify-center xl:justify-start gap-2.5 w-10 xl:w-60 h-10 rounded-full os-glass xl:pl-4 xl:pr-2 text-sm text-white/65 hover:text-white transition-colors"
           >
             <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
             </svg>
-            <span className={lux ? 'hidden xl:inline flex-1 text-left' : 'flex-1 text-left'}>Search</span>
-            <kbd className={`${lux ? 'hidden xl:flex' : 'flex'} h-5 min-w-5 px-1.5 rounded border border-white/15 text-[11px] font-sans text-ink-400 items-center justify-center`}>/</kbd>
+            <span className="hidden xl:inline flex-1 text-left">Search</span>
+            <kbd className="hidden xl:flex h-5 min-w-5 px-1.5 rounded border border-white/15 text-[11px] font-sans text-ink-400 items-center justify-center">/</kbd>
           </button>
         )}
 
-        {lux && (
-          <button
-            type="button"
-            onClick={openQuickMenu}
-            aria-label={`Quick menu${downloading ? ` (${downloading} downloading)` : ''}`}
-            title="Quick menu"
-            className="relative ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full os-glass text-white/85 hover:text-white transition-colors"
-          >
-            <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} aria-hidden>
-              <rect x="4" y="4" width="6.5" height="6.5" rx="1.8" />
-              <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8" />
-              <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8" />
-              <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8" />
-            </svg>
-            {downloading > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#f5f3ee] text-ink-950 font-mono text-[10.5px] font-semibold leading-[18px] text-center">
-                {downloading}
-              </span>
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={openQuickMenu}
+          aria-label={`Quick menu${downloading ? ` (${downloading} downloading)` : ''}`}
+          title="Quick menu"
+          className="relative ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full os-glass text-white/85 hover:text-white transition-colors"
+        >
+          <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9} aria-hidden>
+            <rect x="4" y="4" width="6.5" height="6.5" rx="1.8" />
+            <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8" />
+            <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8" />
+            <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8" />
+          </svg>
+          {downloading > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#f5f3ee] text-ink-950 font-mono text-[10.5px] font-semibold leading-[18px] text-center">
+              {downloading}
+            </span>
+          )}
+        </button>
 
-        <MomentsBell lux={lux} />
+        <MomentsBell lux />
 
         <NavLink
           to="/mylist"
           aria-label="My List"
           title="My List"
           className={({ isActive }) =>
-            lux
-              ? `hidden md:flex h-10 w-10 shrink-0 ml-1 items-center justify-center rounded-full os-glass transition-colors ${isActive ? 'text-white' : 'text-white/80 hover:text-white'}`
-              : `hidden md:inline-flex items-center gap-2 ml-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  isActive ? 'text-white bg-white/10' : 'text-ink-200 hover:text-white'
-                }`
+            `hidden md:flex h-10 w-10 shrink-0 ml-1 items-center justify-center rounded-full os-glass transition-colors ${isActive ? 'text-white' : 'text-white/80 hover:text-white'}`
           }
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
           </svg>
-          {!lux && 'My List'}
         </NavLink>
 
         <div className="relative ml-2 shrink-0" ref={menuRef}>
           <button
+            ref={avatarRef}
+            type="button"
             onClick={() => setMenuOpen((v) => !v)}
-            className={
-              lux
-                ? 'relative h-10 w-10 rounded-full p-[2px] text-sm font-semibold text-white bg-[conic-gradient(from_200deg,rgb(var(--mood-rgb,117,137,216)),#f5f3ee,rgb(var(--mood-rgb,117,137,216)))] hover:brightness-110 transition'
-                : 'relative h-9 w-9 rounded-full bg-accent-fill hover:brightness-110 transition-colors text-sm font-semibold text-white'
-            }
+            className="relative h-10 w-10 rounded-full p-[2px] text-sm font-semibold text-white bg-[conic-gradient(from_200deg,rgb(var(--mood-rgb,117,137,216)),#f5f3ee,rgb(var(--mood-rgb,117,137,216)))] hover:brightness-110 transition"
             title={session?.userName}
             aria-label={`Account menu for ${session?.userName ?? 'you'}${serverUpdate ? ' (update available)' : ''}`}
             aria-expanded={menuOpen}
+            aria-haspopup="menu"
           >
-            {lux ? (
-              <span className="flex h-full w-full items-center justify-center rounded-full bg-ink-900">{session?.userName?.charAt(0).toUpperCase()}</span>
-            ) : (
-              session?.userName?.charAt(0).toUpperCase()
-            )}
+            <span className="flex h-full w-full items-center justify-center rounded-full bg-ink-900">{session?.userName?.charAt(0).toUpperCase()}</span>
             {serverUpdate && (
               <span aria-hidden className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-accent-300 ring-2 ring-ink-950" />
             )}
@@ -339,7 +334,7 @@ export default function NavBar() {
                   icon={<SparkIcon />}
                   accent
                   onClick={() => {
-                    setMenuOpen(false)
+                    closeMenu()
                     void beginServerUpdate(serverUpdate, server?.kind)
                   }}
                 >
@@ -350,7 +345,7 @@ export default function NavBar() {
                 <MenuItem
                   icon={<Icon d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14" />}
                   onClick={() => {
-                    setMenuOpen(false)
+                    closeMenu()
                     navigate('/add-media')
                   }}
                 >
@@ -361,7 +356,7 @@ export default function NavBar() {
                 <MenuItem
                   icon={<Icon d="M8.25 4.5h7.5a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-7.5a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z" extra="M12 9.5v.01M10 12h4M12 15.5v.01" />}
                   onClick={() => {
-                    setMenuOpen(false)
+                    closeMenu()
                     navigate('/remote')
                   }}
                 >
@@ -371,22 +366,24 @@ export default function NavBar() {
               <MenuItem
                 icon={<Icon d={COG} extra="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />}
                 onClick={() => {
-                  setMenuOpen(false)
+                  closeMenu()
                   navigate('/settings')
                 }}
               >
                 Settings
               </MenuItem>
-              <MenuItem
-                className="md:hidden"
-                icon={<Icon d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />}
-                onClick={() => {
-                  setMenuOpen(false)
-                  navigate('/request')
-                }}
-              >
-                Requests and downloads
-              </MenuItem>
+              {(!limits || limits.requests) && (
+                <MenuItem
+                  className="md:hidden"
+                  icon={<Icon d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />}
+                  onClick={() => {
+                    closeMenu()
+                    navigate('/request')
+                  }}
+                >
+                  Requests and downloads
+                </MenuItem>
+              )}
               <MenuItem
                 icon={<Icon d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />}
                 onClick={logout}
@@ -417,6 +414,7 @@ function MenuItem({ icon, children, onClick, accent, className = '' }: { icon: R
   return (
     <button
       type="button"
+      role="menuitem"
       onClick={onClick}
       className={`${className} flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-[15px] transition-colors hover:bg-white/[0.08] focus-visible:bg-white/[0.1] [@media(hover:none)]:py-3 ${
         accent ? 'font-semibold text-accent-300' : 'text-white/90'
@@ -445,6 +443,7 @@ function AccountMenu({
   children: ReactNode
 }) {
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+  useOverlayFocus(Boolean(pos), popRef)
   useLayoutEffect(() => {
     const place = () => {
       const r = anchor.current?.getBoundingClientRect()

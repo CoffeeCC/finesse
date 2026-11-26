@@ -2,11 +2,14 @@
 // doing, the VPN, disk space, backups, app updates, and the public address +
 // email used for invites. Administrators only.
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { systemApi, type BackupFile, type BackupPart, type BackupPartInfo, type SystemStatus } from '../../api/setup'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
 import { pushBackHandler } from '../../lib/back'
+import { copyText } from '../../lib/clipboard'
 import { CONTENT_BASE, setContentOrigin } from '../../lib/contentOrigin'
 import { useFinesse } from '../../lib/finesseServer'
 import { SMTP_PRESETS } from '../setup/presets'
@@ -49,24 +52,100 @@ function Block({ title, action, anchor, children }: { title: string; action?: Re
 }
 
 function LogsDialog({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
+  const toast = useToast()
   const [text, setText] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('')
+  const [copied, setCopied] = useState(false)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  const fetchLogs = useCallback(async () => {
+    setLoading(true)
+    try {
+      setText(await systemApi.logs(id, 400))
+    } catch (e) {
+      setText(String((e as Error)?.message ?? e))
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
+
   useEffect(() => {
-    systemApi.logs(id, 400).then(setText, (e) => setText(String(e.message ?? e)))
+    void fetchLogs()
     return pushBackHandler(() => {
       onClose()
       return true
     })
-  }, [id, onClose])
+  }, [fetchLogs, onClose])
+
+  const { displayed, totalLines, matchedLines } = useMemo(() => {
+    if (text === null) return { displayed: 'Loading…', totalLines: 0, matchedLines: 0 }
+    const lines = text.split('\n')
+    const q = filter.trim().toLowerCase()
+    if (!q) return { displayed: text, totalLines: lines.length, matchedLines: lines.length }
+    const filtered = lines.filter((line) => line.toLowerCase().includes(q))
+    return {
+      displayed: filtered.length ? filtered.join('\n') : `No log lines match “${filter.trim()}”.`,
+      totalLines: lines.length,
+      matchedLines: filtered.length,
+    }
+  }, [text, filter])
+
+  // Auto-scroll to bottom (newest logs) whenever fresh logs arrive.
+  useEffect(() => {
+    if (text === null || filter.trim()) return
+    const el = preRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [text, filter])
+
+  const copyLogs = async () => {
+    if (!text) return
+    const ok = await copyText(filter.trim() ? displayed : text)
+    if (ok) {
+      setCopied(true)
+      toast('Logs copied')
+      window.setTimeout(() => setCopied(false), 2000)
+    } else {
+      toast('Couldn’t copy logs', 'error')
+    }
+  }
+
   return (
     <div role="dialog" aria-modal="true" aria-label={`${name} logs`} className="fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/85 p-4" onClick={onClose}>
       <div className="flex max-h-[calc(var(--vh)*85)] w-full max-w-4xl flex-col rounded-2xl border border-white/10 bg-ink-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-white/5 px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-5 py-3">
           <p className="font-semibold text-white">{name} — recent log</p>
-          <button type="button" onClick={onClose} className={smallBtn} autoFocus>
-            Close
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void fetchLogs()} disabled={loading} className={smallBtn}>
+              {loading && <Spinner className="h-3 w-3" />}
+              Refresh
+            </button>
+            <button type="button" onClick={() => void copyLogs()} disabled={!text} className={smallBtn}>
+              {copied ? 'Copied!' : 'Copy logs'}
+            </button>
+            <button type="button" onClick={onClose} className={smallBtn} autoFocus>
+              Close
+            </button>
+          </div>
         </div>
-        <pre className="flex-1 overflow-auto p-5 font-mono text-[11.5px] leading-relaxed text-ink-300 whitespace-pre-wrap break-all">{text ?? 'Loading…'}</pre>
+        <div className="flex flex-wrap items-center gap-3 border-b border-white/5 px-5 py-2.5">
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter logs…"
+            aria-label="Filter logs"
+            className="h-8 min-w-[12rem] flex-1 rounded-lg border border-white/10 bg-ink-950/70 px-3 text-[12.5px] text-white placeholder:text-ink-500 outline-none focus:border-accent-400"
+          />
+          {text !== null && (
+            <span className="text-[11.5px] tabular-nums text-ink-400">
+              {filter.trim() ? `${matchedLines.toLocaleString()} of ${totalLines.toLocaleString()} lines` : `${totalLines.toLocaleString()} lines`}
+            </span>
+          )}
+        </div>
+        <pre ref={preRef} className="flex-1 overflow-auto p-5 font-mono text-[11.5px] leading-relaxed text-ink-300 whitespace-pre-wrap break-all">
+          {displayed}
+        </pre>
       </div>
     </div>
   )
@@ -89,14 +168,11 @@ function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refre
   const [justMade, setJustMade] = useState<string | null>(null)
   const working = job?.state === 'working'
 
-  // Follow a running backup closely; say when it's done.
+  // Follow a running backup closely (shared query polls every 2s while working); say when it's done.
   const [followed, setFollowed] = useState(false)
   useEffect(() => {
-    if (!working) return
-    setFollowed(true)
-    const t = window.setInterval(() => void reload(), 2000)
-    return () => clearInterval(t)
-  }, [working, reload])
+    if (working) setFollowed(true)
+  }, [working])
   useEffect(() => {
     if (!followed || working) return
     setFollowed(false)
@@ -264,42 +340,57 @@ function BackupsBlock({ status, reload }: { status: SystemStatus; reload: (refre
 /** The blocks of this panel, so each Settings page shows only its own. */
 export type SystemPart = 'summary' | 'apps' | 'vpn-storage' | 'setup-change' | 'app-updates' | 'games' | 'backups' | 'sharing' | 'activity'
 
+const SYSTEM_STATUS_KEY = ['system', 'status'] as const
+
+const DOWNLOADER_OR_VPN = new Set(['gluetun', 'vpn', 'sabnzbd', 'qbittorrent', 'radarr', 'sonarr', 'lidarr', 'prowlarr'])
+
 export default function SystemPanel({ parts }: { parts?: SystemPart[] } = {}) {
   const has = (p: SystemPart) => !parts || parts.includes(p)
   const toast = useToast()
+  const qc = useQueryClient()
   const { info: finesse, refresh: refreshFinesse } = useFinesse()
-  const [s, setS] = useState<SystemStatus | null>(null)
-  const [err, setErr] = useState('')
+  const enabled = Boolean(finesse?.features.system)
+
+  // Shared query across all SystemPanel instances on a page (e.g. Health renders two): no double polling.
+  const q = useQuery({
+    queryKey: SYSTEM_STATUS_KEY,
+    queryFn: () => systemApi.status(false),
+    enabled,
+    staleTime: 10_000,
+    retry: false,
+    refetchInterval: (query) => {
+      const d = query.state.data
+      if (d?.backup?.job?.state === 'working') return 2000
+      if (d?.games?.job?.state === 'working') return 3000
+      return 30_000
+    },
+  })
+  const s = q.data ?? null
+  const err = q.isError ? (q.error instanceof Error && q.error.message ? q.error.message : 'Couldn’t load server status.') : ''
+
   const [busy, setBusy] = useState<string | null>(null)
   const [logs, setLogs] = useState<{ id: string; name: string } | null>(null)
+  const [confirmSvc, setConfirmSvc] = useState<{ kind: 'restart' | 'pause'; id: string; name: string } | null>(null)
 
-  const load = useCallback(async (refresh = false) => {
-    try {
-      setS(await systemApi.status(refresh))
-      setErr('')
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-  }, [])
+  const load = useCallback(
+    async (refresh = false) => {
+      const fresh = await systemApi.status(refresh)
+      qc.setQueryData(SYSTEM_STATUS_KEY, fresh)
+    },
+    [qc],
+  )
 
-  useEffect(() => {
-    void load()
-    const t = window.setInterval(() => void load(), 30000)
-    return () => clearInterval(t)
-  }, [load])
-
-  // Adding or removing Games: follow it closely, then let the menus catch up.
+  // Adding or removing Games: let the menus catch up once the job finishes.
   const gamesJob = s?.games?.job.state
+  const prevGamesJob = useRef(gamesJob)
   const [sgdb, setSgdb] = useState('')
   const [armGames, setArmGames] = useState(false)
   useEffect(() => {
-    if (gamesJob !== 'working') return
-    const t = window.setInterval(() => void load(), 3000)
-    return () => {
-      clearInterval(t)
+    if (prevGamesJob.current === 'working' && gamesJob !== 'working') {
       refreshFinesse()
     }
-  }, [gamesJob, load, refreshFinesse])
+    prevGamesJob.current = gamesJob
+  }, [gamesJob, refreshFinesse])
 
   const act = async (key: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(key)
@@ -314,11 +405,20 @@ export default function SystemPanel({ parts }: { parts?: SystemPart[] } = {}) {
     }
   }
 
-  if (!finesse?.features.system) return null
+  if (!enabled) return null
   if (!s)
     return (
       <div className={`${CARD} p-5`}>
-        {err ? <p className="text-sm text-red-300">{err}</p> : <div className="h-40 rounded-xl shimmer" />}
+        {err ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-red-300">{err}</p>
+            <button type="button" className={smallBtn} disabled={q.isFetching} onClick={() => void q.refetch()}>
+              {q.isFetching ? 'Checking…' : 'Retry'}
+            </button>
+          </div>
+        ) : (
+          <div className="h-40 rounded-xl shimmer" />
+        )}
       </div>
     )
 
@@ -370,7 +470,16 @@ export default function SystemPanel({ parts }: { parts?: SystemPart[] } = {}) {
                   <button type="button" className={smallBtn} onClick={() => setLogs({ id: svc.id, name: svc.name })}>
                     Logs
                   </button>
-                  <button type="button" className={smallBtn} disabled={busy === svc.id} onClick={() => act(svc.id, () => systemApi.restart(svc.id), `${svc.name} restarted`)}>
+                  <button
+                    type="button"
+                    className={smallBtn}
+                    disabled={busy === svc.id}
+                    onClick={() =>
+                      svc.id === 'jellyfin'
+                        ? setConfirmSvc({ kind: 'restart', id: svc.id, name: svc.name })
+                        : void act(svc.id, () => systemApi.restart(svc.id), `${svc.name} restarted`)
+                    }
+                  >
                     {busy === svc.id && <Spinner className="h-3 w-3" />}
                     Restart
                   </button>
@@ -380,7 +489,16 @@ export default function SystemPanel({ parts }: { parts?: SystemPart[] } = {}) {
                         Resume
                       </button>
                     ) : (
-                      <button type="button" className={smallBtn} disabled={busy === svc.id} onClick={() => act(svc.id, () => systemApi.stop(svc.id), `${svc.name} paused`)}>
+                      <button
+                        type="button"
+                        className={smallBtn}
+                        disabled={busy === svc.id}
+                        onClick={() =>
+                          DOWNLOADER_OR_VPN.has(svc.id)
+                            ? setConfirmSvc({ kind: 'pause', id: svc.id, name: svc.name })
+                            : void act(svc.id, () => systemApi.stop(svc.id), `${svc.name} paused`)
+                        }
+                      >
                         Pause
                       </button>
                     ))}
@@ -537,6 +655,39 @@ export default function SystemPanel({ parts }: { parts?: SystemPart[] } = {}) {
       )}
 
       {logs && <LogsDialog id={logs.id} name={logs.name} onClose={() => setLogs(null)} />}
+      {confirmSvc && (
+        <ConfirmDialog
+          title={confirmSvc.kind === 'restart' ? `Restart ${confirmSvc.name}?` : `Pause ${confirmSvc.name}?`}
+          confirmLabel={
+            busy === confirmSvc.id
+              ? confirmSvc.kind === 'restart'
+                ? 'Restarting…'
+                : 'Pausing…'
+              : confirmSvc.kind === 'restart'
+                ? 'Restart'
+                : 'Pause'
+          }
+          busy={busy === confirmSvc.id}
+          danger={confirmSvc.kind === 'pause' && (confirmSvc.id === 'gluetun' || confirmSvc.id === 'vpn')}
+          onCancel={() => setConfirmSvc(null)}
+          onConfirm={() => {
+            const target = confirmSvc
+            const run =
+              target.kind === 'restart'
+                ? act(target.id, () => systemApi.restart(target.id), `${target.name} restarted`)
+                : act(target.id, () => systemApi.stop(target.id), `${target.name} paused`)
+            void run.then(() => setConfirmSvc(null))
+          }}
+        >
+          {confirmSvc.kind === 'restart' ? (
+            <p>Anyone currently watching or listening will be interrupted for a moment while {confirmSvc.name} restarts.</p>
+          ) : confirmSvc.id === 'gluetun' || confirmSvc.id === 'vpn' ? (
+            <p>Torrents will stop while the VPN is paused so no traffic goes around it. Resume it here whenever you’re ready.</p>
+          ) : (
+            <p>Active downloads and automatic requests using {confirmSvc.name} will pause until you resume it.</p>
+          )}
+        </ConfirmDialog>
+      )}
     </div>
   )
 }
@@ -601,6 +752,12 @@ function SharingSettings({ onSaved }: { onSaved: () => void }) {
               <TextField label="SMTP server" value={e.host} onChange={(v) => setE((x) => ({ ...x, host: v }))} placeholder="smtp.example.com" mono />
               <TextField label="Port" value={e.port} onChange={(v) => setE((x) => ({ ...x, port: v.replace(/\D/g, ''), secure: v === '465' }))} inputMode="numeric" />
             </div>
+            <Toggle
+              checked={e.secure}
+              onChange={(v) => setE((x) => ({ ...x, secure: v }))}
+              label="Use direct SSL/TLS"
+              description="Usually on for port 465, off for port 587 (STARTTLS)."
+            />
             <div className="grid gap-4 sm:grid-cols-2">
               <TextField label="Username" value={e.username} onChange={(v) => setE((x) => ({ ...x, username: v }))} />
               <TextField label="Password" type="password" value={e.password} onChange={(v) => setE((x) => ({ ...x, password: v }))} placeholder={hasPassword ? 'Saved — leave empty to keep' : ''} />
@@ -613,7 +770,7 @@ function SharingSettings({ onSaved }: { onSaved: () => void }) {
             {busy === 'save' && <Spinner className="h-3.5 w-3.5" />}
             Save
           </button>
-          {on && hasPassword !== undefined && (
+          {on && (hasPassword || e.password.trim().length > 0) && (
             <form
               className="flex flex-1 flex-wrap items-center gap-2"
               onSubmit={async (ev) => {
@@ -655,6 +812,11 @@ export function TvServerAddress({ className = '' }: { className?: string }) {
         type="button"
         className={smallBtn}
         onClick={() => {
+          try {
+            if (CONTENT_BASE) sessionStorage.setItem('finesse.prevContentOrigin', CONTENT_BASE)
+          } catch {
+            /* ignore */
+          }
           setContentOrigin(null)
           window.location.hash = '#/connect'
           window.location.reload()

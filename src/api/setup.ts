@@ -651,6 +651,8 @@ export interface ConnCheck {
   fixes?: { id: string; label: string; detail: string }[]
   /** Worth knowing, nothing wrong (a newer version of someone's own app). */
   notes?: string[]
+  /** Direct link to open this app's own web UI when reachable from the browser. */
+  openUrl?: string
 }
 export interface ConnReport {
   checkedAt: string

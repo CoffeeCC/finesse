@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAudio } from '../audio/AudioPlayerContext'
 import type { VisualizerStyle } from '../lib/settings'
+import PixelVisualizer, { type PixelScene } from './PixelVisualizer'
 
 const REDUCED =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -19,6 +20,23 @@ interface Particle {
  * Falls back to a calm idle motion if the analyser is unavailable (CORS).
  */
 export default function AudioVisualizer({
+  variant,
+  pixelScene = 'auto',
+  moodRgb = null,
+  className = '',
+}: {
+  variant: VisualizerStyle
+  pixelScene?: PixelScene
+  moodRgb?: [number, number, number] | null
+  className?: string
+}) {
+  if (variant === 'pixel') {
+    return <PixelVisualizer scene={pixelScene} moodRgb={moodRgb} className={className} />
+  }
+  return <CanvasVisualizer variant={variant} className={className} />
+}
+
+function CanvasVisualizer({
   variant,
   className = '',
 }: {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import AuthShell, {
@@ -9,26 +9,78 @@ import AuthShell, {
   authPrimaryBtn,
 } from '../components/AuthShell'
 import { getInvite, joinInvite, InviteError, type InvitePublic } from '../api/invite'
-
+import { copyText } from '../lib/clipboard'
 import { bundledJellyfin, finesseRoot, legacyJellyfinGuess, useFinesse } from '../lib/finesseServer'
 
 type Step = 'welcome' | 'rules' | 'create' | 'success'
 
 const STEPS: Step[] = ['welcome', 'rules', 'create']
 
-function CopyRow({ label, url, note }: { label: string; url: string; note?: string }) {
+function isStrongPassword(pw: string): boolean {
+  return pw.length >= 8 && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /\d/.test(pw)
+}
+
+function GlobeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-accent-300" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path strokeLinecap="round" d="M3.6 9h16.8M3.6 15h16.8M12 3a13.5 13.5 0 0 0 0 18M12 3a13.5 13.5 0 0 1 0 18" />
+    </svg>
+  )
+}
+
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-accent-300" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 10.5 12 3l9 7.5" />
+      <path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5" />
+    </svg>
+  )
+}
+
+function TvIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-accent-300" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="5" width="18" height="12" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  )
+}
+
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-accent-300" fill="currentColor" aria-hidden>
+      <path d="M7.5 5.6v12.8a1 1 0 0 0 1.5.86l10.2-6.4a1 1 0 0 0 0-1.72L9 4.74a1 1 0 0 0-1.5.86Z" />
+    </svg>
+  )
+}
+
+function CopyRow({ icon, label, url, note }: { icon: ReactNode; label: string; url: string; note?: string }) {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const handleCopy = async () => {
+    const ok = await copyText(url)
+    setStatus(ok ? 'copied' : 'failed')
+    window.setTimeout(() => setStatus('idle'), 2000)
+  }
   return (
     <div className="mt-3 rounded-xl bg-ink-800/60 border border-white/10 p-3 text-left">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-ink-200">{label}</span>
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-200">
+          {icon}
+          {label}
+        </span>
         <button
           type="button"
-          onClick={() => {
-            navigator.clipboard?.writeText(url).catch(() => {})
-          }}
-          className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-ink-300 hover:text-white hover:bg-white/20 transition-colors"
+          onClick={() => void handleCopy()}
+          className={`shrink-0 text-[11px] px-2.5 py-0.5 rounded-full transition-colors ${
+            status === 'copied'
+              ? 'bg-emerald-500/20 text-emerald-300'
+              : status === 'failed'
+                ? 'bg-red-500/20 text-red-200'
+                : 'bg-white/10 text-ink-300 hover:text-white hover:bg-white/20'
+          }`}
         >
-          Copy
+          {status === 'copied' ? 'Copied!' : status === 'failed' ? 'Select & copy' : 'Copy'}
         </button>
       </div>
       <p className="mt-1 text-[11px] font-mono text-accent-300 break-all select-all">{url}</p>
@@ -51,7 +103,9 @@ export default function InvitePage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState('')
+  const [loginError, setLoginError] = useState('')
   const [busy, setBusy] = useState(false)
 
   // Where this Finesse is: the address in use now, plus its public one if it has it.
@@ -95,6 +149,11 @@ export default function InvitePage() {
   }, [codeParam])
 
   const stepIndex = Math.max(0, STEPS.indexOf(step === 'success' ? 'create' : step))
+  const passwordValid = isStrongPassword(password)
+  const passwordsMatch = confirm.length > 0 && password === confirm
+  const expiresLabel = invite?.expires_at
+    ? new Date(invite.expires_at).toLocaleDateString(undefined, { dateStyle: 'medium' })
+    : null
 
   const submitCode = (e: FormEvent) => {
     e.preventDefault()
@@ -107,12 +166,17 @@ export default function InvitePage() {
   const submitCreate = async (e: FormEvent) => {
     e.preventDefault()
     if (!invite) return
-    if (password !== confirm) {
+    if (!passwordValid) {
+      setFormError('Password must be at least 8 characters and include an uppercase letter, a lowercase letter, and a number.')
+      return
+    }
+    if (!confirm || password !== confirm) {
       setFormError('Passwords don’t match')
       return
     }
     setBusy(true)
     setFormError('')
+    setLoginError('')
     try {
       await joinInvite({
         code: invite.code,
@@ -133,12 +197,13 @@ export default function InvitePage() {
 
   const startWatching = async () => {
     setBusy(true)
+    setLoginError('')
     try {
       await login(server, username.trim(), password)
       navigate('/', { replace: true })
     } catch {
-      // Account was created; worst case they sign in manually.
-      navigate('/login', { replace: true })
+      setBusy(false)
+      setLoginError('Your account is ready, but automatic sign-in didn’t go through. Sign in manually with your new username and password.')
     }
   }
 
@@ -219,13 +284,22 @@ export default function InvitePage() {
                   A private media library — movies, shows, and more — in a cinematic app built for
                   the living room and the phone.
                 </p>
+                {invite.label && (
+                  <p className="mt-3 inline-block rounded-full border border-white/10 bg-white/[0.04] px-3 py-0.5 text-xs text-ink-200">
+                    {invite.label} invite
+                  </p>
+                )}
                 {invite.libraries.length > 0 && (
-                  <p className="mt-4 text-xs text-ink-400">
+                  <p className="mt-4 text-xs text-ink-400 leading-relaxed">
                     Includes{' '}
                     <span className="text-ink-200">
-                      {invite.libraries.slice(0, 4).join(' · ')}
-                      {invite.libraries.length > 4 ? '…' : ''}
+                      {invite.libraries.join(' · ')}
                     </span>
+                  </p>
+                )}
+                {expiresLabel && (
+                  <p className="mt-1.5 text-[11.5px] text-ink-500">
+                    Valid until {expiresLabel}
                   </p>
                 )}
                 <button type="button" onClick={() => setStep('rules')} className={`${authPrimaryBtn} mt-8`}>
@@ -294,35 +368,48 @@ export default function InvitePage() {
                 />
 
                 <label className={authLabelClass} htmlFor="invite-password">Password</label>
-                <input
-                  id="invite-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={authInputClass}
-                  autoComplete="new-password"
-                  required
-                />
-                <p className="mt-1 text-[11px] text-ink-400">
+                <div className="relative">
+                  <input
+                    id="invite-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`${authInputClass} pr-16`}
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-xs font-medium text-ink-400 hover:bg-white/10 hover:text-white transition-colors"
+                  >
+                    {showPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <p className={`mt-1 text-[11px] ${password && !passwordValid ? 'text-amber-300' : password && passwordValid ? 'text-emerald-300' : 'text-ink-400'}`}>
                   At least 8 characters, with upper, lower, and a number.
                 </p>
 
                 <label className={authLabelClass} htmlFor="invite-confirm">Confirm password</label>
                 <input
                   id="invite-confirm"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   className={authInputClass}
                   autoComplete="new-password"
                   required
                 />
+                {confirm && password !== confirm && (
+                  <p className="mt-1 text-[11px] text-amber-300">Passwords don’t match yet.</p>
+                )}
 
                 {formError && <p className="mt-3 text-sm text-red-400">{formError}</p>}
 
                 <button
                   type="submit"
-                  disabled={busy || !username.trim() || !password}
+                  disabled={busy || !username.trim() || !passwordValid || !passwordsMatch}
                   className={`${authPrimaryBtn} mt-6`}
                 >
                   {busy ? 'Creating…' : 'Join Finesse'}
@@ -353,23 +440,35 @@ export default function InvitePage() {
 
             {publicApp && publicApp !== here && (
               <CopyRow
-                label="🌍 Watch from anywhere"
+                icon={<GlobeIcon />}
+                label="Watch from anywhere"
                 url={publicApp}
                 note="Works on any phone, tablet, or computer — bookmark it. On a phone, open it in the browser and use “Add to Home Screen” to install it like an app."
               />
             )}
             <CopyRow
-              label={publicApp && publicApp !== here ? '🏠 At home (faster)' : '📺 Your Finesse address'}
+              icon={publicApp && publicApp !== here ? <HomeIcon /> : <TvIcon />}
+              label={publicApp && publicApp !== here ? 'At home (faster)' : 'Your Finesse address'}
               url={here}
               note={publicApp && publicApp !== here ? 'Same app, local — use this one when you’re here.' : 'Bookmark it. On a phone, use “Add to Home Screen” to install it like an app.'}
             />
             <CopyRow
-              label="▶ Prefer the official Jellyfin app?"
+              icon={<PlayIcon />}
+              label="Prefer the official Jellyfin app?"
               url={publicJellyfin ?? server}
               note="Install “Jellyfin” from your app store, add this as the server address, and sign in with the same username and password."
             />
 
-            <button type="button" onClick={startWatching} disabled={busy} className={`${authPrimaryBtn} mt-6`}>
+            {loginError && (
+              <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3.5 py-2.5 text-left text-xs leading-relaxed text-amber-100">
+                <p>{loginError}</p>
+                <Link to="/login" className="mt-2 inline-block font-semibold text-white underline underline-offset-2 hover:text-accent-200">
+                  Go to Sign in
+                </Link>
+              </div>
+            )}
+
+            <button type="button" onClick={() => void startWatching()} disabled={busy} className={`${authPrimaryBtn} mt-6`}>
               {busy ? 'Signing in…' : 'Start watching'}
             </button>
           </div>

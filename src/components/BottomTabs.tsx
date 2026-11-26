@@ -12,16 +12,18 @@ const ICONS = {
 // (Movies, Shows, Anime, Music, Games, Friends, Collections) or My List (watchlist +
 // requests) — nothing hides in the avatar menu any more.
 const LIBRARY_PATHS = ['/libraries', '/library/', '/browse', '/music', '/album', '/games', '/friends', '/activity', '/person/', '/smart', '/together', '/moments']
+const MYLIST_PATHS = ['/mylist', '/request']
 
 export default function BottomTabs() {
   const { pathname } = useLocation()
   const inLibrary = LIBRARY_PATHS.some((p) => pathname.startsWith(p))
+  const inMyList = MYLIST_PATHS.some((p) => pathname.startsWith(p))
 
   const tabs = [
     { to: '/', label: 'Home', icon: ICONS.home, end: true },
     { to: '/search', label: 'Search', icon: ICONS.search, end: false },
     { to: '/libraries', label: 'Library', icon: ICONS.library, end: false, forceActive: inLibrary },
-    { to: '/mylist', label: 'My List', icon: ICONS.mylist, end: false },
+    { to: '/mylist', label: 'My List', icon: ICONS.mylist, end: false, forceActive: inMyList },
   ]
 
   return (

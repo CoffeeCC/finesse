@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { playApi, streamingApi, type StreamEmulator } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 import { useFinesse } from '../lib/finesseServer'
+import { switchToHttps } from '../lib/httpsHandoff'
 import { PLAY_BTN } from './ActionButton'
 
 /** The emulator app (in Wolf) that plays a RomM console, if this server has one. Shares the Games page's list. */
@@ -47,17 +48,52 @@ export function PlayIcon() {
 /** The page's main action for these consoles: play right here, streamed from the server. */
 export function BrowserPlayButton({ rom, profile, needProfile, onError }: { rom: number; profile: string | undefined; needProfile: boolean; onError: (m: string) => void }) {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { info } = useFinesse()
   const [busy, setBusy] = useState(false)
+  const autoStarted = useRef(false)
+
+  const startStream = (chosenProfile: string | undefined) => {
+    setBusy(true)
+    playApi
+      .start(rom, chosenProfile)
+      .then((s) => navigate(`/games/stream/${s.id}`))
+      .catch((e: Error) => onError(e.message))
+      .finally(() => setBusy(false))
+  }
+
+  // After an automatic HTTP → HTTPS handoff, immediately launch the stream without a second click.
+  useEffect(() => {
+    if (autoStarted.current || !window.isSecureContext) return
+    if (searchParams.get('autoplay') !== '1') return
+    const chosen = searchParams.get('profile') || profile
+    if (needProfile && !chosen) return
+    autoStarted.current = true
+    const next = new URLSearchParams(searchParams)
+    next.delete('autoplay')
+    next.delete('profile')
+    setSearchParams(next, { replace: true })
+    startStream(chosen)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, profile, needProfile])
+
   // The player decodes video with WebCodecs, which browsers only allow on https pages.
   if (!window.isSecureContext) {
     const port = info?.httpsPort
     if (!port) return null
     return (
-      <a href={`https://${window.location.hostname}:${port}${window.location.pathname}${window.location.search}`} className={PLAY_BTN} title="Browsers only play these games on a secure (https) page">
+      <button
+        type="button"
+        className={PLAY_BTN}
+        disabled={busy || (needProfile && !profile)}
+        onClick={() => {
+          setBusy(true)
+          void switchToHttps(port, { autoplay: '1', ...(profile ? { profile } : {}) })
+        }}
+      >
         <PlayIcon />
-        Play (opens the https address)
-      </a>
+        {busy ? 'Opening…' : 'Play'}
+      </button>
     )
   }
   return (
@@ -65,14 +101,7 @@ export function BrowserPlayButton({ rom, profile, needProfile, onError }: { rom:
       type="button"
       className={PLAY_BTN}
       disabled={busy || (needProfile && !profile)}
-      onClick={() => {
-        setBusy(true)
-        playApi
-          .start(rom, profile)
-          .then((s) => navigate(`/games/stream/${s.id}`))
-          .catch((e: Error) => onError(e.message))
-          .finally(() => setBusy(false))
-      }}
+      onClick={() => startStream(profile)}
     >
       <PlayIcon />
       {busy ? 'Starting…' : 'Play'}

@@ -1,16 +1,14 @@
-// Browse the game store: search, filters and sort, all kept in the address (so Back, a shared
-// link and a store-front shelf's "See all" land on the same view), and more games as you scroll.
+// Browse the game store: full-width poster grid, horizontal filter & sort bar, URL-synced state,
+// infinite scroll, and live Prowlarr PC-game search fallback whenever searching.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { MODE_LABEL, paramsToQuery, PLATFORM_LABEL, queryToParams, SORT_LABEL, type StoreQuery, type StoreSort } from '../api/gameStore'
+import { MODE_LABEL, paramsToQuery, PLATFORM_LABEL, queryToParams, type StoreQuery } from '../api/gameStore'
 import { useGameRequests, useStoreFacets, useStoreMode, useStoreSearch } from '../api/gameStoreQueries'
 import { Sheet } from '../components/Sheet'
-import { STORE_GRID, StoreCard, StoreGridSkeleton } from '../components/gamestore/StoreCards'
-import { activeFilterCount, StoreFilters } from '../components/gamestore/StoreFilters'
-import { StoreHeader, StoreSearchBox } from '../components/gamestore/StoreHeader'
-
-const SORTS: StoreSort[] = ['popular', 'new', 'name', 'year']
+import { LiveSearchSection, STORE_GRID, StoreCard, StoreGridSkeleton } from '../components/gamestore/StoreCards'
+import { activeFilterCount, StoreFilterBar, StoreFilters } from '../components/gamestore/StoreFilters'
+import { StoreHeader, StoreSearchBox, StoreUnavailable } from '../components/gamestore/StoreHeader'
 
 export default function GameStoreBrowsePage() {
   const mode = useStoreMode()
@@ -19,15 +17,31 @@ export default function GameStoreBrowsePage() {
   const [input, setInput] = useState(query.q ?? '')
   const [sheet, setSheet] = useState(false)
 
-  const setQuery = (q: StoreQuery) => setParams(queryToParams(q), { replace: true })
+  // Keep latest query in a ref so the 350ms search debounce never clobbers a filter click.
+  const queryRef = useRef(query)
+  queryRef.current = query
 
-  // Typing goes into the address after a pause.
+  const setQuery = useCallback(
+    (q: StoreQuery) => setParams(queryToParams(q), { replace: true }),
+    [setParams],
+  )
+
+  // Sync input when URL `q` changes externally (Back/Forward, clearing search pill, etc.)
+  useEffect(() => {
+    setInput(query.q ?? '')
+  }, [query.q])
+
+  // Debounce typing into URL params without wiping concurrent filter/sort updates.
   useEffect(() => {
     const t = setTimeout(() => {
-      if (input.trim() !== (query.q ?? '')) setQuery({ ...query, q: input.trim() || undefined })
+      const nextQ = input.trim() || undefined
+      const current = queryRef.current
+      if (nextQ !== current.q) {
+        setQuery({ ...current, q: nextQ })
+      }
     }, 350)
     return () => clearTimeout(t)
-  }, [input]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [input, setQuery])
 
   const results = useStoreSearch(query)
   const facets = useStoreFacets(query)
@@ -36,7 +50,7 @@ export default function GameStoreBrowsePage() {
   const games = results.data?.pages.flatMap((p) => p.items) ?? []
   const total = results.data?.pages[0]?.total
 
-  // More as the end of the grid comes near.
+  // Infinite scroll sentinel
   const sentinel = useRef<HTMLDivElement>(null)
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = results
   useEffect(() => {
@@ -47,11 +61,27 @@ export default function GameStoreBrowsePage() {
     return () => io.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  if (!mode) return null
+  if (!mode) return <StoreUnavailable title="Browse games" />
 
   const genreName = new Map((facets.data?.genres ?? []).map((g) => [g.value, g.label]))
-  const pills = [
-    ...(query.genres ?? []).map((g) => ({ key: `g-${g}`, label: genreName.get(g) ?? g, drop: () => setQuery({ ...query, genres: query.genres!.filter((x) => x !== g) }) })),
+  const pills: { key: string; label: string; drop: () => void }[] = [
+    ...(query.q
+      ? [
+          {
+            key: 'q',
+            label: `Search: “${query.q}”`,
+            drop: () => {
+              setInput('')
+              setQuery({ ...query, q: undefined })
+            },
+          },
+        ]
+      : []),
+    ...(query.genres ?? []).map((g) => ({
+      key: `g-${g}`,
+      label: genreName.get(g) ?? g,
+      drop: () => setQuery({ ...query, genres: query.genres!.filter((x) => x !== g) }),
+    })),
     ...(query.platform ? [{ key: 'p', label: PLATFORM_LABEL[query.platform], drop: () => setQuery({ ...query, platform: undefined }) }] : []),
     ...(query.mode ? [{ key: 'm', label: MODE_LABEL[query.mode], drop: () => setQuery({ ...query, mode: undefined }) }] : []),
   ]
@@ -59,122 +89,128 @@ export default function GameStoreBrowsePage() {
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-12">
-      <StoreHeader title="Browse games" extra={<StoreSearchBox value={input} onChange={setInput} />} />
+      <StoreHeader
+        title="Browse games"
+        extra={
+          <StoreSearchBox
+            value={input}
+            onChange={setInput}
+            onSubmit={() => {
+              const nextQ = input.trim() || undefined
+              if (nextQ !== query.q) setQuery({ ...query, q: nextQ })
+            }}
+          />
+        }
+      />
 
-      <div className="lg:grid lg:grid-cols-[15rem_1fr] lg:gap-10">
-        <aside className="hidden lg:block" aria-label="Filters">
-          <div className="sticky top-24">
-            <StoreFilters facets={facets.data} query={query} onChange={setQuery} />
-          </div>
-        </aside>
+      <StoreFilterBar
+        facets={facets.data}
+        query={query}
+        onChange={setQuery}
+        total={total}
+        onOpenMobileSheet={() => setSheet(true)}
+      />
 
-        <div className="min-w-0">
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+      {pills.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          {pills.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={p.drop}
+              aria-label={`Remove ${p.label}`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent-500/20 px-3 text-xs font-semibold text-accent-200 transition hover:bg-accent-500/30"
+            >
+              <span>{p.label}</span>
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setInput('')
+              setQuery({ sort: query.sort })
+            }}
+            className="px-2 text-xs font-semibold text-ink-300 hover:text-white"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {results.isError ? (
+        <div className="py-16 text-center">
+          <p className="text-lg font-semibold text-white">Couldn’t search the store</p>
+          <p className="mt-1 text-sm text-ink-400">The store didn’t answer. Try again in a moment.</p>
+          <button
+            type="button"
+            onClick={() => results.refetch()}
+            className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
+          >
+            Try again
+          </button>
+        </div>
+      ) : results.isLoading ? (
+        <StoreGridSkeleton />
+      ) : games.length === 0 ? (
+        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-12 text-center">
+          <p className="text-lg font-semibold text-white">
+            {query.q ? `No catalog games match “${query.q}”` : 'No games match'}
+          </p>
+          <p className="mt-1 text-sm text-ink-400">
+            {filters ? 'Try clearing a filter or searching for another title.' : 'Check live PC indexer results below or try another search.'}
+          </p>
+          {(filters > 0 || query.q) && (
             <button
               type="button"
-              onClick={() => setSheet(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-medium text-ink-200 hover:text-white lg:hidden"
+              onClick={() => {
+                setInput('')
+                setQuery({ sort: query.sort })
+              }}
+              className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-                <path strokeLinecap="round" d="M3 6h18M6 12h12M10 18h4" />
-              </svg>
-              Filters{filters ? ` (${filters})` : ''}
+              Show every game
             </button>
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar" role="group" aria-label="Sort by">
-              {SORTS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={query.sort === s}
-                  onClick={() => setQuery({ ...query, sort: s })}
-                  className={`h-9 shrink-0 rounded-full px-3.5 text-sm font-medium transition-colors ${query.sort === s ? 'bg-[#f5f3ee] text-ink-950' : 'text-ink-300 hover:text-white'}`}
-                >
-                  {SORT_LABEL[s]}
-                </button>
-              ))}
-            </div>
-            <div className="flex-1" />
-            {total !== undefined && (
-              <span className="text-sm text-ink-400" aria-live="polite">
-                {total === 1 ? '1 game' : `${total} games`}
-              </span>
-            )}
+          )}
+        </div>
+      ) : (
+        <>
+          <div className={STORE_GRID}>
+            {games.map((g) => (
+              <div key={g.id} className="cv-card">
+                <StoreCard game={g} request={byGame.get(g.id)} />
+              </div>
+            ))}
           </div>
-
-          {pills.length > 0 && (
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              {pills.map((p) => (
-                <button
-                  key={p.key}
-                  type="button"
-                  onClick={p.drop}
-                  aria-label={`Remove ${p.label}`}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent-500/20 px-3 text-sm font-medium text-accent-200 hover:bg-accent-500/30"
-                >
-                  {p.label}
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              ))}
-              <button type="button" onClick={() => setQuery({ q: query.q, sort: query.sort })} className="px-2 text-sm font-semibold text-ink-300 hover:text-white">
-                Clear all
+          <div ref={sentinel} />
+          {hasNextPage && (
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="inline-flex h-10 items-center rounded-lg border border-white/15 bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-60"
+              >
+                {isFetchingNextPage ? 'Loading…' : 'Show more'}
               </button>
             </div>
           )}
+        </>
+      )}
 
-          {results.isError ? (
-            <p className="py-12 text-center text-sm text-ink-400">Couldn’t search the store. Try again in a moment.</p>
-          ) : results.isLoading ? (
-            <StoreGridSkeleton />
-          ) : games.length === 0 ? (
-            <div className="py-16 text-center">
-              <p className="text-lg font-semibold text-white">No games match</p>
-              <p className="mt-1 text-sm text-ink-400">{filters ? 'Clear a filter or search for something else.' : 'Search for something else.'}</p>
-              {(filters > 0 || query.q) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInput('')
-                    setQuery({ sort: query.sort })
-                  }}
-                  className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
-                >
-                  Show every game
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className={STORE_GRID}>
-                {games.map((g) => (
-                  <div key={g.id} className="cv-card">
-                    <StoreCard game={g} request={byGame.get(g.id)} />
-                  </div>
-                ))}
-              </div>
-              <div ref={sentinel} />
-              {hasNextPage && (
-                <div className="mt-8 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => fetchNextPage()}
-                    disabled={isFetchingNextPage}
-                    className="inline-flex h-10 items-center rounded-lg border border-white/15 bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-60"
-                  >
-                    {isFetchingNextPage ? 'Loading…' : 'Show more'}
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+      {/* Live Prowlarr PC-game search whenever the user has an active search term */}
+      {query.q && <LiveSearchSection q={query.q} className="mt-10 border-t border-white/10 pt-8" />}
 
       {sheet && (
         <Sheet title="Filters" onClose={() => setSheet(false)}>
           <StoreFilters facets={facets.data} query={query} onChange={setQuery} />
-          <button type="button" onClick={() => setSheet(false)} className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-white text-[15px] font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
+          <button
+            type="button"
+            onClick={() => setSheet(false)}
+            className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-lg bg-white text-[15px] font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
+          >
             {total === undefined ? 'Done' : total === 1 ? 'Show 1 game' : `Show ${total} games`}
           </button>
         </Sheet>
@@ -182,4 +218,3 @@ export default function GameStoreBrowsePage() {
     </div>
   )
 }
-

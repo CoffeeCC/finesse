@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Settings, SettingsStore } from '../src/config.ts'
-import { checkConnections, type ConnFetch } from '../src/connections.ts'
+import { browserUrl, checkConnections, type ConnFetch } from '../src/connections.ts'
 import { ConnectionRepairLoop, REPAIR_COOLDOWN_MS, findContainer, mapThroughMounts, runConnectionFix } from '../src/connectionFixes.ts'
 
 const settings = (services: Settings['services'], mode: Settings['mode'] = 'adopt') => ({ services, mode }) as Settings
@@ -125,7 +125,30 @@ test('remote-paths: without Docker, borrows the mapping Radarr already uses — 
     })
   const s = settings({ lidarr: { url: 'http://lidarr', apiKey: 'lk' }, radarr: { url: 'http://radarr', apiKey: 'rk' } })
   assert.equal(await runConnectionFix(s, 'lidarr', 'remote-paths', { get: lidarr(['/data/data/Torrents/']) }), 'Added to Lidarr: /data/Torrents/ → /data/data/Torrents/.')
-  await assert.rejects(runConnectionFix(s, 'lidarr', 'remote-paths', { get: lidarr([]) }), /couldn’t work out where qBittorrent saves inside Lidarr/)
+  await assert.rejects(runConnectionFix(s, 'lidarr', 'remote-paths', { get: lidarr([]) }), /couldn’t find qBittorrent’s downloads folder inside Lidarr/)
+})
+
+test('remote-paths: handles Lidarr quoted "is placing downloads in" wording and auto-fixes case mismatches without Docker', async () => {
+  let posted: unknown = null
+  const get = fake({
+    'GET 192.168.8.120:30071/api/v1/system/status': {},
+    'GET 192.168.8.120:30071/api/v1/health': [
+      { source: 'RemotePathMappingCheck', type: 'error', message: 'You are using docker; download client qBittorrent is placing downloads in "/data/Torrents/" but this directory does not appear to exist inside the container.' },
+    ],
+    'GET 192.168.8.120:30071/api/v1/downloadclient': [{ name: 'qBittorrent', fields: [{ name: 'host', value: '192.168.8.120' }] }],
+    'POST 192.168.8.120:30071/api/v1/downloadclient/testall': [],
+    'GET 192.168.8.120:30071/api/v1/remotepathmapping': [],
+    'GET 192.168.8.120:30071/api/v1/filesystem': { directories: [{ path: '/data/torrents/' }] },
+    'POST 192.168.8.120:30071/api/v1/remotepathmapping': (b: unknown) => ((posted = b), { status: 201, json: b }),
+  })
+  const s = settings({ lidarr: { url: 'http://192.168.8.120:30071', apiKey: 'lk' } })
+  const report = await checkConnections(s, get)
+  assert.equal(report.apps[0]!.openUrl, 'http://192.168.8.120:30071')
+  assert.deepEqual(report.apps[0]!.fixes?.map((f) => f.id), ['remote-paths'])
+  assert.equal(browserUrl('http://lidarr:8686'), undefined)
+  assert.equal(browserUrl('http://host.docker.internal:30071'), undefined)
+  assert.equal(await runConnectionFix(s, 'lidarr', 'remote-paths', { get }), 'Added to Lidarr: /data/Torrents/ → /data/torrents/.')
+  assert.deepEqual(posted, { host: '192.168.8.120', remotePath: '/data/Torrents/', localPath: '/data/torrents/' })
 })
 
 test('SABnzbd’s hostname check: reported plainly, and fixed by asking it by IP', async () => {
@@ -199,4 +222,95 @@ test('automatic repairs record successes and retry failures only after cooldown'
   now++
   await loop.tick()
   assert.equal(lidarrChecks, 3)
+})
+
+test('remote-paths: discovers TrueNAS nested /data/data/Torrents/ via filesystem API without Docker', async () => {
+  let posted: unknown = null
+  const seen: string[] = []
+  const get: ConnFetch = async (url, init) => {
+    const u = new URL(url)
+    seen.push(`${init.method ?? 'GET'} ${u.pathname}${u.search}`)
+    if (u.pathname.endsWith('/health')) {
+      return { status: 200, json: [{ source: 'RemotePathMappingCheck', type: 'error', message: 'You are using docker; download client qBittorrent is placing downloads in "/data/Torrents/" but this directory does not appear to exist inside the container.' }] }
+    }
+    if (u.pathname.endsWith('/downloadclient')) {
+      return { status: 200, json: [{ name: 'qBittorrent', fields: [{ name: 'host', value: '192.168.8.120' }] }] }
+    }
+    if (u.pathname.endsWith('/remotepathmapping') && (init.method ?? 'GET') === 'GET') {
+      return { status: 200, json: [] }
+    }
+    if (u.pathname.endsWith('/filesystem')) {
+      const p = u.searchParams.get('path')
+      if (p === '/data/') return { status: 200, json: { directories: [{ path: '/data/Movies/' }, { path: '/data/data/' }] } }
+      if (p === '/data/data/') return { status: 200, json: { directories: [{ path: '/data/data/Torrents/' }] } }
+      return { status: 200, json: { directories: [] } }
+    }
+    if (u.pathname.endsWith('/remotepathmapping') && init.method === 'POST') {
+      posted = init.body
+      return { status: 201, json: init.body }
+    }
+    if (u.pathname.endsWith('/command') && init.method === 'POST') {
+      return { status: 201, json: {} }
+    }
+    return { status: 404, json: null }
+  }
+  const s = settings({ lidarr: { url: 'http://192.168.8.120:30071', apiKey: 'lk' } })
+  const msg = await runConnectionFix(s, 'lidarr', 'remote-paths', { get })
+  assert.equal(msg, 'Added to Lidarr: /data/Torrents/ → /data/data/Torrents/.')
+  assert.deepEqual(posted, { host: '192.168.8.120', remotePath: '/data/Torrents/', localPath: '/data/data/Torrents/' })
+  assert.ok(seen.some((x) => x.startsWith('POST /api/v1/command')), 'triggered CheckHealth immediately')
+})
+
+test('one-click fixes: sab-resume, prowlarr-sync, arr-rootfolder, and arr-refresh', async () => {
+  const seen: string[] = []
+  const get = fake(
+    {
+      'GET sab:8080/api': { queue: { paused: true } },
+      'GET radarr:7878/api/v3/system/status': {},
+      'GET radarr:7878/api/v3/health': [
+        { source: 'IndexerStatusCheck', type: 'warning', message: 'All indexers are unavailable due to failures' },
+        { source: 'RootFolderCheck', type: 'error', message: 'Missing root folder: /old/movies' },
+      ],
+      'GET radarr:7878/api/v3/downloadclient': [],
+      'POST radarr:7878/api/v3/downloadclient/testall': [],
+      'GET radarr:7878/api/v3/rootfolder': [
+        { id: 1, path: '/old/movies', accessible: false },
+        { id: 2, path: '/data/media/movies', accessible: true },
+      ],
+      'DELETE radarr:7878/api/v3/rootfolder/1': {},
+      'POST radarr:7878/api/v3/command': {},
+      'GET prowlarr:9696/api/v1/system/status': {},
+      'GET prowlarr:9696/api/v1/health': [],
+      'GET prowlarr:9696/api/v1/indexer': [],
+      'POST prowlarr:9696/api/v1/indexer/testall': [],
+      'POST prowlarr:9696/api/v1/command': {},
+    },
+    seen,
+  )
+  const s = settings({
+    sabnzbd: { url: 'http://sab:8080', apiKey: 'sk' },
+    radarr: { url: 'http://radarr:7878', apiKey: 'rk' },
+    prowlarr: { url: 'http://prowlarr:9696', apiKey: 'pk' },
+  })
+  const report = await checkConnections(s, get)
+  const sabCheck = report.apps.find((a) => a.id === 'sabnzbd')!
+  assert.deepEqual(sabCheck.fixes?.map((f) => f.id), ['sab-resume'])
+  const radarrCheck = report.apps.find((a) => a.id === 'radarr')!
+  assert.deepEqual(radarrCheck.fixes?.map((f) => f.id), ['prowlarr-sync', 'arr-rootfolder'])
+
+  seen.length = 0
+  assert.match(await runConnectionFix(s, 'sabnzbd', 'sab-resume', { get }), /Resumed SABnzbd/)
+  assert.ok(seen.some((x) => x.includes('mode=resume')))
+
+  seen.length = 0
+  assert.match(await runConnectionFix(s, 'radarr', 'prowlarr-sync', { get }), /Synced indexers from Prowlarr into Radarr/)
+  assert.ok(seen.includes('POST prowlarr:9696/api/v1/command'))
+
+  seen.length = 0
+  assert.match(await runConnectionFix(s, 'radarr', 'arr-rootfolder', { get }), /removed dead folder \/old\/movies/)
+  assert.ok(seen.includes('DELETE radarr:7878/api/v3/rootfolder/1'))
+
+  seen.length = 0
+  assert.match(await runConnectionFix(s, 'radarr', 'arr-refresh', { get }), /refreshed Radarr/)
+  assert.ok(seen.includes('POST radarr:7878/api/v3/command'))
 })

@@ -135,3 +135,20 @@ test('bad rules are turned away with what to fix; only people, signed in', async
   assert.equal((await call(A.url, 'GET', '/api/smart-collections')).status, 401)
   assert.equal((await call(A.url, 'GET', '/api/smart-collections', 'service')).status, 403)
 })
+
+test('hand-picked titles (includeIds / excludeIds / manualOnly) work standalone or mixed with rules', () => {
+  const manual = cleanRules({ kind: 'Movie', manualOnly: true, includeIds: ['abc123', 'def456', 'abc123'], excludeIds: ['abc123', 'zzz999'] })
+  assert.equal(manual.manualOnly, true)
+  assert.deepEqual(manual.includeIds, ['abc123', 'def456'])
+  assert.deepEqual(manual.excludeIds, ['zzz999'])
+  assert.ok(matches(film({ Id: 'abc123', Genres: ['Horror'] }), manual, NOW))
+  assert.ok(!matches(film({ Id: 'other' }), manual, NOW))
+  assert.deepEqual(reasons(film({ Id: 'abc123' }), manual, NOW), ['Hand-picked'])
+  assert.equal(describe(manual), 'Hand-picked movies · 2 titles')
+
+  const mixed = cleanRules({ kind: 'Movie', genres: ['Fantasy'], includeIds: ['pin1'], excludeIds: ['hide1'] })
+  assert.ok(matches(film({ Id: 'pin1', Genres: ['Horror'] }), mixed, NOW), 'pinned item bypasses filters')
+  assert.ok(!matches(film({ Id: 'hide1', Genres: ['Fantasy'] }), mixed, NOW), 'excluded item is hidden even when it matches filters')
+  assert.ok(matches(film({ Id: 'auto1', Genres: ['Fantasy'] }), mixed, NOW))
+  assert.match(describe(mixed), /\+1 hand-picked/)
+})

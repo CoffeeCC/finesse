@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { memo, useCallback, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { memo, useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { streamingApi, type StreamApp, type StreamProfile } from '../api/setup'
 import { useAuth } from '../auth/AuthContext'
 import LaunchDialog from './LaunchDialog'
@@ -136,12 +136,25 @@ export default function StreamingSection() {
   const direct = (data?.apps ?? []).filter((a) => !(a.launcher && profiles.length))
   const one = profiles.length === 1 ? profiles[0]! : null
   const [steamOpen, setSteamOpen] = useState(false)
-  const [launch, setLaunch] = useState<StreamApp | null>(null)
+  const [launch, setLaunch] = useState<{ app: StreamApp; autoPlay?: boolean } | null>(null)
   const [showHidden, setShowHidden] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
   const qc = useQueryClient()
   const toast = useToast()
   const allApps = [...profiles.flatMap((p) => p.apps), ...direct]
   const running = allApps.filter((a) => a.running && !a.launcher)
+
+  // Resume an in-browser game stream automatically after an HTTP → HTTPS handoff.
+  const autoStreamId = searchParams.get('autostream')
+  useEffect(() => {
+    if (!autoStreamId || !window.isSecureContext || !allApps.length) return
+    const target = allApps.find((a) => a.id === autoStreamId)
+    if (!target) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('autostream')
+    setSearchParams(next, { replace: true })
+    setLaunch({ app: target, autoPlay: true })
+  }, [autoStreamId, allApps, searchParams, setSearchParams])
   const hiddenCount = new Set(allApps.filter((a) => a.hidden).map((a) => a.title.toLowerCase())).size
   // Administrators tidy the page: hidden here, still in Moonlight.
   // One function across renders, so the (memoized) tiles don't all redraw when anything here changes.
@@ -179,7 +192,7 @@ export default function StreamingSection() {
           </div>
         )}
         {steamOpen && <SteamGamesDialog onClose={() => setSteamOpen(false)} />}
-        {launch && <LaunchDialog app={launch} onClose={() => setLaunch(null)} />}
+        {launch && <LaunchDialog app={launch.app} autoPlay={launch.autoPlay} onClose={() => setLaunch(null)} />}
       </div>
 
       {isLoading ? (
@@ -227,7 +240,7 @@ export default function StreamingSection() {
                   <button
                     key={a.id}
                     type="button"
-                    onClick={() => setLaunch(a)}
+                    onClick={() => setLaunch({ app: a })}
                     className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[13px] font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]"
                     aria-label={`Resume ${a.title}`}
                   >
@@ -244,13 +257,13 @@ export default function StreamingSection() {
           {profiles.map((p) => (
             <div key={p.id}>
               {profiles.length > 1 && <p className="mb-3 text-[15px] font-semibold text-white">{p.name}</p>}
-              <Library apps={p.apps} onOpen={setLaunch} onHide={onHide} showHidden={showHidden} />
+              <Library apps={p.apps} onOpen={(a) => setLaunch({ app: a })} onHide={onHide} showHidden={showHidden} />
             </div>
           ))}
           {direct.length > 0 && (
             <div>
               {profiles.length > 0 && <p className="mb-3 text-[15px] font-semibold text-white">Straight from Moonlight</p>}
-              <Library apps={direct} onOpen={setLaunch} onHide={onHide} showHidden={showHidden} />
+              <Library apps={direct} onOpen={(a) => setLaunch({ app: a })} onHide={onHide} showHidden={showHidden} />
             </div>
           )}
           {isAdmin && hiddenCount > 0 && (

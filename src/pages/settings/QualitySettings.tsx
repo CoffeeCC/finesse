@@ -35,7 +35,20 @@ export default function QualitySettings() {
         <div className="h-28 rounded-2xl shimmer" />
       </div>
     )
-  if (q.isError) return <p className="text-sm text-ink-400">Couldn’t load the quality settings. Try again in a moment; if it keeps happening, update the Finesse server.</p>
+  if (q.isError)
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-ink-900/60 px-5 py-4">
+        <p className="text-sm text-ink-300">Couldn’t load the quality settings. Try again in a moment; if it keeps happening, update the Finesse server.</p>
+        <button
+          type="button"
+          onClick={() => void q.refetch()}
+          disabled={q.isFetching}
+          className="h-9 rounded-lg border border-white/10 bg-white/[0.04] px-3.5 text-sm font-medium text-ink-200 transition hover:border-white/20 hover:text-white disabled:opacity-50"
+        >
+          {q.isFetching ? 'Loading…' : 'Retry'}
+        </button>
+      </div>
+    )
   const apps = q.data?.apps ?? []
   if (!apps.length) return null
   return (
@@ -91,6 +104,11 @@ function AppCard({ view }: { view: QualityAppView }) {
                 ? 'Any size can download. Best picture and sound, but a film can take 30 GB or more.'
                 : `${view.name}’s size limits apply, so the biggest copies (like untouched Blu-rays) are skipped.`}
             </p>
+            {view.bigFiles.allowed && !view.bigFiles.canRestore && (
+              <p className="mt-1 text-xs text-amber-200/90">
+                Finesse doesn’t know the old limits, so “Limit” is unavailable here. Set them in {view.name} → Settings → Quality.
+              </p>
+            )}
           </div>
           <div className="inline-flex rounded-full bg-ink-800/80 border border-white/10 p-0.5">
             {([true, false] as const).map((on) => (
@@ -127,6 +145,7 @@ function ProfileRow({ app, profile: p, used, onSaved }: { app: QualityAppView; p
   const [busy, setBusy] = useState(false)
 
   const save = async (choice: { picture?: Picture; language?: LanguageMode }) => {
+    if (busy) return
     setBusy(true)
     try {
       onSaved(await qualityApi.setProfile(app.app, p.id, choice))
@@ -146,22 +165,24 @@ function ProfileRow({ app, profile: p, used, onSaved }: { app: QualityAppView; p
           {p.name}
           {used && <span className="ml-2 rounded bg-accent-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-300">New requests</span>}
         </p>
-        <SelectMenu
-          label={`${p.name}: picture`}
-          prefix="Picture:"
-          value={p.picture ?? 0}
-          options={[...(p.picture ? [] : [{ value: 0, label: 'Custom' }]), ...PICTURE]}
-          onChange={(v) => v && v !== p.picture && void save({ picture: v as Picture })}
-          triggerClassName={TRIGGER}
-        />
-        <SelectMenu
-          label={`${p.name}: languages`}
-          prefix="Languages:"
-          value={p.language}
-          options={p.language === 'custom' ? [{ value: 'custom' as const, label: 'Your own rules' }, ...langOptions] : langOptions}
-          onChange={(v) => v !== p.language && v !== 'custom' && void save({ language: v })}
-          triggerClassName={TRIGGER}
-        />
+        <fieldset disabled={busy} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-0 m-0 p-0 min-w-0">
+          <SelectMenu
+            label={`${p.name}: picture`}
+            prefix="Picture:"
+            value={p.picture ?? 0}
+            options={[...(p.picture ? [] : [{ value: 0, label: 'Custom' }]), ...PICTURE]}
+            onChange={(v) => !busy && v && v !== p.picture && void save({ picture: v as Picture })}
+            triggerClassName={TRIGGER}
+          />
+          <SelectMenu
+            label={`${p.name}: languages`}
+            prefix="Languages:"
+            value={p.language}
+            options={p.language === 'custom' ? [{ value: 'custom' as const, label: 'Your own rules' }, ...langOptions] : langOptions}
+            onChange={(v) => !busy && v !== p.language && v !== 'custom' && void save({ language: v })}
+            triggerClassName={TRIGGER}
+          />
+        </fieldset>
         {busy && <span className="text-xs text-ink-400">Saving…</span>}
       </div>
       {p.otherRules.length > 0 && (

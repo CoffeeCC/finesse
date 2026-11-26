@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { groupsApi, type FriendHealth, type GroupsOverview } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { copyText } from '../../lib/clipboard'
 import { Spinner } from '../setup/ui'
 import { getMomentSettings, setMomentSettings } from '../../api/moments'
 
@@ -56,32 +57,6 @@ function MomentsSwitch() {
 const CARD = 'rounded-2xl bg-ink-900/60 border border-white/5'
 const smallBtn = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 transition'
 const primaryBtn = 'inline-flex h-9 items-center gap-2 rounded-lg bg-accent-fill px-4 text-[13px] font-semibold text-white hover:brightness-110 active:scale-[0.97] disabled:opacity-50 disabled:active:scale-100 transition'
-
-/** Copies text; where the Clipboard API isn't allowed (plain http, older TVs), selects it via a hidden field. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    /* fall through */
-  }
-  try {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand('copy')
-    ta.remove()
-    return ok
-  } catch {
-    return false
-  }
-}
 const input = 'h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-sm text-white placeholder:text-ink-500 outline-none focus:border-accent-500'
 const label = 'block text-[11px] font-semibold uppercase tracking-wider text-ink-400'
 
@@ -91,14 +66,36 @@ const ago = (iso: string | null) => {
   return m < 2 ? 'just now' : m < 90 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`
 }
 
-function LibraryPicker({ libraries, picked, onChange }: { libraries: GroupsOverview['libraries']; picked: string[]; onChange: (ids: string[]) => void }) {
+function LibraryPicker({
+  libraries,
+  picked,
+  onChange,
+  disabled = false,
+}: {
+  libraries: GroupsOverview['libraries']
+  picked: string[]
+  onChange: (ids: string[]) => void
+  disabled?: boolean
+}) {
   return (
     <div className="flex flex-wrap gap-2">
       {libraries.map((l) => {
         const on = picked.includes(l.id)
         return (
-          <label key={l.id} className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-[12.5px] transition-colors ${on ? 'border-accent-400/60 bg-accent-500/15 text-white' : 'border-white/10 text-ink-300 hover:border-white/25'}`}>
-            <input type="checkbox" className="h-3.5 w-3.5" checked={on} onChange={(e) => onChange(e.target.checked ? [...picked, l.id] : picked.filter((x) => x !== l.id))} />
+          <label
+            key={l.id}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12.5px] transition-colors ${disabled ? 'cursor-wait opacity-60' : 'cursor-pointer'} ${on ? 'border-accent-400/60 bg-accent-500/15 text-white' : 'border-white/10 text-ink-300 hover:border-white/25'}`}
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={on}
+              disabled={disabled}
+              onChange={(e) => {
+                if (disabled) return
+                onChange(e.target.checked ? [...picked, l.id] : picked.filter((x) => x !== l.id))
+              }}
+            />
             {l.name}
           </label>
         )
@@ -120,7 +117,7 @@ export default function GroupsAdmin() {
   const [addCode, setAddCode] = useState('')
   const [addErr, setAddErr] = useState('')
   const [backFor, setBackFor] = useState<string | null>(null)
-  const [backPick, setBackPick] = useState<string[]>([])
+  const [backPicks, setBackPicks] = useState<Record<string, string[]>>({})
   // Stopping a share or removing a friend asks first, in a dialog that stays until answered.
   const [confirm, setConfirm] = useState<{ kind: 'link' | 'friend'; id: string; name: string } | null>(null)
 
@@ -197,7 +194,7 @@ export default function GroupsAdmin() {
         <div className="space-y-3">
           <p className="text-[13px] font-semibold text-white">Share with a friend’s server</p>
           <p className="text-[12.5px] text-ink-400">Pick what they can watch. You can change it later.</p>
-          <LibraryPicker libraries={o.libraries} picked={sharePick} onChange={setSharePick} />
+          <LibraryPicker libraries={o.libraries} picked={sharePick} onChange={setSharePick} disabled={busy === 'code'} />
           <button
             type="button"
             className={primaryBtn}
@@ -240,7 +237,11 @@ export default function GroupsAdmin() {
               {!o.publicUrl && (
                 <p className="mt-2 text-[12.5px] text-amber-200">
                   Their server has to reach yours over the internet.{' '}
-                  <Link to="/setup?change=1" className="font-semibold underline underline-offset-2 hover:text-white">Set up away-from-home access</Link> (free with Tailscale), or enter your own address under Invites &amp; sharing.
+                  <Link to="/setup?change=1" className="font-semibold underline underline-offset-2 hover:text-white">Set up away-from-home access</Link> (free with Tailscale), or enter your own address in{' '}
+                  <Link to="/settings?s=server&at=system-sharing" className="font-semibold underline underline-offset-2 hover:text-white">
+                    Settings → Server → Public address and email
+                  </Link>
+                  .
                 </p>
               )}
             </div>
@@ -312,7 +313,12 @@ export default function GroupsAdmin() {
                       Stop sharing
                     </button>
                   </div>
-                  <LibraryPicker libraries={o.libraries} picked={l.libraries} onChange={(ids) => void run(`lib${l.id}`, () => groupsApi.setLinkLibraries(l.id, ids), ids.length ? `Now sharing ${ids.map(libName).join(', ')}` : 'Sharing nothing for now')} />
+                  <LibraryPicker
+                    libraries={o.libraries}
+                    picked={l.libraries}
+                    disabled={busy === `lib${l.id}`}
+                    onChange={(ids) => void run(`lib${l.id}`, () => groupsApi.setLinkLibraries(l.id, ids), ids.length ? `Now sharing ${ids.map(libName).join(', ')}` : 'Sharing nothing for now')}
+                  />
                 </li>
               ))}
             </ul>
@@ -323,44 +329,35 @@ export default function GroupsAdmin() {
           <div className="space-y-2 border-t border-white/5 pt-5">
             <p className="text-[13px] font-semibold text-white">Servers you watch</p>
             <ul className="divide-y divide-white/5">
-              {o.friends.map((f) => (
-                <li key={f.id} className="space-y-3 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium text-white">{f.name}</p>
-                      <p className="truncate text-[12px] text-ink-400">{f.url}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <FriendCheck id={f.id} />
-                      {!o.links.some((l) => l.name === f.name) && (
-                        <button type="button" className={smallBtn} onClick={() => setBackFor(backFor === f.id ? null : f.id)}>
-                          Share yours back
-                        </button>
-                      )}
-                      <button type="button" className={smallBtn} disabled={busy === `rf${f.id}`} onClick={() => setConfirm({ kind: 'friend', id: f.id, name: f.name })}>
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                  {backFor === f.id && (
-                    <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
-                      <p className="text-[12.5px] text-ink-300">What should {f.name} be able to watch? They add you with one click.</p>
-                      <LibraryPicker libraries={o.libraries} picked={backPick} onChange={setBackPick} />
-                      <button
-                        type="button"
-                        className={primaryBtn}
-                        disabled={!backPick.length || busy === `back${f.id}`}
-                        onClick={() =>
-                          void run(`back${f.id}`, () => groupsApi.offer(f.id, backPick), `Sent. ${f.name} can add you now.`).then((ok) => ok && setBackFor(null))
-                        }
-                      >
-                        {busy === `back${f.id}` && <Spinner className="h-3 w-3" />}
-                        Send
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))}
+              {o.friends.map((f) => {
+                const picked = backPicks[f.id] ?? []
+                return (
+                  <FriendRow
+                    key={f.id}
+                    friend={f}
+                    libraries={o.libraries}
+                    canShareBack={!o.links.some((l) => l.name === f.name)}
+                    shareBackOpen={backFor === f.id}
+                    onToggleShareBack={() => setBackFor((cur) => (cur === f.id ? null : f.id))}
+                    shareBackPicked={picked}
+                    onShareBackPick={(ids) => setBackPicks((m) => ({ ...m, [f.id]: ids }))}
+                    shareBackBusy={busy === `back${f.id}`}
+                    removeBusy={busy === `rf${f.id}`}
+                    onSendShareBack={() =>
+                      void run(`back${f.id}`, () => groupsApi.offer(f.id, picked), `Sent. ${f.name} can add you now.`).then((ok) => {
+                        if (!ok) return
+                        setBackFor(null)
+                        setBackPicks((m) => {
+                          const next = { ...m }
+                          delete next[f.id]
+                          return next
+                        })
+                      })
+                    }
+                    onRemove={() => setConfirm({ kind: 'friend', id: f.id, name: f.name })}
+                  />
+                )
+              })}
             </ul>
           </div>
         )}
@@ -399,34 +396,81 @@ export default function GroupsAdmin() {
   )
 }
 
-/**
- * Check a friend's server: connected (and how much it shares), unreachable, or no longer
- * sharing, with when that was checked (it's a check, not a live connection).
- */
-function FriendCheck({ id }: { id: string }) {
+/** One friend's server row, with full-width connection check status and per-friend share-back picker. */
+function FriendRow({
+  friend: f,
+  libraries,
+  canShareBack,
+  shareBackOpen,
+  onToggleShareBack,
+  shareBackPicked,
+  onShareBackPick,
+  shareBackBusy,
+  removeBusy,
+  onSendShareBack,
+  onRemove,
+}: {
+  friend: GroupsOverview['friends'][number]
+  libraries: GroupsOverview['libraries']
+  canShareBack: boolean
+  shareBackOpen: boolean
+  onToggleShareBack: () => void
+  shareBackPicked: string[]
+  onShareBackPick: (ids: string[]) => void
+  shareBackBusy: boolean
+  removeBusy: boolean
+  onSendShareBack: () => void
+  onRemove: () => void
+}) {
   const [h, setH] = useState<FriendHealth | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const check = async () => {
-    setBusy(true)
+    setChecking(true)
     try {
-      setH(await groupsApi.checkFriend(id))
+      setH(await groupsApi.checkFriend(f.id))
     } catch (e) {
       setH({ checkedAt: new Date().toISOString(), state: 'error', message: e instanceof Error ? e.message : 'Couldn’t check' })
     } finally {
-      setBusy(false)
+      setChecking(false)
     }
   }
   const tone = h?.state === 'ok' ? 'text-emerald-300' : h?.state === 'outdated' || h?.state === 'busy' ? 'text-amber-200' : 'text-red-300'
   return (
-    <>
-      <button type="button" className={smallBtn} disabled={busy} onClick={() => void check()}>
-        {busy ? 'Checking…' : h ? 'Check again' : 'Check connection'}
-      </button>
+    <li className="space-y-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium text-white">{f.name}</p>
+          <p className="truncate text-[12px] text-ink-400">{f.url}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={smallBtn} disabled={checking} onClick={() => void check()}>
+            {checking ? 'Checking…' : h ? 'Check again' : 'Check connection'}
+          </button>
+          {canShareBack && (
+            <button type="button" className={smallBtn} onClick={onToggleShareBack}>
+              Share yours back
+            </button>
+          )}
+          <button type="button" className={smallBtn} disabled={removeBusy} onClick={onRemove}>
+            Remove
+          </button>
+        </div>
+      </div>
       {h && (
-        <p role="status" className={`basis-full text-[12px] leading-relaxed ${tone}`}>
+        <p role="status" className={`w-full text-[12px] leading-relaxed ${tone}`}>
           {h.message} <span className="text-ink-400">· checked {new Date(h.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
         </p>
       )}
-    </>
+      {shareBackOpen && (
+        <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+          <p className="text-[12.5px] text-ink-300">What should {f.name} be able to watch? They add you with one click.</p>
+          <LibraryPicker libraries={libraries} picked={shareBackPicked} onChange={onShareBackPick} disabled={shareBackBusy} />
+          <button type="button" className={primaryBtn} disabled={!shareBackPicked.length || shareBackBusy} onClick={onSendShareBack}>
+            {shareBackBusy && <Spinner className="h-3 w-3" />}
+            Send
+          </button>
+        </div>
+      )}
+    </li>
   )
 }

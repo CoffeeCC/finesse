@@ -35,6 +35,8 @@ interface RowDesc {
   render: (hideTitle: boolean) => ReactNode
   /** Why it isn't on Home when it has nothing to show (Customize says so). */
   whenEmpty?: string
+  /** Set on user-added genre shelves so Customize Home can remove them individually. */
+  addedGenre?: string
 }
 
 function buildRows(
@@ -45,6 +47,8 @@ function buildRows(
 ): RowDesc[] {
   const movieTypes = 'Movie'
   const allTypes = 'Movie,Series'
+  const genreLib = movieLib ?? showLib
+  const genreTypes = movieLib ? movieTypes : 'Series'
   // Curated by default: about eight rows, not twenty. Genre *shelves* are
   // opt-in from Customize; by default genres are one strip of tiles.
   const rows: RowDesc[] = [
@@ -65,8 +69,21 @@ function buildRows(
   rows.push({ key: 'favorites', title: 'Favorites', whenEmpty: 'Shows up when you favorite a movie or show.', render: (h) => <QueryRow label="favorites" title="Favorites" query={{ includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' }} seeAllHref={browseHref('Favorites', { includeItemTypes: allTypes, filters: 'IsFavorite', sortBy: 'SortName' })} hideTitle={h} /> })
   rows.push({ key: 'anime', title: 'Anime', whenEmpty: 'Shows up when titles in your library are tagged “anime”.', render: (h) => <QueryRow label="anime" title="Anime" query={{ tags: 'anime', includeItemTypes: allTypes, sortBy: 'Random' }} seeAllHref={browseHref('Anime', { tags: 'anime', includeItemTypes: allTypes, sortBy: 'SortName' })} hideTitle={h} /> })
   for (const g of addedGenres) {
-    if (!movieLib) break
-    rows.push({ key: `genre-${g}`, title: g, render: (h) => <QueryRow label={`genre-${g}`} title={g} query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, genres: g, sortBy: 'Random' }} seeAllHref={browseHref(g, { parentId: movieLib.Id, includeItemTypes: movieTypes, genres: g, sortBy: 'SortName' })} hideTitle={h} /> })
+    if (!genreLib) break
+    rows.push({
+      key: `genre-${g}`,
+      title: g,
+      addedGenre: g,
+      render: (h) => (
+        <QueryRow
+          label={`genre-${g}`}
+          title={g}
+          query={{ parentId: genreLib.Id, includeItemTypes: genreTypes, genres: g, sortBy: 'Random' }}
+          seeAllHref={browseHref(g, { parentId: genreLib.Id, includeItemTypes: genreTypes, genres: g, sortBy: 'SortName' })}
+          hideTitle={h}
+        />
+      ),
+    })
   }
   if (movieLib) {
     rows.push({ key: 'nineties', title: 'Throwback: the ’90s', whenEmpty: 'Shows up when you have a few movies from the ’90s.', render: (h) => <QueryRow label="nineties" title="Throwback: the ’90s" query={{ parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'Random' }} seeAllHref={browseHref('Throwback: the ’90s', { parentId: movieLib.Id, includeItemTypes: movieTypes, years: '1990,1991,1992,1993,1994,1995,1996,1997,1998,1999', sortBy: 'ProductionYear,SortName' })} hideTitle={h} /> })
@@ -78,7 +95,7 @@ function buildRows(
 const PAD = 'px-4 sm:px-6 lg:px-12'
 
 function RowFrame({
-  desc, customizing, collapsed, hidden, empty, first, last, move, toggle, onHideRow, onCustomize, onEmpty,
+  desc, customizing, collapsed, hidden, empty, first, last, move, toggle, onHideRow, onRemoveGenre, onCustomize, onEmpty,
 }: {
   desc: RowDesc
   customizing: boolean
@@ -91,6 +108,7 @@ function RowFrame({
   move: (key: string, dir: number) => void
   toggle: (list: keyof HomeLayout, key: string) => void
   onHideRow: (desc: RowDesc) => void
+  onRemoveGenre?: (genre: string) => void
   onCustomize: () => void
 }) {
   const onMove = useCallback((dir: number) => move(desc.key, dir), [move, desc.key])
@@ -114,15 +132,25 @@ function RowFrame({
     const ctrl = 'h-7 px-2 rounded-md bg-white/5 hover:bg-white/15 text-xs font-medium text-ink-200 disabled:opacity-30 transition-colors'
     return (
       <div className={`rounded-xl border border-dashed border-white/10 overflow-hidden ${hidden ? 'opacity-50' : ''}`}>
-        <div className="flex items-center gap-1.5 bg-white/[0.03] px-4 py-2">
-          <span className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5 bg-white/[0.03] px-4 py-2">
+          <span className="min-w-0 flex-1 basis-36">
             <span className="block truncate text-sm font-semibold text-ink-200">{desc.title}</span>
             {empty && !hidden && <span className="block text-xs text-ink-400">Not on Home right now. {desc.whenEmpty ?? 'Shows up when there’s something to show.'}</span>}
           </span>
-          <button className={ctrl} onClick={() => onMove(-1)} disabled={first} aria-label="Move up">↑</button>
-          <button className={ctrl} onClick={() => onMove(1)} disabled={last} aria-label="Move down">↓</button>
-          <button className={ctrl} onClick={onToggleCollapse}>{collapsed ? 'Collapsed' : 'Collapse'}</button>
-          <button className={`${ctrl} ${hidden ? 'text-accent-300' : ''}`} onClick={onToggleHide}>{hidden ? 'Hidden' : 'Hide'}</button>
+          <button type="button" className={ctrl} onClick={() => onMove(-1)} disabled={first} aria-label="Move up">↑</button>
+          <button type="button" className={ctrl} onClick={() => onMove(1)} disabled={last} aria-label="Move down">↓</button>
+          <button type="button" className={ctrl} onClick={onToggleCollapse}>{collapsed ? 'Collapsed' : 'Collapse'}</button>
+          <button type="button" className={`${ctrl} ${hidden ? 'text-accent-300' : ''}`} onClick={onToggleHide}>{hidden ? 'Hidden' : 'Hide'}</button>
+          {desc.addedGenre && onRemoveGenre && (
+            <button
+              type="button"
+              className="h-7 px-2 rounded-md bg-red-500/10 hover:bg-red-500/20 text-xs font-medium text-red-300 transition-colors"
+              onClick={() => onRemoveGenre(desc.addedGenre!)}
+              aria-label={`Remove ${desc.title} category`}
+            >
+              Remove
+            </button>
+          )}
         </div>
       </div>
     )
@@ -133,7 +161,7 @@ function RowFrame({
   if (collapsed) {
     return (
       <section>
-        <button onClick={() => setExpanded((e) => !e)} className={`w-full flex items-center justify-between ${PAD} py-2 text-left`}>
+        <button type="button" onClick={() => setExpanded((e) => !e)} className={`w-full flex items-center justify-between ${PAD} py-2 text-left`}>
           <h2 className="text-lg font-semibold text-white tracking-tight">{desc.title}</h2>
           <svg className={`h-5 w-5 text-ink-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -154,15 +182,15 @@ function RowFrame({
 
 /** Server unreachable: say so plainly, keep trying, and offer a retry — rather
  *  than an empty page of skeletons that never fill. */
-function ServerDown({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
+function ServerDown({ onRetry, retrying, onLogout }: { onRetry: () => void; retrying: boolean; onLogout: () => void }) {
   return (
     <div className="min-h-[calc(var(--vh)*70)] flex items-center justify-center px-6 text-center">
       <div className="max-w-md">
-        <p className="font-display text-4xl sm:text-5xl text-white">Can't reach your server</p>
+        <p className="font-display text-4xl sm:text-5xl text-white">Can’t reach your server</p>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-300">
-          Finesse will keep trying. If you're away from home, your server's public address may work — switch it from the sign-in screen.
+          Finesse will keep trying. If you’re away from home, your server’s public address may work — switch it from the sign-in screen.
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
           <button
             type="button"
             onClick={onRetry}
@@ -171,6 +199,13 @@ function ServerDown({ onRetry, retrying }: { onRetry: () => void; retrying: bool
             className="inline-flex h-11 items-center rounded-lg bg-white px-5 text-sm font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-60 transition-colors"
           >
             {retrying ? 'Trying…' : 'Try again'}
+          </button>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+          >
+            Sign out / Switch server
           </button>
         </div>
       </div>
@@ -228,6 +263,7 @@ function EmptyLibrary() {
 }
 
 export default function HomePage() {
+  const { logout } = useAuth()
   const { data: views, isLoading: viewsLoading, isError: viewsError, refetch: refetchViews, isFetching: viewsFetching } = useViews()
   const queryClient = useQueryClient()
 
@@ -237,12 +273,13 @@ export default function HomePage() {
   )
   const movieLib = libraries.find((l) => l.CollectionType === 'movies')
   const showLib = libraries.find((l) => l.CollectionType === 'tvshows')
+  const genreLib = movieLib ?? showLib
 
   const { data: latestMovies, isLoading: moviesLoading } = useLatest(movieLib?.Id)
   const { data: latestShows, isLoading: showsLoading } = useLatest(showLib?.Id)
   const heroLoading = viewsLoading || (moviesLoading && showsLoading)
 
-  const { data: genreList } = useGenres(movieLib?.Id)
+  const { data: genreList } = useGenres(genreLib?.Id)
   const allGenres = useMemo(() => genreList?.Items.map((g) => g.Name) ?? [], [genreList])
   const tileGenres = useMemo(() => {
     const present = new Set(allGenres)
@@ -255,6 +292,7 @@ export default function HomePage() {
   const [draft, setDraft] = useState<HomeLayout | null>(null)
   const layout = draft ?? serverLayout ?? { hidden: [], collapsed: [], order: [], added: [] }
   const [customizing, setCustomizing] = useState(false)
+  const customizeRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
   // Rows that came up empty last time Home showed them (they hide themselves).
   const [emptyRows, setEmptyRows] = useState<Set<string>>(() => new Set())
@@ -268,15 +306,34 @@ export default function HomePage() {
     })
   }, [])
 
-  // Persist edits (debounced), and keep the cache in sync.
-  useEffect(() => {
-    if (!draft) return
-    const t = setTimeout(() => {
-      saveHomeLayout(draft).catch(() => {})
-      queryClient.setQueryData(['homeLayout'], draft)
-    }, 700)
-    return () => clearTimeout(t)
-  }, [draft, queryClient])
+  // Persist edits (debounced) and flush immediately on Done or unmount so nothing is lost.
+  const pendingSaveRef = useRef<HomeLayout | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    const next = pendingSaveRef.current
+    if (!next) return
+    pendingSaveRef.current = null
+    queryClient.setQueryData(['homeLayout'], next)
+    saveHomeLayout(next).catch(() => {})
+  }, [queryClient])
+
+  const updateDraft = useCallback(
+    (next: HomeLayout) => {
+      pendingSaveRef.current = next
+      setDraft(next)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(() => {
+        flushSave()
+      }, 700)
+    },
+    [flushSave],
+  )
+
+  useEffect(() => () => flushSave(), [flushSave])
 
   const shownGenres = layout.added
   const allRows = useMemo(() => buildRows(movieLib, showLib, layout.added, tileGenres), [movieLib, showLib, layout.added, tileGenres])
@@ -312,9 +369,33 @@ export default function HomePage() {
   }, [])
   const openCustomize = useCallback(() => {
     setCustomizing(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    requestAnimationFrame(() => {
+      customizeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }, [])
-  const addGenre = (g: string) => setDraft({ ...layout, added: [...layout.added, g] })
+  const toggleCustomize = useCallback(() => {
+    setCustomizing((prev) => {
+      if (prev) {
+        flushSave()
+        return false
+      }
+      requestAnimationFrame(() => {
+        customizeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+      return true
+    })
+  }, [flushSave])
+  const addGenre = (g: string) => setDraft({ ...layoutRef.current, added: [...layoutRef.current.added, g] })
+  const removeGenre = useCallback((g: string) => {
+    const rowKey = `genre-${g}`
+    const cur = layoutRef.current
+    setDraft({
+      hidden: cur.hidden.filter((k) => k !== rowKey),
+      collapsed: cur.collapsed.filter((k) => k !== rowKey),
+      order: cur.order.filter((k) => k !== rowKey),
+      added: cur.added.filter((x) => x !== g),
+    })
+  }, [])
   const resetLayout = () => setDraft({ hidden: [], collapsed: [], order: [], added: [] })
 
   const onHideRow = useCallback((r: RowDesc) => {
@@ -326,7 +407,7 @@ export default function HomePage() {
   const availableGenres = allGenres.filter((g) => !shownGenres.includes(g))
 
   if (viewsError && !views) {
-    return <ServerDown onRetry={() => refetchViews()} retrying={viewsFetching} />
+    return <ServerDown onRetry={() => refetchViews()} retrying={viewsFetching} onLogout={logout} />
   }
 
   return (
@@ -338,7 +419,16 @@ export default function HomePage() {
 
       {!customizing && !heroLoading && !moviesLoading && !showsLoading && !(latestMovies?.length ?? 0) && !(latestShows?.length ?? 0) && <EmptyLibrary />}
 
-      <div className={`mt-6 sm:mt-8 ${customizing ? `${PAD} mx-auto max-w-3xl space-y-2` : 'space-y-8 sm:space-y-10'}`}>
+      <div
+        ref={customizeRef}
+        className={`mt-6 sm:mt-8 scroll-mt-20 ${customizing ? `${PAD} mx-auto max-w-3xl space-y-2` : 'space-y-8 sm:space-y-10'}`}
+      >
+        {customizing && (
+          <div className="pb-2">
+            <h2 className="row-title text-white">Customize Home</h2>
+            <p className="mt-1 text-xs text-ink-400">Reorder, collapse, hide rows, or add genre shelves below.</p>
+          </div>
+        )}
         {visibleRows.map((r, i) => (
           <RowFrame
             key={r.key}
@@ -353,18 +443,19 @@ export default function HomePage() {
             move={move}
             toggle={toggle}
             onHideRow={onHideRow}
+            onRemoveGenre={r.addedGenre ? removeGenre : undefined}
             onCustomize={openCustomize}
           />
         ))}
 
         {!customizing && <FriendRows />}
 
-        {customizing && availableGenres.length > 0 && (
+        {customizing && genreLib && availableGenres.length > 0 && (
           <div className="rounded-xl border border-dashed border-white/10 p-4">
             <p className="text-sm font-semibold text-ink-200 mb-2">Add a category</p>
             <div className="flex flex-wrap gap-2">
               {availableGenres.map((g) => (
-                <button key={g} onClick={() => addGenre(g)} className="rounded-full bg-white/5 hover:bg-accent-fill px-3 py-1.5 text-xs font-medium text-ink-200 hover:text-white transition-colors">
+                <button key={g} type="button" onClick={() => addGenre(g)} className="rounded-full bg-white/5 hover:bg-accent-fill px-3 py-1.5 text-xs font-medium text-ink-200 hover:text-white transition-colors">
                   + {g}
                 </button>
               ))}
@@ -376,25 +467,36 @@ export default function HomePage() {
       {/* Customize lives at the end: a once-in-a-while action shouldn't push
           Continue Watching below the fold on phones. */}
       <div
-        className={`${PAD} mt-12 flex items-center justify-center gap-2 ${
-          customizing ? 'sticky bottom-24 md:bottom-6 z-30 py-2' : ''
+        className={`${PAD} mt-12 flex items-center justify-center ${
+          customizing
+            ? 'sticky bottom-[calc(6.5rem+env(safe-area-inset-bottom))] md:bottom-8 z-30 pointer-events-none'
+            : ''
         }`}
       >
-        {customizing && (
-          <button onClick={resetLayout} className="rounded-lg px-3 py-1.5 text-xs font-medium text-ink-400 hover:text-white transition-colors">
-            Reset
-          </button>
-        )}
-        <button
-          onClick={() => setCustomizing((v) => !v)}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${customizing ? 'bg-accent-fill text-white hover:brightness-110' : 'bg-white/5 text-ink-400 hover:text-white hover:bg-white/10'}`}
+        <div
+          className={
+            customizing
+              ? 'os-glass pointer-events-auto inline-flex items-center gap-2 rounded-full px-3 py-2 shadow-2xl'
+              : 'inline-flex items-center gap-2'
+          }
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.93 6.93 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-          </svg>
-          {customizing ? 'Done' : 'Customize Home'}
-        </button>
+          {customizing && (
+            <button type="button" onClick={resetLayout} className="rounded-full px-3.5 py-1.5 text-xs font-medium text-ink-200 hover:bg-white/10 hover:text-white transition-colors">
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleCustomize}
+            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${customizing ? 'bg-accent-fill text-white hover:brightness-110' : 'bg-white/5 text-ink-400 hover:text-white hover:bg-white/10'}`}
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.93 6.93 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            {customizing ? 'Done' : 'Customize Home'}
+          </button>
+        </div>
       </div>
     </div>
   )

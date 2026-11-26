@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import type Hls from 'hls.js'
+import { usePlayerUpgrade } from '../lib/playerUpgrade'
 import * as api from '../api/client'
 import { useClipManifest, useItem, useSeriesEpisodes } from '../api/queries'
 import { adjacentEpisodes, episodeCode } from '../lib/episodes'
@@ -44,6 +45,43 @@ const HLS_NETWORK_RETRIES = 3
 const IS_FIREFOX = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent)
 
 const PROGRESS_INTERVAL_MS = 10_000
+/** How many times playback is retried after an error before the Try again screen. */
+const MAX_RECOVERIES = 4
+const recoveryWait = (tries: number) => Math.min(8000, 1000 * 2 ** (tries - 1))
+const LOST_CONNECTION = 'Couldn’t keep playing: the connection to your server dropped. Check it, then try again.'
+const CANT_PLAY = 'Couldn’t play this. Check the connection to your server, then try again, or try it on another device.'
+
+const SUB_LANG_OPTIONS = [
+  { code: 'eng', label: 'English' },
+  { code: 'spa', label: 'Spanish' },
+  { code: 'fre', label: 'French' },
+  { code: 'ger', label: 'German' },
+  { code: 'jpn', label: 'Japanese' },
+  { code: 'por', label: 'Portuguese' },
+  { code: 'ita', label: 'Italian' },
+  { code: 'kor', label: 'Korean' },
+  { code: 'chi', label: 'Chinese' },
+] as const
+
+/** Puts the position in the address (?t=) without a navigation, so a reloaded tab resumes here.
+ *  The handover from another device (?from=) is dropped: it has already happened. */
+function rememberPosition(itemId: string, ticks: number) {
+  if (!(ticks > 0)) return
+  try {
+    const u = new URL(window.location.href)
+    const hashRoute = u.hash.startsWith('#/')
+    const route = new URL(hashRoute ? u.hash.slice(1) : u.pathname + u.search, 'http://x')
+    if (!route.pathname.endsWith(`/play/${itemId}`)) return
+    route.searchParams.set('t', String(Math.round(ticks)))
+    route.searchParams.delete('from')
+    route.searchParams.delete('fromName')
+    if (hashRoute) u.hash = route.pathname + route.search
+    else u.search = route.search
+    window.history.replaceState(window.history.state, '', u.toString())
+  } catch {
+    /* not worth breaking playback over */
+  }
+}
 const NEXT_CARD_FALLBACK_SECONDS = 25
 const NEXT_COUNTDOWN = 10
 
@@ -373,6 +411,18 @@ export default function PlayerPage() {
   const loadGenRef = useRef(0)
   /** While a new stream is loading: whether it should stay paused once it's up (null when not loading). */
   const loadPausedRef = useRef<boolean | null>(null)
+  /** Getting playback back after an error: tries so far, whether this title now needs a converted
+   *  stream, the pending retry, and when the last error was. */
+  const recoverRef = useRef({ tries: 0, converted: false, timer: 0, lastAt: 0 })
+  const [recovering, setRecovering] = useState(false)
+
+  // Remote subtitle search (Jellyfin subtitle plugins, e.g. OpenSubtitles)
+  const [subSearchOpen, setSubSearchOpen] = useState(false)
+  const [subSearchLang, setSubSearchLang] = useState('eng')
+  const [subSearchBusy, setSubSearchBusy] = useState(false)
+  const [subSearchError, setSubSearchError] = useState('')
+  const [subResults, setSubResults] = useState<api.JfRemoteSubtitle[] | null>(null)
+  const [subDownloadingId, setSubDownloadingId] = useState<string | null>(null)
 
   const [error, setError] = useState('')
   const [buffering, setBuffering] = useState(true)
@@ -614,10 +664,10 @@ export default function PlayerPage() {
 
   /** A stream that failed for good gets one fresh start (new PlaybackInfo) per title before the error shows. */
   const restartsLeft = useRef(1)
-  const loadStreamRef = useRef<(atTicks: number, audio?: number, sub?: number, opts?: { paused?: boolean }) => Promise<void>>(async () => {})
+  const loadStreamRef = useRef<(atTicks: number, audio?: number, sub?: number, opts?: { paused?: boolean; convert?: boolean }) => Promise<void>>(async () => {})
 
   const loadStream = useCallback(
-    async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean } = {}) => {
+    async (atTicks: number, audio?: number, sub?: number, opts: { paused?: boolean; convert?: boolean } = {}) => {
       const video = videoRef.current
       if (!video || !itemId) return
       const gen = ++loadGenRef.current
@@ -642,7 +692,9 @@ export default function PlayerPage() {
       try {
         const subIdx = sub === undefined || sub === -1 ? undefined : sub
         burnedInSubRef.current = subIdx !== undefined
-        const info = await api.getPlaybackInfo(itemId, atTicks, audio, subIdx, prevMediaSourceId)
+        // Once a file has failed to play as it is, this title stays on a converted stream.
+        const convert = opts.convert ?? recoverRef.current.converted
+        const info = await api.getPlaybackInfo(itemId, atTicks, audio, subIdx, prevMediaSourceId, convert)
         // Superseded (episode switched / track changed again), or the player closed meanwhile:
         // attaching now would play on a <video> nobody can see.
         if (!current()) return
@@ -651,8 +703,8 @@ export default function PlayerPage() {
 
         let url: string
         let transcoding = false
-        // Prefer HLS when burning subs or when direct play isn't offered.
-        if (source.TranscodingUrl && (subIdx !== undefined || !source.SupportsDirectPlay)) {
+        // Prefer HLS when burning subs, recovering via conversion, or when direct play isn't offered.
+        if (source.TranscodingUrl && (subIdx !== undefined || convert || !source.SupportsDirectPlay)) {
           url = api.transcodeUrl(source.TranscodingUrl)
           transcoding = true
         } else if (source.SupportsDirectPlay) {
@@ -820,6 +872,24 @@ export default function PlayerPage() {
   )
   loadStreamRef.current = loadStream
 
+  // "Get a better copy" (lib/playerUpgrade): when it lands, carry on with it at this moment.
+  const upgrade = usePlayerUpgrade(item, {
+    say: (text, tone) => toast(text, tone),
+    onReady: (newId) => {
+      const at = positionTicks()
+      if (newId === itemId) {
+        recoverRef.current = { tries: 0, converted: false, timer: 0, lastAt: 0 }
+        void loadStreamRef.current(at, undefined, undefined, { paused: pausedByUserRef.current })
+      } else {
+        navigate(`/play/${newId}${at > 0 ? `?t=${at}` : ''}`, { replace: true })
+      }
+    },
+  })
+  const tracksRef = useRef({ audio: audioIndex, sub: subIndex })
+  tracksRef.current = { audio: audioIndex, sub: subIndex }
+  /** Paused by the person (not by an error): a retry after an error comes back the same way. */
+  const pausedByUserRef = useRef(false)
+
   // Per-item state resets DURING render when the episode changes in place.
   // Resetting in an effect left one committed render where the new episode ran
   // with the old one's state — e.g. a finished countdown (0) that immediately
@@ -838,6 +908,11 @@ export default function PlayerPage() {
     setBufferedAbs(0)
     setPendingSeek(null)
     setHover(null)
+    setRecovering(false)
+    setSubSearchOpen(false)
+    setSubSearchError('')
+    setSubResults(null)
+    setSubDownloadingId(null)
     setAbsTime(ticksToSeconds(startTicks))
   }
 
@@ -864,23 +939,38 @@ export default function PlayerPage() {
     restartsLeft.current = 1
     shownSecRef.current = -1
     bufferedSecRef.current = -1
+    window.clearTimeout(recoverRef.current.timer)
+    recoverRef.current = { tries: 0, converted: false, timer: 0, lastAt: 0 }
     loadStream(startTicks)
 
-    const progressTimer = setInterval(
-      () => report(api.reportPlaybackProgress, videoRef.current?.paused),
-      PROGRESS_INTERVAL_MS,
-    )
+    const progressTimer = setInterval(() => {
+      report(api.reportPlaybackProgress, videoRef.current?.paused)
+      // A reloaded tab (phones throw background tabs away) picks up here, not where it began.
+      if (streamRef.current?.itemId === itemId) rememberPosition(itemId!, positionTicks())
+    }, PROGRESS_INTERVAL_MS)
     let alive = true
     api.getMediaSegments(itemId!).then(
       (r) => alive && setSegments(r.Items ?? []),
       () => alive && setSegments([]),
     )
 
+    // Closing the tab or the browser: tell the server it stopped and to stop converting, with
+    // requests that are allowed to finish after the page is gone.
+    const onHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return
+      report((r) => api.reportPlaybackStopped(r, true))
+      const s = streamRef.current
+      if (s?.transcoding && s.playSessionId) void api.stopActiveEncoding(s.playSessionId, true)
+    }
+    window.addEventListener('pagehide', onHide)
+
     return () => {
       // First: a stream still loading (PlaybackInfo or hls.js on its way) must not attach
       // once the player has closed or moved to another episode.
       loadGenRef.current++
       window.clearTimeout(seekCheckTimer.current)
+      window.clearTimeout(recoverRef.current.timer)
+      window.removeEventListener('pagehide', onHide)
       alive = false
       clearInterval(progressTimer)
       const stopped = report(api.reportPlaybackStopped)
@@ -970,7 +1060,13 @@ export default function PlayerPage() {
       // playing — the reliable "not buffering" signal. webOS Chromium 68 doesn't
       // fire 'playing'/'canplay' dependably after a mid-stream stall, so the
       // spinner would otherwise hang forever.
-      if (!v.paused) setBuffering(false)
+      if (!v.paused) {
+        setBuffering(false)
+        setRecovering(false)
+        // Playing again for a while: the next problem gets the full set of retries.
+        const r = recoverRef.current
+        if (r.tries && Date.now() - r.lastAt > 15000) r.tries = 0
+      }
       try {
         const b = v.buffered
         if (b.length) commitBuffered(s.offsetSec + b.end(b.length - 1))
@@ -979,6 +1075,7 @@ export default function PlayerPage() {
       }
     }
     const onPlay = () => {
+      pausedByUserRef.current = false
       setPlaying(true)
       setEnded(false)
       scheduleHide()
@@ -986,6 +1083,7 @@ export default function PlayerPage() {
       report(api.reportPlaybackProgress, false)
     }
     const onPause = () => {
+      if (!v.error) pausedByUserRef.current = true
       setPlaying(false)
       report(api.reportPlaybackProgress, true)
     }
@@ -996,6 +1094,32 @@ export default function PlayerPage() {
       setPlaying(false)
       setEnded(true)
     }
+    // A file playing as it is failed (converted streams are hls.js's, above). A dropped connection is
+    // retried where it was; a file this browser can't decode is asked for again, converted.
+    const onError = () => {
+      const s = streamRef.current
+      const code = v.error?.code
+      if (!s || !code || code === 1 || hlsRef.current) return
+      const r = recoverRef.current
+      r.lastAt = Date.now()
+      if (r.tries >= MAX_RECOVERIES) {
+        setRecovering(false)
+        setError(code === 2 ? LOST_CONNECTION : CANT_PLAY)
+        setBuffering(false)
+        return
+      }
+      r.tries++
+      const convert = code !== 2 && !s.transcoding
+      if (convert) r.converted = true
+      setRecovering(true)
+      const { audio, sub } = tracksRef.current
+      window.clearTimeout(r.timer)
+      r.timer = window.setTimeout(
+        () => loadStreamRef.current(positionTicks(), audio, burnedInSubRef.current && sub !== -1 ? sub : undefined, { paused: pausedByUserRef.current }),
+        convert && r.tries === 1 ? 0 : recoveryWait(r.tries),
+      )
+    }
+    v.addEventListener('error', onError)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
@@ -1013,8 +1137,9 @@ export default function PlayerPage() {
       v.removeEventListener('playing', onPlaying)
       v.removeEventListener('canplay', onPlaying)
       v.removeEventListener('ended', onEnded)
+      v.removeEventListener('error', onError)
     }
-  }, [report, scheduleHide, commitTime, commitBuffered])
+  }, [report, scheduleHide, commitTime, commitBuffered, positionTicks])
 
   // Buffering watchdog — the spinner's source of truth. webOS Chromium drops or
   // misorders 'playing'/'canplay'/'timeupdate' often enough that event-driven
@@ -1363,6 +1488,80 @@ export default function PlayerPage() {
     // Re-negotiate the stream at the new cap from the current position (paused stays paused)
     loadStream(secondsToTicks(at), audioIndex, burnedSub(), { paused: pausedNow() })
   }
+
+  const searchSubtitles = useCallback(
+    async (lang = subSearchLang) => {
+      if (!itemId || itemId.startsWith('f-')) return
+      setSubSearchBusy(true)
+      setSubSearchError('')
+      try {
+        const list = await api.searchRemoteSubtitles(itemId, lang)
+        const sorted = [...(Array.isArray(list) ? list : [])]
+          .filter((s) => Boolean(s.Id))
+          .sort((a, b) => Number(Boolean(b.IsHashMatch)) - Number(Boolean(a.IsHashMatch)) || (b.DownloadCount ?? 0) - (a.DownloadCount ?? 0))
+          .slice(0, 12)
+        setSubResults(sorted)
+        if (!sorted.length) {
+          setSubSearchError('No subtitles found for this language. Make sure a subtitle plugin (like OpenSubtitles) is enabled in Jellyfin.')
+        }
+      } catch (e) {
+        setSubResults([])
+        if (e instanceof api.ApiError && e.status === 403) {
+          setSubSearchError('Only server admins (or profiles with subtitle permission) can download subtitles.')
+        } else {
+          setSubSearchError('Couldn’t search for subtitles right now. Check that a subtitle plugin is enabled in Jellyfin.')
+        }
+      } finally {
+        setSubSearchBusy(false)
+      }
+    },
+    [itemId, subSearchLang],
+  )
+
+  const downloadAndApplySubtitle = useCallback(
+    async (sub: api.JfRemoteSubtitle) => {
+      if (!itemId || !sub.Id || subDownloadingId) return
+      setSubDownloadingId(sub.Id)
+      const prevSubIndices = new Set(
+        (streamRef.current?.mediaStreams ?? []).filter((m) => m.Type === 'Subtitle').map((m) => m.Index),
+      )
+      try {
+        await api.downloadRemoteSubtitle(itemId, sub.Id)
+        toast('Subtitle downloaded. Loading it now…')
+        const targetItem = itemId
+        let added: JfMediaStream | undefined
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await new Promise((r) => window.setTimeout(r, attempt === 0 ? 700 : 1000))
+          if (streamRef.current?.itemId !== targetItem) return
+          const info = await api.getPlaybackInfo(targetItem, positionTicks(), audioIndex, undefined, streamRef.current?.mediaSourceId).catch(() => null)
+          const streams = info?.MediaSources?.[0]?.MediaStreams ?? []
+          const fresh = streams.filter((m) => m.Type === 'Subtitle')
+          added = fresh.find((m) => !prevSubIndices.has(m.Index))
+          if (added && streamRef.current?.itemId === targetItem) {
+            streamRef.current.mediaStreams = streams
+            setStreamGen((n) => n + 1)
+            break
+          }
+        }
+        if (added) {
+          changeSub(added.Index)
+          setSubSearchOpen(false)
+          toast(`Subtitles turned on (${added.DisplayTitle ?? sub.Name ?? 'Downloaded'})`)
+        } else {
+          toast('Subtitle saved to Jellyfin. Reopen playback if it doesn’t appear in a moment.')
+        }
+      } catch (e) {
+        const msg = e instanceof api.ApiError && e.status === 403
+          ? 'Your profile doesn’t have permission to download subtitles.'
+          : 'Couldn’t download that subtitle. Try another match.'
+        toast(msg, 'error')
+      } finally {
+        setSubDownloadingId(null)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [itemId, subDownloadingId, audioIndex, positionTicks, toast],
+  )
 
   // ---------- Panels (Audio & subtitles / Settings) ----------
   const openMenu = (which: Exclude<Menu, null>, trigger: HTMLElement) => {
@@ -2085,7 +2284,8 @@ export default function PlayerPage() {
   const subTracks = streamRef.current?.mediaStreams.filter((m) => m.Type === 'Subtitle') ?? []
   // Blob VTT overlay (supports delay). Burn-in has no separate track.
   const showTextTrack = !!subBlobUrl && subIndex >= 0
-  const hasTrackChoices = audioTracks.length > 1 || subTracks.length > 0
+  const canSearchSubtitles = Boolean(itemId && !itemId.startsWith('f-'))
+  const hasTrackChoices = audioTracks.length > 1 || subTracks.length > 0 || (Boolean(streamRef.current) && canSearchSubtitles)
   // Shown on the button, so switching language is findable at a glance
   // ("Japanese" beats hunting behind a CC icon).
   const currentAudio =
@@ -2647,6 +2847,83 @@ export default function PlayerPage() {
                       {t.DisplayTitle ?? `Track ${t.Index}`}
                     </PanelOption>
                   ))}
+                  {subTracks.length === 0 && (
+                    <p className="px-3 pt-1 text-xs text-ink-400">No subtitles in this file yet.</p>
+                  )}
+                  {canSearchSubtitles && (
+                    <div className="mt-2 border-t border-white/5 pt-2.5 px-2">
+                      {!subSearchOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSubSearchOpen(true)
+                            if (subResults === null) void searchSubtitles(subSearchLang)
+                          }}
+                          className="w-full rounded-lg bg-white/5 px-3 py-2 text-left text-xs font-semibold text-ink-100 hover:bg-white/10 transition-colors"
+                        >
+                          Find subtitles online…
+                        </button>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              aria-label="Subtitle language"
+                              value={subSearchLang}
+                              onChange={(e) => {
+                                const next = e.target.value
+                                setSubSearchLang(next)
+                                void searchSubtitles(next)
+                              }}
+                              className="h-8 flex-1 min-w-0 rounded-lg border border-white/10 bg-ink-950/80 px-2 text-xs text-white focus:border-accent-400 focus:outline-none"
+                            >
+                              {SUB_LANG_OPTIONS.map((o) => (
+                                <option key={o.code} value={o.code}>{o.label}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={subSearchBusy}
+                              onClick={() => void searchSubtitles(subSearchLang)}
+                              className="h-8 shrink-0 rounded-lg bg-white/10 px-2.5 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
+                            >
+                              {subSearchBusy ? 'Searching…' : 'Search'}
+                            </button>
+                          </div>
+                          {subSearchError && (
+                            <p className="px-1 text-[11px] leading-snug text-ink-400">{subSearchError}</p>
+                          )}
+                          {subResults && subResults.length > 0 && (
+                            <ul className="max-h-44 space-y-1 overflow-y-auto pr-0.5">
+                              {subResults.map((s) => (
+                                <li key={s.Id} className="flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-xs font-medium text-white" title={s.Name ?? ''}>
+                                      {s.Name || 'Subtitles'}
+                                    </p>
+                                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-ink-400">
+                                      {s.IsHashMatch && <span className="rounded bg-emerald-500/15 px-1 py-0.5 font-semibold text-emerald-300">Exact match</span>}
+                                      {s.HearingImpaired && <span className="rounded bg-white/10 px-1 py-0.5 text-ink-200">SDH</span>}
+                                      {s.Format && <span>{s.Format.toUpperCase()}</span>}
+                                      {s.ProviderName && <span>· {s.ProviderName}</span>}
+                                      {typeof s.DownloadCount === 'number' && <span>· {s.DownloadCount.toLocaleString()} dl</span>}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={subDownloadingId !== null}
+                                    onClick={() => void downloadAndApplySubtitle(s)}
+                                    className="shrink-0 rounded-full bg-accent-fill px-2.5 py-1 text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
+                                  >
+                                    {subDownloadingId === s.Id ? 'Adding…' : 'Use'}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </section>
                 {/* Timing only applies to overlay (text) subs, not burned-in ones */}
                 {hasOverlaySubs && (
@@ -2701,6 +2978,25 @@ export default function PlayerPage() {
                   )}
                   <PanelToggle label="Stats for nerds" on={showStats} onToggle={() => setShowStats((v) => !v)} />
                 </section>
+                {upgrade.available && (
+                  <section className="border-t border-white/5 pt-3">
+                    <button
+                      onClick={upgrade.start}
+                      disabled={upgrade.stage === 'looking' || upgrade.stage === 'downloading' || upgrade.stage === 'arriving'}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-ink-200 hover:bg-white/10 disabled:hover:bg-transparent transition-colors"
+                    >
+                      <span className="flex items-center justify-between gap-3">
+                        <span>Get a better copy</span>
+                        {(upgrade.stage === 'looking' || upgrade.stage === 'downloading' || upgrade.stage === 'arriving') && (
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-accent-400 animate-pulse" aria-hidden />
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-snug text-ink-400" role="status">
+                        {upgrade.line || 'Looks rough? Finesse finds a better one and switches to it while you watch.'}
+                      </span>
+                    </button>
+                  </section>
+                )}
               </div>
             )}
           </div>
@@ -2778,13 +3074,23 @@ export default function PlayerPage() {
         />
       )}
 
+      {recovering && !error && (
+        <div role="status" className="pointer-events-none absolute left-1/2 top-20 z-40 -translate-x-1/2 flex items-center gap-2.5 rounded-full os-glass px-4 py-2 text-sm font-medium text-white">
+          <span className="h-2 w-2 rounded-full bg-accent-400 animate-pulse" aria-hidden />
+          Reconnecting…
+        </div>
+      )}
+
       {error && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
           <p className="text-white">{error}</p>
           <div className="flex gap-3">
             <button
               autoFocus
-              onClick={() => loadStream(secondsToTicks(liveAbsSec()), audioIndex, subIndex === -1 ? undefined : subIndex)}
+              onClick={() => {
+                recoverRef.current.tries = 0
+                loadStream(secondsToTicks(liveAbsSec()), audioIndex, subIndex === -1 ? undefined : subIndex)
+              }}
               className="rounded-lg bg-white px-5 py-2 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
             >
               Try again

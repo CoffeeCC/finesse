@@ -1,9 +1,10 @@
 // Settings → People → Limits: a rating limit per profile, enforced by the server (parental.ts).
 // It says plainly what the limit covers and what it doesn't.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getParental, setParental, type Limit, type ParentalPerson } from '../../api/parental'
+import { useToast } from '../../components/Toast'
 import { useFinesse } from '../../lib/finesseServer'
 
 export default function ParentalAdmin() {
@@ -22,7 +23,19 @@ export default function ParentalAdmin() {
           Not covered: games and game streaming have no ratings, so they aren’t limited. And a profile without a password can be opened by anyone on a device that shows it, so give the other profiles passwords.
         </p>
         {q.isLoading && <div className="h-16 rounded-xl shimmer" />}
-        {q.isError && <p className="text-[12.5px] text-red-300">{(q.error as Error).message}</p>}
+        {q.isError && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[12.5px] text-red-300">{(q.error as Error).message}</p>
+            <button
+              type="button"
+              onClick={() => void q.refetch()}
+              disabled={q.isFetching}
+              className="inline-flex h-8 items-center rounded-lg border border-white/10 bg-white/[0.04] px-3 text-[12.5px] font-medium text-ink-200 hover:border-white/25 hover:text-white disabled:opacity-50"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         {q.data && (
           <ul className="divide-y divide-white/5">
             {q.data.people.map((p) => (
@@ -36,21 +49,36 @@ export default function ParentalAdmin() {
 }
 
 function PersonRow({ p, choices }: { p: ParentalPerson; choices: { age: number; label: string }[] }) {
+  const toast = useToast()
   const [limit, setLimit] = useState<Limit | null>(p.limit)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null)
   const qc = useQueryClient()
+
+  const limitKey = p.limit ? `${p.limit.maxAge}:${p.limit.blockUnrated}:${p.limit.requests}` : ''
+  useEffect(() => {
+    setLimit(p.limit)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limitKey])
+
   const save = async (next: Limit | null) => {
     setLimit(next)
     setBusy(true)
     setNote(null)
     try {
       const r = await setParental(p.id, next)
-      setNote(r.warning ? { text: r.warning, bad: true } : { text: next ? 'Saved. It applies right away, on every device.' : 'No limits now.', bad: false })
+      if (r.warning) {
+        setNote({ text: r.warning, bad: true })
+        toast('Saved with a note')
+      } else {
+        toast(next ? `${p.name}: limit saved` : `${p.name}: limits removed`)
+      }
       void qc.invalidateQueries({ queryKey: ['parental'] })
     } catch (e) {
       setLimit(p.limit)
-      setNote({ text: (e as Error).message, bad: true })
+      const msg = (e as Error).message
+      setNote({ text: msg, bad: true })
+      toast(msg, 'error')
     } finally {
       setBusy(false)
     }
@@ -68,11 +96,11 @@ function PersonRow({ p, choices }: { p: ParentalPerson; choices: { age: number; 
             disabled={busy}
             aria-label={`Rating limit for ${p.name}`}
             onChange={(e) => void save(e.target.value === '' ? null : { maxAge: Number(e.target.value), blockUnrated: limit?.blockUnrated ?? true, requests: limit?.requests ?? false })}
-            className="h-9 rounded-lg border border-white/15 bg-white/[0.05] px-2 text-[14px] text-white"
+            className="h-9 rounded-lg border border-white/15 bg-ink-900 px-2.5 text-[14px] text-white outline-none focus:border-accent-400"
           >
-            <option value="">No limit</option>
+            <option value="" className="bg-ink-900 text-white">No limit</option>
             {choices.map((c) => (
-              <option key={c.age} value={c.age}>
+              <option key={c.age} value={c.age} className="bg-ink-900 text-white">
                 {c.label}
               </option>
             ))}

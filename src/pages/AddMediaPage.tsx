@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
+import { useIsTouch } from '../lib/device'
 import { fromInput, plan, readDrop, repath, SYSTEM_CHOICES, type Dropped, type Kind } from '../lib/mediaSort'
-import { cancel, confirmReview, discardReview, enqueue, mediaInfo, move, remove, retry, tidy, useUploads, type Job, type MediaInfo } from '../lib/uploads'
+import { cancel, cancelAllActive, confirmReview, discardReview, enqueue, mediaInfo, move, remove, retry, retryAllFailed, tidy, useUploads, type Job, type MediaInfo } from '../lib/uploads'
 
 // Add media: drop files or whole folders (from this computer, a USB drive, a network share:
 // anything the browser can open). They're sorted into libraries and listed for a look first;
@@ -26,6 +28,9 @@ function addDropped(items: Dropped[], games: boolean) {
 }
 
 export default function AddMediaPage() {
+  const { session } = useAuth()
+  const isTouch = useIsTouch()
+  const isAdmin = Boolean(session?.isAdmin)
   const [info, setInfo] = useState<MediaInfo | null>(null)
   const [failed, setFailed] = useState('')
   const [over, setOver] = useState(false)
@@ -35,21 +40,45 @@ export default function AddMediaPage() {
   const { jobs, speed } = useUploads()
 
   useEffect(() => {
+    if (!isAdmin) return
     mediaInfo().then(setInfo, (e: Error) => setFailed(e.message))
-  }, [])
+  }, [isAdmin])
 
   const games = Boolean(info?.games)
   const review = jobs.filter((j) => j.status === 'review')
   const list = jobs.filter((j) => j.status !== 'review' && j.status !== 'cancelled')
   const totals = useMemo(() => {
     const live = list.filter((j) => j.status === 'waiting' || j.status === 'sending')
+    const failedJobs = list.filter((j) => j.status === 'failed')
     const all = list.filter((j) => j.status !== 'skipped' && j.status !== 'removed')
     const bytes = all.reduce((a, j) => a + j.file.size, 0)
     const sent = all.reduce((a, j) => a + (j.status === 'done' ? j.file.size : j.sent), 0)
     const left = live.reduce((a, j) => a + j.file.size - j.sent, 0)
-    return { live: live.length, all: all.length, done: all.filter((j) => j.status === 'done').length, bytes, sent, left }
+    return {
+      live: live.length,
+      failed: failedJobs.length,
+      all: all.length,
+      done: all.filter((j) => j.status === 'done').length,
+      bytes,
+      sent,
+      left,
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs])
+
+  // Refresh free space on the server after uploads finish (or are removed).
+  const prevDone = useRef(totals.done)
+  const prevLive = useRef(totals.live)
+  useEffect(() => {
+    if (!isAdmin) return
+    const finishedBatch = prevLive.current > 0 && totals.live === 0
+    const completedMore = totals.done > prevDone.current
+    prevDone.current = totals.done
+    prevLive.current = totals.live
+    if (finishedBatch || completedMore) {
+      mediaInfo().then(setInfo).catch(() => {})
+    }
+  }, [isAdmin, totals.done, totals.live])
 
   const take = async (p: Promise<Dropped[]> | Dropped[]) => {
     setReading(true)
@@ -58,6 +87,18 @@ export default function AddMediaPage() {
     } finally {
       setReading(false)
     }
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        <h1 className="page-title mb-3">Add media</h1>
+        <p className="text-ink-200">Only administrators can add media to this server.</p>
+        <Link to="/" className="mt-5 inline-flex h-10 items-center rounded-full bg-white/10 px-5 text-sm font-semibold text-white hover:bg-white/15 transition-colors">
+          Back to Home
+        </Link>
+      </div>
+    )
   }
 
   if (failed || (info && !info.available)) {
@@ -73,7 +114,9 @@ export default function AddMediaPage() {
     <div className="mx-auto max-w-4xl px-4 pb-16 pt-6 sm:px-6 lg:px-8">
       <h1 className="page-title mb-2">Add media</h1>
       <p className="mb-6 max-w-2xl text-[15px] leading-relaxed text-ink-200">
-        Drop movies, shows, music{games ? ' or games' : ''} here: single files or whole folders. From this computer, a USB drive or a network folder, anything you can open, you can drop. Finesse sorts them and shows you where each one goes before anything is sent.
+        {isTouch
+          ? `Choose movies, shows, music${games ? ' or games' : ''} from your device. Finesse sorts them and shows you where each one goes before anything is sent.`
+          : `Drop movies, shows, music${games ? ' or games' : ''} here: single files or whole folders. From this computer, a USB drive or a network folder, anything you can open, you can drop. Finesse sorts them and shows you where each one goes before anything is sent.`}
       </p>
 
       <div
@@ -99,16 +142,20 @@ export default function AddMediaPage() {
           </svg>
         </span>
         <div className="relative">
-          <p className="text-[18px] font-semibold text-white">{reading ? 'Reading folders…' : over ? 'Let go to add them' : 'Drop files or folders here'}</p>
+          <p className="text-[18px] font-semibold text-white">
+            {reading ? 'Reading folders…' : over ? 'Let go to add them' : isTouch ? 'Choose files to add' : 'Drop files or folders here'}
+          </p>
           <p className="mt-1 text-[13.5px] text-ink-400">Videos, music{games ? ', games' : ''}, plus subtitles and posters that go with them</p>
         </div>
         <div className="relative flex flex-wrap justify-center gap-2.5">
           <button type="button" onClick={() => files.current?.click()} className="h-10 rounded-full bg-accent-fill px-5 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(79,99,180,.4)] transition hover:brightness-110">
             Choose files
           </button>
-          <button type="button" onClick={() => folder.current?.click()} className="h-10 rounded-full border border-white/12 bg-white/[0.05] px-5 text-[14px] font-semibold text-ink-200 transition hover:bg-white/[0.09] hover:text-white">
-            Choose a folder
-          </button>
+          {!isTouch && (
+            <button type="button" onClick={() => folder.current?.click()} className="h-10 rounded-full border border-white/12 bg-white/[0.05] px-5 text-[14px] font-semibold text-ink-200 transition hover:bg-white/[0.09] hover:text-white">
+              Choose a folder
+            </button>
+          )}
         </div>
         <input ref={files} type="file" multiple hidden onChange={(e) => (void take(fromInput(e.target.files)), (e.target.value = ''))} />
         <input ref={folder} type="file" multiple hidden {...({ webkitdirectory: '' } as Record<string, string>)} onChange={(e) => (void take(fromInput(e.target.files)), (e.target.value = ''))} />
@@ -138,7 +185,17 @@ export default function AddMediaPage() {
                     : ''}
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {totals.failed > 0 && (
+                <button type="button" onClick={retryAllFailed} className="text-[13px] font-semibold text-accent-300 hover:text-accent-200">
+                  Retry failed ({totals.failed})
+                </button>
+              )}
+              {totals.live > 0 && (
+                <button type="button" onClick={cancelAllActive} className="text-[13px] text-red-300 hover:text-red-200">
+                  Cancel all
+                </button>
+              )}
               {!totals.live && totals.done > 0 && (
                 <Link to="/" className="text-[13.5px] font-semibold text-accent-300 hover:text-accent-200">
                   Go to Home
@@ -163,12 +220,23 @@ export default function AddMediaPage() {
 
 /** The drop, sorted, before anything is sent. */
 function Review({ jobs, games, free }: { jobs: Job[]; games: boolean; free: number | null }) {
+  const [bulkSystem, setBulkSystem] = useState('')
   const going = jobs.filter((j) => j.kind !== 'skip')
+  const gameJobs = going.filter((j) => j.kind === 'games')
   const bytes = going.reduce((a, j) => a + j.file.size, 0)
-  const noConsole = going.filter((j) => j.kind === 'games' && !j.system).length
+  const noConsole = gameJobs.filter((j) => !j.system).length
   const big = going.length > BIG_FILES || bytes > BIG_BYTES
   const tooBig = free !== null && bytes > free
   const tops = [...new Set(jobs.map((j) => j.key.split('/')[0]!).filter((t) => t && jobs.some((j) => j.key.startsWith(t + '/'))))]
+
+  const applyAllConsoles = (sys: string) => {
+    setBulkSystem(sys)
+    if (!sys) return
+    for (const j of gameJobs) {
+      move(j.key, 'games', repath(j, 'games', sys), sys)
+    }
+  }
+
   return (
     <section className="mt-8 rounded-3xl border border-accent-400/25 bg-accent-500/[0.05] p-5 sm:p-6" aria-labelledby="review-title">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
@@ -178,21 +246,24 @@ function Review({ jobs, games, free }: { jobs: Job[]; games: boolean; free: numb
           </h2>
           <p className="mt-1 text-[13.5px] leading-relaxed text-ink-400">Check where each one goes, and change any that are wrong. Nothing is sent until you press Add.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={discardReview} className="h-10 rounded-full px-4 text-[13.5px] font-medium text-ink-400 hover:text-white">
-            Clear
-          </button>
-          <button
-            type="button"
-            disabled={!going.length || tooBig}
-            onClick={confirmReview}
-            className="h-10 rounded-full bg-accent-fill px-6 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(79,99,180,.4)] transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none"
-          >
-            Add {plural(going.length, 'file')}
-          </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={discardReview} className="h-10 rounded-full px-4 text-[13.5px] font-medium text-ink-400 hover:text-white">
+              Clear
+            </button>
+            <button
+              type="button"
+              disabled={!going.length || tooBig || noConsole > 0}
+              onClick={confirmReview}
+              className="h-10 rounded-full bg-accent-fill px-6 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(79,99,180,.4)] transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none"
+            >
+              Add {plural(going.length, 'file')}
+            </button>
+          </div>
+          {noConsole > 0 && <p className="text-[12px] text-amber-200">Pick a console for each game first</p>}
         </div>
       </div>
-      {(big || tooBig || noConsole > 0) && (
+      {(big || tooBig || noConsole > 0 || gameJobs.length > 1) && (
         <div className="mb-4 space-y-2">
           {tooBig && (
             <p className="rounded-2xl border border-red-400/25 bg-red-500/10 px-4 py-3 text-[13.5px] leading-relaxed text-red-200">
@@ -204,10 +275,32 @@ function Review({ jobs, games, free }: { jobs: Job[]; games: boolean; free: numb
               That’s a big drop: {plural(going.length, 'file')}, {size(bytes)}{tops.length ? ` from ${tops.slice(0, 3).map((t) => `“${t}”`).join(', ')}${tops.length > 3 ? '…' : ''}` : ''}. Make sure it’s the folder you meant before adding.
             </p>
           )}
-          {noConsole > 0 && (
-            <p className="rounded-2xl border border-amber-300/25 bg-amber-400/10 px-4 py-3 text-[13.5px] leading-relaxed text-amber-100">
-              Pick the console for {plural(noConsole, 'game')}: {noConsole === 1 ? 'it waits' : 'they wait'} until you do.
-            </p>
+          {(noConsole > 0 || gameJobs.length > 1) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-4 py-3 text-[13.5px] leading-relaxed text-amber-100">
+              <span>
+                {noConsole > 0
+                  ? `Pick a console for ${plural(noConsole, 'game')} before adding.`
+                  : `All ${plural(gameJobs.length, 'game')} have a console selected.`}
+              </span>
+              <label className="inline-flex items-center gap-2 text-[12.5px] text-ink-200">
+                <span>Set console for all games:</span>
+                <select
+                  value={bulkSystem}
+                  onChange={(e) => applyAllConsoles(e.target.value)}
+                  aria-label="Set console for all games"
+                  className="h-8 rounded-full border border-white/15 bg-ink-900 px-3 text-[12.5px] text-white outline-none focus:border-accent-400"
+                >
+                  <option value="" className="bg-ink-900 text-white">
+                    Choose console…
+                  </option>
+                  {SYSTEM_CHOICES.map(([id, label]) => (
+                    <option key={id} value={id} className="bg-ink-900 text-white">
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           )}
         </div>
       )}
@@ -262,8 +355,8 @@ function Row({ j, games }: { j: Job; games: boolean }) {
   const gone = j.status === 'removed'
   return (
     <li className={`px-4 py-3 ${gone ? 'opacity-50' : ''}`}>
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="min-w-[12rem] flex-1">
           <p className={`truncate text-[14px] text-white ${gone ? 'line-through' : ''}`} title={j.file.name}>{name}</p>
           <p className="truncate text-[12.5px] text-ink-400">
             {j.error ? <span className="text-red-300">{j.error}</span> : j.note ? <span className={j.kind === 'skip' || j.note.startsWith('Already') ? '' : 'text-amber-200'}>{j.note}</span> : whereLabel}
@@ -271,64 +364,66 @@ function Row({ j, games }: { j: Job; games: boolean }) {
             {!j.error && !j.note && size(j.file.size)}
           </p>
         </div>
-        {editable && j.follows === undefined && (
-          <select
-            value={j.kind}
-            onChange={(e) => {
-              const kind = e.target.value as Kind
-              move(j.key, kind, repath(j, kind), j.system)
-            }}
-            className="h-8 rounded-full border border-white/10 bg-white/[0.05] px-3 text-[12.5px] text-ink-200 outline-none focus:border-accent-400"
-            aria-label={`Library for ${name}`}
-          >
-            {(['movies', 'tv', 'music', ...(games ? ['games'] : []), 'skip'] as Kind[]).map((k) => (
-              <option key={k} value={k}>
-                {KIND_LABEL[k]}
+        <div className="flex flex-wrap items-center gap-2">
+          {editable && j.follows === undefined && (
+            <select
+              value={j.kind}
+              onChange={(e) => {
+                const kind = e.target.value as Kind
+                move(j.key, kind, repath(j, kind), j.system)
+              }}
+              className="h-8 rounded-full border border-white/10 bg-ink-900 px-3 text-[12.5px] text-ink-100 outline-none focus:border-accent-400"
+              aria-label={`Library for ${name}`}
+            >
+              {(['movies', 'tv', 'music', ...(games ? ['games'] : []), 'skip'] as Kind[]).map((k) => (
+                <option key={k} value={k} className="bg-ink-900 text-white">
+                  {KIND_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          )}
+          {editable && j.kind === 'games' && (
+            <select
+              value={j.system ?? ''}
+              onChange={(e) => move(j.key, 'games', repath(j, 'games', e.target.value), e.target.value)}
+              className="h-8 max-w-[10rem] rounded-full border border-white/10 bg-ink-900 px-3 text-[12.5px] text-ink-100 outline-none focus:border-accent-400"
+              aria-label={`Console for ${name}`}
+            >
+              <option value="" disabled className="bg-ink-900 text-ink-400">
+                Console…
               </option>
-            ))}
-          </select>
-        )}
-        {editable && j.kind === 'games' && (
-          <select
-            value={j.system ?? ''}
-            onChange={(e) => move(j.key, 'games', repath(j, 'games', e.target.value), e.target.value)}
-            className="h-8 max-w-[10rem] rounded-full border border-white/10 bg-white/[0.05] px-3 text-[12.5px] text-ink-200 outline-none focus:border-accent-400"
-            aria-label={`Console for ${name}`}
-          >
-            <option value="" disabled>
-              Console…
-            </option>
-            {SYSTEM_CHOICES.map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </select>
-        )}
-        {j.status !== 'review' && (
-          <span className="w-16 shrink-0 text-right font-mono text-[11.5px] text-ink-400">
-            {j.status === 'done' ? <span className="text-emerald-300">Added</span> : j.status === 'sending' ? `${Math.floor(pct)}%` : j.status === 'waiting' ? 'Waiting' : j.status === 'skipped' ? 'Skipped' : j.status === 'removing' ? '…' : gone ? 'Removed' : ''}
-          </span>
-        )}
-        {j.status === 'failed' ? (
-          <button type="button" onClick={() => retry(j.key)} className="text-[12.5px] font-semibold text-accent-300 hover:text-accent-200">
-            Retry
-          </button>
-        ) : j.status === 'waiting' || j.status === 'sending' ? (
-          <button type="button" onClick={() => cancel(j.key)} aria-label={`Cancel ${name}`} className="grid h-7 w-7 place-items-center rounded-full text-ink-400 hover:bg-white/10 hover:text-white">
-            <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" aria-hidden><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" /></svg>
-          </button>
-        ) : j.status === 'done' && j.receipt ? (
-          <button
-            type="button"
-            onClick={() => (sure ? void remove(j.key) : setSure(true))}
-            className={`shrink-0 rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${sure ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' : 'text-ink-400 hover:bg-white/10 hover:text-white'}`}
-          >
-            {sure ? 'Remove it?' : 'Remove'}
-          </button>
-        ) : j.status !== 'review' ? (
-          <span className="w-7" />
-        ) : null}
+              {SYSTEM_CHOICES.map(([id, label]) => (
+                <option key={id} value={id} className="bg-ink-900 text-white">
+                  {label}
+                </option>
+              ))}
+            </select>
+          )}
+          {j.status !== 'review' && (
+            <span className="w-16 shrink-0 text-right font-mono text-[11.5px] text-ink-400">
+              {j.status === 'done' ? <span className="text-emerald-300">Added</span> : j.status === 'sending' ? `${Math.floor(pct)}%` : j.status === 'waiting' ? 'Waiting' : j.status === 'skipped' ? 'Skipped' : j.status === 'removing' ? '…' : gone ? 'Removed' : ''}
+            </span>
+          )}
+          {j.status === 'failed' ? (
+            <button type="button" onClick={() => retry(j.key)} className="text-[12.5px] font-semibold text-accent-300 hover:text-accent-200">
+              Retry
+            </button>
+          ) : j.status === 'waiting' || j.status === 'sending' ? (
+            <button type="button" onClick={() => cancel(j.key)} aria-label={`Cancel ${name}`} className="grid h-7 w-7 place-items-center rounded-full text-ink-400 hover:bg-white/10 hover:text-white">
+              <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" aria-hidden><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" /></svg>
+            </button>
+          ) : j.status === 'done' && j.receipt ? (
+            <button
+              type="button"
+              onClick={() => (sure ? void remove(j.key) : setSure(true))}
+              className={`shrink-0 rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${sure ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30' : 'text-ink-400 hover:bg-white/10 hover:text-white'}`}
+            >
+              {sure ? 'Remove it?' : 'Remove'}
+            </button>
+          ) : j.status !== 'review' ? (
+            <span className="w-7" />
+          ) : null}
+        </div>
       </div>
       {(j.status === 'sending' || (j.status === 'waiting' && j.sent > 0)) && (
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.07]">

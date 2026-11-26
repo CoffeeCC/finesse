@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { streamingApi, systemApi, type EmulatorId, type EmulatorReadiness, type EmulatorSettings, type StreamingCheck, type SystemStatus } from '../../api/setup'
 import { useToast } from '../../components/Toast'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { copyText } from '../../lib/clipboard'
 import { useFinesse } from '../../lib/finesseServer'
 import { Spinner } from '../setup/ui'
 import Consoles from './Consoles'
@@ -134,9 +135,9 @@ function PlayInFinesse() {
         <div className="space-y-3">
           <label className="block space-y-1.5">
             <span className={label}>Stream quality</span>
-            <select className={input} value={prefs.data.quality} onChange={(e) => void save({ quality: e.target.value })}>
+            <select className={`${input} bg-ink-900`} value={prefs.data.quality} onChange={(e) => void save({ quality: e.target.value })}>
               {QUALITIES.map(([v, t]) => (
-                <option key={v} value={v}>
+                <option key={v} value={v} className="bg-ink-900 text-white">
                   {t}
                 </option>
               ))}
@@ -227,6 +228,9 @@ function PairedDevice({ id, name, detail, open, busy, onRenamed, onRemove }: { i
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(name ?? '')
   const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (!editing) setValue(name ?? '')
+  }, [name, editing])
   const save = () => {
     const v = value.replace(/\s+/g, ' ').trim()
     if (!v || saving) return
@@ -258,7 +262,14 @@ function PairedDevice({ id, name, detail, open, busy, onRenamed, onRemove }: { i
           <button type="submit" className={smallBtn} disabled={!value.trim() || saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button type="button" className={smallBtn} onClick={() => setEditing(false)}>
+          <button
+            type="button"
+            className={smallBtn}
+            onClick={() => {
+              setValue(name ?? '')
+              setEditing(false)
+            }}
+          >
             Cancel
           </button>
         </form>
@@ -342,17 +353,21 @@ function Emulators() {
   const qc = useQueryClient()
   const { data, error, refetch } = useQuery({ queryKey: ['streaming', 'emulators'], queryFn: streamingApi.emulators, retry: false })
   const [form, setForm] = useState<EmulatorSettings | null>(null)
+  const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [more, setMore] = useState(false)
   useEffect(() => {
-    if (data && !form) setForm(data.settings ?? { apps: [], paths: {} })
-  }, [data, form])
+    if (data && !dirty) setForm(data.settings ?? { apps: [], paths: {} })
+  }, [data, dirty])
 
   if (error) return <p className="text-[12.5px] text-red-300">{(error as Error).message}</p>
   if (!data || !form) return <div className="h-16 rounded-xl shimmer" />
 
-  const set = (fn: (f: EmulatorSettings) => EmulatorSettings) => setForm((f) => (f ? fn(JSON.parse(JSON.stringify(f)) as EmulatorSettings) : f))
+  const set = (fn: (f: EmulatorSettings) => EmulatorSettings) => {
+    setDirty(true)
+    setForm((f) => (f ? fn(JSON.parse(JSON.stringify(f)) as EmulatorSettings) : f))
+  }
   const toggle = (id: EmulatorId) => set((f) => ({ ...f, apps: f.apps.includes(id) ? f.apps.filter((a) => a !== id) : [...f.apps, id] }))
   const save = async () => {
     setBusy(true)
@@ -369,8 +384,12 @@ function Emulators() {
     }
     try {
       const r = await streamingApi.saveEmulators(body)
-      if (r.ok) toast(body.apps.length ? `Saved. Wolf has the apps in ${r.profiles?.join(', ') || 'Moonlight'}.` : 'Saved. The emulator apps are out of Wolf.')
-      else setErr(r.error ?? 'Wolf didn’t take the apps.')
+      if (r.ok) {
+        setDirty(false)
+        toast(body.apps.length ? `Saved. Wolf has the apps in ${r.profiles?.join(', ') || 'Moonlight'}.` : 'Saved. The emulator apps are out of Wolf.')
+      } else {
+        setErr(r.error ?? 'Wolf didn’t take the apps.')
+      }
       await refetch()
       void qc.invalidateQueries({ queryKey: ['streaming', 'apps'] })
     } catch (e) {
@@ -409,8 +428,8 @@ function Emulators() {
               value={form.switchEmulator ?? 'ryujinx'}
               onChange={(e) => set((f) => ({ ...f, switchEmulator: e.target.value as 'ryujinx' | 'eden' }))}
             >
-              <option value="ryujinx">Ryujinx</option>
-              <option value="eden">Eden</option>
+              <option value="ryujinx" className="bg-ink-900 text-white">Ryujinx</option>
+              <option value="eden" className="bg-ink-900 text-white">Eden</option>
             </select>
           </label>
         )}
@@ -618,25 +637,6 @@ export default function StreamingAdmin({ footer }: { footer?: ReactNode }) {
   )
 }
 
-/** Copies even where the page isn't https (a home server's plain address). */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand('copy')
-    ta.remove()
-    return ok
-  }
-}
-
 const isCommand = (line: string) => /^(sudo|echo)\s/.test(line)
 
 /** What Wolf needs from this machine: a line per part, and how to fix what's missing. */
@@ -692,16 +692,21 @@ function ManagedStreaming() {
   const qc = useQueryClient()
   const { info, refresh: refreshFinesse } = useFinesse()
   const [status, setStatus] = useState<SystemStatus['streaming'] | null>(null)
+  const [statusLoaded, setStatusLoaded] = useState(false)
+  const [statusErr, setStatusErr] = useState('')
   const [check, setCheck] = useState<StreamingCheck | null>(null)
   const [checkErr, setCheckErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [armed, setArmed] = useState(false)
 
   const load = useCallback(async () => {
+    setStatusErr('')
     try {
       setStatus((await systemApi.status()).streaming ?? null)
-    } catch {
-      /* Server → Status shows what's wrong */
+    } catch (e) {
+      setStatusErr(e instanceof Error && e.message ? e.message : 'Couldn’t load game streaming status.')
+    } finally {
+      setStatusLoaded(true)
     }
   }, [])
   const [checking, setChecking] = useState(false)
@@ -750,6 +755,36 @@ function ManagedStreaming() {
     }
   }
 
+  if (!statusLoaded) {
+    return (
+      <div id="settings-streaming" className="space-y-3 scroll-mt-24">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Game streaming</p>
+        <div className={`${CARD} p-5`} aria-busy="true" aria-label="Loading game streaming status">
+          <div className="h-16 rounded-xl shimmer" />
+        </div>
+      </div>
+    )
+  }
+  if (statusErr && !status) {
+    return (
+      <div id="settings-streaming" className="space-y-3 scroll-mt-24">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Game streaming</p>
+        <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+          <p className="text-sm text-red-300">{statusErr}</p>
+          <button
+            type="button"
+            className={smallBtn}
+            onClick={() => {
+              setStatusLoaded(false)
+              void load()
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (!status) return null
   // A Wolf this server was pointed at (WOLF_SOCKET), not one Finesse runs.
   if (!enabled && info?.features.streaming && job?.state !== 'working') return <StreamingAdmin />
@@ -849,7 +884,7 @@ export function StreamingSettings() {
   // Consoles play in the browser too, so they're here with or without Moonlight (they need Games).
   const consoles = info?.features.games ? (
     <div id="settings-consoles" className="space-y-3 scroll-mt-24">
-      {!streaming && <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Game streaming</p>}
+      {!streaming && <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Console emulators</p>}
       <Consoles />
     </div>
   ) : null

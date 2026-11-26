@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
+import { copyText } from '../lib/clipboard'
 import { finesseRoot, useFinesse } from '../lib/finesseServer'
 import { useToast } from './Toast'
 
@@ -7,10 +10,45 @@ const ANDROID_GUIDE = 'https://github.com/CoffeeCC/finesse/blob/master/docs/andr
 
 const isLocal = (host: string) => host === 'localhost' || host === '[::1]' || host.startsWith('127.')
 
+function DeviceQr({ url }: { url: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setSrc(null)
+    setFailed(false)
+    import('qrcode')
+      .then((QR) => QR.toDataURL(url, { width: 320, margin: 1, color: { dark: '#0b0d12', light: '#ffffff' } }))
+      .then((d) => {
+        if (alive) setSrc(d)
+      })
+      .catch(() => {
+        if (alive) setFailed(true)
+      })
+    return () => {
+      alive = false
+    }
+  }, [url])
+  if (failed) return <p className="mt-3 text-xs text-ink-400">Couldn’t generate QR code.</p>
+  if (!src) return <p className="mt-3 text-xs text-ink-400">Generating QR code…</p>
+  return (
+    <div className="mt-3">
+      <div className="inline-block rounded-xl bg-white p-2 shadow-lg">
+        <img decoding="async" src={src} alt={`QR code for ${url}`} className="h-40 w-40" />
+      </div>
+      <p className="mt-1.5 text-xs text-ink-400">Scan with your phone’s camera to open Finesse.</p>
+    </div>
+  )
+}
+
 /** "Open Finesse on another device": the address to type, said plainly and big. */
 export default function ConnectDevices() {
+  const { session } = useAuth()
   const { info } = useFinesse()
   const toast = useToast()
+  const [copied, setCopied] = useState(false)
+  const [showQr, setShowQr] = useState(false)
+  const isAdmin = Boolean(session?.isAdmin)
   const root = new URL(finesseRoot() || window.location.origin)
   // On the server itself the address bar says "localhost", which no other device can use.
   const host = isLocal(root.hostname) ? info?.lanHost || null : root.hostname
@@ -22,11 +60,16 @@ export default function ConnectDevices() {
   // The Android app wants the server's address without /finesse; for the car, the away one.
   const androidAddress = away ? away.replace(/\/finesse\/$/, '') : tvAddress
 
-  const copy = (text: string) =>
-    navigator.clipboard
-      .writeText(text)
-      .then(() => toast('Address copied'))
-      .catch(() => toast('Couldn’t copy. Select the address and copy it yourself.', 'error'))
+  const copy = async (text: string) => {
+    const ok = await copyText(text)
+    if (ok) {
+      setCopied(true)
+      toast('Address copied')
+      window.setTimeout(() => setCopied(false), 2000)
+    } else {
+      toast('Couldn’t copy. Select the address and copy it yourself.', 'error')
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.06] p-5">
@@ -34,12 +77,21 @@ export default function ConnectDevices() {
       {app ? (
         <>
           <p className="mt-1 text-[13.5px] leading-relaxed text-ink-200">Connect it to the same Wi-Fi as this server, then open this address in its web browser:</p>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
             <code className="select-all break-all rounded-xl bg-black/30 px-4 py-3 text-lg font-semibold text-white sm:text-xl">{app}</code>
-            <button type="button" onClick={() => copy(app)} className="h-10 rounded-full bg-white/10 px-4 text-sm font-semibold text-white transition-colors hover:bg-white/20">
-              Copy
+            <button type="button" onClick={() => void copy(app)} className="h-10 rounded-full bg-white/10 px-4 text-sm font-semibold text-white transition-colors hover:bg-white/20">
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowQr((v) => !v)}
+              aria-expanded={showQr}
+              className="h-10 rounded-full border border-white/15 bg-white/[0.05] px-4 text-sm font-medium text-ink-200 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {showQr ? 'Hide QR code' : 'Show QR code'}
             </button>
           </div>
+          {showQr && <DeviceQr url={app} />}
           <dl className="mt-4 space-y-2.5 text-[13.5px] leading-relaxed">
             <div>
               <dt className="font-semibold text-white">LG TV</dt>
@@ -86,8 +138,16 @@ export default function ConnectDevices() {
                   <>
                     Open <b className="text-white select-all">{away}</b>
                   </>
+                ) : isAdmin ? (
+                  <>
+                    This address only works at home. To watch away from home, set up remote access in{' '}
+                    <Link to="/settings?s=downloads" className="font-semibold text-accent-300 underline-offset-2 hover:underline">
+                      Settings → Downloads
+                    </Link>
+                    .
+                  </>
                 ) : (
-                  <>This address only works at home. To watch away from home, set up remote access (Settings → Downloads).</>
+                  <>This address only works at home on your Wi-Fi.</>
                 )}
               </dd>
             </div>

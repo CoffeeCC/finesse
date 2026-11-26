@@ -1,9 +1,9 @@
 // User preferences, persisted in localStorage. Read synchronously so the
 // device profile and player can use them without a round-trip.
 
-export type VisualizerStyle = 'lyrics' | 'bars' | 'waveform' | 'radial' | 'particles'
+export type VisualizerStyle = 'lyrics' | 'pixel' | 'bars' | 'waveform' | 'radial' | 'particles'
 /** 'lyrics' = the lyric-video mode (components/LyricVideo), not a canvas layer. */
-export const VISUALIZER_STYLES: VisualizerStyle[] = ['lyrics', 'bars', 'waveform', 'radial', 'particles']
+export const VISUALIZER_STYLES: VisualizerStyle[] = ['lyrics', 'pixel', 'bars', 'waveform', 'radial', 'particles']
 
 // Preview-clip quality (hover + hero). Per-account so each person can match it
 // to their own connection. Maps to the pre-generated clip resolutions on the

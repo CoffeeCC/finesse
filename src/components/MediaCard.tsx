@@ -1,6 +1,6 @@
 import { memo, useRef, useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { backdropUrl, episodeThumbUrl, getItem, imageUrl, posterUrl, trickplayTileUrl } from '../api/client'
+import { backdropUrl, episodeThumbUrl, getItem, getItems, imageUrl, posterUrl, trickplayTileUrl } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { useClipManifest } from '../api/queries'
 import { blurhashAverageColor, blurhashToDataURL, primaryBlurhash } from '../lib/blurhash'
@@ -58,6 +58,7 @@ const MediaCard = memo(function MediaCard({
   const played = item.UserData?.Played
   const unplayedCount = item.UserData?.UnplayedItemCount
   const linkId = item.Type === 'Episode' && item.SeriesId ? item.SeriesId : item.Id
+  const itemHref = item.Type === 'MusicAlbum' ? `/album/${item.Id}` : `/item/${linkId}`
 
   const tiltRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -90,8 +91,8 @@ const MediaCard = memo(function MediaCard({
   const canHoverPreview = !__WEBOS__ && !motionReduced
   const canFocusPreview = __WEBOS__ && !motionReduced
 
-  // No clip for this title? Its scrub (trickplay) thumbnails flip by instead — Jellyfin makes those on any server.
-  const thumbsOk = canHoverPreview && getPrefs().thumbPreviews && /^(Movie|Episode|Video|MusicVideo)$/.test(item.Type) && !item.Id.startsWith('f-')
+  // No clip for this title? Its scrub (trickplay) thumbnails or backdrop scenes flip by instead — Jellyfin makes those on any server.
+  const thumbsOk = canHoverPreview && getPrefs().thumbPreviews && /^(Movie|Series|Episode|Video|MusicVideo)$/.test(item.Type) && !item.Id.startsWith('f-')
   const { data: manifest } = useClipManifest()
   const clipUrl =
     canHoverPreview || canFocusPreview
@@ -171,10 +172,10 @@ const MediaCard = memo(function MediaCard({
 
   return (
     <Link
-      to={`/item/${linkId}`}
+      to={itemHref}
       // The poster morphs into the detail page (lib/motion); Back reverses it.
       onClick={(e) =>
-        morphNavigate(() => navigate(`/item/${linkId}`), { from: tiltRef.current, name: posterMorphName(), event: e })
+        morphNavigate(() => navigate(itemHref), { from: tiltRef.current, name: posterMorphName(), event: e })
       }
       className="group block shrink-0 snap-start outline-none"
       style={width ? { width } : undefined}
@@ -243,7 +244,7 @@ const MediaCard = memo(function MediaCard({
             />
           )}
 
-          {preview && !clipUrl && thumbsOk && <ThumbFlip itemId={item.Id} onReady={() => setPlaying(true)} />}
+          {preview && !clipUrl && thumbsOk && <ThumbFlip item={item} onReady={() => setPlaying(true)} />}
 
           {rank != null && (
             <>
@@ -432,54 +433,103 @@ export const WideCard = memo(function WideCard({
   )
 })
 
-/** A flip-book of the title's scrub (trickplay) thumbnails, for cards with no preview clip.
- *  Steps evenly through the film (skipping the opening), cropped to fill the card. */
-function ThumbFlip({ itemId, onReady }: { itemId: string; onReady: () => void }) {
+/** A flip-book of the title's scrub (trickplay) thumbnails (or backdrop stills when trickplay isn't
+ *  available yet, and for Series via its first episode), for cards with no preview clip. */
+function ThumbFlip({ item, onReady }: { item: JfItem; onReady: () => void }) {
   const qc = useQueryClient()
-  const [f, setF] = useState<{ url: string; size: string; pos: string; aspect: number } | null>(null)
+  const [f, setF] = useState<{ url: string; size?: string; pos?: string; aspect?: number } | null>(null)
   const readyRef = useRef(onReady)
   readyRef.current = onReady
   useEffect(() => {
     let alive = true
     let timer = 0
-    qc.fetchQuery({ queryKey: ['item', itemId], queryFn: () => getItem(itemId), staleTime: 5 * 60_000 })
-      .then((it) => {
-        const first = it?.Trickplay ? Object.entries(it.Trickplay)[0] : undefined
-        if (!alive || !first) return
-        const [mediaSourceId, byWidth] = first
-        const widths = Object.keys(byWidth).map(Number).sort((a, b) => a - b)
-        const w = widths.find((x) => x >= 280) ?? widths[widths.length - 1]
-        const info = byWidth[w]
-        if (!info || !info.ThumbnailCount) return
-        const per = info.TileWidth * info.TileHeight
-        const start = Math.floor(info.ThumbnailCount * 0.05)
-        const steps = Math.max(1, Math.min(32, info.ThumbnailCount - start))
-        let k = 0
-        const show = () => {
-          const idx = Math.min(info.ThumbnailCount - 1, start + Math.floor(((info.ThumbnailCount - start) * (k % steps)) / steps))
-          const tile = Math.floor(idx / per)
-          const pos = idx % per
-          const col = pos % info.TileWidth
-          const row = Math.floor(pos / info.TileWidth)
-          setF({
-            url: trickplayTileUrl(itemId, w, tile, mediaSourceId),
-            size: `${info.TileWidth * 100}% ${info.TileHeight * 100}%`,
-            pos: `${info.TileWidth > 1 ? (col / (info.TileWidth - 1)) * 100 : 0}% ${info.TileHeight > 1 ? (row / (info.TileHeight - 1)) * 100 : 0}%`,
-            aspect: info.Width / Math.max(1, info.Height),
+    const startBackdropFallback = (it: JfItem | undefined) => {
+      const target = it ?? item
+      const tags = target.BackdropImageTags ?? []
+      const urls = tags.length
+        ? tags.slice(0, 6).map((tag, idx) => imageUrl(target.Id, `Backdrop/${idx}`, { maxWidth: 640, tag }))
+        : [backdropUrl(target, 640)].filter((u): u is string => Boolean(u))
+      if (!alive || !urls.length) return
+      let k = 0
+      const show = () => {
+        setF({ url: urls[k % urls.length]! })
+        k++
+      }
+      show()
+      readyRef.current()
+      if (urls.length > 1) timer = window.setInterval(show, 1400)
+    }
+
+    const startTrickplay = (sourceItemId: string, it: JfItem): boolean => {
+      const first = it?.Trickplay ? Object.entries(it.Trickplay)[0] : undefined
+      if (!first) return false
+      const [mediaSourceId, byWidth] = first
+      const widths = Object.keys(byWidth).map(Number).sort((a, b) => a - b)
+      const w = widths.find((x) => x >= 280) ?? widths[widths.length - 1]
+      const info = byWidth[w]
+      if (!info || !info.ThumbnailCount) return false
+      const per = info.TileWidth * info.TileHeight
+      const start = Math.floor(info.ThumbnailCount * 0.05)
+      const steps = Math.max(1, Math.min(32, info.ThumbnailCount - start))
+      let k = 0
+      const show = () => {
+        const idx = Math.min(info.ThumbnailCount - 1, start + Math.floor(((info.ThumbnailCount - start) * (k % steps)) / steps))
+        const tile = Math.floor(idx / per)
+        const pos = idx % per
+        const col = pos % info.TileWidth
+        const row = Math.floor(pos / info.TileWidth)
+        setF({
+          url: trickplayTileUrl(sourceItemId, w, tile, mediaSourceId),
+          size: `${info.TileWidth * 100}% ${info.TileHeight * 100}%`,
+          pos: `${info.TileWidth > 1 ? (col / (info.TileWidth - 1)) * 100 : 0}% ${info.TileHeight > 1 ? (row / (info.TileHeight - 1)) * 100 : 0}%`,
+          aspect: info.Width / Math.max(1, info.Height),
+        })
+        k++
+      }
+      show()
+      readyRef.current()
+      timer = window.setInterval(show, 420)
+      return true
+    }
+
+    ;(async () => {
+      try {
+        if (item.Type === 'Series') {
+          const eps = await qc.fetchQuery({
+            queryKey: ['seriesFirstEp', item.Id],
+            queryFn: () => getItems({ parentId: item.Id, includeItemTypes: 'Episode', recursive: true, limit: 1, fields: 'Trickplay' }),
+            staleTime: 10 * 60_000,
           })
-          k++
+          if (!alive) return
+          const ep = eps.Items?.[0]
+          if (ep && startTrickplay(ep.Id, ep)) return
+          const full = await qc.fetchQuery({ queryKey: ['item', item.Id], queryFn: () => getItem(item.Id), staleTime: 5 * 60_000 }).catch(() => item)
+          if (!alive) return
+          startBackdropFallback(full)
+          return
         }
-        show()
-        readyRef.current()
-        timer = window.setInterval(show, 420)
-      })
-      .catch(() => {})
+        const it = await qc.fetchQuery({ queryKey: ['item', item.Id], queryFn: () => getItem(item.Id), staleTime: 5 * 60_000 })
+        if (!alive) return
+        if (it && startTrickplay(item.Id, it)) return
+        startBackdropFallback(it)
+      } catch {
+        startBackdropFallback(item)
+      }
+    })()
+
     return () => {
       alive = false
       window.clearInterval(timer)
     }
-  }, [itemId, qc])
+  }, [item, qc])
   if (!f) return null
+  if (!f.size) {
+    return (
+      <div aria-hidden className="absolute inset-0 overflow-hidden">
+        <img src={f.url} alt="" className="h-full w-full object-cover fade-in scale-105 transition-transform duration-700" />
+      </div>
+    )
+  }
   return (
     <div aria-hidden className="absolute inset-0 overflow-hidden">
       <div

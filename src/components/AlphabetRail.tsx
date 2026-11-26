@@ -18,7 +18,7 @@ export default function AlphabetRail({ available, active, onJump }: Props) {
   return createPortal(
     <div
       className={`fixed top-1/2 -translate-y-1/2 z-40 hidden lg:flex flex-col items-center gap-px py-2 px-0.5 rounded-full bg-ink-900/70 backdrop-blur-md border border-white/5 shadow-xl shadow-black/30
-        ${__WEBOS__ ? 'right-10' : 'right-1.5'} max-h-[calc(var(--vh)*92)]`}
+        ${__WEBOS__ ? 'right-2' : 'right-1.5'} max-h-[calc(var(--vh)*92)]`}
     >
       {ALL_LETTERS.map((letter) => {
         const has = available.has(letter)

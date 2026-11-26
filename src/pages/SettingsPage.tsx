@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { SelectMenu } from '../components/Menu'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { copyText } from '../lib/clipboard'
 import { IS_TV, TOUCH_UI } from '../lib/device'
 import { requestTiltPermission } from '../lib/depth'
 import { BITRATE_OPTIONS, PREVIEW_QUALITY_OPTIONS, UI_SCALE_OPTIONS, applyReduceMotion, applyUiScale, getPrefs, setPrefs, type Prefs } from '../lib/settings'
@@ -227,6 +229,7 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
   const server = useServerUpdate()
   const run = useServerRun()
   const [busy, setBusy] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
   const running = __WEBOS__ ? currentVersion() : __APP_VERSION__
   const ready = client.data
 
@@ -298,8 +301,7 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
           <p className="text-sm font-semibold text-white">Server</p>
           {noEndpoint ? (
             <p className="text-[13px] leading-snug text-ink-400 mt-0.5">
-              One-time setup: copy the new invite service to the NAS and restart it (see “One-time setup” in
-              deploy/README.md). After that, updates install from here.
+              This server doesn’t have the update service enabled yet. Update Finesse the way it was installed to enable one-click updates here.
             </p>
           ) : server.isError ? (
             <p className="text-[13px] text-ink-400 mt-0.5">
@@ -335,7 +337,18 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
                 </div>
               )}
               {s?.available && s.notes && (
-                <p className="mt-2 text-[13px] leading-relaxed text-ink-300 whitespace-pre-line line-clamp-4">{s.notes}</p>
+                <div className="mt-2">
+                  <p className={`text-[13px] leading-relaxed text-ink-300 whitespace-pre-line ${showNotes ? '' : 'line-clamp-4'}`}>{s.notes}</p>
+                  {(s.notes.length > 220 || s.notes.split('\n').length > 4) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowNotes((v) => !v)}
+                      className="mt-1 text-xs font-medium text-accent-300 hover:text-accent-200"
+                    >
+                      {showNotes ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </div>
               )}
               <div className="mt-3 flex flex-wrap gap-2">
                 {s?.available ? (
@@ -355,7 +368,7 @@ function UpdatesSection({ isAdmin }: { isAdmin: boolean }) {
                 )}
               </div>
               <p className="mt-2 text-[12px] text-ink-400">
-                Installs the latest GitHub release on the NAS. Everyone gets an “Update” button; TVs update themselves.
+                Installs the latest GitHub release on this server. Everyone gets an “Update” button; TVs update themselves.
               </p>
             </>
           )}
@@ -560,7 +573,10 @@ export default function SettingsPage() {
                 <p className="hidden lg:flex items-center gap-2 mt-5 mb-1 px-3.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">
                   Server <AdminTag />
                 </p>
-                <span aria-hidden className="lg:hidden shrink-0 my-1 w-px bg-white/10" />
+                <span aria-hidden className="lg:hidden shrink-0 my-1.5 ml-1 w-px bg-white/15" />
+                <span className="lg:hidden shrink-0 self-center rounded-md bg-ink-800/90 border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-400">
+                  Server
+                </span>
                 {server.map(navButton)}
               </>
             )}
@@ -571,7 +587,7 @@ export default function SettingsPage() {
           {searching ? (
             <section aria-label="Search results">
               <p className="mb-3 text-sm text-ink-400">
-                {results.length ? `${results.length} setting${results.length > 1 ? 's' : ''} match “${query.trim()}”` : `Nothing matches “${query.trim()}”. Try another word, like “subtitles” or “backup”.`}
+                {results.length ? `${results.length} setting${results.length > 1 ? 's' : ''} match “${query.trim()}”` : `Nothing matches “${query.trim()}”. Try another word, like “subtitles”, “quality” or “theme”.`}
               </p>
               {results.length > 0 && (
                 <ul className="rounded-2xl bg-ink-900/60 border border-white/5 divide-y divide-white/5">
@@ -725,6 +741,13 @@ export default function SettingsPage() {
                 />
               </Field>
               <Toggle
+                label="Thumbnail previews"
+                hint="When a title has no preview clip, hovering its card flips through its scrub thumbnails instead."
+                checked={prefs.thumbPreviews}
+                onChange={(v) => update({ thumbPreviews: v })}
+                scope="device"
+              />
+              <Toggle
                 label="Reduce motion"
                 hint="Stills animations, page transitions, previews and drifting art. Always on when your device asks for less motion."
                 checked={prefs.reduceMotion}
@@ -802,13 +825,6 @@ export default function SettingsPage() {
                 scope="device"
               />
               <Toggle
-                label="Thumbnail previews"
-                hint="When a title has no preview clip, hovering its card flips through its scrub thumbnails instead."
-                checked={prefs.thumbPreviews}
-                onChange={(v) => update({ thumbPreviews: v })}
-                scope="device"
-              />
-              <Toggle
                 label="Find lyrics online"
                 hint="When a song in your library has no lyrics, look up synced ones on LRCLIB (sends only the song, artist, album and length)."
                 checked={prefs.onlineLyrics}
@@ -862,9 +878,6 @@ export default function SettingsPage() {
                       <ReportProblem isAdmin={admin} />
                     </div>
                   )}
-                  <div data-setting="tip-jar">
-                    <TipJar />
-                  </div>
                 </>
               )}
 
@@ -954,10 +967,15 @@ export default function SettingsPage() {
   )
 }
 
-/** About Finesse, and a way to support it. On a TV (which can't open links)
- *  "Support Finesse" shows a QR code to scan with a phone instead. */
+const TIP_ADDRESS = '0xfe70da78fd755baae45389662f3c71825dfc55f7'
+
+/** About Finesse, and a way to support it (including an optional crypto tip jar).
+ *  On a TV (which can't open links or copy to a clipboard), show QR codes instead. */
 function AboutSection() {
+  const toast = useToast()
   const [qr, setQr] = useState(false)
+  const [tipQr, setTipQr] = useState(IS_TV)
+  const [copied, setCopied] = useState(false)
   const btn = 'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors'
   const primary = `${btn} bg-accent-fill text-white hover:brightness-110`
   const secondary = `${btn} bg-white/10 border border-white/15 text-white hover:bg-white/15`
@@ -966,17 +984,27 @@ function AboutSection() {
       <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.5 1.1 4.2 2.3h2c.7-1.2 2.1-2.3 4.2-2.3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z" />
     </svg>
   )
+  const copyTip = async () => {
+    const ok = await copyText(TIP_ADDRESS)
+    if (ok) {
+      setCopied(true)
+      toast('Tip address copied')
+      window.setTimeout(() => setCopied(false), 2000)
+    } else {
+      toast('Could not copy. Select the address and copy it yourself.', 'error')
+    }
+  }
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <p className="text-[15px] font-semibold text-white">Finesse is free and open source.</p>
       <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-ink-300">
-        It’s made in spare time. If it makes movie night better, you can chip in to keep it going.
+        It’s made in spare time and will always be free. If it makes movie night better, you can chip in to keep it going.
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         {DONATE_URL &&
           (IS_TV ? (
             <button type="button" onClick={() => setQr((v) => !v)} className={primary}>
-              {heart} Support Finesse
+              {heart} {qr ? 'Hide support QR' : 'Support Finesse'}
             </button>
           ) : (
             <a href={DONATE_URL} target="_blank" rel="noopener noreferrer" className={primary}>
@@ -995,6 +1023,30 @@ function AboutSection() {
           <p className="mt-2 text-xs text-ink-400">Scan with your phone’s camera.</p>
         </div>
       )}
+
+      <div data-setting="tip-jar" className="mt-5 border-t border-white/10 pt-4">
+        <p className="text-[13.5px] font-medium text-white">Or tip with crypto</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-ink-400">ETH or any Ethereum-network token — appreciated, never expected.</p>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <code className="select-all break-all rounded-lg bg-white/[0.06] px-2.5 py-1.5 font-mono text-[12px] text-ink-200">{TIP_ADDRESS}</code>
+          {!IS_TV && (
+            <button type="button" onClick={() => void copyTip()} className="h-8 rounded-lg bg-white/[0.08] px-3 text-[12.5px] font-medium text-ink-100 hover:bg-white/[0.14]">
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          )}
+          <button type="button" onClick={() => setTipQr((v) => !v)} className="h-8 rounded-lg px-3 text-[12.5px] font-medium text-ink-300 hover:bg-white/[0.06] hover:text-white">
+            {tipQr ? 'Hide QR code' : 'Show QR code'}
+          </button>
+        </div>
+        {tipQr && (
+          <div className="mt-3">
+            <div className="inline-block rounded-xl bg-white p-2">
+              <img decoding="async" src={`${import.meta.env.BASE_URL}donate-eth.svg`} alt="QR code of the tip address" className="h-36 w-36" />
+            </div>
+            {IS_TV && <p className="mt-1.5 text-xs text-ink-400">Scan with your phone’s camera.</p>}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1025,6 +1077,12 @@ function InviteQr({ url }: { url: string }) {
   )
 }
 
+const INVITE_EXPIRY_OPTIONS: { value: 'never' | '7' | '30'; label: string }[] = [
+  { value: '7', label: 'Link expires in 7 days' },
+  { value: '30', label: 'Link expires in 30 days' },
+  { value: 'never', label: 'Link never expires' },
+]
+
 function InvitesAdmin() {
   const toast = useToast()
   const [invites, setInvites] = useState<InviteAdmin[] | null>(null)
@@ -1041,6 +1099,8 @@ function InvitesAdmin() {
   const [emailFor, setEmailFor] = useState<number | null>(null)
   const [emailTo, setEmailTo] = useState('')
   const [emailBusy, setEmailBusy] = useState(false)
+  const [revokeTarget, setRevokeTarget] = useState<{ id: number; code: string } | null>(null)
+  const [revoking, setRevoking] = useState(false)
   const canEmail = Boolean(finesse?.features.email)
 
   const sendEmail = async (inv: InviteAdmin) => {
@@ -1111,24 +1171,28 @@ function InvitesAdmin() {
   }
 
   const copy = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast(`Copied ${label}`)
-    } catch {
-      toast('Could not copy')
-    }
+    const ok = await copyText(text)
+    if (ok) toast(`Copied ${label}`)
+    else toast('Could not copy. Select the link and copy it yourself.', 'error')
   }
 
-  const revoke = async (id: number, c: string) => {
-    if (!confirm(`Revoke invite ${c}?`)) return
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return
+    setRevoking(true)
     try {
-      await deleteInvite(id)
-      toast(`Revoked ${c}`)
+      await deleteInvite(revokeTarget.id)
+      toast(`Revoked ${revokeTarget.code}`)
+      setRevokeTarget(null)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Revoke failed')
+      setRevokeTarget(null)
+    } finally {
+      setRevoking(false)
     }
   }
+
+  const selectedLibNames = libs.filter((l) => selectedLibs.includes(l.id)).map((l) => l.name)
 
   return (
     <div>
@@ -1156,6 +1220,17 @@ function InvitesAdmin() {
           ))}
         </div>
 
+        {preset !== 'custom' && libs.length > 0 && (
+          <p className="text-xs text-ink-400">
+            Includes:{' '}
+            <span className="text-ink-200">
+              {selectedLibNames.length > 0
+                ? `${selectedLibNames.join(' · ')}${liveTv ? ' · Live TV' : ''}`
+                : 'No matching libraries (switch to Custom to pick manually)'}
+            </span>
+          </p>
+        )}
+
         <input
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -1164,15 +1239,13 @@ function InvitesAdmin() {
           autoComplete="off"
         />
 
-        <select
+        <SelectMenu
+          label="Invite expiration"
           value={expiry}
-          onChange={(e) => setExpiry(e.target.value as 'never' | '7' | '30')}
-          className={inputClass}
-        >
-          <option value="7">Link expires in 7 days</option>
-          <option value="30">Link expires in 30 days</option>
-          <option value="never">Link never expires</option>
-        </select>
+          options={INVITE_EXPIRY_OPTIONS}
+          onChange={setExpiry}
+          triggerClassName={WIDE_TRIGGER}
+        />
 
         {preset === 'custom' && (
           <div className="flex flex-wrap gap-2">
@@ -1217,16 +1290,17 @@ function InvitesAdmin() {
         {invites?.map((inv) => {
           const urls = inviteShareUrls(inv.code, finesse?.publicUrl)
           const link = urls.public ?? urls.home
+          const expiresDate = inv.expires_at ? new Date(inv.expires_at).toLocaleDateString(undefined, { dateStyle: 'medium' }) : null
           return (
             <div
               key={inv.id}
               className="rounded-xl border border-white/5 bg-ink-950/40 px-4 py-3 text-sm"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="font-mono font-semibold text-ink-100">{inv.code}</span>
                   <span
-                    className={`ml-2 text-[10px] uppercase tracking-wider ${
+                    className={`text-[10px] uppercase tracking-wider ${
                       inv.status === 'pending'
                         ? 'text-accent-400'
                         : inv.status === 'used'
@@ -1237,63 +1311,74 @@ function InvitesAdmin() {
                     {inv.status}
                   </span>
                   {inv.label && (
-                    <span className="ml-2 text-xs text-ink-400">{inv.label}</span>
+                    <span className="text-xs text-ink-400">{inv.label}</span>
+                  )}
+                  {inv.used_by_username && (
+                    <span className="text-xs text-ink-300">· used by {inv.used_by_username}</span>
+                  )}
+                  {expiresDate && inv.status !== 'used' && (
+                    <span className="text-xs text-ink-400">
+                      · {inv.status === 'expired' ? `expired ${expiresDate}` : `expires ${expiresDate}`}
+                    </span>
                   )}
                 </div>
                 {inv.status === 'pending' && (
                   <button
                     type="button"
-                    onClick={() => revoke(inv.id, inv.code)}
+                    onClick={() => setRevokeTarget({ id: inv.id, code: inv.code })}
                     className="text-xs text-ink-400 hover:text-red-400"
                   >
                     Revoke
                   </button>
                 )}
               </div>
-              <p className="mt-1 text-xs text-ink-400 truncate">
+              <p className="mt-1 text-xs text-ink-400">
                 {inv.libraries.join(' · ') || 'No libraries'}
               </p>
               {inv.status === 'pending' && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => copy(link, 'invite link')}
-                    className="rounded-lg bg-ink-800 border border-white/10 px-2.5 py-1 text-[11px] text-ink-200 hover:border-accent-500/50"
-                  >
-                    Copy link
-                  </button>
-                  {urls.public && urls.public !== urls.home && (
+                <>
+                  <p className="mt-1.5 font-mono text-[11.5px] text-accent-300/90 break-all select-all">{link}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => copy(urls.home, 'home link')}
+                      onClick={() => void copy(link, 'invite link')}
                       className="rounded-lg bg-ink-800 border border-white/10 px-2.5 py-1 text-[11px] text-ink-200 hover:border-accent-500/50"
                     >
-                      Copy home link
+                      Copy link
                     </button>
-                  )}
-                  {canEmail && (
+                    {urls.public && urls.public !== urls.home && (
+                      <button
+                        type="button"
+                        onClick={() => void copy(urls.home, 'home link')}
+                        className="rounded-lg bg-ink-800 border border-white/10 px-2.5 py-1 text-[11px] text-ink-200 hover:border-accent-500/50"
+                      >
+                        Copy home link
+                      </button>
+                    )}
+                    {canEmail && (
+                      <button
+                        type="button"
+                        onClick={() => setEmailFor((q) => (q === inv.id ? null : inv.id))}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
+                          emailFor === inv.id ? 'bg-[#f5f3ee] text-ink-950' : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
+                        }`}
+                      >
+                        Email
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setEmailFor((q) => (q === inv.id ? null : inv.id))}
+                      onClick={() => setQrFor((q) => (q === inv.id ? null : inv.id))}
                       className={`rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
-                        emailFor === inv.id ? 'bg-[#f5f3ee] text-ink-950' : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
+                        qrFor === inv.id
+                          ? 'bg-[#f5f3ee] text-ink-950'
+                          : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
                       }`}
                     >
-                      Email
+                      QR
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setQrFor((q) => (q === inv.id ? null : inv.id))}
-                    className={`rounded-lg px-2.5 py-1 text-[11px] transition-colors ${
-                      qrFor === inv.id
-                        ? 'bg-[#f5f3ee] text-ink-950'
-                        : 'bg-ink-800 border border-white/10 text-ink-200 hover:border-accent-500/50'
-                    }`}
-                  >
-                    QR
-                  </button>
-                </div>
+                  </div>
+                </>
               )}
               {emailFor === inv.id && inv.status === 'pending' && (
                 <form
@@ -1321,44 +1406,18 @@ function InvitesAdmin() {
           )
         })}
       </div>
-    </div>
-  )
-}
 
-const TIP_ADDRESS = '0xfe70da78fd755baae45389662f3c71825dfc55f7'
-
-/** A quiet tip jar in About: no pop-ups, no reminders, just there if someone wants it. */
-function TipJar() {
-  const [copied, setCopied] = useState(false)
-  const [qr, setQr] = useState(false)
-  const copy = () => {
-    void navigator.clipboard?.writeText(TIP_ADDRESS).then(() => {
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    })
-  }
-  return (
-    <div className={`${SECTION_CARD} mt-4`}>
-      <div className="py-4">
-        <p className="text-[14px] font-medium text-white">Support Finesse</p>
-        <p className="mt-1 text-[13px] leading-relaxed text-ink-400">Finesse is free and always will be. If it’s earned a spot in your home, a tip in crypto (ETH or any Ethereum-network token) is appreciated, never expected.</p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <code className="select-all break-all rounded-lg bg-white/[0.06] px-2.5 py-1.5 font-mono text-[12px] text-ink-200">{TIP_ADDRESS}</code>
-          <button type="button" onClick={copy} className="h-8 rounded-lg bg-white/[0.08] px-3 text-[12.5px] font-medium text-ink-100 hover:bg-white/[0.14]">
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-          {!IS_TV && (
-            <button type="button" onClick={() => setQr((v) => !v)} className="h-8 rounded-lg px-3 text-[12.5px] font-medium text-ink-400 hover:text-white">
-              {qr ? 'Hide QR code' : 'Show QR code'}
-            </button>
-          )}
-        </div>
-        {qr && (
-          <div className="mt-3 inline-block rounded-xl bg-white p-2">
-            <img decoding="async" src={`${import.meta.env.BASE_URL}donate-eth.svg`} alt="QR code of the tip address" className="h-36 w-36" />
-          </div>
-        )}
-      </div>
+      {revokeTarget && (
+        <ConfirmDialog
+          title={`Revoke invite ${revokeTarget.code}?`}
+          confirmLabel={revoking ? 'Revoking…' : 'Revoke'}
+          busy={revoking}
+          onCancel={() => setRevokeTarget(null)}
+          onConfirm={() => void confirmRevoke()}
+        >
+          <p>Anyone with this link won’t be able to create an account with it anymore.</p>
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

@@ -1,8 +1,9 @@
 import { continueHereHref, positionNow } from '../../lib/transfer'
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import * as api from '../../api/client'
-import { useClipManifest, useItem } from '../../api/queries'
+import { useClipManifest, useItem, useWatchlistIds } from '../../api/queries'
 import { formatRuntime } from '../../api/types'
 import { morphNavigate } from '../../lib/motion'
 import { claimPreview, previewClipUrl, releasePreview, EMPTY_MANIFEST } from '../../lib/preview'
@@ -10,8 +11,8 @@ import { getPrefs } from '../../lib/settings'
 import { setMood } from '../../lib/mood'
 import { IS_TV } from '../../lib/device'
 import { RestartIcon } from '../ActionButton'
-import WatchlistButton from '../WatchlistButton'
 import CastMenu from '../CastMenu'
+import { useToast } from '../Toast'
 import { useLiveLines, useNowEntries, type NowEntry } from './now'
 import { useInView } from '../../lib/inView'
 import { episodeChip } from '../../lib/episodes'
@@ -20,12 +21,16 @@ import { episodeChip } from '../../lib/episodes'
 const CLIP_DWELL_MS = 2200
 /** Resting the mouse on a tile picks it; sweeping past tiles doesn't strobe the stage. */
 const HOVER_DWELL_MS = 380
+/** Fallback timeout so a slow logo check never stalls the hero title. */
+const LOGO_TIMEOUT_MS = 500
 
 /** The tile you were on, kept while the app is open: Back to Home lands on it
  *  again rather than on the first tile. */
 let rememberedFocus: string | null = null
 
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const reducedMotion = () =>
+  (typeof document !== 'undefined' && document.documentElement.dataset.motion === 'reduce') ||
+  (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
 const canHover = () => typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches
 
 const PlayIcon = () => (
@@ -55,12 +60,21 @@ function useLogoReadable(url: string | null): boolean | null {
     if (known !== undefined) return setVerdict({ url, ok: known })
     setVerdict({ url, ok: null })
     let live = true
+    let timer = 0
     const img = new Image()
     img.crossOrigin = 'anonymous'
-    const done = (ok: boolean) => {
-      rememberLogoVerdict(url, ok)
-      if (live) setVerdict({ url, ok })
+    const finish = (ok: boolean, cache: boolean) => {
+      if (!live) return
+      live = false
+      window.clearTimeout(timer)
+      if (cache) rememberLogoVerdict(url, ok)
+      setVerdict({ url, ok })
     }
+    timer = window.setTimeout(() => {
+      img.onload = null
+      img.onerror = null
+      finish(false, false)
+    }, LOGO_TIMEOUT_MS)
     img.onload = () => {
       try {
         const w = 64
@@ -69,7 +83,7 @@ function useLogoReadable(url: string | null): boolean | null {
         c.width = w
         c.height = h
         const g = c.getContext('2d')
-        if (!g) return done(true)
+        if (!g) return finish(true, true)
         g.drawImage(img, 0, 0, w, h)
         const d = g.getImageData(0, 0, w, h).data
         let sum = 0
@@ -79,15 +93,18 @@ function useLogoReadable(url: string | null): boolean | null {
           sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255
           n++
         }
-        done(n > 20 && sum / n > 0.32)
+        finish(n > 20 && sum / n > 0.32, true)
       } catch {
-        done(true)
+        finish(true, true)
       }
     }
-    img.onerror = () => done(false)
+    img.onerror = () => finish(false, true)
     img.src = url
     return () => {
       live = false
+      window.clearTimeout(timer)
+      img.onload = null
+      img.onerror = null
     }
   }, [url])
   return verdict.url === url ? verdict.ok : null
@@ -131,12 +148,91 @@ function useChips(entry: NowEntry) {
   }, [full, entry])
 }
 
-function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to?: string) => void }) {
+/** Hero-sized glass My List toggle matching `.os-btn.os-glass` height and presence. */
+function HeroWatchlistButton({ itemId }: { itemId: string }) {
+  const { data: ids } = useWatchlistIds()
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const inList = ids?.includes(itemId) ?? false
+
+  const toggle = async () => {
+    if (busy) return
+    setBusy(true)
+    const add = !inList
+    try {
+      const next = await api.setInWatchlist(itemId, add)
+      qc.setQueryData(['watchlistIds'], next)
+      void qc.invalidateQueries({ queryKey: ['watchlistItems'] })
+      toast(add ? 'Added to My List' : 'Removed from My List')
+    } catch {
+      toast('Couldn’t update My List', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={busy}
+      aria-pressed={inList}
+      aria-label={inList ? 'Remove from My List' : 'Add to My List'}
+      title={inList ? 'In My List' : 'Add to My List'}
+      className={`os-btn os-glass max-sm:w-12 max-sm:px-0 disabled:opacity-50 ${inList ? '!text-accent-300' : ''}`}
+    >
+      <svg className="h-5 w-5 shrink-0" fill={inList ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
+      </svg>
+      <span className="hidden sm:inline">{inList ? 'In My List' : 'My List'}</span>
+    </button>
+  )
+}
+
+function Hero({
+  entry,
+  onGo,
+  onDismissed,
+}: {
+  entry: NowEntry
+  onGo: (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to?: string) => void
+  onDismissed: (key: string) => void
+}) {
   const { chips, line } = useChips(entry)
   const logoOk = useLogoReadable(entry.logo)
-  const watchlistable = entry.item && (entry.item.Type === 'Movie' || entry.item.Type === 'Series')
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [dismissing, setDismissing] = useState(false)
+
+  // Episodes toggle their parent Series on My List so the whole show stays saved.
+  const watchlistId = entry.item
+    ? entry.item.Type === 'Episode'
+      ? entry.item.SeriesId ?? entry.item.Id
+      : entry.item.Type === 'Movie' || entry.item.Type === 'Series'
+        ? entry.item.Id
+        : null
+    : null
   // Send it to the TV: your own titles that play as video (a friend's live on their server).
   const castable = !IS_TV && entry.item && /^(Movie|Episode|Video|MusicVideo)$/.test(entry.item.Type) && !entry.item.Id.startsWith('f-')
+  const dismissable = entry.kind === 'resume' && Boolean(entry.item) && !entry.item!.Id.startsWith('f-')
+
+  const dismissResume = async () => {
+    if (!entry.item || dismissing) return
+    setDismissing(true)
+    try {
+      await api.clearResumePosition(entry.item.Id)
+      void qc.invalidateQueries({ queryKey: ['resume'] })
+      void qc.invalidateQueries({ queryKey: ['nextUp'] })
+      toast(`Removed “${entry.title}” from Continue Watching`)
+      onDismissed(entry.key)
+    } catch {
+      toast('Couldn’t remove from Continue Watching', 'error')
+    } finally {
+      setDismissing(false)
+    }
+  }
+
   return (
     // Re-keyed per title so each one rises in.
     <div key={entry.key} className="os-hero">
@@ -145,13 +241,14 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
         <span>{entry.kicker}</span>
       </p>
       {/* Every part of the hero keeps its height from title to title, so Play
-          stays where it was (a long story or a missing progress bar moved it). */}
+          stays where it was (a long story or a missing progress bar moved it).
+          Render the title text immediately until the logo is confirmed ready. */}
       <div className="os-name">
-        {logoOk ? (
-          <img className="os-logo" src={entry.logo!} alt={entry.title} crossOrigin={IS_TV ? undefined : 'anonymous'} />
-        ) : logoOk === false ? (
+        {logoOk === true && entry.logo ? (
+          <img className="os-logo" src={entry.logo} alt={entry.title} crossOrigin={IS_TV ? undefined : 'anonymous'} />
+        ) : (
           <h1 className={`os-title ${entry.title.length > 14 ? 'long' : ''}`}>{entry.title}</h1>
-        ) : null}
+        )}
       </div>
       <div className="os-chips mt-5 sm:mt-6 flex flex-nowrap gap-2 overflow-hidden">
         {chips.map((c, i) => (
@@ -187,12 +284,68 @@ function Hero({ entry, onGo }: { entry: NowEntry; onGo: (e: NowEntry, ev: React.
           </Link>
         )}
         {castable && <CastMenu item={entry.item!} variant="os" />}
-        {watchlistable && <WatchlistButton item={entry.item!} />}
+        {watchlistId && <HeroWatchlistButton itemId={watchlistId} />}
+        {dismissable && (
+          <button
+            type="button"
+            onClick={dismissResume}
+            disabled={dismissing}
+            aria-label={`Remove ${entry.title} from Continue Watching`}
+            title="Remove from Continue Watching"
+            className="os-btn os-glass max-sm:w-12 max-sm:px-0 text-white/80 hover:text-white disabled:opacity-50"
+          >
+            <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+            <span className="hidden sm:inline">{dismissing ? 'Removing…' : 'Dismiss'}</span>
+          </button>
+        )}
       </div>
       <div className={`os-prog os-prog-at mt-6 sm:mt-7 ${entry.pct === undefined ? 'invisible' : ''}`} aria-hidden={entry.pct === undefined || undefined}>
         <i style={{ width: `${entry.pct ?? 0}%` }} />
       </div>
     </div>
+  )
+}
+
+/** Full-height shimmer placeholder while Now entries load so the page never jumps 100vh. */
+function StageSkeleton() {
+  return (
+    <section className="os-stage" aria-busy="true" aria-label="Loading Home">
+      <div className="os-scene" aria-hidden>
+        <div className="os-orb a" />
+        <div className="os-orb b" />
+        <div className="os-scrim" />
+        <div className="os-vignette" />
+      </div>
+      <div className="os-top relative pt-24 sm:pt-28" aria-hidden>
+        <div className="os-hero">
+          <div className="h-3.5 w-36 rounded-full shimmer mb-5" />
+          <div className="os-name">
+            <div className="h-14 sm:h-20 w-72 sm:w-96 max-w-full rounded-2xl shimmer" />
+          </div>
+          <div className="mt-5 sm:mt-6 flex gap-2">
+            <div className="h-7 w-20 rounded-full shimmer" />
+            <div className="h-7 w-24 rounded-full shimmer" />
+            <div className="h-7 w-16 rounded-full shimmer" />
+          </div>
+          <div className="os-line mt-4 sm:mt-5 space-y-2.5 max-w-[540px]">
+            <div className="h-4 w-full rounded shimmer" />
+            <div className="h-4 w-4/5 rounded shimmer" />
+          </div>
+          <div className="os-actions mt-6 sm:mt-8 flex items-center gap-3">
+            <div className="h-12 sm:h-14 w-36 rounded-full shimmer" />
+            <div className="h-12 sm:h-14 w-32 rounded-full shimmer" />
+          </div>
+          <div className="os-prog os-prog-at mt-6 sm:mt-7 invisible" />
+        </div>
+      </div>
+      <div className="os-rail os-rail-at mt-8 sm:mt-10" aria-hidden>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="os-tile shimmer !opacity-60" />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -271,7 +424,7 @@ const Tile = memo(function Tile({
  *  of everything that's "now" in the house, with a live line underneath. */
 export default function NowStage() {
   const artWidth = useMemo(() => (!IS_TV && typeof window !== 'undefined' && window.innerWidth > 1280 ? 1920 : 1280), [])
-  const { entries } = useNowEntries(artWidth)
+  const { entries, loading } = useNowEntries(artWidth)
   // Follows the title, not its place: the row fills in as data arrives, and
   // the house changes (someone starts playing) while you rest on something.
   const [focusKey, setFocusKey] = useState<string | null>(() => rememberedFocus)
@@ -294,6 +447,16 @@ export default function NowStage() {
   const navigate = useNavigate()
   const railRef = useRef<HTMLDivElement>(null)
   const lines = useLiveLines(entries)
+
+  // Desktop rail scroll arrows visibility
+  const [railScroll, setRailScroll] = useState({ left: false, right: false })
+  const syncRailScroll = useCallback(() => {
+    const rail = railRef.current
+    if (!rail) return
+    const left = rail.scrollLeft > 12
+    const right = rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 12
+    setRailScroll((prev) => (prev.left === left && prev.right === right ? prev : { left, right }))
+  }, [])
 
   // Keep only the current backdrop, its immediate neighbors, and a small LRU tail
   // so crossfades stay smooth without pinning 10+ 1920px bitmaps in GPU memory.
@@ -356,12 +519,14 @@ export default function NowStage() {
         const pad = parseFloat(getComputedStyle(rail).paddingLeft || '0')
         rail.scrollLeft = Math.max(0, tile.getBoundingClientRect().left - rail.getBoundingClientRect().left + rail.scrollLeft - pad)
       }
+      syncRailScroll()
       return
     }
     if (!focusKey && !touched.current) rail.scrollLeft = 0
-  }, [entries, focusKey])
+    syncRailScroll()
+  }, [entries, focusKey, syncRailScroll])
 
-  // Phones: the stage follows whichever tile the row is resting on.
+  // Phones: the stage follows whichever tile the row is resting on. Desktop: keep arrow states fresh.
   useEffect(() => {
     const rail = railRef.current
     if (!rail) return
@@ -370,14 +535,23 @@ export default function NowStage() {
     }
     rail.addEventListener('pointerdown', touch, { passive: true })
     rail.addEventListener('wheel', touch, { passive: true })
+    if (!IS_TV) {
+      syncRailScroll()
+      window.addEventListener('resize', syncRailScroll, { passive: true })
+    }
     if (canHover()) {
+      const onDesktopScroll = () => syncRailScroll()
+      rail.addEventListener('scroll', onDesktopScroll, { passive: true })
       return () => {
         rail.removeEventListener('pointerdown', touch)
         rail.removeEventListener('wheel', touch)
+        rail.removeEventListener('scroll', onDesktopScroll)
+        if (!IS_TV) window.removeEventListener('resize', syncRailScroll)
       }
     }
     let raf = 0
     const onScroll = () => {
+      if (!IS_TV) syncRailScroll()
       if (!touched.current) return
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
@@ -400,9 +574,22 @@ export default function NowStage() {
       rail.removeEventListener('pointerdown', touch)
       rail.removeEventListener('wheel', touch)
       rail.removeEventListener('scroll', onScroll)
+      if (!IS_TV) window.removeEventListener('resize', syncRailScroll)
       cancelAnimationFrame(raf)
     }
-  }, [setFocus])
+  }, [setFocus, syncRailScroll, entries.length])
+
+  const scrollRail = useCallback((dir: number) => {
+    const rail = railRef.current
+    if (!rail) return
+    touched.current = true
+    rail.scrollBy({ left: dir * rail.clientWidth * 0.72, behavior: 'smooth' })
+  }, [])
+
+  const onDismissed = useCallback((key: string) => {
+    setFocusKey((cur) => (cur === key ? null : cur))
+    if (rememberedFocus === key) rememberedFocus = null
+  }, [])
 
   const go = useCallback(
     (e: NowEntry, ev: React.MouseEvent, from: HTMLElement | null, to = e.primary.to) => {
@@ -425,9 +612,11 @@ export default function NowStage() {
     [navigate],
   )
 
+  if (loading && !entry) return <StageSkeleton />
   if (!entry) return null
 
-  const doubled = lines.length > 1 ? [...lines, ...lines] : []
+  const staticTicker = IS_TV || reducedMotion() || lines.length === 1
+  const doubled = !staticTicker && lines.length > 1 ? [...lines, ...lines] : []
   return (
     <section ref={stageRef} className="os-stage" aria-label="Now" style={{ '--tint-rgb': entry.tint } as CSSProperties}>
       <div className="os-scene" aria-hidden>
@@ -466,29 +655,71 @@ export default function NowStage() {
       </div>
 
       <div className="os-top relative pt-24 sm:pt-28">
-        <Hero entry={entry} onGo={go} />
+        <Hero entry={entry} onGo={go} onDismissed={onDismissed} />
       </div>
 
-      <div ref={railRef} className="os-rail os-rail-at mt-8 sm:mt-10">
-        {entries.map((e, i) => (
-          <Tile key={e.key} entry={e} on={i === f} onRest={setFocusByKey} onGo={go} />
-        ))}
+      <div className="group/rail relative">
+        {!IS_TV && railScroll.left && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => scrollRail(-1)}
+            aria-label="Scroll Now rail left"
+            className="hidden md:flex absolute left-4 lg:left-6 top-1/2 -translate-y-1/2 z-10 h-11 w-11 items-center justify-center rounded-full os-glass text-white opacity-0 group-hover/rail:opacity-100 focus-visible:opacity-100 transition-opacity hover:scale-105 active:scale-95"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+        )}
+        <div ref={railRef} className="os-rail os-rail-at mt-8 sm:mt-10">
+          {entries.map((e, i) => (
+            <Tile key={e.key} entry={e} on={i === f} onRest={setFocusByKey} onGo={go} />
+          ))}
+        </div>
+        {!IS_TV && railScroll.right && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => scrollRail(1)}
+            aria-label="Scroll Now rail right"
+            className="hidden md:flex absolute right-4 lg:right-6 top-1/2 -translate-y-1/2 z-10 h-11 w-11 items-center justify-center rounded-full os-glass text-white opacity-0 group-hover/rail:opacity-100 focus-visible:opacity-100 transition-opacity hover:scale-105 active:scale-95"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {doubled.length > 0 && (
+      {lines.length > 0 && (
         <div className="os-live" aria-label="What's happening">
           <span className="tag">LIVE</span>
-          <div className="lane">
-            <div className="run" style={{ '--dur': `${Math.max(24, lines.length * 9)}s` } as CSSProperties}>
-              {doubled.map((l, i) => (
-                <span key={i} className="ev" aria-hidden={i >= lines.length || undefined}>
-                  <span style={{ color: `rgb(${l.rgb})` }}>●</span>
-                  <span>{l.text}</span>
-                  <em>{l.when}</em>
-                </span>
-              ))}
+          {staticTicker ? (
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div className="flex items-center gap-6 overflow-hidden whitespace-nowrap">
+                {lines.slice(0, 3).map((l, i) => (
+                  <span key={i} className="ev min-w-0 truncate">
+                    <span className="shrink-0" style={{ color: `rgb(${l.rgb})` }}>●</span>
+                    <span className="truncate">{l.text}</span>
+                    <em className="shrink-0">{l.when}</em>
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="lane">
+              <div className="run" style={{ '--dur': `${Math.max(24, lines.length * 9)}s` } as CSSProperties}>
+                {doubled.map((l, i) => (
+                  <span key={i} className="ev" aria-hidden={i >= lines.length || undefined}>
+                    <span style={{ color: `rgb(${l.rgb})` }}>●</span>
+                    <span>{l.text}</span>
+                    <em>{l.when}</em>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>

@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../api/client'
@@ -11,7 +11,6 @@ import {
   useLibraryIndex,
   useViews,
 } from '../api/queries'
-import { Link } from 'react-router-dom'
 import MediaCard from '../components/MediaCard'
 import AlphabetRail from '../components/AlphabetRail'
 import { CardSkeleton } from '../components/Skeletons'
@@ -84,8 +83,18 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced
 }
 
+function parseWatchState(raw: string | null): WatchState {
+  return WATCH_STATES.some((w) => w.key === raw) ? (raw as WatchState) : 'all'
+}
+
+function parseSortIdx(raw: string | null): number {
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 0 && n < SORT_OPTIONS.length ? n : 0
+}
+
 export default function LibraryPage() {
   const { viewId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   // A friend's library (Groups) is described by their server, not ours.
   const friend = peerOf(viewId)
   const { data: ownViews } = useViews()
@@ -94,10 +103,64 @@ export default function LibraryPage() {
   const view = views?.Items.find((v) => v.Id === viewId)
   const includeItemTypes = itemTypesForCollection(view?.CollectionType)
 
-  const [sortIdx, setSortIdx] = useState(0)
-  const [filter, setFilter] = useState('')
-  const [selectedGenres, setSelectedGenres] = useState<Set<string>>(new Set())
-  const [watchState, setWatchState] = useState<WatchState>('all')
+  // Filters live in URL search params so clicking a title and pressing Back restores them.
+  const sortIdx = parseSortIdx(searchParams.get('sort'))
+  const watchState = parseWatchState(searchParams.get('watch'))
+  const genresRaw = searchParams.get('genres') ?? ''
+  const selectedGenres = useMemo(
+    () => new Set(genresRaw ? genresRaw.split('|').filter(Boolean) : []),
+    [genresRaw],
+  )
+  const urlQuery = searchParams.get('q') ?? ''
+  const [filter, setFilter] = useState(urlQuery)
+  const lastSyncedQ = useRef(urlQuery)
+
+  useEffect(() => {
+    if (urlQuery !== lastSyncedQ.current) {
+      lastSyncedQ.current = urlQuery
+      setFilter(urlQuery)
+    }
+  }, [urlQuery])
+
+  const updateParams = useCallback(
+    (mutate: (next: URLSearchParams) => void) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          mutate(next)
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
+  const setSortIdx = useCallback(
+    (idx: number) =>
+      updateParams((p) => {
+        if (idx > 0) p.set('sort', String(idx))
+        else p.delete('sort')
+      }),
+    [updateParams],
+  )
+  const setWatchState = useCallback(
+    (w: WatchState) =>
+      updateParams((p) => {
+        if (w !== 'all') p.set('watch', w)
+        else p.delete('watch')
+      }),
+    [updateParams],
+  )
+  const setSelectedGenres = useCallback(
+    (next: Set<string>) =>
+      updateParams((p) => {
+        if (next.size > 0) p.set('genres', [...next].join('|'))
+        else p.delete('genres')
+      }),
+    [updateParams],
+  )
+
   const [layout, setLayout] = useState<'grid' | 'list'>(() => {
     try {
       return localStorage.getItem('finesse.libraryLayout') === 'list' ? 'list' : 'grid'
@@ -110,13 +173,16 @@ export default function LibraryPage() {
   const sort = SORT_OPTIONS[sortIdx]
   const isNameSort = sortIdx === 0
 
-  // Reset filters when switching libraries
   useEffect(() => {
-    setFilter('')
-    setSortIdx(0)
-    setSelectedGenres(new Set())
-    setWatchState('all')
-  }, [viewId])
+    const trimmed = debouncedFilter.trim()
+    if (trimmed === lastSyncedQ.current) return
+    lastSyncedQ.current = trimmed
+    updateParams((p) => {
+      if (trimmed) p.set('q', trimmed)
+      else p.delete('q')
+    })
+  }, [debouncedFilter, updateParams])
+
   useEffect(() => {
     try {
       localStorage.setItem('finesse.libraryLayout', layout)
@@ -129,9 +195,13 @@ export default function LibraryPage() {
   const filtersParam = WATCH_STATES.find((w) => w.key === watchState)?.filters
 
   const { data: genreList } = useGenres(viewId)
-  const { data: index } = useLibraryIndex(viewId, includeItemTypes, genresParam, filtersParam)
+  const {
+    data: index,
+    isLoading: indexLoading,
+    isError: indexError,
+    refetch: refetchIndex,
+  } = useLibraryIndex(viewId, includeItemTypes, genresParam, filtersParam)
   const total = index?.total ?? 0
-
 
   // Floating letter chip while scrolling the name-sorted grid
   const [scrolling, setScrolling] = useState(false)
@@ -149,16 +219,39 @@ export default function LibraryPage() {
     }
   }, [])
 
+  // --- Search within library ---
+  const searching = debouncedFilter.trim().length > 1
+  // Within the chosen genres, watch state and sort order, like the rest of the page.
+  const { data: searchResults, isLoading: searchLoading } = useQuery({
+    queryKey: ['libSearch', viewId, debouncedFilter, genresParam, filtersParam, sort.sortBy, sort.sortOrder],
+    enabled: searching && !!viewId,
+    queryFn: () =>
+      api.getItems({
+        parentId: viewId,
+        includeItemTypes,
+        recursive: true,
+        searchTerm: debouncedFilter.trim(),
+        genres: genresParam,
+        filters: filtersParam,
+        sortBy: sort.sortBy,
+        sortOrder: sort.sortOrder,
+        limit: 100,
+        fields: 'PrimaryImageAspectRatio,ProductionYear',
+      }),
+  })
+
   // --- Responsive columns ---
   const gridRef = useRef<HTMLDivElement>(null)
   const [gridWidth, setGridWidth] = useState(0)
+  const gridMounted = !searching && !indexLoading && !indexError && total > 0
   useLayoutEffect(() => {
     const el = gridRef.current
     if (!el) return
+    setGridWidth(el.clientWidth)
     const ro = new ResizeObserver((entries) => setGridWidth(entries[0].contentRect.width))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [searching, total === 0, gridMounted])
 
   // Phones in portrait get 2 columns, so titles stay readable (about the 180px cards larger
   // screens get); wider phones and small tablets 3 compact ones; larger screens ~180px cards.
@@ -177,7 +270,7 @@ export default function LibraryPage() {
   const [scrollMargin, setScrollMargin] = useState(0)
   useLayoutEffect(() => {
     if (gridRef.current) setScrollMargin(gridRef.current.offsetTop)
-  }, [gridWidth, total])
+  }, [gridWidth, total, gridMounted])
 
   const virtualizer = useWindowVirtualizer({
     count: rowCount,
@@ -233,30 +326,12 @@ export default function LibraryPage() {
     window.scrollTo({ top: scrollMargin + rowIndex * rowHeight - NAV_OFFSET, behavior: 'instant' as ScrollBehavior })
   }
 
-  // --- Search within library ---
-  const searching = debouncedFilter.trim().length > 1
-  // Within the chosen genres and watch state, like the rest of the page.
-  const { data: searchResults, isLoading: searchLoading } = useQuery({
-    queryKey: ['libSearch', viewId, debouncedFilter, genresParam, filtersParam],
-    enabled: searching && !!viewId,
-    queryFn: () =>
-      api.getItems({
-        parentId: viewId,
-        includeItemTypes,
-        recursive: true,
-        searchTerm: debouncedFilter.trim(),
-        genres: genresParam,
-        filters: filtersParam,
-        limit: 100,
-        fields: 'PrimaryImageAspectRatio,ProductionYear',
-      }),
-  })
   const availableLetters = useMemo(() => new Set(index?.letters ?? []), [index])
   const searchCount = searchResults ? (searchResults.TotalRecordCount ?? searchResults.Items.length) : undefined
   const narrowed = Boolean(filtersParam || genresParam)
 
   return (
-    <div className="px-4 sm:px-6 lg:px-12 pb-16">
+    <div className={`px-4 sm:px-6 lg:px-12 pb-16 ${__WEBOS__ && isNameSort ? 'lg:pr-14' : ''}`}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-5 sm:pt-6 pb-3">
         <h1 className="page-title">{view?.Name ?? 'Library'}</h1>
         {searching && searchCount !== undefined ? (
@@ -264,28 +339,49 @@ export default function LibraryPage() {
             {searchCount.toLocaleString()} of {total.toLocaleString()} {narrowed ? 'filtered titles' : 'titles'}
           </span>
         ) : (
-          total > 0 && <span className="text-sm text-ink-400">{total.toLocaleString()} {narrowed ? 'match' : 'titles'}</span>
+          total > 0 && (
+            <span className="text-sm text-ink-400">
+              {total.toLocaleString()}{' '}
+              {narrowed ? (total === 1 ? 'match' : 'matches') : total === 1 ? 'title' : 'titles'}
+            </span>
+          )
         )}
         <div className="flex-1" />
         <div className="flex w-full sm:w-auto items-center gap-2">
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder={`Filter ${view?.Name?.toLowerCase() ?? ''}…`}
-            aria-label={`Filter ${view?.Name ?? 'library'} by title`}
-            enterKeyHint="search"
-            className="min-w-0 flex-1 sm:flex-none sm:w-48 h-9 rounded-full bg-ink-800/80 border border-white/10 px-4 text-sm outline-none focus:border-accent-500 placeholder:text-ink-400"
-          />
+          <div className="relative flex-1 min-w-0 sm:flex-none sm:w-52">
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder={`Filter ${view?.Name?.toLowerCase() ?? ''}…`}
+              aria-label={`Filter ${view?.Name ?? 'library'} by title`}
+              enterKeyHint="search"
+              className="w-full h-9 rounded-full bg-ink-800/80 border border-white/10 pl-4 pr-8 text-sm outline-none focus:border-accent-500 placeholder:text-ink-400"
+            />
+            {filter && (
+              <button
+                type="button"
+                onClick={() => setFilter('')}
+                aria-label="Clear filter"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-ink-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => surprise({ parentId: viewId, includeItemTypes })}
             disabled={surprising}
+            aria-label="Surprise me"
+            title="Surprise me"
             className="shrink-0 inline-flex h-9 items-center gap-2 rounded-full bg-ink-800/80 border border-white/10 px-3.5 text-sm text-ink-200 hover:text-white hover:border-white/20 disabled:opacity-60 transition-colors"
           >
             <DiceIcon spinning={surprising} />
             <span className="hidden sm:inline">Surprise me</span>
           </button>
-          <div role="group" aria-label="Layout" className="shrink-0 hidden sm:inline-flex p-0.5 rounded-full bg-ink-800/80 border border-white/10">
+          <div role="group" aria-label="Layout" className="shrink-0 inline-flex p-0.5 rounded-full bg-ink-800/80 border border-white/10">
             {(['grid', 'list'] as const).map((l) => (
               <button
                 key={l}
@@ -367,6 +463,24 @@ export default function LibraryPage() {
             </p>
           )}
         </div>
+      ) : indexError && !index ? (
+        <div className="py-16 text-center">
+          <p className="text-lg font-semibold text-white">Couldn’t load {view?.Name?.toLowerCase() ?? 'this library'}</p>
+          <p className="mt-1 text-sm text-ink-400">Check your connection and try again.</p>
+          <button
+            type="button"
+            onClick={() => void refetchIndex()}
+            className="mt-5 inline-flex h-10 items-center rounded-full bg-white px-5 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      ) : indexLoading && !index ? (
+        <div className={listMode ? 'grid gap-2.5' : 'grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]'}>
+          {Array.from({ length: 18 }).map((_, i) =>
+            listMode ? <div key={i} className="h-[96px] w-full rounded-xl shimmer" /> : <CardSkeleton key={i} />,
+          )}
+        </div>
       ) : index && total === 0 && (filtersParam || genresParam) ? (
         <div className="py-16 text-center">
           <p className="text-lg font-semibold text-white">Nothing matches these filters</p>
@@ -381,6 +495,14 @@ export default function LibraryPage() {
           >
             Clear filters
           </button>
+        </div>
+      ) : index && total === 0 ? (
+        <div className="py-16 text-center">
+          <p className="text-lg font-semibold text-white">This library is empty</p>
+          <p className="mt-1 text-sm text-ink-400">Titles show up here as soon as they’re added.</p>
+          <Link to="/" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition-colors">
+            Back to Home
+          </Link>
         </div>
       ) : (
         <>

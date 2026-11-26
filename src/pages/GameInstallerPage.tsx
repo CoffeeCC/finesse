@@ -1,17 +1,17 @@
-// "Needs you": an installer Finesse couldn't get through on its own is waiting on its screen.
-// On the server this page shows that screen (noVNC over Finesse's websocket proxy) so the person
-// clicks through it; Finesse notices when the installer closes. "I've finished" is there for
-// when it doesn't. The demo store draws a pretend setup wizard instead.
-// An unpacked archive with more than one program in it (needs-you, or failed after unpacking)
-// shows the programs Finesse found instead: one press on the right one and it carries on.
+// "Needs you": interactive installer screen or executable picker. Handles error, ready, failed,
+// and cancel states cleanly so users are never stranded.
 
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useGameRequestActions, useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 import { installerScreenUrl, needsProgramPick, splitProgramPath, type ExecutableCandidate, type GameRequest } from '../api/gameStore'
+import { PLAY_BTN, START_OVER_BTN } from '../components/ActionButton'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { GameRequestStatusView } from '../components/gamestore/GameRequestStatus'
+import GameTransferModal from '../components/gamestore/GameTransferModal'
 import { storeGameHref } from '../components/gamestore/StoreCards'
+import { StoreUnavailable } from '../components/gamestore/StoreHeader'
 import { IS_TV, TOUCH_UI } from '../lib/device'
 
 export default function GameInstallerPage() {
@@ -19,80 +19,186 @@ export default function GameInstallerPage() {
   const mode = useStoreMode()
   const navigate = useNavigate()
   const toast = useToast()
-  const { data, isLoading } = useGameRequests()
+  const { data, isLoading, isError, refetch } = useGameRequests()
   const actions = useGameRequestActions()
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [transfer, setTransfer] = useState(false)
+
+  if (!mode) return <StoreUnavailable title="Game installer" />
+
+  if (isLoading) {
+    return (
+      <div className="px-4 py-6 sm:px-6 lg:px-12">
+        <div className="mx-auto mt-6 h-[calc(var(--vh)*60)] max-w-5xl rounded-2xl shimmer" />
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-16 text-center">
+        <p className="text-lg font-semibold text-white">Couldn’t load this install</p>
+        <p className="mt-1 text-sm text-ink-400">The game store didn’t respond. Try again in a moment.</p>
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
+          >
+            Try again
+          </button>
+          <Link
+            to="/games/store/requests"
+            className="inline-flex h-10 items-center rounded-lg border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20"
+          >
+            Back to Requests
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   const r = data?.find((x) => x.id === requestId)
 
-  if (!mode) return null
-  if (isLoading) return <div className="mx-auto mt-10 h-[calc(var(--vh)*60)] max-w-5xl rounded-2xl shimmer" />
-  if (!r)
+  if (!r) {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <p className="text-lg font-semibold text-white">This install isn’t waiting any more</p>
-        <p className="mt-1 text-sm text-ink-400">It may have finished or been cancelled.</p>
-        <Link to="/games/store/requests" className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 hover:bg-ink-200 transition active:scale-[0.97]">
+        <p className="mt-1 text-sm text-ink-400">It may have already finished or been cancelled.</p>
+        <Link
+          to="/games/store/requests"
+          className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
+        >
           See your requests
         </Link>
       </div>
     )
+  }
 
   const picking = needsProgramPick(r)
   const waiting = r.state === 'needs-you' && !picking
+  const canTransfer = r.state === 'ready' || r.state === 'needs-you' || (r.state === 'failed' && (r.progress ?? 0) >= 100)
+  const fail = (e: unknown) => toast(e instanceof Error ? e.message : 'Couldn’t carry on', 'error')
+
   const done = () =>
     actions.installerDone.mutate(r.id, {
       onSuccess: () => {
         toast(`Thanks. Finesse is finishing “${r.title}”.`)
         navigate(storeGameHref(r.gameId))
       },
-      onError: (e) => toast(e instanceof Error ? e.message : 'Couldn’t carry on', 'error'),
+      onError: fail,
     })
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-12">
       <div className="mx-auto max-w-5xl">
-        <Link to="/games/store/requests" className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-300 hover:text-white">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-          </svg>
-          Requests
-        </Link>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <Link to="/games/store/requests" className="inline-flex items-center gap-1.5 text-sm text-ink-300 hover:text-white">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+            Requests
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setConfirmCancel(true)}
+            className="inline-flex h-9 items-center rounded-lg border border-white/10 bg-white/[0.04] px-3.5 text-xs font-semibold text-ink-300 transition hover:bg-white/10 hover:text-white"
+          >
+            {r.state === 'ready' ? 'Uninstall' : r.state === 'failed' ? 'Remove request' : 'Cancel install'}
+          </button>
+        </div>
+
         {picking ? (
           <>
             <h1 className="page-title mb-2">Choose how {r.title} starts</h1>
-            <p className="mb-5 max-w-2xl text-sm text-ink-300">
+            <p className="mb-5 max-w-2xl text-sm leading-relaxed text-ink-300">
               {r.state === 'failed'
-                ? 'Finesse unpacked the game but couldn’t start it on its own. These are the programs it found. Pick the one that starts the game and it carries on from there.'
-                : 'Finesse unpacked the game and found more than one program in it. Pick the one that starts the game: the first is its best guess.'}
+                ? 'The game files are unpacked, but Finesse couldn’t tell which file launches the game. Pick the game’s launcher below to finish setting it up.'
+                : 'The game files are unpacked and include more than one runnable file. Pick the one that starts the game — the top suggestion is our best guess.'}
             </p>
             {r.state === 'failed' && (
               <div className="mb-5">
-                <GameRequestStatusView request={r} />
+                <GameRequestStatusView request={r} size="lg" />
               </div>
             )}
             <ProgramPicker request={r} />
           </>
+        ) : r.state === 'ready' ? (
+          <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.06] p-6 sm:p-8">
+            <h1 className="page-title mb-2">{r.title} is ready to play</h1>
+            <p className="mb-6 max-w-xl text-sm text-ink-200">
+              Installation finished cleanly and the game has been added to your library.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link to="/games" className={PLAY_BTN}>
+                Play
+              </Link>
+              <button type="button" onClick={() => setTransfer(true)} className={START_OVER_BTN}>
+                Transfer to PC / Deck
+              </button>
+              <Link to={storeGameHref(r.gameId)} className={START_OVER_BTN}>
+                Back to game
+              </Link>
+            </div>
+          </div>
+        ) : r.state === 'failed' ? (
+          <div className="rounded-2xl border border-amber-400/25 bg-amber-500/[0.05] p-6 sm:p-8">
+            <h1 className="page-title mb-2">{r.title} didn’t finish installing</h1>
+            <GameRequestStatusView request={r} size="lg" className="mb-6" />
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className={PLAY_BTN}
+                disabled={actions.retry.isPending}
+                onClick={() => actions.retry.mutate(r.id, { onError: fail })}
+              >
+                {actions.retry.isPending ? 'Trying again…' : 'Try again'}
+              </button>
+              {canTransfer && (
+                <button type="button" onClick={() => setTransfer(true)} className={START_OVER_BTN}>
+                  Transfer downloaded files
+                </button>
+              )}
+              <button type="button" onClick={() => setConfirmCancel(true)} className={START_OVER_BTN}>
+                Remove
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             <h1 className="page-title mb-2">Finish installing {r.title}</h1>
             <p className="mb-4 max-w-2xl text-sm text-ink-300">
-              This installer asks questions Finesse can’t answer for you. Click through it below: the defaults are usually right. It runs in a sealed box on the server, with no
-              internet and no access to anything but the game’s folder.
+              This installer asks questions Finesse can’t answer automatically. Click through it below (the defaults are usually right). It runs in an isolated sandbox on the server with no internet access.
             </p>
             {(IS_TV || TOUCH_UI) && (
               <p className="mb-4 max-w-2xl rounded-xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
-                {IS_TV ? 'This is easier with a mouse. Open Finesse on a computer, go to Games → Store → Requests, and finish it there.' : 'Tap where you’d click. A computer with a mouse is easier for long installers.'}
+                {IS_TV
+                  ? 'This is easier with a mouse. Open Finesse on a computer, go to Games → Requests, and finish it there.'
+                  : 'Tap where you’d click. A computer with a mouse is easier for long installers.'}
               </p>
             )}
 
             {!waiting && (
               <div className="mb-5">
-                <GameRequestStatusView request={r} />
+                <GameRequestStatusView request={r} size="lg" />
               </div>
             )}
 
             <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-black ring-1 ring-white/10 sm:aspect-video">
               {!waiting ? (
-                <div className="grid h-full place-items-center p-6 text-center text-sm text-ink-300">The installer has closed. Finesse is taking it from here.</div>
+                <div className="grid h-full place-items-center p-6 text-center">
+                  <div>
+                    <p className="font-semibold text-white">Finesse is taking it from here</p>
+                    <p className="mt-1 text-sm text-ink-400">The installer has closed and the game is wrapping up.</p>
+                    <Link
+                      to={storeGameHref(r.gameId)}
+                      className="mt-4 inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white hover:bg-white/20"
+                    >
+                      Back to game
+                    </Link>
+                  </div>
+                </div>
               ) : mode === 'demo' ? (
                 <DemoWizard title={r.title} onFinish={done} />
               ) : (
@@ -102,22 +208,52 @@ export default function GameInstallerPage() {
 
             {waiting && (
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button type="button" onClick={done} disabled={actions.installerDone.isPending} className="inline-flex h-11 items-center rounded-lg bg-white px-5 text-[15px] font-semibold text-ink-950 hover:bg-ink-200 disabled:opacity-60 transition active:scale-[0.97]">
+                <button
+                  type="button"
+                  onClick={done}
+                  disabled={actions.installerDone.isPending}
+                  className="inline-flex h-11 items-center rounded-lg bg-white px-5 text-[15px] font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97] disabled:opacity-60"
+                >
                   I’ve finished
                 </button>
-                <p className="text-sm text-ink-400">Press this if the installer has closed and Finesse hasn’t noticed.</p>
+                <p className="text-sm text-ink-400">Press this if the installer has closed and Finesse hasn’t noticed yet.</p>
               </div>
             )}
           </>
         )}
       </div>
+
+      {transfer && <GameTransferModal requestId={r.id} title={r.title} onClose={() => setTransfer(false)} />}
+      {confirmCancel && (
+        <ConfirmDialog
+          title={r.state === 'ready' ? `Uninstall “${r.title}”?` : r.state === 'failed' ? `Remove “${r.title}”?` : `Cancel “${r.title}”?`}
+          confirmLabel={r.state === 'ready' ? 'Uninstall' : r.state === 'failed' ? 'Remove' : 'Cancel the request'}
+          cancelLabel="Keep it"
+          busy={actions.cancel.isPending}
+          onCancel={() => setConfirmCancel(false)}
+          onConfirm={() =>
+            actions.cancel.mutate(r.id, {
+              onSuccess: () => {
+                toast(r.state === 'ready' ? `Uninstalled “${r.title}”` : `Removed “${r.title}”`)
+                navigate('/games/store/requests')
+              },
+              onError: fail,
+              onSettled: () => setConfirmCancel(false),
+            })
+          }
+        >
+          {r.state === 'ready'
+            ? 'The installed game files and its download are deleted from the server to free space.'
+            : 'The install stops and downloaded files are deleted. You can request this game again later.'}
+        </ConfirmDialog>
+      )}
     </div>
   )
 }
 
 const ENGINE_REASON = /unity|unreal|godot|rpg maker|store executable hint/i
 
-/** "Which of these is the game?": the candidates best first, each one press from carrying on. */
+/** Plain-English executable chooser for unpacked archives with multiple runnable files. */
 function ProgramPicker({ request: r }: { request: GameRequest }) {
   const navigate = useNavigate()
   const toast = useToast()
@@ -128,7 +264,7 @@ function ProgramPicker({ request: r }: { request: GameRequest }) {
       { id: r.id, program: c.path },
       {
         onSuccess: () => {
-          toast(`Got it. Finesse is adding “${r.title}” to your games.`)
+          toast(`Got it. Finesse is finishing setup for “${r.title}”.`)
           navigate(storeGameHref(r.gameId))
         },
         onError: (e) => toast(e instanceof Error ? e.message : 'Couldn’t use that program', 'error'),
@@ -136,18 +272,23 @@ function ProgramPicker({ request: r }: { request: GameRequest }) {
     )
   const hints = r.redistHints ?? []
   return (
-    <section aria-labelledby="program-picker-title" className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-5">
-      <h2 id="program-picker-title" className="px-1 text-xs font-semibold uppercase tracking-[0.12em] text-ink-400">
-        Choose game executable
-      </h2>
-      <ul className="mt-3 space-y-2">
+    <section aria-labelledby="program-picker-title" className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 px-1">
+        <h2 id="program-picker-title" className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-300">
+          Which file starts this game?
+        </h2>
+        <span className="text-xs text-ink-400">Click “Use this” to test and add the game to your library.</span>
+      </div>
+      <ul className="space-y-2.5">
         {r.candidates!.map((c, i) => {
           const { name, folder } = splitProgramPath(c.path)
           const busy = pending === c.path
           return (
             <li
               key={c.path}
-              className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:p-4 ${i === 0 ? 'border-accent-300/30 bg-accent-400/[0.06]' : 'border-white/10 bg-ink-900/60'}`}
+              className={`flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:p-4 ${
+                i === 0 ? 'border-accent-300/35 bg-accent-400/[0.07]' : 'border-white/10 bg-ink-900/60'
+              }`}
             >
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white/[0.06] text-ink-200" aria-hidden>
@@ -157,16 +298,22 @@ function ProgramPicker({ request: r }: { request: GameRequest }) {
                 </span>
                 <div className="min-w-0">
                   <p className="break-all text-[15px] font-semibold text-white">{name}</p>
-                  <p className="mt-0.5 break-all font-mono text-xs text-ink-400">{folder || 'Top of the game’s folder'}</p>
+                  <p className="mt-0.5 break-all font-mono text-xs text-ink-400">{folder || 'Main game folder'}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {i === 0 && <span className="rounded-full bg-accent-400/20 px-2 py-0.5 text-[11px] font-semibold text-accent-200">Best match</span>}
+                    {i === 0 && (
+                      <span className="rounded-full bg-accent-400/20 px-2.5 py-0.5 text-[11px] font-semibold text-accent-200">
+                        Recommended
+                      </span>
+                    )}
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ENGINE_REASON.test(c.reason) ? 'bg-emerald-400/15 text-emerald-200' : 'bg-white/[0.07] text-ink-200'}`}
+                      className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                        ENGINE_REASON.test(c.reason) ? 'bg-emerald-400/15 text-emerald-200' : 'bg-white/[0.07] text-ink-200'
+                      }`}
                     >
                       {c.reason}
                     </span>
-                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${c.linux ? 'border-amber-300/30 text-amber-100' : 'border-sky-300/30 text-sky-100'}`}>
-                      {c.linux ? 'Linux' : 'Windows'}
+                    <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${c.linux ? 'border-amber-300/30 text-amber-100' : 'border-sky-300/30 text-sky-100'}`}>
+                      {c.linux ? 'Linux native' : 'Windows'}
                     </span>
                   </div>
                 </div>
@@ -180,7 +327,7 @@ function ProgramPicker({ request: r }: { request: GameRequest }) {
                   i === 0 ? 'bg-white text-ink-950 hover:bg-ink-200' : 'border border-white/15 bg-white/10 text-white hover:bg-white/20'
                 }`}
               >
-                {busy ? 'Starting…' : 'Use this'}
+                {busy ? 'Checking…' : 'Use this'}
               </button>
             </li>
           )
@@ -188,9 +335,11 @@ function ProgramPicker({ request: r }: { request: GameRequest }) {
       </ul>
       {hints.length > 0 && (
         <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[13px] text-ink-400">
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium text-ink-200">SteamOS runtime</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-0.5 text-[12px] font-medium text-ink-200">
+            Auto runtimes
+          </span>
           <span>
-            Runtimes detected: <span className="font-mono text-ink-200">{hints.join(' · ')}</span> — applied automatically in the game prefix
+            Required components (<span className="font-mono text-ink-200">{hints.join(' · ')}</span>) will be set up automatically.
           </span>
         </p>
       )}
@@ -218,7 +367,7 @@ function DemoWizard({ title, onFinish }: { title: string; onFinish: () => void }
   const steps = ['Welcome', 'License', 'Options', 'Installing', 'Done']
   return (
     <div className="grid h-full place-items-center bg-[#008080] p-3 sm:p-8">
-      <div className="w-full max-w-lg border-2 border-t-white border-l-white border-b-[#404040] border-r-[#404040] bg-[#c0c0c0] font-sans text-[13px] text-black shadow-2xl">
+      <div className="w-full max-w-lg border-2 border-b-[#404040] border-l-white border-r-[#404040] border-t-white bg-[#c0c0c0] font-sans text-[13px] text-black shadow-2xl">
         <div className="flex items-center justify-between bg-gradient-to-r from-[#000080] to-[#1084d0] px-2 py-1 text-[13px] font-bold text-white">
           <span>Setup – {title}</span>
           <span aria-hidden>✕</span>
@@ -228,7 +377,9 @@ function DemoWizard({ title, onFinish }: { title: string; onFinish: () => void }
           {step === 1 && (
             <div>
               <p className="mb-2">Please read the following License Agreement.</p>
-              <div className="mb-3 h-20 overflow-y-auto border border-[#808080] bg-white p-2 text-[12px]">This program is free software: you can redistribute it and/or modify it under the terms of its license…</div>
+              <div className="mb-3 h-20 overflow-y-auto border border-[#808080] bg-white p-2 text-[12px]">
+                This program is free software: you can redistribute it and/or modify it under the terms of its license…
+              </div>
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /> I accept the agreement
               </label>
@@ -282,7 +433,7 @@ function WinButton({ children, onClick, disabled }: { children: React.ReactNode;
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="min-w-[5.5rem] border-2 border-t-white border-l-white border-b-[#404040] border-r-[#404040] bg-[#c0c0c0] px-3 py-1 text-[13px] text-black outline-none focus-visible:outline-1 focus-visible:outline-dotted focus-visible:outline-black active:border-t-[#404040] active:border-l-[#404040] active:border-b-white active:border-r-white disabled:text-[#808080]"
+      className="min-w-[5.5rem] border-2 border-b-[#404040] border-l-white border-r-[#404040] border-t-white bg-[#c0c0c0] px-3 py-1 text-[13px] text-black outline-none focus-visible:outline-1 focus-visible:outline-dotted focus-visible:outline-black active:border-b-white active:border-l-[#404040] active:border-r-white active:border-t-[#404040] disabled:text-[#808080]"
     >
       {children}
     </button>

@@ -1,12 +1,17 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { getSession } from '../api/client'
 import { useGamePlatforms, useGames } from '../api/queries'
 import { fetchSgdbCover, rommCoverUrl, isPlayable, cleanName, tileGradient, type RommRom } from '../api/romm'
+import { useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 import { CardSkeleton } from '../components/Skeletons'
 import { useMoonlightApp } from '../components/MoonlightPlay'
 import StreamingSection from '../components/StreamingSection'
+import { GameRequestStatusView, installerHref } from '../components/gamestore/GameRequestStatus'
+import { StoreThumb, storeGameHref } from '../components/gamestore/StoreCards'
+import { StoreHeader, StoreSearchBox } from '../components/gamestore/StoreHeader'
+import { IS_TV } from '../lib/device'
 import { useFinesse } from '../lib/finesseServer'
-import { useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 
 const GameCard = memo(function GameCard({ rom }: { rom: RommRom }) {
   // RomM's cover, unless it didn't load: then SteamGridDB's, then the tile.
@@ -53,53 +58,48 @@ const GameCard = memo(function GameCard({ rom }: { rom: RommRom }) {
       cancelled = true
     }
   }, [romCover, inView, rom.fs_name_no_tags, title])
-  const inner = (
-    <div
-      ref={cardRef}
-      // tilt + the focus ring, like the other cards: with a controller or remote the focused game
-      // must stand out (the link itself draws no outline: cards ring their art, not art + title).
-      className={`tilt sheen relative aspect-[3/4] rounded-xl overflow-hidden bg-ink-800 ring-1 ring-white/5 group-focus-visible:ring-2 group-focus-visible:ring-accent-400 ${
-        playable ? 'group-hover:ring-accent-400/70 group-hover:shadow-2xl group-hover:shadow-black/60' : ''
-      }`}
-    >
-      {cover ? (
-        <img decoding="async"
-          src={cover}
-          alt={title}
-          loading="lazy"
-          className="h-full w-full object-cover fade-in"
-          onError={() => (cover === romCover ? setRomFailed(true) : setSgdbFailed(true))}
-        />
-      ) : (
-        <div className="h-full w-full flex flex-col justify-between p-3" style={{ backgroundImage: tileGradient(rom) }}>
-          <span className="self-start rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
-            {rom.platform_display_name}
-          </span>
-          <span className="text-[15px] font-bold leading-tight text-white line-clamp-4 drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]">
-            {title}
-          </span>
-        </div>
-      )}
-      {playable ? (
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity flex items-center justify-center">
-          <div className="h-12 w-12 rounded-full bg-white/90 flex items-center justify-center">
-            <svg className="h-6 w-6 text-ink-950 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-        </div>
-      ) : (
-        <div className={`absolute top-2 right-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur ${moonlight ? 'text-accent-200' : 'text-ink-300'}`}>
-          {moonlight ? 'Moonlight' : 'Browse only'}
-        </div>
-      )}
-    </div>
-  )
 
   return (
     <Link to={`/games/game/${rom.id}`} viewTransition className="own-focus group block outline-none">
-      {inner}
-      <p className="mt-2 px-0.5 text-sm font-medium text-ink-200 truncate group-hover:text-white group-focus-visible:text-white transition-colors">
+      <div
+        ref={cardRef}
+        // Every card is clickable (opens GameDetailPage), so every card gets the hover & focus ring.
+        className="tilt sheen relative aspect-[3/4] overflow-hidden rounded-xl bg-ink-800 ring-1 ring-white/5 transition-all group-hover:shadow-2xl group-hover:shadow-black/60 group-hover:ring-accent-400/70 group-focus-visible:ring-2 group-focus-visible:ring-accent-400"
+      >
+        {cover ? (
+          <img
+            decoding="async"
+            src={cover}
+            alt={title}
+            loading="lazy"
+            className="fade-in h-full w-full object-cover"
+            onError={() => (cover === romCover ? setRomFailed(true) : setSgdbFailed(true))}
+          />
+        ) : (
+          <div className="flex h-full w-full flex-col justify-between p-3" style={{ backgroundImage: tileGradient(rom) }}>
+            <span className="self-start rounded-md bg-black/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
+              {rom.platform_display_name}
+            </span>
+            <span className="line-clamp-4 text-[15px] font-bold leading-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]">
+              {title}
+            </span>
+          </div>
+        )}
+        {playable ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90">
+              <svg className="h-6 w-6 translate-x-0.5 text-ink-950" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+          </div>
+        ) : (
+          <div className={`absolute right-2 top-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-medium backdrop-blur ${moonlight ? 'text-accent-200' : 'text-ink-300'}`}>
+            {moonlight ? 'Moonlight' : 'Details'}
+          </div>
+        )}
+      </div>
+      <p className="mt-2 truncate px-0.5 text-sm font-medium text-ink-200 transition-colors group-hover:text-white group-focus-visible:text-white">
         {title}
       </p>
     </Link>
@@ -107,54 +107,257 @@ const GameCard = memo(function GameCard({ rom }: { rom: RommRom }) {
 })
 
 const SHELF_CAP = 20
+const SHELF_ARROW = 'grid h-8 w-8 place-items-center rounded-full bg-ink-800/90 text-ink-200 ring-1 ring-white/10 transition-colors hover:bg-ink-700 hover:text-white'
 
-/** "Games", and the way into the game store when this server has one. */
-function GamesTitle({ className = '' }: { className?: string }) {
-  const store = useStoreMode()
-  const { data: requests } = useGameRequests()
-  const needsYou = requests?.some((r) => r.state === 'needs-you')
+/** Games: streaming from the server (Wolf), retro library (RomM), and Game Store showcase. */
+export default function GamesPage() {
+  const { info } = useFinesse()
+  const storeMode = useStoreMode()
+  const streaming = Boolean(info?.features.streaming)
+  // Older servers without discovery: the games library, as before.
+  const library = info ? Boolean(info.features.games) : true
+
+  if (library) return <GamesLibrary top={streaming ? <StreamingSection /> : null} />
+
   return (
-    <div className={`flex flex-wrap items-center gap-4 ${className}`}>
-      <h1 className="page-title">Games</h1>
-      {store && (
+    <div className="px-4 py-6 sm:px-6 lg:px-12">
+      <StoreHeader title="Games" />
+      {streaming && <StreamingSection />}
+      {storeMode ? (
+        <StoreOnlyShowcase />
+      ) : !streaming ? (
+        <NoGamesConfigured />
+      ) : null}
+    </div>
+  )
+}
+
+/** Shown when Game Store is enabled without a RomM library, so /games is never blank. */
+function StoreOnlyShowcase() {
+  const { data: requests } = useGameRequests()
+  const ready = (requests ?? []).filter((r) => r.state === 'ready')
+  const active = (requests ?? []).filter((r) => r.state !== 'ready')
+
+  return (
+    <div className="space-y-8">
+      {ready.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-baseline gap-3">
+            <h2 className="row-title text-white">Installed from Store</h2>
+            <Link to="/games/store/requests" className="text-xs font-semibold text-accent-300 hover:text-accent-200">
+              Manage
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ready.map((r) => (
+              <Link
+                key={r.id}
+                to={storeGameHref(r.gameId)}
+                className="flex items-center gap-3.5 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.05] p-3.5 outline-none transition hover:border-emerald-400/40 hover:bg-emerald-500/[0.09] focus-visible:ring-2 focus-visible:ring-accent-400"
+              >
+                <StoreThumb id={r.gameId} title={r.title} cover={r.cover} className="h-16 w-12" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-white">{r.title}</p>
+                  <GameRequestStatusView request={r} className="mt-0.5" />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {active.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-baseline gap-3">
+            <h2 className="row-title text-white">In progress</h2>
+            <Link to="/games/store/requests" className="text-xs font-semibold text-accent-300 hover:text-accent-200">
+              See all
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {active.slice(0, 6).map((r) => (
+              <Link
+                key={r.id}
+                to={r.state === 'needs-you' ? installerHref(r) : storeGameHref(r.gameId)}
+                className="flex items-center gap-3.5 rounded-xl border border-white/10 bg-white/[0.035] p-3.5 outline-none transition hover:border-white/20 hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-accent-400"
+              >
+                <StoreThumb id={r.gameId} title={r.title} cover={r.cover} className="h-16 w-12" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-white">{r.title}</p>
+                  <GameRequestStatusView request={r} className="mt-0.5" />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-accent-500/15 via-white/[0.04] to-transparent p-6 sm:p-10">
+        <div className="max-w-xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-300">Game Store</p>
+          <h2 className="font-display mt-2 text-3xl leading-tight text-white sm:text-4xl">
+            Discover & install PC games right from Finesse
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-ink-200">
+            Browse curated feeds or search live PC game indexers. Requested games download, verify, and install straight onto your server.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              to="/games/store"
+              className="inline-flex h-11 items-center gap-2 rounded-lg bg-white px-5 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.98]"
+            >
+              Open Game Store
+            </Link>
+            <Link
+              to="/games/store/browse"
+              className="inline-flex h-11 items-center rounded-lg border border-white/15 bg-white/10 px-5 text-sm font-semibold text-white transition hover:bg-white/20 active:scale-[0.98]"
+            >
+              Browse all games
+            </Link>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function NoGamesConfigured() {
+  const isAdmin = Boolean(getSession()?.isAdmin)
+  return (
+    <div className="mx-auto max-w-lg py-16 text-center">
+      <p className="text-lg font-semibold text-white">No game sources set up yet</p>
+      <p className="mt-2 text-sm text-ink-400">
+        {isAdmin
+          ? 'Connect RomM, Wolf game streaming, or enable the Game Store in Settings → Games to start playing.'
+          : 'Ask an administrator to enable Games or the Game Store in Settings.'}
+      </p>
+      {isAdmin && (
         <Link
-          to="/games/store"
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-medium text-ink-200 hover:text-white"
+          to="/settings"
+          className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.35m-16.5 11.65V9.35m0 0a3 3 0 0 0 3.75-.62 3 3 0 0 0 4.5 0 3 3 0 0 0 4.5 0 3 3 0 0 0 3.75.62M3.75 9.35a3 3 0 0 1-.62-4.72L4.32 3.4a1.5 1.5 0 0 1 1.06-.44h13.24a1.5 1.5 0 0 1 1.06.44l1.19 1.2a3 3 0 0 1-.62 4.72" />
-          </svg>
-          Game store
-          {needsYou && <span className="h-2 w-2 rounded-full bg-sky-400" aria-label="An install needs you" />}
+          Open Settings
         </Link>
       )}
     </div>
   )
 }
 
-/** Games: streaming from the server (Wolf) and the games library (RomM), whichever this server has. */
-export default function GamesPage() {
-  const { info } = useFinesse()
-  const streaming = Boolean(info?.features.streaming)
-  // Older servers without discovery: the games library, as before.
-  const library = info ? Boolean(info.features.games) : true
-  if (library) return <GamesLibrary top={streaming ? <StreamingSection /> : null} />
+function ConsoleShelf({
+  platform,
+  games,
+  onSelectPlatform,
+}: {
+  platform: { id: number; name: string; rom_count: number }
+  games: RommRom[]
+  onSelectPlatform: (id: number) => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollBy = (dir: number) => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: 'smooth' })
+  }
+
   return (
-    <div className="px-4 sm:px-6 lg:px-12 py-6">
-      <GamesTitle className="mb-5" />
-      {streaming && <StreamingSection />}
-    </div>
+    <section className="group/row mb-9">
+      <div className="mb-3 flex items-center gap-3">
+        <button onClick={() => onSelectPlatform(platform.id)} className="group/h flex min-w-0 items-center gap-2 text-left">
+          <h2 className="row-title truncate text-white transition-colors group-hover/h:text-accent-300">{platform.name}</h2>
+          <span className="text-sm text-ink-400">{platform.rom_count}</span>
+          <svg
+            className="h-4 w-4 -translate-x-1 text-ink-400 opacity-0 transition-all group-hover/h:translate-x-0 group-hover/h:opacity-100"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <div className="flex-1" />
+        {!IS_TV && games.length > 4 && (
+          <div className="hidden gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 md:flex">
+            <button type="button" onClick={() => scrollBy(-1)} tabIndex={-1} className={SHELF_ARROW} aria-label={`Scroll ${platform.name} left`}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <button type="button" onClick={() => scrollBy(1)} tabIndex={-1} className={SHELF_ARROW} aria-label={`Scroll ${platform.name} right`}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+      {/* Room around the cards: a scroller clips what pokes out, and the focus ring and hover lift do. */}
+      <div ref={scrollRef} className="-mx-2 -mt-2 flex gap-4 overflow-x-auto no-scrollbar scroll-smooth px-2 pb-2 pt-2">
+        {games.slice(0, SHELF_CAP).map((rom) => (
+          <div key={rom.id} className="w-36 shrink-0">
+            <GameCard rom={rom} />
+          </div>
+        ))}
+        {games.length > SHELF_CAP && (
+          <button
+            type="button"
+            onClick={() => onSelectPlatform(platform.id)}
+            className="flex aspect-[3/4] w-36 shrink-0 items-center justify-center self-start rounded-xl border border-white/5 bg-ink-800/60 text-sm font-medium text-ink-300 transition-colors hover:bg-ink-800 hover:text-white"
+          >
+            See all {platform.rom_count} →
+          </button>
+        )}
+      </div>
+    </section>
   )
 }
 
 function GamesLibrary({ top }: { top: React.ReactNode }) {
+  const [params, setParams] = useSearchParams()
+  const urlPlatformRaw = params.get('platform')
+  const platformId = urlPlatformRaw && /^\d+$/.test(urlPlatformRaw) ? Number(urlPlatformRaw) : undefined
+  const urlQ = params.get('q') ?? ''
+
+  const [searchInput, setSearchInput] = useState(urlQ)
+  const [debouncedSearch, setDebouncedSearch] = useState(urlQ)
+  const paramsRef = useRef({ platformId, urlQ })
+  paramsRef.current = { platformId, urlQ }
+
+  // Sync local input when navigating Back/Forward
+  useEffect(() => {
+    setSearchInput(urlQ)
+    setDebouncedSearch(urlQ)
+  }, [urlQ])
+
+  // Debounce search and keep URL search params in sync without clobbering platform
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const nextQ = searchInput.trim()
+      setDebouncedSearch(nextQ)
+      if (nextQ !== paramsRef.current.urlQ) {
+        const next = new URLSearchParams()
+        if (paramsRef.current.platformId !== undefined) next.set('platform', String(paramsRef.current.platformId))
+        if (nextQ) next.set('q', nextQ)
+        setParams(next, { replace: true })
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput, setParams])
+
+  const setPlatformId = (id: number | undefined) => {
+    const next = new URLSearchParams()
+    if (id !== undefined) next.set('platform', String(id))
+    const q = searchInput.trim()
+    if (q) next.set('q', q)
+    setParams(next, { replace: true })
+  }
+
   const { data: platforms } = useGamePlatforms()
-  const [platformId, setPlatformId] = useState<number | undefined>()
-  const [search, setSearch] = useState('')
-  const { data, isLoading } = useGames(platformId, search.trim() || undefined)
+  const { data, isLoading, isError, refetch } = useGames(platformId, debouncedSearch || undefined)
 
   const games = useMemo(() => data?.items ?? [], [data])
-  const shelfMode = platformId === undefined && !search.trim()
+  const shelfMode = platformId === undefined && !debouncedSearch
 
   // For the "All" view, group games into a horizontal shelf per console.
   const shelves = useMemo(() => {
@@ -170,44 +373,41 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       .filter((x) => x.games.length > 0)
   }, [shelfMode, games, platforms])
 
-  // Shaped like the app's search in the top bar.
   const searchBox = (
-    <label className="flex h-10 w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 text-ink-300 focus-within:border-white/30 sm:w-72">
-      <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-        <circle cx="11" cy="11" r="7" />
-        <path strokeLinecap="round" d="m20 20-3.5-3.5" />
-      </svg>
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search games"
-        aria-label="Search the games library"
-        className="search-field min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-ink-400"
-      />
-    </label>
+    <StoreSearchBox
+      value={searchInput}
+      onChange={setSearchInput}
+      onSubmit={() => {
+        const nextQ = searchInput.trim()
+        setDebouncedSearch(nextQ)
+        const next = new URLSearchParams()
+        if (platformId !== undefined) next.set('platform', String(platformId))
+        if (nextQ) next.set('q', nextQ)
+        setParams(next, { replace: true })
+      }}
+      placeholder="Search your games…"
+      ariaLabel="Search the games library"
+      className="w-full sm:w-72"
+    />
   )
 
   return (
-    <div className="px-4 sm:px-6 lg:px-12 py-6">
+    <div className="px-4 py-6 sm:px-6 lg:px-12">
       {top ? (
-        // Streaming first; the search belongs to the library below it.
         <>
-          <GamesTitle className="mb-5" />
+          <StoreHeader title="Games" />
           {top}
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <h2 className="row-title text-white">Games library</h2>
             {searchBox}
           </div>
         </>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
-          <GamesTitle />
-          {searchBox}
-        </div>
+        <StoreHeader title="Games" extra={searchBox} />
       )}
 
       {/* Platform filter */}
-      <div className="flex items-center gap-2 mb-6 overflow-x-auto no-scrollbar pb-1">
+      <div className="mb-6 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
         <Chip active={platformId === undefined} onClick={() => setPlatformId(undefined)}>
           All
         </Chip>
@@ -218,43 +418,30 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         ))}
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
-          {Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)}
+      {isError ? (
+        <div className="py-16 text-center">
+          <p className="text-lg font-semibold text-white">Couldn’t load your games</p>
+          <p className="mt-1 text-sm text-ink-400">The games library didn’t respond. Check that RomM is online and try again.</p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="mt-5 inline-flex h-10 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200 active:scale-[0.97]"
+          >
+            Try again
+          </button>
+        </div>
+      ) : isLoading ? (
+        <div className="grid grid-cols-2 gap-2.5 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-4">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
         </div>
       ) : shelfMode ? (
         shelves.map(({ platform, games: pg }) => (
-          <section key={platform.id} className="mb-9">
-            <button
-              onClick={() => setPlatformId(platform.id)}
-              className="group/h flex items-center gap-2 mb-3 text-left"
-            >
-              <h2 className="row-title text-white">{platform.name}</h2>
-              <span className="text-ink-400 text-sm">{platform.rom_count}</span>
-              <svg className="h-4 w-4 text-ink-400 opacity-0 -translate-x-1 group-hover/h:opacity-100 group-hover/h:translate-x-0 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-              </svg>
-            </button>
-            {/* Room around the cards: a scroller clips what pokes out, and the focus ring and the hover lift do. */}
-            <div className="-mx-2 -mt-2 flex gap-4 overflow-x-auto no-scrollbar px-2 pt-2 pb-2">
-              {pg.slice(0, SHELF_CAP).map((rom) => (
-                <div key={rom.id} className="w-36 shrink-0">
-                  <GameCard rom={rom} />
-                </div>
-              ))}
-              {pg.length > SHELF_CAP && (
-                <button
-                  onClick={() => setPlatformId(platform.id)}
-                  className="w-36 shrink-0 aspect-[3/4] self-start rounded-xl bg-ink-800/60 border border-white/5 flex items-center justify-center text-sm font-medium text-ink-300 hover:text-white hover:bg-ink-800 transition-colors"
-                >
-                  See all {platform.rom_count} →
-                </button>
-              )}
-            </div>
-          </section>
+          <ConsoleShelf key={platform.id} platform={platform} games={pg} onSelectPlatform={setPlatformId} />
         ))
       ) : (
-        <div className="grid gap-2.5 sm:gap-4 grid-cols-2 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+        <div className="grid grid-cols-2 gap-2.5 min-[480px]:grid-cols-3 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-4">
           {games.map((rom) => (
             <div key={rom.id} className="cv-card">
               <GameCard rom={rom} />
@@ -263,28 +450,40 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
         </div>
       )}
 
-      {!isLoading && games.length === 0 && (
-        <p className="text-ink-400 text-sm py-12 text-center">No games found.</p>
+      {!isLoading && !isError && games.length === 0 && (
+        <div className="py-14 text-center">
+          <p className="text-base font-semibold text-white">No games found</p>
+          <p className="mt-1 text-sm text-ink-400">
+            {debouncedSearch || platformId !== undefined
+              ? 'Try clearing your search or platform filter.'
+              : 'Your retro library is empty right now.'}
+          </p>
+          {(debouncedSearch || platformId !== undefined) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchInput('')
+                setDebouncedSearch('')
+                setParams(new URLSearchParams(), { replace: true })
+              }}
+              className="mt-4 inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20"
+            >
+              Show all games
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
 }
 
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-pressed={active}
-      // The top bar's pills: the current one is white.
-      className={`shrink-0 h-9 px-4 rounded-full text-sm font-medium transition-colors ${
+      className={`h-9 shrink-0 rounded-full px-4 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-400 ${
         active ? 'bg-[#f5f3ee] text-ink-950' : 'border border-white/10 bg-white/[0.06] text-ink-200 hover:text-white'
       }`}
     >

@@ -26,6 +26,12 @@ export interface SmartRules {
   /** Films and shows only (albums have no reliable watched state). */
   watched: WatchedRule | null
   sort: SmartSort
+  /** Hand-picked only: show only `includeIds`, no automatic filter matches. */
+  manualOnly?: boolean
+  /** Specific Jellyfin item IDs hand-picked by the user (always included). */
+  includeIds?: string[]
+  /** Specific Jellyfin item IDs hidden from automatic rule matches. */
+  excludeIds?: string[]
 }
 
 export const KIND_LABEL: Record<SmartKind, string> = { Movie: 'Movies', Series: 'Shows', MusicAlbum: 'Albums' }
@@ -55,6 +61,15 @@ export const PRESETS: { id: string; name: string; rules: Partial<SmartRules> & {
 
 export const NAME_MAX = 60
 const GENRES_MAX = 12
+const IDS_MAX = 200
+const CLEAN_ID = /^[0-9a-zA-Z_-]{1,80}$/
+
+function cleanIdList(raw: unknown, what: string): string[] {
+  if (!Array.isArray(raw)) return []
+  const out = [...new Set(raw.map((x) => String(x ?? '').trim()).filter((id) => CLEAN_ID.test(id)))]
+  if (out.length > IDS_MAX) throw new Error(`${what} can have at most ${IDS_MAX} titles`)
+  return out
+}
 
 export function emptyRules(kind: SmartKind = 'Movie'): SmartRules {
   return { kind, genres: [], yearFrom: null, yearTo: null, minMinutes: null, maxMinutes: null, addedWithinDays: null, watched: null, sort: 'added' }
@@ -91,7 +106,24 @@ export function cleanRules(input: unknown): SmartRules {
   const w = r.watched === null || r.watched === undefined || r.watched === '' ? null : (r.watched as WatchedRule)
   if (w !== null && !f.watched.includes(w)) throw new Error(kind === 'MusicAlbum' ? 'Albums can’t be picked by watched state' : 'Pick a watched state from the list')
   const sort = SORTS.includes(r.sort as SmartSort) ? (r.sort as SmartSort) : 'added'
-  return { kind, genres, yearFrom, yearTo, minMinutes, maxMinutes, addedWithinDays, watched: w, sort: sort === 'runtime' && !f.runtime ? 'added' : sort }
+  const manualOnly = r.manualOnly === true
+  const includeIds = cleanIdList(r.includeIds, 'Pinned titles')
+  const includeSet = new Set(includeIds)
+  const excludeIds = cleanIdList(r.excludeIds, 'Hidden titles').filter((id) => !includeSet.has(id))
+  return {
+    kind,
+    genres,
+    yearFrom,
+    yearTo,
+    minMinutes,
+    maxMinutes,
+    addedWithinDays,
+    watched: w,
+    sort: sort === 'runtime' && !f.runtime ? 'added' : sort,
+    ...(manualOnly ? { manualOnly: true } : {}),
+    ...(includeIds.length ? { includeIds } : {}),
+    ...(excludeIds.length ? { excludeIds } : {}),
+  }
 }
 
 /** A collection's name, tidied; throws when there's nothing left. */
@@ -103,6 +135,7 @@ export function cleanName(v: unknown): string {
 
 /** The fields of a Jellyfin item the rules look at. */
 export interface SmartItem {
+  Id?: string
   Type?: string
   Name?: string
   SortName?: string
@@ -199,6 +232,9 @@ function watchedState(it: SmartItem): 'watched' | 'in-progress' | 'unwatched' {
 
 /** Whether a title meets every rule. Unknown values (no year, no running time) never match a rule about them. */
 export function matches(it: SmartItem, r: SmartRules, now = Date.now()): boolean {
+  if (it.Id && r.excludeIds?.includes(it.Id)) return false
+  if (it.Id && r.includeIds?.includes(it.Id)) return true
+  if (r.manualOnly) return false
   if (it.Type !== r.kind) return false
   if (r.genres.length && !(it.Genres ?? []).some((g) => r.genres.some((x) => sameGenre(g, x)))) return false
   if (r.yearFrom !== null && !(it.ProductionYear && it.ProductionYear >= r.yearFrom)) return false
@@ -227,6 +263,7 @@ function agoDays(days: number): string {
 
 /** Why a title is in the collection, in a few words per rule ("Comedy", "94 min", "Added 3 days ago"). */
 export function reasons(it: SmartItem, r: SmartRules, now = Date.now()): string[] {
+  if (it.Id && r.includeIds?.includes(it.Id)) return ['Hand-picked']
   const out: string[] = []
   if (r.watched) out.push(WATCHED_LABEL[r.kind][r.watched])
   if (r.genres.length) {
@@ -241,6 +278,10 @@ export function reasons(it: SmartItem, r: SmartRules, now = Date.now()): string[
 
 /** The rules in one plain line ("Movies · Comedy · not watched yet · under 100 min"). */
 export function describe(r: SmartRules): string {
+  const pinned = r.includeIds?.length ?? 0
+  if (r.manualOnly) {
+    return `Hand-picked ${KIND_LABEL[r.kind].toLowerCase()}${pinned ? ` · ${pinned} ${pinned === 1 ? 'title' : 'titles'}` : ''}`
+  }
   const parts: string[] = [KIND_LABEL[r.kind]]
   if (r.genres.length) parts.push(r.genres.length > 3 ? `${r.genres.slice(0, 3).join(', ')} and more` : r.genres.join(' or '))
   if (r.yearFrom !== null && r.yearTo !== null) parts.push(r.yearFrom === r.yearTo ? `from ${r.yearFrom}` : `${r.yearFrom}–${r.yearTo}`)
@@ -251,5 +292,6 @@ export function describe(r: SmartRules): string {
   else if (r.minMinutes !== null) parts.push(`${r.minMinutes} min or longer`)
   if (r.addedWithinDays !== null) parts.push(`added in the last ${r.addedWithinDays} days`)
   if (r.watched) parts.push(WATCHED_LABEL[r.kind][r.watched].toLowerCase())
+  if (pinned > 0) parts.push(`+${pinned} hand-picked`)
   return parts.join(' · ')
 }

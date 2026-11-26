@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import { streamingApi, type StreamApp } from '../api/setup'
 import { pushBackHandler } from '../lib/back'
 import { useFinesse } from '../lib/finesseServer'
+import { switchToHttps } from '../lib/httpsHandoff'
 import { PLAY_BTN } from './ActionButton'
 import GameStreamOverlay from './GameStreamOverlay'
 import { PlayIcon, SessionPicker } from './MoonlightPlay'
 import { tileImages } from '../lib/streamTiles'
 
 /** Start one of Wolf's apps on a screen that has Moonlight open. */
-export default function LaunchDialog({ app, onClose }: { app: StreamApp; onClose: () => void }) {
+export default function LaunchDialog({ app, autoPlay = false, onClose }: { app: StreamApp; autoPlay?: boolean; onClose: () => void }) {
   const [n, setN] = useState(0)
-  const [playing, setPlaying] = useState(false)
+  const [playing, setPlaying] = useState(autoPlay && window.isSecureContext)
+  const [switching, setSwitching] = useState(false)
   const { info } = useFinesse()
   // In this page: Moonlight-Web on Finesse's stream port. It decodes video only on an https page.
   const here = Boolean(info?.streamPort && info?.httpsPort) && window.location.protocol !== 'file:'
-  const httpsHere = info?.httpsPort ? `https://${window.location.hostname}:${info.httpsPort}${window.location.pathname}${window.location.search}` : null
   const src = tileImages(app)[n] ?? null
   useEffect(() => (playing ? undefined : pushBackHandler(() => (onClose(), true))), [onClose, playing])
   useEffect(() => {
@@ -54,10 +56,27 @@ export default function LaunchDialog({ app, onClose }: { app: StreamApp; onClose
                 {app.running ? 'Resume here' : 'Play here'}
               </button>
             ) : (
-              <a href={httpsHere!} className={`${PLAY_BTN} w-full justify-center`} title="Browsers only play games on a secure (https) page">
-                <PlayIcon />
-                Play here (opens the https address)
-              </a>
+              <>
+                <button
+                  type="button"
+                  disabled={switching}
+                  onClick={() => {
+                    if (!info?.httpsPort) return
+                    setSwitching(true)
+                    void switchToHttps(info.httpsPort, { autostream: app.id })
+                  }}
+                  className={`${PLAY_BTN} w-full justify-center disabled:opacity-60`}
+                >
+                  <PlayIcon />
+                  {switching ? 'Opening stream…' : app.running ? 'Resume here' : 'Play here'}
+                </button>
+                <p className="mt-2 text-[11.5px] text-ink-400">
+                  Switches to Finesse’s secure port automatically while keeping you signed in.{' '}
+                  <Link to="/settings?s=account&at=secure-connection" onClick={onClose} className="text-accent-300 hover:text-white underline-offset-2 hover:underline">
+                    Skip browser warnings once →
+                  </Link>
+                </p>
+              </>
             )}
             <p className="mt-2 text-[12px] text-ink-400">In this window, with keyboard, mouse or a controller.</p>
           </div>

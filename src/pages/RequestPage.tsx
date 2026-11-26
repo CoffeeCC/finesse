@@ -1,5 +1,5 @@
 import { useMyLimits } from '../api/parental'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query'
 import {
@@ -19,9 +19,10 @@ import {
   type DiscoverMovie,
   type DiscoverSection,
 } from '../api/arr'
-import { noteRequested } from '../api/queries'
+import { noteRequested, useArrQueue, useArrRequested } from '../api/queries'
 import { useStoreMode } from '../api/gameStoreQueries'
-import { discoverStatus } from '../lib/requestState'
+import { IS_TV, TOUCH_UI } from '../lib/device'
+import { discoverStatus, requestKey } from '../lib/requestState'
 import { lookupTitles, matchesTerm } from '../lib/discovery'
 import ArrThumb from '../components/ArrThumb'
 import DownloadsSection from '../components/DownloadsSection'
@@ -40,14 +41,29 @@ const KINDS: { kind: ArrKind; label: string; placeholder: string }[] = [
   { kind: 'artist', label: 'Music', placeholder: 'Search for an artist…' },
 ]
 
+const SHOW_STARTERS = ['Severance', 'The Bear', 'Shōgun', 'Slow Horses', 'Andor', 'Silo', 'Fallout', 'Arcane']
+const MUSIC_STARTERS = ['Radiohead', 'Daft Punk', 'Kendrick Lamar', 'Khruangbin', 'Tame Impala', 'Miles Davis', 'Fred again..', 'Billie Eilish']
+
+const ARROW = 'h-8 w-8 rounded-full bg-ink-800 hover:bg-ink-700 flex items-center justify-center text-ink-200 transition-colors'
+
 /** A limited profile without requests (parental limits) gets a plain explanation instead. */
 export default function RequestPage() {
   const limits = useMyLimits()
   if (limits && !limits.requests)
     return (
-      <div className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6">
+      <div className="px-4 sm:px-6 lg:px-12 pb-16 pt-6">
         <h1 className="page-title">Requests</h1>
-        <p className="mt-3 text-[14px] text-ink-300">Requests are off for this profile. Ask whoever runs the server if you’d like something added.</p>
+        <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-ink-300">
+          Requests are off for this profile. Ask whoever runs the server if you’d like something added.
+        </p>
+        <div className="mt-6">
+          <Link
+            to="/"
+            className="inline-flex h-10 items-center gap-2 rounded-full bg-white/10 border border-white/15 px-5 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
+          >
+            Back to Home
+          </Link>
+        </div>
       </div>
     )
   return <RequestPageInner />
@@ -60,6 +76,7 @@ function RequestPageInner() {
   const kindParam = searchParams.get('kind') as ArrKind
   const kind = KINDS.some((k) => k.kind === kindParam) ? kindParam : 'movie'
   const [input, setInput] = useState(term)
+  const inputRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
   const qc = useQueryClient()
   // Per-result override so a freshly-requested item flips state immediately.
@@ -68,6 +85,11 @@ function RequestPageInner() {
   const [qualityItem, setQualityItem] = useState<ArrResult | null>(null)
   /** The artist whose albums and EPs are open (one at a time). */
   const [albumsFor, setAlbumsFor] = useState<string | null>(null)
+
+  // Live activity determines whether Downloads & Pending Requests lead above Discover.
+  const { data: queue } = useArrQueue()
+  const { data: requestedList } = useArrRequested()
+  const hasActivity = Boolean((queue?.length ?? 0) > 0 || (requestedList?.length ?? 0) > 0)
 
   // URL is the source of truth, debounced from typing.
   const commit = useCallback(
@@ -97,12 +119,18 @@ function RequestPageInner() {
 
   const setKind = (k: ArrKind) => {
     if (k === kind) return
+    setAlbumsFor(null)
     const next = new URLSearchParams(searchParams)
     next.set('kind', k)
     // What's typed counts straight away in the new tab (not after the debounce).
     if (input.trim()) next.set('q', input.trim())
     else next.delete('q')
     setSearchParams(next, { replace: true })
+  }
+
+  const pickStarter = (suggestion: string) => {
+    setInput(suggestion)
+    commit(suggestion)
   }
 
   // The lookup is fuzzy: keep what answers the term, so a search for nothing says so.
@@ -135,7 +163,7 @@ function RequestPageInner() {
   const qualityByKey = new Map(libraryHits.map((r) => [`${r.kind}-${r.id}`, qualityFromLookup(r) ?? undefined] as const))
   needsQuality.forEach((r, i) => qualityByKey.set(`${r.kind}-${r.id}`, qualityQueries[i]?.data ?? undefined))
 
-  const keyOf = (r: ArrResult) => `${r.kind}:${r.tmdbId ?? r.tvdbId ?? r.title}`
+  const keyOf = (r: ArrResult) => requestKey(r)
 
   const request = async (r: ArrResult) => {
     const k = keyOf(r)
@@ -163,7 +191,7 @@ function RequestPageInner() {
   const searching = term.trim().length > 1
 
   // Radarr's Discover: shown for movies while nothing is typed.
-  const showDiscover = kind === 'movie' && term.trim().length <= 1
+  const showDiscover = kind === 'movie' && !searching
   const discover = useQuery({
     queryKey: ['arrDiscover'],
     enabled: showDiscover,
@@ -171,6 +199,17 @@ function RequestPageInner() {
     retry: false,
     queryFn: arrDiscover,
   })
+
+  const activitySections = (
+    <>
+      {/* Downloader (SABnzbd) status: speed / disk / pause-all / speed cap. */}
+      <SabPanel />
+      {/* What's currently downloading — live from the *arr queues, with controls. */}
+      <DownloadsSection />
+      {/* Recent requests still waiting for a release. */}
+      <RequestedSection />
+    </>
+  )
 
   return (
     <div className="pb-16">
@@ -215,6 +254,7 @@ function RequestPageInner() {
             <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
           </svg>
           <input
+            ref={inputRef}
             type="search"
             enterKeyHint="search"
             aria-label={KINDS.find((k) => k.kind === kind)!.placeholder.replace('…', '')}
@@ -225,9 +265,25 @@ function RequestPageInner() {
               if (e.key === 'Enter') commit(input)
             }}
             placeholder={KINDS.find((k) => k.kind === kind)!.placeholder}
-            autoFocus={!term}
-            className="w-full rounded-full bg-white/[0.06] border border-white/10 pl-11 pr-4 py-2.5 text-sm text-white outline-none focus:border-white/30 placeholder:text-ink-400"
+            autoFocus={!term && !IS_TV && !TOUCH_UI}
+            className="search-field w-full rounded-full bg-white/[0.06] border border-white/10 pl-11 pr-10 py-2.5 text-sm text-white outline-none focus:border-white/30 placeholder:text-ink-400"
           />
+          {input.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setInput('')
+                commit('')
+                inputRef.current?.focus()
+              }}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full text-ink-400 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -249,95 +305,123 @@ function RequestPageInner() {
           className={`grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-4 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''} ${data?.length ? 'mb-10' : ''}`}
         >
           {data?.map((r) => {
-            const state: ItemState = overrides[keyOf(r)] ?? (r.id > 0 ? 'requested' : 'idle')
+            const k = keyOf(r)
+            const state: ItemState = overrides[k] ?? (r.id > 0 ? 'requested' : 'idle')
             const inLibrary = r.id > 0 && r.hasFile
             const qInfo = inLibrary ? qualityByKey.get(`${r.kind}-${r.id}`) : undefined
             const canQuality = inLibrary && (r.kind === 'movie' || r.kind === 'series')
+            const expanded = albumsFor === k
             return (
-              <div
-                key={keyOf(r)}
-                className="cv-card flex gap-4 rounded-2xl bg-ink-900/60 border border-white/5 p-3"
-              >
-                {r.kind === 'movie' && r.tmdbId ? (
-                  <Link to={movieHref(r.tmdbId)} state={movieState(r)} aria-label={`${r.title}: details`} className="shrink-0 rounded-lg outline-none ring-accent-400 transition hover:brightness-110 focus-visible:ring-2">
+              <Fragment key={k}>
+                <div className={`cv-card flex gap-4 rounded-2xl bg-ink-900/60 border p-3 transition-colors ${expanded ? 'border-accent-400/40' : 'border-white/5'}`}>
+                  {r.kind === 'movie' && r.tmdbId ? (
+                    <Link to={movieHref(r.tmdbId)} state={movieState(r)} aria-label={`${r.title}: details`} className="shrink-0 rounded-lg outline-none ring-accent-400 transition hover:brightness-110 focus-visible:ring-2">
+                      <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
+                    </Link>
+                  ) : (
                     <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
-                  </Link>
-                ) : (
-                  <ArrThumb kind={r.kind} id={r.id} remote={r.poster} title={r.title} size="md" />
-                )}
-                <div className="min-w-0 flex-1 flex flex-col">
-                  <p className="text-sm font-semibold text-white leading-tight">
-                    {r.kind === 'movie' && r.tmdbId ? (
-                      <Link to={movieHref(r.tmdbId)} state={movieState(r)} tabIndex={-1} className="hover:underline">
-                        {r.title}
-                      </Link>
-                    ) : (
-                      r.title
-                    )}
-                    {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
-                  </p>
-                  <p className="mt-1 text-xs text-ink-400 line-clamp-3">{r.overview}</p>
-                  {canQuality && qInfo && (
-                    <p className="mt-1.5 text-[11px] text-ink-300 tabular-nums">
-                      <span className="text-ink-400">Current </span>
-                      {formatQualityInfo(qInfo)}
-                    </p>
                   )}
-                  <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
-                    {inLibrary ? (
-                      <>
-                        <ReadyLink r={r} />
-                        {canQuality && (
-                          <button
-                            type="button"
-                            onClick={() => setQualityItem(r)}
-                            className="inline-flex items-center gap-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white transition active:scale-[0.97]"
-                          >
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                            </svg>
-                            Upgrade / quality
-                          </button>
-                        )}
-                      </>
-                    ) : r.id > 0 || state === 'requested' ? (
-                      <CardStatus r={r} justRequested={state === 'requested'} />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => request(r)}
-                        disabled={state === 'adding'}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-accent-fill hover:brightness-110 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white transition active:scale-[0.97] disabled:active:scale-100"
-                      >
-                        {state === 'adding' ? (
-                          'Adding…'
-                        ) : (
-                          <>
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                            Request
-                          </>
-                        )}
-                      </button>
+                  <div className="min-w-0 flex-1 flex flex-col">
+                    <p className="text-sm font-semibold text-white leading-tight">
+                      {r.kind === 'movie' && r.tmdbId ? (
+                        <Link to={movieHref(r.tmdbId)} state={movieState(r)} tabIndex={-1} className="hover:underline">
+                          {r.title}
+                        </Link>
+                      ) : (
+                        r.title
+                      )}
+                      {r.year ? <span className="text-ink-400 font-normal"> ({r.year})</span> : null}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-400 line-clamp-3">{r.overview}</p>
+                    {canQuality && qInfo && (
+                      <p className="mt-1.5 text-[11px] text-ink-300 tabular-nums">
+                        <span className="text-ink-400">Current </span>
+                        {formatQualityInfo(qInfo)}
+                      </p>
                     )}
-                    {r.kind === 'artist' && Boolean(r.raw.foreignArtistId) && (
-                      <button
-                        type="button"
-                        aria-expanded={albumsFor === keyOf(r)}
-                        onClick={() => setAlbumsFor(albumsFor === keyOf(r) ? null : keyOf(r))}
-                        className="inline-flex items-center rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white transition active:scale-[0.97]"
-                      >
-                        {albumsFor === keyOf(r) ? 'Hide albums & EPs' : 'Albums & EPs'}
-                      </button>
-                    )}
+                    <div className="mt-auto pt-2 flex flex-wrap items-center gap-2">
+                      {inLibrary ? (
+                        <>
+                          <ReadyLink r={r} />
+                          {canQuality && (
+                            <button
+                              type="button"
+                              onClick={() => setQualityItem(r)}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 text-xs font-semibold text-white transition active:scale-[0.97]"
+                            >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                              </svg>
+                              Upgrade / quality
+                            </button>
+                          )}
+                        </>
+                      ) : r.id > 0 || state === 'requested' ? (
+                        <CardStatus r={r} justRequested={state === 'requested'} />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => request(r)}
+                          disabled={state === 'adding'}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-accent-fill hover:brightness-110 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white transition active:scale-[0.97] disabled:active:scale-100"
+                        >
+                          {state === 'adding' ? (
+                            'Adding…'
+                          ) : (
+                            <>
+                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                              </svg>
+                              Request
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {r.kind === 'artist' && Boolean(r.raw.foreignArtistId) && (
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => setAlbumsFor(expanded ? null : k)}
+                          className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition active:scale-[0.97] ${
+                            expanded
+                              ? 'bg-white text-ink-950 border-white'
+                              : 'bg-white/5 hover:bg-white/10 border-white/10 text-white'
+                          }`}
+                        >
+                          {expanded ? 'Hide albums & EPs' : 'Albums & EPs'}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {albumsFor === keyOf(r) && <ArtistAlbums artist={r} />}
                 </div>
-              </div>
+                {expanded && (
+                  <div className="col-span-full rounded-2xl border border-white/10 bg-ink-900/80 p-4">
+                    <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/5">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{r.title} — Albums &amp; EPs</p>
+                        <p className="text-xs text-ink-400">Request an individual album or EP directly through Lidarr.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAlbumsFor(null)}
+                        aria-label="Close albums and EPs"
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-300 hover:bg-white/10 hover:text-white transition-colors"
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2} aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <ArtistAlbums artist={r} />
+                  </div>
+                )}
+              </Fragment>
             )
           })}
         </div>
+
+        {/* Active downloads and pending requests lead above Discover when anything is in flight. */}
+        {hasActivity && activitySections}
 
         {showDiscover && (
           <DiscoverRows
@@ -349,18 +433,52 @@ function RequestPageInner() {
           />
         )}
 
-        {/* Downloader (SABnzbd) status: speed / disk / pause-all / speed cap. */}
-        <SabPanel />
-        {/* What's currently downloading — live from the *arr queues, with controls. */}
-        <DownloadsSection />
-        {/* Recent requests still waiting for a release. */}
-        <RequestedSection />
+        {!searching && (kind === 'series' || kind === 'artist') && (
+          <IdleStarters kind={kind} onPick={pickStarter} />
+        )}
+
+        {!hasActivity && activitySections}
       </div>
 
       {qualityItem && (
         <QualityModal item={qualityItem} onClose={() => setQualityItem(null)} />
       )}
     </div>
+  )
+}
+
+function IdleStarters({ kind, onPick }: { kind: 'series' | 'artist'; onPick: (q: string) => void }) {
+  const isShows = kind === 'series'
+  const starters = isShows ? SHOW_STARTERS : MUSIC_STARTERS
+  return (
+    <section className="mb-10 rounded-2xl border border-white/10 bg-white/[0.025] p-5 sm:p-6">
+      <div className="max-w-2xl">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-300">
+          {isShows ? 'TVDB · Sonarr' : 'MusicBrainz · Lidarr'}
+        </p>
+        <h2 className="mt-1.5 text-lg font-semibold text-white">
+          {isShows ? 'Search TVDB to request any show' : 'Search MusicBrainz to request any artist or album'}
+        </h2>
+        <p className="mt-1 text-sm leading-relaxed text-ink-400">
+          {isShows
+            ? 'Type a series title above and Finesse will monitor new episodes and download available seasons automatically.'
+            : 'Type an artist name above to add their discography, or expand Albums & EPs to request a specific release.'}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-ink-400 mr-1">Try searching:</span>
+          {starters.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onPick(s)}
+              className="rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-ink-200 hover:bg-white/15 hover:text-white transition active:scale-[0.97]"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -371,7 +489,6 @@ const ROWS: { id: DiscoverSection; title: string; hint: string }[] = [
   { id: 'lists', title: 'From your lists', hint: 'From the lists set up in Radarr.' },
 ]
 
-/** Radarr's Discover tab, as rows of posters you can request with one tap. */
 /** Cards the size of results while a search is on its way. */
 function ResultSkeletons() {
   return (
@@ -391,6 +508,60 @@ function ResultSkeletons() {
   )
 }
 
+function DiscoverRow({
+  title,
+  hint,
+  items,
+  stateOf,
+  onRequest,
+}: {
+  title: string
+  hint: string
+  items: DiscoverMovie[]
+  stateOf: (r: ArrResult) => ItemState
+  onRequest: (r: ArrResult) => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollBy = (dir: number) => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: 'smooth' })
+  }
+  return (
+    <section className="group/row" aria-label={title}>
+      <div className="flex items-end justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-white">{title}</h2>
+          <p className="text-xs text-ink-400">{hint}</p>
+        </div>
+        {!IS_TV && (
+          <div className="hidden md:flex shrink-0 gap-1 opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button type="button" onClick={() => scrollBy(-1)} tabIndex={-1} className={ARROW} aria-label={`Scroll ${title} left`}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            <button type="button" onClick={() => scrollBy(1)} tabIndex={-1} className={ARROW} aria-label={`Scroll ${title} right`}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+      <div
+        ref={scrollRef}
+        className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 no-scrollbar scroll-smooth sm:-mx-6 sm:px-6 lg:-mx-12 lg:px-12"
+      >
+        {items.map((m) => (
+          <DiscoverCard key={m.tmdbId} m={m} state={stateOf(m)} onRequest={() => onRequest(m)} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/** Radarr's Discover tab, as rows of posters you can request with one tap. */
 function DiscoverRows({ movies, loading, failed, stateOf, onRequest }: { movies?: DiscoverMovie[]; loading: boolean; failed: boolean; stateOf: (r: ArrResult) => ItemState; onRequest: (r: ArrResult) => void }) {
   if (loading)
     return (
@@ -418,15 +589,14 @@ function DiscoverRows({ movies, loading, failed, stateOf, onRequest }: { movies?
   return (
     <div className="mb-10 space-y-8">
       {rows.map((row) => (
-        <section key={row.id} aria-label={row.title}>
-          <h2 className="text-lg font-semibold text-white">{row.title}</h2>
-          <p className="mb-3 text-xs text-ink-400">{row.hint}</p>
-          <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 no-scrollbar sm:-mx-6 sm:px-6 lg:-mx-12 lg:px-12">
-            {row.items.map((m) => (
-              <DiscoverCard key={m.tmdbId} m={m} state={stateOf(m)} onRequest={() => onRequest(m)} />
-            ))}
-          </div>
-        </section>
+        <DiscoverRow
+          key={row.id}
+          title={row.title}
+          hint={row.hint}
+          items={row.items}
+          stateOf={stateOf}
+          onRequest={onRequest}
+        />
       ))}
     </div>
   )
@@ -434,6 +604,7 @@ function DiscoverRows({ movies, loading, failed, stateOf, onRequest }: { movies?
 
 function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemState; onRequest: () => void }) {
   const [broken, setBroken] = useState(false)
+  const dStatus = discoverStatus(m)
   return (
     <div className="w-32 shrink-0 sm:w-36">
       <Link
@@ -459,14 +630,18 @@ function DiscoverCard({ m, state, onRequest }: { m: DiscoverMovie; state: ItemSt
       </Link>
       <p className="text-[11px] text-ink-400">{m.year ?? ''}</p>
       <div className="mt-1.5">
-        {discoverStatus(m) === 'in-library' ? (
-          <span className="text-xs font-medium text-emerald-300">In your library</span>
-        ) : discoverStatus(m) === 'requested' ? (
-          <span className="text-xs font-medium text-accent-300">Requested</span>
+        {dStatus === 'in-library' ? (
+          <ReadyLink r={{ ...m, hasFile: true }} className="w-full justify-center" />
+        ) : dStatus === 'requested' ? (
+          <Link to={movieHref(m.tmdbId!)} state={movieState(m)} className="text-xs font-medium text-accent-300 hover:underline">
+            Requested
+          </Link>
         ) : m.existing ? (
-          <span className="text-xs font-medium text-emerald-300">Already in Finesse</span>
+          <ReadyLink r={{ ...m, hasFile: true }} className="w-full justify-center" />
         ) : state === 'requested' ? (
-          <span className="text-xs font-medium text-accent-300">Added — searching</span>
+          <Link to={movieHref(m.tmdbId!)} state={movieState(m)} className="text-xs font-medium text-accent-300 hover:underline">
+            Added — searching
+          </Link>
         ) : (
           <button
             type="button"
@@ -523,13 +698,13 @@ function ArtistAlbums({ artist }: { artist: ArrResult }) {
   const list = q.data ?? []
   if (!list.length) return <p className="mt-3 text-xs text-ink-400">Lidarr doesn’t list any albums or EPs for {artist.title} yet.</p>
   return (
-    <ul className="mt-3 divide-y divide-white/5 rounded-xl border border-white/5">
+    <ul className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
       {list.slice(0, 40).map((a) => {
         const status = done[a.foreignAlbumId] ?? (a.downloaded ? 'In your music' : a.monitored ? 'Requested' : null)
         return (
-          <li key={a.foreignAlbumId} className="flex min-w-0 items-center gap-3 px-3 py-2">
+          <li key={a.foreignAlbumId} className="flex min-w-0 items-center gap-3 rounded-xl border border-white/5 bg-white/[0.025] px-3 py-2">
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] text-white">{a.title}</span>
+              <span className="block truncate text-[13px] font-medium text-white">{a.title}</span>
               <span className="block text-[11px] text-ink-400">{[a.type, a.year].filter(Boolean).join(' · ')}</span>
             </span>
             {status ? (

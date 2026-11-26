@@ -4,7 +4,8 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { gameStoreAdmin, type StoreFeed, type StoreSettings } from '../../api/gameStore'
+import { gameStoreAdmin, StoreError, type StoreFeed, type StoreSettings } from '../../api/gameStore'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
 import { discover } from '../../lib/finesseServer'
 import { Spinner, Toggle } from '../setup/ui'
@@ -26,6 +27,9 @@ export default function GameStoreAdmin() {
   const toast = useToast()
   const [s, setS] = useState<StoreSettings | null>(null)
   const [feeds, setFeeds] = useState<StoreFeed[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
+  const [unsupported, setUnsupported] = useState(false)
   const [busy, setBusy] = useState('')
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
@@ -33,14 +37,24 @@ export default function GameStoreAdmin() {
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [sent, setSent] = useState<number | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<StoreFeed | null>(null)
 
   const load = useCallback(async () => {
+    setLoadErr('')
     try {
       const [settings, list] = await Promise.all([gameStoreAdmin.settings(), gameStoreAdmin.feeds()])
       setS(settings)
       setFeeds(list)
-    } catch {
-      setS(null)
+      setUnsupported(false)
+    } catch (e) {
+      if (e instanceof StoreError && e.status === 404) {
+        setUnsupported(true)
+        setS(null)
+      } else {
+        setLoadErr(e instanceof Error && e.message ? e.message : 'Couldn’t load game store settings.')
+      }
+    } finally {
+      setLoading(false)
     }
   }, [])
   useEffect(() => void load(), [load])
@@ -86,8 +100,44 @@ export default function GameStoreAdmin() {
     }
   }
 
-  // A server from before the game store has no such page: show nothing.
-  if (!s) return null
+  // A server from before the game store has no such endpoint: show nothing.
+  if (unsupported) return null
+  if (loading && !s) {
+    return (
+      <div className="min-w-0">
+        <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+          Game store
+          <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-400">Beta</span>
+        </h3>
+        <div className={`${CARD} p-5`} aria-busy="true" aria-label="Loading game store settings">
+          <div className="h-16 rounded-xl shimmer" />
+        </div>
+      </div>
+    )
+  }
+  if (!s) {
+    return (
+      <div className="min-w-0">
+        <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+          Game store
+          <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] tracking-wider text-ink-400">Beta</span>
+        </h3>
+        <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-5 py-4`}>
+          <p className="text-sm text-red-300">{loadErr || 'Couldn’t load game store settings.'}</p>
+          <button
+            type="button"
+            className={smallBtn}
+            onClick={() => {
+              setLoading(true)
+              void load()
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="min-w-0">
       <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-400">
@@ -156,7 +206,7 @@ export default function GameStoreAdmin() {
                           </button>
                         )}
                         {f.url && (
-                          <button type="button" className={smallBtn} disabled={busy === `rm-${f.id}`} onClick={() => act(`rm-${f.id}`, () => gameStoreAdmin.removeFeed(f.id), 'Source removed, and its games with it')}>
+                          <button type="button" className={smallBtn} disabled={busy === `rm-${f.id}`} onClick={() => setRemoveTarget(f)}>
                             Remove
                           </button>
                         )}
@@ -216,12 +266,12 @@ export default function GameStoreAdmin() {
                     <span>After a torrent finishes, keep sharing it until it has given back</span>
                     <select
                       aria-label="How much to share back"
-                      className={`${field} w-auto`}
+                      className={`${field} w-auto bg-ink-900`}
                       value={s.seeding.ratio}
                       onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, ratio: Number(e.target.value) }), 'Saved')}
                     >
                       {[...new Set([0, 0.5, 1, 2, 3, s.seeding.ratio])].sort((a, b) => a - b).map((r) => (
-                        <option key={r} value={r}>
+                        <option key={r} value={r} className="bg-ink-900 text-white">
                           {r === 0 ? 'nothing' : r === 1 ? 'as much as it took' : `${r}× what it took`}
                         </option>
                       ))}
@@ -229,12 +279,12 @@ export default function GameStoreAdmin() {
                     <span>or for</span>
                     <select
                       aria-label="How long to share back"
-                      className={`${field} w-auto`}
+                      className={`${field} w-auto bg-ink-900`}
                       value={s.seeding.days}
                       onChange={(e) => act('seed', () => gameStoreAdmin.setSeeding({ ...s.seeding, days: Number(e.target.value) }), 'Saved')}
                     >
                       {[...new Set([1, 3, 7, 14, 30, s.seeding.days])].sort((a, b) => a - b).map((d) => (
-                        <option key={d} value={d}>
+                        <option key={d} value={d} className="bg-ink-900 text-white">
                           {d === 1 ? '1 day' : `${d} days`}
                         </option>
                       ))}
@@ -247,6 +297,22 @@ export default function GameStoreAdmin() {
           </div>
         )}
       </div>
+      {removeTarget && (
+        <ConfirmDialog
+          title={`Remove “${removeTarget.name}”?`}
+          confirmLabel={busy === `rm-${removeTarget.id}` ? 'Removing…' : 'Remove source'}
+          busy={busy === `rm-${removeTarget.id}`}
+          onCancel={() => setRemoveTarget(null)}
+          onConfirm={() => {
+            const target = removeTarget
+            void act(`rm-${target.id}`, () => gameStoreAdmin.removeFeed(target.id), 'Source removed, and its games with it').then((ok) => {
+              if (ok) setRemoveTarget(null)
+            })
+          }}
+        >
+          <p>This removes the source and all of its games from the store. Games already installed stay on your server.</p>
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

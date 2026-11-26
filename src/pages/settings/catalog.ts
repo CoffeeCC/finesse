@@ -61,8 +61,8 @@ const system = (c: Ctx) => Boolean(c.features.system)
 export const SECTIONS: SectionDef[] = [
   { id: 'devices', label: 'Other devices', blurb: 'Finesse on your phone, TV and other computers.', when: (c) => !c.webos },
   { id: 'playback', label: 'Playback', blurb: 'How movies, shows and music play on this device.' },
-  { id: 'appearance', label: 'Appearance', blurb: 'Colors, size and motion.' },
-  { id: 'sound', label: 'Sound', blurb: 'Interface sounds, previews and lyrics.' },
+  { id: 'appearance', label: 'Appearance', blurb: 'Colors, size, previews and motion.' },
+  { id: 'sound', label: 'Sound', blurb: 'Interface sounds, preview audio and lyrics.' },
   { id: 'account', label: 'Account', blurb: 'Who’s signed in, and how this device connects.' },
   { id: 'updates', label: 'Updates', blurb: 'This app’s version, and the server’s.' },
   { id: 'about', label: 'About', blurb: 'Finesse, reporting a problem, and supporting it.' },
@@ -91,6 +91,7 @@ export const ENTRIES: Entry[] = [
   { section: 'appearance', label: 'Accent color', words: 'colour theme tint highlight' },
   { section: 'appearance', label: 'Display size', words: 'scale zoom bigger text size ui couch' },
   { section: 'appearance', label: 'Preview quality', words: 'hover preview resolution trailer clips' },
+  { section: 'appearance', label: 'Thumbnail previews', words: 'scrub thumbnails hover' },
   { section: 'appearance', label: 'Reduce motion', words: 'animation accessibility transitions still' },
   { section: 'appearance', label: 'Screensaver', words: 'idle clock burn in' },
   { section: 'appearance', label: 'Tilt parallax', words: 'gyro motion depth phone', when: (c) => c.touch },
@@ -98,7 +99,6 @@ export const ENTRIES: Entry[] = [
   // Sound
   { section: 'sound', label: 'Interface sounds', words: 'ui sounds clicks beeps volume mouse hover' },
   { section: 'sound', label: 'Preview sound', words: 'audio hover mute' },
-  { section: 'sound', label: 'Thumbnail previews', words: 'scrub thumbnails hover' },
   { section: 'sound', label: 'Find lyrics online', words: 'lrclib lyrics music karaoke' },
 
   // Account

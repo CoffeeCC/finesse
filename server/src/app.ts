@@ -1,6 +1,7 @@
 // Assembles the Finesse server: settings, auth, routes, static web, proxies.
 // `createApp()` returns an unstarted http.Server so tests can run it in-process.
 
+import { randomBytes } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { Auth, ensureSetupCode, tokenFrom } from './auth.ts'
 import { SettingsStore, type Paths, type Settings } from './config.ts'
@@ -147,6 +148,45 @@ export function createApp(opts: { paths?: Paths; plugins?: Plugin[] } = {}): { s
     })
   })
   router.get('/api/health', ({ res }) => sendJson(res, 200, { status: 'ok', version: VERSION }))
+
+  // One-time HTTP → HTTPS session handoff (60 s TTL, consumed on first read) so switching to the
+  // HTTPS port for in-browser game streaming never dumps the user back to the sign-in screen.
+  const handoffs = new Map<string, { payload: Record<string, unknown>; expiresAt: number }>()
+  router.post('/api/handoff', async ({ req, res }) => {
+    const user = await auth.requireUser(req)
+    const body = await readJson<Record<string, unknown>>(req)
+    if (typeof body.token !== 'string' || !body.token || typeof body.userId !== 'string' || body.userId !== user.id || typeof body.server !== 'string') {
+      throw new ApiError(400, 'Invalid session handoff payload')
+    }
+    const now = Date.now()
+    for (const [k, v] of handoffs) if (v.expiresAt <= now) handoffs.delete(k)
+    if (handoffs.size >= 100) {
+      const oldest = handoffs.keys().next().value
+      if (oldest) handoffs.delete(oldest)
+    }
+    const code = randomBytes(32).toString('hex')
+    handoffs.set(code, {
+      payload: {
+        server: body.server,
+        token: body.token,
+        userId: user.id,
+        userName: typeof body.userName === 'string' ? body.userName : user.name,
+        isAdmin: user.isAdmin,
+      },
+      expiresAt: now + 60_000,
+    })
+    res.setHeader('Cache-Control', 'no-store')
+    sendJson(res, 200, { code })
+  })
+  router.get('/api/handoff/:code', ({ params, res }) => {
+    res.setHeader('Cache-Control', 'no-store')
+    const code = params.code ?? ''
+    const entry = handoffs.get(code)
+    handoffs.delete(code)
+    if (!entry || entry.expiresAt <= Date.now()) throw new ApiError(404, 'Handoff expired')
+    sendJson(res, 200, entry.payload)
+  })
+
   // Secure connection: Finesse's certificate authority (a public certificate: safe to hand to anyone at
   // home; it's what a device installs to trust Finesse), and the Tailscale address with a real certificate.
   router.get('/api/tls', ({ res }) => {
