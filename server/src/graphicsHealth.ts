@@ -48,6 +48,14 @@ export function visibleTo(info: Pick<ContainerInspect, 'HostConfig' | 'Config' |
       addIds(ids)
     }
   }
+  // CUDA_VISIBLE_DEVICES by UUID keeps video on those cards, whatever else the container can see
+  // (a card whose driver needs the other cards beside it is set up that way).
+  const cuda = (env.CUDA_VISIBLE_DEVICES ?? '').split(',').map((x) => x.trim()).filter((x) => /^GPU-/.test(x))
+  if (cuda.length && (v.nvidiaAll || v.uuids.length || v.indexes.length)) {
+    v.uuids = v.nvidiaAll || v.indexes.length ? cuda : v.uuids.filter((u) => cuda.includes(u))
+    v.nvidiaAll = false
+    v.indexes = []
+  }
   for (const d of hc.Devices ?? []) {
     const p = d.PathOnHost ?? ''
     if (p === '/dev/dri' || p === '/dev/dri/') v.driAll = true

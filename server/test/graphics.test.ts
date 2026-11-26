@@ -235,13 +235,16 @@ test('each card is tested alone, pinned by UUID or render node; a failed test is
       ],
     )
     assert.match(got.gpus[0]!.problem!, /unsupported device/)
+    // Each card alone first; the one that failed is tried once more with the other card beside it.
     const tests = Object.entries(fd.created).filter(([n]) => n.startsWith('finesse-gpu-test-'))
-    assert.equal(tests.length, 2)
+    assert.equal(tests.length, 3)
     for (const [, body] of tests) {
       assert.equal(body.Labels['finesse.managed'], 'true')
-      assert.equal(body.HostConfig.DeviceRequests[0].DeviceIDs.length, 1)
       assert.ok(!JSON.stringify(body).includes('"all"'))
     }
+    assert.deepEqual(tests.map(([, b]) => b.HostConfig.DeviceRequests[0].DeviceIDs.length), [1, 2, 1])
+    assert.ok(tests[1]![1].Env.includes('CUDA_VISIBLE_DEVICES=GPU-51512123-c030-4d28-adb9-c56e13629c77'))
+    assert.equal(got.gpus[0]!.peers, undefined)
     // The probe only reads the host: /sys and NVIDIA's /proc entry, read-only.
     const probe = Object.values(fd.created).find((b) => (b.Cmd ?? []).join(' ').includes('/host/sys/class/drm'))
     assert.deepEqual(probe.HostConfig.Binds, ['/sys:/host/sys:ro', '/proc/driver/nvidia:/host/nvidia:ro'])
