@@ -1,5 +1,14 @@
 # Finesse — TODO
 
+## Self-Healing, Speed, Roku Cast, Settings, Soundtracks & Full-App Polish — v3.2.9 (2026-11-25)
+
+- **Soundtracks in one click** — Movie and Show detail pages now have a **Soundtrack** button that searches Lidarr for the original soundtrack or score (ranking real soundtracks above covers/tributes), shows if it's already in your Music library, and downloads only that soundtrack album into Lidarr without subscribing to the composer's whole discography.
+- **Hands-free self-healing** — Automatic download rescue is enabled by default to replace stalled, failed, or stuck downloads across Usenet and torrents (configurable under Settings → Downloads), and Finesse automatically repairs SABnzbd hostname whitelists and Radarr/Sonarr/Lidarr remote path mappings in the background with auto-healed status badges in Settings → Health.
+- **Redesigned Settings & Smart Collections** — Settings is split into searchable sub-pages with obsidian-glass navigation and Quality & Languages presets + *"Why nothing yet?"* diagnostics for stalled requests. Smart Collections now show plain-English explanations, 1-click live starter shelves with real posters from your library, a chip-based rule builder, and a *"Pick one for me"* button.
+- **Redesigned `/` Search & unified aesthetic** — Obsidian-glass command palette with a working `Esc` close button, `↑↓` keyboard navigation, Quick Jump bar, removable recent chips, and cohesive dark editorial genre tiles across Search, Home, Game Store, and Library.
+- **Cast to Roku, AAC-only HLS, Multi-GPU NVENC & Cross-Device Playback** — Added native Roku ECP casting from the Cast menu, hardware codec probing (`mediaCaps`) with AAC-only HLS-in-TS (fixing old XviD/MP3 AVIs on Chrome & LG TV), multi-GPU NVIDIA NVENC peer probing, lazy `hls.js` loading, Media Session API, Screen Wake Lock, and full safe-area / webOS Chromium 68 polish.
+- **Full-app hardening & performance** — Brotli/gzip JSON compression, keep-alive proxy pools, 7-day immutable Jellyfin image caching, fixed preview-clip prefetch pool starvation, SteamOS-inspired Game Store installer + 1-click executable picker, and deep bug-fix passes across Request & Downloads, Friends & streaming from friends' servers, Moments, Watch Together, and the Music Player.
+
 ## Game store (Beta) — next release
 
 Off until an administrator turns it on in Settings → Server → Game store. Finesse comes with no
