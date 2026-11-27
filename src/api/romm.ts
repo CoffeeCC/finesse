@@ -366,7 +366,7 @@ export async function biosUrl(rom: RommRom, core: string): Promise<string | null
 export function cleanName(name: string): string {
   return name
     .replace(/\.(7z|zip|rar|z64|n64|nes|smc|sfc|gb[ac]?|gba|iso|nsp|nsz|xci|nds|md|bin|cue|chd|pce)$/i, '')
-    .replace(/\[[^\]]*\]/g, '') // [NSP], [!], [FitGirl Repack]
+    .replace(/\[[^\]]*\]/g, '') // [NSP], [!], [Repack]
     .replace(/\([^)]*\)/g, (m) => (/disc/i.test(m) ? m : '')) // drop (USA)/(Rev 1)/(En,Fr) — keep (Disc N)
     .replace(/\s{2,}/g, ' ')
     .trim()

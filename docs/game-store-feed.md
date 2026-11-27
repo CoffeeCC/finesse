@@ -3,12 +3,16 @@
 Finesse's game store ships with no games in it. Whoever runs the server adds **feeds**: each is
 one JSON document at an address, listing games and where each can be downloaded. Anyone can
 publish one: a studio for its own downloads, a community for free games, you for a folder of
-installers you own.
+installers you own. A source can instead be a **post list** — a site that publishes one post per
+game (see the section at the end).
 
 Add a feed as an administrator (`POST /api/games/store/feeds` with `{ "name", "url" }`; Settings
 gets a page for it with the rest of the store). Finesse reads each feed when it's added, twice a
 day after that, and whenever you ask (`POST /api/games/store/sync`). A game a feed stops listing
-leaves the store; a feed that can't be reached keeps the games it gave last time.
+leaves the store; a feed that can't be reached keeps the games it gave last time. Turning the
+store on with nothing plugged in sets up the default sources — config data in
+`server/src/gamestore/defaults.ts` that an administrator can remove; the reader itself knows no
+site by name.
 
 ## The format
 
@@ -61,3 +65,24 @@ leaves the store; a feed that can't be reached keeps the games it gave last time
 A game with no usable download is left out, and the feed's status says which and why.
 
 An example to copy: [examples/game-store/feed.json](../examples/game-store/feed.json).
+
+## Post-list sources
+
+Some sources aren't feed files: they're sites that publish one post per game, with a JSON list of
+posts at a fixed address under the site. Add such a source with `{ "name", "url", "kind": "posts" }`
+and it is read page by page with a pause between pages. Finesse knows no site by name: the rules
+say how to read it, and every rule can be changed per source (`rules` in the same body):
+
+| Rule | Default | What it does |
+|---|---|---|
+| `listPath` | `wp-json/wp/v2/posts?per_page={n}&page={p}` | The list address under the site's address; `{n}` is the page size, `{p}` the page number. |
+| `perPage` / `maxPages` / `delayMs` | 100 / 40 / 500 | How much one read takes, and how slowly. |
+| `titlePath`, `contentPath`, `excerptPath`, `linkPath`, `coverPath`, `datePath` | `title.rendered`, `content.rendered`, `excerpt.rendered`, `link`, `jetpack_featured_media_url`, `date` | Which fields of a post hold what (dot-separated paths). |
+| `magnetRe`, `sizeRe`, `genresRe`, `developerRe`, `yearRe` | patterns that match the lines these sites publish | Where the download, its size, genres, developer and year sit in the post text, searched line by line. |
+
+A post becomes one game: its title, its first summary line, its picture, and one `windows`
+download with `installer: "unknown"` — the engine reads the file itself, as always. Nothing a
+pattern finds is trusted: the values go through the checks above, and a post with no usable
+download is left out like any other. Sites that answer differently (a different list address,
+different field names) need only different rules, not different code.
+

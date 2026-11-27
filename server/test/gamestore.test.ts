@@ -10,6 +10,7 @@ import { after, before, test } from 'node:test'
 import { facets, genreSlug, home, search } from '../src/gamestore/catalogue.ts'
 import { GameStoreDb, type StoredRequest } from '../src/gamestore/db.ts'
 import { REQUEST_STATES, type CatalogueGame, type CatalogueSource } from '../src/gamestore/types.ts'
+import { DEFAULT_FEEDS } from '../src/gamestore/defaults.ts'
 import { call, fakeJellyfin, finesse } from './peers.ts'
 
 const MAGNET = 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'
@@ -113,6 +114,18 @@ let F: Awaited<ReturnType<typeof finesse>>
 let db: GameStoreDb
 const servers: Server[] = []
 const S = '/api/games/store'
+// Reading is faked in this file: the default sources the store sets up when it's turned on
+// read nothing here, so the test never goes to the network. Everything else — the test's own
+// servers — keeps using the real fetch.
+const realFetch = globalThis.fetch
+globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+  const url = typeof input === 'string' ? input : String(input)
+  if (DEFAULT_FEEDS.some((f) => url.startsWith(f.url))) {
+    if (process.env.GS_DEBUG) console.log('[mock]', url.slice(0, 90), 'fake')
+    return { ok: true, status: 200, text: async () => JSON.stringify([]), headers: new Headers() } as unknown as Response
+  }
+  return realFetch(input, init)
+}) as typeof fetch
 
 before(async () => {
   jf = await fakeJellyfin('Home', [{ name: 'alex', token: 't-admin', admin: true }, { name: 'robin', token: 't-robin', admin: false }], 'service')
@@ -141,6 +154,10 @@ test('off by default: nothing to browse, and the app isn’t told there’s a st
 test('turned on: the front page, search, filters and a game, with nothing about where it comes from', async () => {
   const on = await call(F.url, 'PUT', `${S}/settings`, 't-admin', { enabled: true })
   assert.deepEqual(on.data, { enabled: true, canDownload: false, canInstall: false, games: 0, seeding: { ratio: 1, days: 7 } })
+  // Turning on with nothing plugged in set up the default sources; remove them to keep this test's own single provider.
+  const seeded = (await call(F.url, 'GET', `${S}/feeds`, 't-admin')).data as { feeds: { id: string }[] }
+  assert.deepEqual(seeded.feeds.map((f) => f.id), ['fitgirl', 'dodi'])
+  for (const id of seeded.feeds.map((f) => f.id)) await call(F.url, 'DELETE', `${S}/feeds/${id}`, 't-admin')
   seed()
   assert.deepEqual((await call(F.url, 'GET', `${S}/settings`, 't-admin')).data, { enabled: true, canDownload: false, canInstall: false, games: 5, seeding: { ratio: 1, days: 7 } })
   assert.equal(((await call(F.url, 'GET', '/api/finesse')).data.features as Record<string, boolean>).gameStore, true)

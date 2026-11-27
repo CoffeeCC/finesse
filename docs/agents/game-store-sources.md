@@ -11,7 +11,7 @@ the short version of **where things plug in** and what's already there.
 | Store pages (front page, browse + filters, game page, requests) | `src/pages/GameStore*.tsx`, `GameRequestsPage.tsx` | Work against the real server |
 | Settings → Server → Game store (on/off, sources, status) | `src/pages/settings/GameStoreAdmin.tsx` | Works |
 | Catalogue + API (`/api/games/store/*`) | `server/src/gamestore/routes.ts`, `catalogue.ts`, `db.ts` | Works |
-| Sources: feeds by address, feed files on disk | `server/src/gamestore/feed.ts`, [docs/game-store-feed.md](../game-store-feed.md) | Works |
+| Sources: feeds by address, feed files on disk, post lists read by rules | `server/src/gamestore/feed.ts`, [docs/game-store-feed.md](../game-store-feed.md) | Works |
 | Downloads: magnets via the VPN's qBittorrent, https directly | `qbit.ts`, `direct.ts`, `wiring.ts` | Tested against a pretend qBittorrent only |
 | Request pipeline (queued → … → ready / failed, restart-safe) | `pipeline.ts` | Works; stops after "checking" until there's an installer |
 | Install engine (unpack → silent → auto-click → needs you, start check) | `install.ts`, `answers.ts`, `program.ts` | Tested against a pretend sandbox only |

@@ -463,6 +463,8 @@ export interface StoreFeed {
   id: string
   name: string
   url?: string
+  /** How the address is read: a feed document (default) or a post list. */
+  kind?: 'feed' | 'posts'
   /** A file in the config folder's game-feeds folder (removed by deleting the file). */
   file?: string
   status: FeedStatus | null
@@ -505,7 +507,7 @@ export const gameStoreAdmin = {
       x.send(file)
     }),
   feeds: () => call<{ feeds: StoreFeed[] }>('GET', '/feeds').then((r) => r.feeds),
-  addFeed: (name: string, url: string) => call<{ feeds: StoreFeed[] }>('POST', '/feeds', { name, url }).then((r) => r.feeds),
+  addFeed: (name: string, url: string, kind?: 'posts') => call<{ feeds: StoreFeed[] }>('POST', '/feeds', { name, url, ...(kind ? { kind } : {}) }).then((r) => r.feeds),
   removeFeed: (id: string) => call<{ feeds: StoreFeed[] }>('DELETE', `/feeds/${encodeURIComponent(id)}`).then((r) => r.feeds),
   sync: () => call<{ feeds: StoreFeed[] }>('POST', '/sync').then((r) => r.feeds),
 }

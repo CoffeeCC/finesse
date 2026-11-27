@@ -46,8 +46,9 @@ what differs.
 ## Rules for this feature
 
 - **Finesse ships no game sources.** Providers are added and configured by whoever runs the server
-  (ROADMAP principle 7), like indexers in Prowlarr. Nothing in the repo points at a particular
-  download site.
+  (ROADMAP principle 7), like indexers in Prowlarr. Nothing in the repo names a particular
+  download site: the default sources set up on first enable are config data
+  (`server/src/gamestore/defaults.ts`), and the code that reads them works from rules alone.
 - **Test only with installers that are free to share** (open source games, free games, test
   installers we build). Don't add code aimed at one release group's or repacker's tooling.
 - **Installing is sealed off:** nothing from a download runs during install outside the sandbox,

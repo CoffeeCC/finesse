@@ -1,6 +1,6 @@
 // Settings → Games → Game store (administrators): on or off, and where its games come from.
 // Finesse ships no games: each source is a feed (docs/game-store-feed.md), at an address or as
-// a file in the server's config folder.
+// a file in the server's config folder, or a post list read by rules.
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
@@ -35,6 +35,7 @@ export default function GameStoreAdmin() {
   const [busy, setBusy] = useState('')
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [kind, setKind] = useState('')
   const [open, setOpen] = useState('')
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -78,9 +79,10 @@ export default function GameStoreAdmin() {
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
-    if (await act('add', () => gameStoreAdmin.addFeed(name.trim(), url.trim()), 'Source added')) {
+    if (await act('add', () => gameStoreAdmin.addFeed(name.trim(), url.trim(), kind || undefined), 'Source added')) {
       setName('')
       setUrl('')
+      setKind('')
     }
   }
 
@@ -191,7 +193,7 @@ export default function GameStoreAdmin() {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[14px] font-medium text-white">{f.name}</div>
-                          <div className="truncate text-[12px] text-ink-500">{f.url ?? `A file on the server: game-feeds/${f.file}`}</div>
+                          <div className="truncate text-[12px] text-ink-500">{f.url ?? `A file on the server: game-feeds/${f.file}`}{f.kind === 'posts' ? ' · read as a post list' : ''}</div>
                         </div>
                         <span className={`text-[12.5px] ${sum.bad ? 'text-amber-200' : 'text-ink-300'}`}>{sum.text}</span>
                         {notes.length > 0 && (
@@ -223,13 +225,17 @@ export default function GameStoreAdmin() {
               <div className="flex flex-wrap gap-2">
                 <input className={`${field} w-40`} placeholder="Name" aria-label="Source name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required />
                 <input className={`${field} flex-1 basis-56`} placeholder="https://example.org/games.json" aria-label="Feed address" value={url} onChange={(e) => setUrl(e.target.value)} inputMode="url" required />
+                <select className={`${field} w-32`} aria-label="How to read it" value={kind} onChange={(e) => setKind(e.target.value)}>
+                  <option value="">Read as a feed file</option>
+                  <option value="posts">Read as a post list</option>
+                </select>
                 <button type="submit" className={smallBtn + ' h-9'} disabled={busy === 'add' || !name.trim() || !url.trim()}>
                   {busy === 'add' && <Spinner className="h-3 w-3" />}
                   Add source
                 </button>
               </div>
               <p className="text-[12.5px] leading-relaxed text-ink-400">
-                A source is a feed: one file that lists games and where each can be downloaded. Give its address here, or put the file in the <span className="text-ink-200">game-feeds</span> folder of Finesse’s config folder on the server and press “Read them again”.
+                A source is a feed: one file that lists games and where each can be downloaded. Give its address here, or put the file in the <span className="text-ink-200">game-feeds</span> folder of Finesse’s config folder on the server and press “Read them again”. A source can also be a site that publishes one post per game (“post list”): give its address, and Finesse reads its post list page by page (the default rules are in <span className="text-ink-200">docs/game-store-feed.md</span>).
               </p>
             </form>
 

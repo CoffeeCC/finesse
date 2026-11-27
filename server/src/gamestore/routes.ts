@@ -12,6 +12,7 @@ import { ApiError, readJson, sendJson, type Router } from '../http/core.ts'
 import { ArtCache, artId } from './art.ts'
 import { facets, home, publicGame, search, similar } from './catalogue.ts'
 import { GameStoreDb, publicRequest, publicSource, type StoredRequest } from './db.ts'
+import { DEFAULT_FEEDS } from './defaults.ts'
 import { cleanFeedConfig, feedProvider, httpsUrl, parseFeed, type Fetcher, type FeedConfig } from './feed.ts'
 import { liveSearchGames, prowlarrConfigured, resolveLiveDownload } from './prowlarrSearch.ts'
 import { GameTransferStore, streamDirAsTar } from './transfer.ts'
@@ -209,6 +210,14 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
     settings.update((s) => {
       s.gameStore = { ...(s.gameStore ?? {}), enabled, seeding: share }
     })
+    // Turned on with nothing plugged in: the default sources are set up. The names are config
+    // data (defaults.ts); the reader itself knows no site by name. An administrator can remove
+    // them, and they don't come back.
+    if (body.enabled === true && !feeds().length) {
+      settings.update((s) => {
+        s.gameStore = { ...(s.gameStore ?? {}), feeds: DEFAULT_FEEDS.map((f) => ({ ...f })) }
+      })
+    }
     // Turned on: read the feeds straight away, so the store isn't empty until the next round.
     if (body.enabled === true) await store.sync()
     sendJson(res, 200, state())
