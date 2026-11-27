@@ -79,7 +79,7 @@ export default function GameStoreAdmin() {
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
-    if (await act('add', () => gameStoreAdmin.addFeed(name.trim(), url.trim(), kind || undefined), 'Source added')) {
+    if (await act('add', () => gameStoreAdmin.addFeed(name.trim(), url.trim(), kind === 'posts' ? 'posts' : undefined), 'Source added')) {
       setName('')
       setUrl('')
       setKind('')
