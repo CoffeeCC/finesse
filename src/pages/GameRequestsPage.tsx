@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { ChooseProgramLink, GameRequestStatusView, installerHref, RequestStageBar } from '../components/gamestore/GameRequestStatus'
 import GameTransferModal from '../components/gamestore/GameTransferModal'
+import PlayChoice from '../components/gamestore/PlayChoice'
 import { StoreThumb, storeGameHref } from '../components/gamestore/StoreCards'
 import { StoreHeader, StoreUnavailable } from '../components/gamestore/StoreHeader'
 import { formatSpeed } from '../lib/gameRequestStatus'
@@ -162,6 +163,7 @@ function RequestCard({ r }: { r: GameRequest }) {
   const toast = useToast()
   const [confirm, setConfirm] = useState(false)
   const [transfer, setTransfer] = useState(false)
+  const [play, setPlay] = useState(false)
 
   const facts = [PLATFORM_LABEL[r.platform], formatSize(r.sizeBytes), r.requestedBy ? `requested by ${r.requestedBy}` : null]
     .filter(Boolean)
@@ -251,12 +253,13 @@ function RequestCard({ r }: { r: GameRequest }) {
           </button>
         )}
         {r.state === 'ready' && (
-          <Link
-            to="/games"
+          <button
+            type="button"
+            onClick={() => setPlay(true)}
             className="inline-flex h-9 items-center rounded-lg bg-white px-4 text-sm font-semibold text-ink-950 transition hover:bg-ink-200"
           >
             Play
-          </Link>
+          </button>
         )}
         {canTransfer && (
           <button
@@ -280,6 +283,7 @@ function RequestCard({ r }: { r: GameRequest }) {
         </button>
       </div>
 
+      {play && <PlayChoice request={r} onClose={() => setPlay(false)} />}
       {transfer && <GameTransferModal requestId={r.id} title={r.title} onClose={() => setTransfer(false)} />}
       {confirm && (
         <ConfirmDialog

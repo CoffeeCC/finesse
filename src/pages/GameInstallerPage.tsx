@@ -10,6 +10,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { GameRequestStatusView } from '../components/gamestore/GameRequestStatus'
 import GameTransferModal from '../components/gamestore/GameTransferModal'
+import PlayChoice from '../components/gamestore/PlayChoice'
 import { storeGameHref } from '../components/gamestore/StoreCards'
 import { StoreUnavailable } from '../components/gamestore/StoreHeader'
 import { IS_TV, TOUCH_UI } from '../lib/device'
@@ -23,6 +24,7 @@ export default function GameInstallerPage() {
   const actions = useGameRequestActions()
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [transfer, setTransfer] = useState(false)
+  const [play, setPlay] = useState(false)
 
   if (!mode) return <StoreUnavailable title="Game installer" />
 
@@ -131,9 +133,9 @@ export default function GameInstallerPage() {
               Installation finished cleanly and the game has been added to your library.
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <Link to="/games" className={PLAY_BTN}>
+              <button type="button" onClick={() => setPlay(true)} className={PLAY_BTN}>
                 Play
-              </Link>
+              </button>
               <button type="button" onClick={() => setTransfer(true)} className={START_OVER_BTN}>
                 Transfer to PC / Deck
               </button>
@@ -224,6 +226,7 @@ export default function GameInstallerPage() {
         )}
       </div>
 
+      {play && <PlayChoice request={r} onClose={() => setPlay(false)} />}
       {transfer && <GameTransferModal requestId={r.id} title={r.title} onClose={() => setTransfer(false)} />}
       {confirmCancel && (
         <ConfirmDialog

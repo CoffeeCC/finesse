@@ -11,6 +11,7 @@ import { AddRomsModal } from '../components/gamestore/AddRomsModal'
 import { GameRequestStatusView, installerHref } from '../components/gamestore/GameRequestStatus'
 import { StoreThumb, storeGameHref } from '../components/gamestore/StoreCards'
 import { StoreHeader, StoreSearchBox } from '../components/gamestore/StoreHeader'
+import YourGames from '../components/gamestore/YourGames'
 import { IS_TV } from '../lib/device'
 import { useFinesse } from '../lib/finesseServer'
 import { readDrop, type Dropped } from '../lib/mediaSort'
@@ -124,6 +125,7 @@ export default function GamesPage() {
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-12">
       <StoreHeader title="Games" />
+      <YourGames />
       {streaming && <StreamingSection />}
       {storeMode ? (
         <StoreOnlyShowcase />
@@ -497,6 +499,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       {top ? (
         <>
           <StoreHeader title="Games" extra={addRomsBtn} />
+          <YourGames />
           {top}
           <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <h2 className="row-title text-white">Games library</h2>
@@ -504,15 +507,18 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
           </div>
         </>
       ) : (
-        <StoreHeader
-          title="Games"
-          extra={
-            <div className="flex w-full flex-wrap items-center justify-end gap-2.5 sm:w-auto">
-              {searchBox}
-              {addRomsBtn}
-            </div>
-          }
-        />
+        <>
+          <StoreHeader
+            title="Games"
+            extra={
+              <div className="flex w-full flex-wrap items-center justify-end gap-2.5 sm:w-auto">
+                {searchBox}
+                {addRomsBtn}
+              </div>
+            }
+          />
+          <YourGames />
+        </>
       )}
 
       {/* Platform filter */}

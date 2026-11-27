@@ -385,4 +385,18 @@ export const demoStore: GameStoreApi = {
     return wait(view(r))
   },
   installerScreenUrl: () => null,
+  library: () => wait(load().map((r) => view(r)).filter((r) => r.state === 'ready').map((r) => ({ ...r, shot: false }))),
+  playOptions: () =>
+    wait({
+      serverName: 'Demo',
+      last: null,
+      ways: [
+        { way: 'server' as const, ok: false, why: 'This preview can’t start games. They run on the server.' },
+        { way: 'stream' as const, ok: false, why: 'This preview can’t start games. They run on the server.' },
+      ],
+    }),
+  play: async () => {
+    throw new Error('This preview can’t start games. They run on the server.')
+  },
+  shotUrl: () => '',
 }

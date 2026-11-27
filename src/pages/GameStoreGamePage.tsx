@@ -23,6 +23,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { ChooseProgramLink, GameRequestStatusView, installerHref, RequestStageBar } from '../components/gamestore/GameRequestStatus'
 import GameTransferModal from '../components/gamestore/GameTransferModal'
+import PlayChoice from '../components/gamestore/PlayChoice'
 import { StoreCover, StoreShelf, storeGradient } from '../components/gamestore/StoreCards'
 import { StoreUnavailable } from '../components/gamestore/StoreHeader'
 import { goBack, pushBackHandler } from '../lib/back'
@@ -342,10 +343,10 @@ function RequestArea({
   const limits = useMyLimits()
   const actions = useGameRequestActions()
   const toast = useToast()
-  const navigate = useNavigate()
   const [sourceId, setSourceId] = useState(sources[0]?.id)
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [transfer, setTransfer] = useState(false)
+  const [play, setPlay] = useState(false)
   const source = sources.find((s) => s.id === sourceId) ?? sources[0]
 
   if (limits && !limits.requests) {
@@ -369,7 +370,7 @@ function RequestArea({
                 Finish installing
               </Link>
             ) : r.state === 'ready' ? (
-              <button type="button" className={PLAY_BTN} onClick={() => navigate('/games')}>
+              <button type="button" className={PLAY_BTN} onClick={() => setPlay(true)}>
                 <PlayIcon /> Play
               </button>
             ) : r.state === 'failed' ? (
@@ -430,6 +431,7 @@ function RequestArea({
 
         <RequestStageBar request={r} className="mt-4 border-t border-white/[0.08] pt-3.5" />
 
+        {play && <PlayChoice request={r} onClose={() => setPlay(false)} />}
         {transfer && <GameTransferModal requestId={r.id} title={title} onClose={() => setTransfer(false)} />}
         {confirmCancel && (
           <ConfirmDialog
