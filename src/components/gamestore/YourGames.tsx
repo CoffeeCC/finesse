@@ -6,6 +6,7 @@ import { libraryShotUrl, type LibraryGame } from '../../api/gameStore'
 import { useGameRequestActions, useLibrary, useStoreMode } from '../../api/gameStoreQueries'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { useToast } from '../Toast'
+import GameTransferModal from './GameTransferModal'
 import PlayChoice from './PlayChoice'
 import { storeGradient } from './StoreCards'
 
@@ -15,6 +16,7 @@ export default function YourGames() {
   const actions = useGameRequestActions()
   const toast = useToast()
   const [play, setPlay] = useState<LibraryGame | null>(null)
+  const [transfer, setTransfer] = useState<LibraryGame | null>(null)
   const [remove, setRemove] = useState<LibraryGame | null>(null)
   if (!mode || !data?.length) return null
   const fail = (e: unknown) => toast(e instanceof Error ? e.message : 'That didn’t work', 'error')
@@ -31,14 +33,26 @@ export default function YourGames() {
                 <p className="mt-2 truncate px-0.5 text-sm font-medium text-ink-200 group-hover:text-white group-focus-visible:text-white">{g.title}</p>
               </button>
               {warn && <p className="mt-1 px-0.5 text-[12px] leading-snug text-amber-200">{warn}</p>}
-              <button type="button" onClick={() => setRemove(g)} className="mt-1 rounded-md px-0.5 text-[13px] font-medium text-ink-400 hover:text-white focus-visible:text-white">
-                Uninstall
-              </button>
+              <div className="mt-1 flex items-center gap-3 px-0.5">
+                {mode === 'server' && (
+                  <button
+                    type="button"
+                    onClick={() => setTransfer(g)}
+                    className="rounded-md text-[13px] font-medium text-accent-300 hover:text-accent-200 focus-visible:text-accent-200"
+                  >
+                    Transfer
+                  </button>
+                )}
+                <button type="button" onClick={() => setRemove(g)} className="rounded-md text-[13px] font-medium text-ink-400 hover:text-white focus-visible:text-white">
+                  Uninstall
+                </button>
+              </div>
             </div>
           )
         })}
       </div>
       {play && <PlayChoice request={play} onClose={() => setPlay(null)} />}
+      {transfer && <GameTransferModal requestId={transfer.id} title={transfer.title} onClose={() => setTransfer(null)} />}
       {remove && (
         <ConfirmDialog
           title={`Uninstall “${remove.title}”?`}

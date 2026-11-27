@@ -14,6 +14,7 @@ import { switchToHttps } from '../../lib/httpsHandoff'
 import { useOverlayFocus } from '../../lib/overlayFocus'
 import { PlayIcon, SessionPicker } from '../MoonlightPlay'
 import GameStreamOverlay from '../GameStreamOverlay'
+import GameTransferModal from './GameTransferModal'
 
 const WAY: { way: PlayWay; label: (name: string) => string }[] = [
   { way: 'server', label: (name) => `Play on ${name}` },
@@ -24,6 +25,7 @@ export default function PlayChoice({ request, onClose }: { request: Pick<GameReq
   const mode = useStoreMode()
   const { data, isLoading, isError, error } = usePlayOptions(request.id)
   const [playing, setPlaying] = useState<StreamApp | null>(null)
+  const [transfer, setTransfer] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [switchingHttps, setSwitchingHttps] = useState(false)
@@ -33,7 +35,7 @@ export default function PlayChoice({ request, onClose }: { request: Pick<GameReq
   const here = Boolean(info?.streamPort && info?.httpsPort) && window.location.protocol !== 'file:'
   const httpsPort = info?.httpsPort ?? null
 
-  useEffect(() => (playing ? undefined : pushBackHandler(() => (onClose(), true))), [onClose, playing])
+  useEffect(() => (playing || transfer ? undefined : pushBackHandler(() => (onClose(), true))), [onClose, playing, transfer])
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -41,9 +43,10 @@ export default function PlayChoice({ request, onClose }: { request: Pick<GameReq
       document.body.style.overflow = prev
     }
   }, [])
-  useOverlayFocus(!playing, panel)
+  useOverlayFocus(!playing && !transfer, panel)
 
   if (playing) return <GameStreamOverlay app={playing} onClose={onClose} />
+  if (transfer) return <GameTransferModal requestId={request.id} title={request.title} onClose={() => setTransfer(false)} />
   const preferred: PlayWay = data?.last?.way ?? data?.ways.find((w) => w.ok)?.way ?? 'server'
 
   const start = async (way: PlayWay, target: string) => {
@@ -122,6 +125,21 @@ export default function PlayChoice({ request, onClose }: { request: Pick<GameReq
                   return streamingApi.launch(appId, session)
                 }}
               />
+              {mode === 'server' && (
+                <button
+                  type="button"
+                  onClick={() => setTransfer(true)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-left transition hover:border-white/20 hover:bg-white/[0.08] outline-none focus-visible:ring-2 focus-visible:ring-white"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-white">Transfer to PC / Steam Deck</span>
+                    <span className="mt-0.5 block text-[12px] text-ink-400">Copy the installed game straight from your server over LAN.</span>
+                  </span>
+                  <svg className="h-4 w-4 shrink-0 text-ink-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                </button>
+              )}
             </>
           )}
           {note && <p className="text-[13px] text-emerald-300">{note}</p>}
