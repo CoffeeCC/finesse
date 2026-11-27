@@ -514,7 +514,10 @@ export function registerGameStore(router: Router, deps: { settings: SettingsStor
 
   // One-click game transfer to another PC / Steam Deck / browser: creates a short-lived signed
   // link that streams the game folder as an uncompressed .tar with zero temp disk usage.
-  const transfers = new GameTransferStore()
+  const transfers = new GameTransferStore(Date.now, () => {
+    const hostData = settings.get().stack?.hostData
+    return hostData ? join(hostData, 'media', 'games', 'pc') : null
+  })
   router.post('/api/games/store/requests/:id/transfer', async ({ req, res, params }) => {
     await auth.requireUser(req)
     on()

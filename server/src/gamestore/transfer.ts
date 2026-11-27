@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto'
 import { once } from 'node:events'
 import { createReadStream, existsSync, lstatSync, readdirSync } from 'node:fs'
 import type { ServerResponse } from 'node:http'
-import { join, posix } from 'node:path'
+import { join, isAbsolute, posix, relative, resolve } from 'node:path'
 import { ApiError } from '../http/core.ts'
 import type { StoredRequest } from './db.ts'
 
@@ -94,21 +94,41 @@ export function scanTransferDir(root: string): { files: ScannedFile[]; bytes: nu
   return { files, bytes }
 }
 
-/** Picks the best directory on disk for a game request: installed folder first, else download folder. */
-export function resolveTransferSource(r: StoredRequest): { dir: string; kind: 'installed' | 'download' } | null {
-  if (r.installDir && existsSync(r.installDir)) {
-    try {
-      if (lstatSync(r.installDir).isDirectory()) return { dir: r.installDir, kind: 'installed' }
-    } catch {
-      /* ignore */
-    }
+function isDir(p: string): boolean {
+  if (!existsSync(p)) return false
+  try {
+    return lstatSync(p).isDirectory()
+  } catch {
+    return false
   }
-  if (r.folder && existsSync(r.folder)) {
-    try {
-      if (lstatSync(r.folder).isDirectory()) return { dir: r.folder, kind: 'download' }
-    } catch {
-      /* ignore */
-    }
+}
+
+/** Resolves a stored installDir (either absolute or relative to `gamesRoot`, e.g. `<id>/game`). */
+function resolveInstallDir(installDir: string, gamesRoot?: string | null): string | null {
+  if (isAbsolute(installDir)) return isDir(installDir) ? installDir : null
+  if (!gamesRoot) return null
+  const base = resolve(gamesRoot)
+  const full = resolve(base, installDir)
+  const rel = relative(base, full)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+  return isDir(full) ? full : null
+}
+
+/** Picks the best directory on disk for a game request: installed folder first, else download folder. */
+export function resolveTransferSource(
+  r: StoredRequest,
+  gamesRoot?: string | null,
+): { dir: string; kind: 'installed' | 'download' } | null {
+  if (r.installDir) {
+    const dir = resolveInstallDir(r.installDir, gamesRoot)
+    if (dir) return { dir, kind: 'installed' }
+  }
+  if (gamesRoot && r.state === 'ready' && /^[a-z0-9_-]{4,64}$/i.test(r.id)) {
+    const fallback = resolveInstallDir(join(r.id, 'game'), gamesRoot)
+    if (fallback) return { dir: fallback, kind: 'installed' }
+  }
+  if (r.folder && isDir(r.folder)) {
+    return { dir: r.folder, kind: 'download' }
   }
   return null
 }
@@ -269,9 +289,11 @@ export async function streamDirAsTar(dir: string, fileName: string, res: ServerR
 export class GameTransferStore {
   private readonly tickets = new Map<string, StoredTicket>()
   private readonly now: () => number
+  private readonly gamesRoot: () => string | null
 
-  constructor(now: () => number = Date.now) {
+  constructor(now: () => number = Date.now, gamesRoot: () => string | null = () => null) {
     this.now = now
+    this.gamesRoot = gamesRoot
   }
 
   private prune() {
@@ -281,7 +303,7 @@ export class GameTransferStore {
 
   create(r: StoredRequest): TransferTicket {
     this.prune()
-    const src = resolveTransferSource(r)
+    const src = resolveTransferSource(r, this.gamesRoot())
     if (!src) throw new ApiError(409, 'This game doesn’t have files on the server yet. Wait until the download finishes.')
     const { files, bytes } = scanTransferDir(src.dir)
     if (!files.length) throw new ApiError(409, 'The game’s folder is empty right now, so there’s nothing to transfer.')

@@ -103,3 +103,18 @@ test('transfer streams installed folder as a valid tar (nested, long path, skips
   const expired = await fetch(`${base}${ticket.url}`)
   assert.equal(expired.status, 404)
 })
+
+test('transfer resolves relative installDir (<id>/game) under media/games/pc and rejects traversal', () => {
+  const gamesRoot = tmp('finesse-games-pc-')
+  const installed = join(gamesRoot, '7db2fc0da9004b8f', 'game', 'CB')
+  mkdirSync(installed, { recursive: true })
+  writeFileSync(join(installed, 'ChainedBeasts.exe'), 'exe-bytes')
+
+  const store = new GameTransferStore(Date.now, () => gamesRoot)
+  const ticket = store.create(reqFixture({ id: '7db2fc0da9004b8f', title: 'Chained Beasts', installDir: '7db2fc0da9004b8f/game' }))
+  assert.equal(ticket.kind, 'installed')
+  assert.equal(ticket.files, 1)
+
+  // Path traversal outside gamesRoot is refused.
+  assert.throws(() => store.create(reqFixture({ id: 'bad', installDir: '../../etc' })), /doesn’t have files on the server yet/)
+})
