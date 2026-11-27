@@ -1,7 +1,7 @@
 // "Needs you": interactive installer screen or executable picker. Handles error, ready, failed,
 // and cancel states cleanly so users are never stranded.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useGameRequestActions, useGameRequests, useStoreMode } from '../api/gameStoreQueries'
 import { installerScreenUrl, needsProgramPick, splitProgramPath, type ExecutableCandidate, type GameRequest } from '../api/gameStore'
@@ -91,7 +91,7 @@ export default function GameInstallerPage() {
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-12">
-      <div className="mx-auto max-w-5xl">
+      <div className="mx-auto max-w-7xl">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <Link to="/games/store/requests" className="inline-flex items-center gap-1.5 text-sm text-ink-300 hover:text-white">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
@@ -185,7 +185,8 @@ export default function GameInstallerPage() {
               </div>
             )}
 
-            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-black ring-1 ring-white/10 sm:aspect-video">
+            {/* The sandbox's screen is 4:3 (1024×768): as big as the page allows, never taller than the window. */}
+            <div className="relative mx-auto aspect-[4/3] w-full max-w-[calc(var(--vh)*104)] overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
               {!waiting ? (
                 <div className="grid h-full place-items-center p-6 text-center">
                   <div>
@@ -347,14 +348,88 @@ function ProgramPicker({ request: r }: { request: GameRequest }) {
   )
 }
 
-/** The real installer's screen. Waits for the server side: the noVNC client connects here. */
+/** The real installer's screen: noVNC over the server's websocket. */
 function InstallerScreen({ url }: { url: string | null }) {
+  const host = useRef<HTMLDivElement>(null)
+  const [status, setStatus] = useState(url ? 'Connecting…' : 'This server can’t show installer screens yet.')
+  // Fitted to the box, or pixel for pixel (scroll to move around) when small text is hard to read.
+  const [actual, setActual] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const rfbRef = useRef<{ scaleViewport: boolean } | null>(null)
+  useEffect(() => {
+    if (rfbRef.current) rfbRef.current.scaleViewport = !actual
+  }, [actual])
+
+  useEffect(() => {
+    if (!url || !host.current) return
+    const el = host.current
+    let gone = false
+    let client: { disconnect: () => void } | null = null
+    setStatus('Connecting…')
+    void import('@novnc/novnc/lib/rfb.js')
+      .then(({ default: RFB }) => {
+        if (gone) return
+        const rfb = new RFB(el, url, { wsProtocols: ['binary'] })
+        rfb.scaleViewport = !actual
+        rfbRef.current = rfb
+        rfb.focusOnClick = true
+        rfb.addEventListener('connect', () => {
+          if (!gone) setStatus('')
+        })
+        rfb.addEventListener('disconnect', (ev: Event) => {
+          if (gone) return
+          const clean = (ev as CustomEvent<{ clean?: boolean }>).detail?.clean === true
+          setStatus(clean ? 'The screen closed.' : 'The screen didn’t connect.')
+        })
+        client = rfb
+      })
+      .catch(() => {
+        if (!gone) setStatus('The screen didn’t connect.')
+      })
+    return () => {
+      gone = true
+      rfbRef.current = null
+      try {
+        client?.disconnect()
+      } catch {
+        /* already closed */
+      }
+    }
+    // The size choice is applied live (above); reconnecting for it would restart the screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, attempt])
+
+  const canRetry = Boolean(url) && status !== '' && status !== 'Connecting…'
+
   return (
-    <div className="grid h-full place-items-center p-6 text-center">
-      <div>
-        <p className="font-semibold text-white">The installer’s screen appears here</p>
-        <p className="mt-1 text-sm text-ink-400">{url ? 'Connecting…' : 'This server can’t show installer screens yet.'}</p>
-      </div>
+    <div className="relative h-full w-full bg-black">
+      <div ref={host} className={`h-full w-full ${actual ? 'overflow-auto' : ''}`} />
+      {!status && (
+        <button
+          type="button"
+          onClick={() => setActual((v) => !v)}
+          className="absolute right-3 top-3 z-10 inline-flex h-8 items-center rounded-full bg-black/70 px-3 text-[12.5px] font-semibold text-white ring-1 ring-white/20 hover:bg-black/90"
+        >
+          {actual ? 'Fit to window' : 'Actual size'}
+        </button>
+      )}
+      {status && (
+        <div className="absolute inset-0 grid place-items-center p-6 text-center">
+          <div>
+            <p className="font-semibold text-white">The installer’s screen appears here</p>
+            <p className="mt-1 text-sm text-ink-400">{status}</p>
+            {canRetry && (
+              <button
+                type="button"
+                onClick={() => setAttempt((n) => n + 1)}
+                className="mt-4 inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/10 px-4 text-xs font-semibold text-white hover:bg-white/20"
+              >
+                Reconnect
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

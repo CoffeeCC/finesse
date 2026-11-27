@@ -72,6 +72,8 @@ const NEVER = /^(cancel|no|back|abort|browse|quit|exit|uninstall|remove|repair|r
 const WRONG = /\b(error|failed|failure|cannot|can(?:'|’)t|could(?: not|n(?:'|’)t)|unable|not found|missing|corrupt|invalid|crash|exception|fatal|not enough|insufficient|access (?:is )?denied|has stopped working|is not supported|requires)\b/i
 /** A restart is never done from a window. */
 const RESTART = /\b(restart|reboot)\b.*\b(computer|now|windows|system)\b/i
+/** The licence is a radio ("I accept the agreement") sitting next to Next, which does nothing until it's pressed. */
+const ACCEPT = /^(i agree|i accept|accept|agree)\b/
 
 /** A window's words in one line, for a person. */
 export function windowWords(w: WindowInfo): string {
@@ -84,6 +86,7 @@ export function answerWindow(w: WindowInfo, kind?: InstallerKind): WindowAnswer 
   const buttons = w.buttons.map((b) => ({ raw: b, l: label(b) })).filter((b) => b.l)
   const pressable = buttons.filter((b) => !NEVER.test(b.l))
   const forward = FORWARD.map((f) => pressable.find((b) => b.l === f || b.l.startsWith(`${f} `))).find(Boolean)
+  const accept = pressable.find((b) => ACCEPT.test(b.l))
   const words = windowWords(w)
 
   // A box with only a way out, saying something went wrong: that's the reason it didn't work.
@@ -93,11 +96,15 @@ export function answerWindow(w: WindowInfo, kind?: InstallerKind): WindowAnswer 
     const later = buttons.find((b) => /^(no|later|restart later|not now)\b/.test(b.l))
     return later ? { do: 'click', button: later.raw } : { do: 'ask', about: words }
   }
-  // Something to type or choose. An install folder page is the exception: the folder was
-  // already given on the command line, so Next is right.
+  // Accept the licence before Next: Next stays disabled, or refuses, until that choice is made.
+  if (accept) return { do: 'click', button: accept.raw }
+  // Something to type or choose. Exceptions where the pre-selected default is already right:
+  //   • install folder page (the folder was already passed on the command line)
+  //   • setup language dialog (Inno Setup / NSIS default to English)
   if (w.wantsInput) {
     const folderPage = kind !== undefined && /\b(destination|install(?:ation)? (?:folder|location|directory)|where should .* be installed)\b/i.test(w.text)
-    if (!(folderPage && forward)) return { do: 'ask', about: words }
+    const languagePage = /\b(setup language|installer language|select (?:the )?language)\b/i.test(`${w.title} ${w.text}`)
+    if (!((folderPage || languagePage) && forward)) return { do: 'ask', about: words }
   }
   if (forward) return { do: 'click', button: forward.raw }
   return { do: 'ask', about: words }

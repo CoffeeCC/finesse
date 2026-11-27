@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => {
   const proxy: Record<string, object> = {}
   if (env.FINESSE_SERVER) {
     const target = env.FINESSE_SERVER.replace(/\/+$/, '')
-    proxy['^/finesse/(api|arr|previews|invite-api)(/|$)'] = { target, changeOrigin: true }
+    proxy['^/finesse/(api|arr|previews|invite-api)(/|$)'] = { target, changeOrigin: true, ws: true }
     // Only RomM/SteamGridDB APIs live under /finesse/games/{api,assets,sgdb};
     // /finesse/games and /finesse/games/store/* are SPA routes that must reload locally.
     proxy['^/finesse/games/(api|assets|sgdb)(/|$)'] = { target, changeOrigin: true }
