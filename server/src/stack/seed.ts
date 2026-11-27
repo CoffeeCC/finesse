@@ -163,7 +163,9 @@ Session\\Port=6881
 Session\\GlobalMaxRatio=2
 Session\\GlobalMaxSeedingMinutes=10080
 Session\\QueueingSystemEnabled=true
-${host.native ? `Session\\Interface=${QBIT_LOCKED}\nSession\\InterfaceName=${QBIT_LOCKED}\n` : ''}
+Session\\AnnounceToAllTrackers=true
+Session\\AnnounceToAllTiers=true
+${host.native ? `Session\\Interface=${QBIT_LOCKED}\nSession\\InterfaceName=${QBIT_LOCKED}\n` : 'Session\\InterfaceAddress=0.0.0.0\n'}
 [LegalNotice]
 Accepted=true
 

@@ -664,6 +664,53 @@ export async function bindQbit(url: string, adapter: string): Promise<boolean> {
   return Boolean(hit)
 }
 
+/**
+ * Docker (Gluetun): keeps qBittorrent bound to the live VPN tunnel interface
+ * (`tun0` / `wg0`) and IPv4 (`0.0.0.0`) so Docker bridge IPv6 ULAs or stale
+ * sockets after an OpenVPN/WireGuard reconnect can't wedge tracker announces
+ * (`skipping tracker announce (unreachable)`). Also syncs Gluetun's forwarded
+ * port and kicks a reannounce when the tunnel changes.
+ */
+export async function syncQbitTunnel(
+  url: string,
+  opts: { port?: number; reannounce?: boolean } = {},
+): Promise<{ changed: boolean; iface?: string; port?: number }> {
+  const [ifaces, prefs] = await Promise.all([
+    http<{ name: string; value: string }[]>('GET', `${url}/api/v2/app/networkInterfaceList`),
+    http<{
+      current_network_interface?: string
+      current_interface_address?: string
+      listen_port?: number
+      announce_to_all_trackers?: boolean
+      announce_to_all_tiers?: boolean
+    }>('GET', `${url}/api/v2/app/preferences`),
+  ])
+  const tunnel =
+    ifaces.find((i) => /^(tun|wg)\d*$/i.test(i.value) || /^(tun|wg)\d*$/i.test(i.name)) ??
+    ifaces.find((i) => /^(tun|wg)/i.test(i.value))
+  const patch: Record<string, unknown> = {}
+  if (tunnel && prefs.current_network_interface !== tunnel.value) {
+    patch.current_network_interface = tunnel.value
+    patch.current_interface_name = tunnel.name
+  }
+  if (prefs.current_interface_address !== '0.0.0.0') {
+    patch.current_interface_address = '0.0.0.0'
+  }
+  if (prefs.announce_to_all_trackers === false) patch.announce_to_all_trackers = true
+  if (prefs.announce_to_all_tiers === false) patch.announce_to_all_tiers = true
+  const port = opts.port && Number.isInteger(opts.port) && opts.port > 0 && opts.port <= 65535 ? opts.port : undefined
+  if (port && prefs.listen_port !== port) patch.listen_port = port
+
+  const changed = Object.keys(patch).length > 0
+  if (changed) {
+    await http('POST', `${url}/api/v2/app/setPreferences`, { form: { json: JSON.stringify(patch) } })
+  }
+  if (opts.reannounce || patch.current_network_interface || patch.current_interface_address || patch.listen_port) {
+    await http('POST', `${url}/api/v2/torrents/reannounce`, { form: { hashes: 'all' } }).catch(() => {})
+  }
+  return { changed, iface: tunnel?.value, port }
+}
+
 // ---------- RomM (Games) ----------
 
 /** RomM: make sure Finesse's own account exists and signs in. On a fresh RomM

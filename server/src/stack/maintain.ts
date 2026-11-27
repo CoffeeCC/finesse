@@ -23,7 +23,7 @@ import { applyPendingRestore, BACKUP_FILE, backupName, BIG_PARTS, copyDatabase, 
 import { CATALOG, containerName, orderServices, type StackContext, type StackServiceId } from './catalog.ts'
 import type { StackHost } from './host.ts'
 import { Orchestrator } from './orchestrator.ts'
-import { bindQbit } from './wire.ts'
+import { bindQbit, syncQbitTunnel } from './wire.ts'
 import { assignKey } from './graphics.ts'
 import { builtOf, GraphicsManager } from './graphicsManager.ts'
 
@@ -119,6 +119,7 @@ export class Maintainer {
   private ticking: Promise<SystemHealth> | null = null
   private working = false
   private vpnWasUp: boolean | null = null
+  private lastVpnIp: string | null = null
   private dockerWasUp: boolean | null = null
   /** Which graphics card each app uses (graphicsManager.ts). */
   readonly graphics: GraphicsManager
@@ -337,17 +338,31 @@ export class Maintainer {
     const url = s.services.gluetun?.url ?? 'http://gluetun:8000'
     const headers = key ? { 'X-API-Key': key } : undefined
     let vpn: VpnHealth
+    let forwardedPort: number | undefined
     try {
       const st = (await fetch(`${url}/v1/vpn/status`, { headers, signal: AbortSignal.timeout(5000) }).then((r) => r.json())) as { status?: string }
       if (st.status !== 'running') vpn = { connected: false, error: `The tunnel is ${st.status ?? 'down'}` }
       else {
         const ip = (await fetch(`${url}/v1/publicip/ip`, { headers, signal: AbortSignal.timeout(5000) }).then((r) => r.json())) as { public_ip?: string; country?: string; city?: string }
         vpn = ip.public_ip ? { connected: true, publicIp: ip.public_ip, country: ip.country, city: ip.city } : { connected: false, error: 'Connecting…' }
+        if (vpn.connected) {
+          const pf = (await fetch(`${url}/v1/portforward`, { headers, signal: AbortSignal.timeout(3000) })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)) as { port?: number } | null
+          if (pf?.port && pf.port > 0) forwardedPort = pf.port
+        }
       }
     } catch (e) {
       vpn = { connected: false, error: `The VPN container isn’t answering (${(e as Error).message})` }
     }
+    const reconnected = Boolean(vpn.connected && (this.vpnWasUp === false || (this.lastVpnIp && vpn.publicIp && vpn.publicIp !== this.lastVpnIp)))
+    if (vpn.connected && vpn.publicIp) this.lastVpnIp = vpn.publicIp
     this.vpnEvents(vpn)
+    const qbitUrl = s.services.qbittorrent?.url
+    if (vpn.connected && qbitUrl) {
+      const synced = await syncQbitTunnel(qbitUrl, { port: forwardedPort, reannounce: reconnected }).catch(() => null)
+      if (reconnected) this.event('info', `VPN reconnected${synced?.iface ? ` on ${synced.iface}` : ''} — refreshed qBittorrent tunnel & trackers`)
+    }
     return vpn
   }
 

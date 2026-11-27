@@ -18,7 +18,7 @@ import { downloadsFor, setupConsoles } from '../emuapi.ts'
 import type { StackHost } from '../stack/host.ts'
 import { newKey, seedArr, seedGluetunAuth, seedJellyfin, seedQbit, seedSab, seedTailscaleServe, type SeedHost } from '../stack/seed.ts'
 import { clearFinishedTcLog } from '../stack/games.ts'
-import { Arr, bindQbit, jellyfinScan, wireArr, wireJellyfin, wireLanguages, wireProwlarr, wireQbit, wireRomm, wireSab } from '../stack/wire.ts'
+import { Arr, bindQbit, jellyfinScan, syncQbitTunnel, wireArr, wireJellyfin, wireLanguages, wireProwlarr, wireQbit, wireRomm, wireSab } from '../stack/wire.ts'
 import { qualityProfiles, redact, servicesFor, vpnConfig, type SetupDoc } from './doc.ts'
 
 const log = logger('setup')
@@ -457,6 +457,7 @@ export class SetupRunner {
       }
       if (has('qbittorrent')) {
         await wireQbit(orch.url('qbittorrent'), { radarr: orch.appPath(ctx, 'torrents/movies'), 'tv-sonarr': orch.appPath(ctx, 'torrents/tv'), lidarr: orch.appPath(ctx, 'torrents/music') }, say)
+        if (has('gluetun')) await syncQbitTunnel(orch.url('qbittorrent')).catch(() => {})
       }
       const apiOf: Record<string, 'v1' | 'v3'> = { sonarr: 'v3', radarr: 'v3', lidarr: 'v1', prowlarr: 'v1' }
       const roots: Record<string, string> = { sonarr: orch.appPath(ctx, 'media/tv'), radarr: orch.appPath(ctx, 'media/movies'), lidarr: orch.appPath(ctx, 'media/music') }
