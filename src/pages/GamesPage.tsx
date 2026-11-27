@@ -516,7 +516,7 @@ function GamesLibrary({ top }: { top: React.ReactNode }) {
       )}
 
       {/* Platform filter */}
-      <div className="mb-6 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+      <div className="-mx-2 -my-1 mb-6 flex items-center gap-2 overflow-x-auto no-scrollbar px-2 py-1.5">
         <Chip active={platformId === undefined} onClick={() => setPlatformId(undefined)}>
           All
         </Chip>

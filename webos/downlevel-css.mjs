@@ -357,9 +357,8 @@ export function downlevelCss(css) {
     '.aurora>div{filter:none!important;animation:none!important;will-change:auto!important}' +
     '.kenburns,.slowzoom,.ambient-breathe,.shimmer{animation:none!important}' +
     '.reveal{opacity:1!important;transform:none!important;transition:none!important}' +
-    // Card focus/hover gets a composited pop (transform+opacity only = cheap).
-    '.tilt{transition:transform .1s ease-out!important;will-change:auto!important}' +
-    '.group:focus .tilt,.group:hover .tilt{transform:scale(1.05)}' +
+    // Card focus/hover gets a composited pop (transform only = cheap).
+    '.tilt{transition:transform .12s ease-out!important;will-change:auto!important}' +
     '.tilt-glare{display:none!important}' +
     '*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}' +
     '.blur-3xl{display:none!important}' +
@@ -367,20 +366,26 @@ export function downlevelCss(css) {
     // Hide the flaky webOS system pointer everywhere — TvPointer draws our own,
     // so there's never a double cursor or a missing one.
     '*{cursor:none!important}' +
-    // Shadows (including Tailwind rings — they're box-shadows) cost real paint
-    // time on scroll for hundreds of rounded cards; the accent outline replaces
-    // them as the edge/highlight. contain limits repaint scope per card.
-    '.tilt{box-shadow:none!important;contain:layout paint}' +
+    // Strip heavy blurred shadows on unfocused cards for smooth scroll perf.
+    // Use `contain:layout` (NOT `paint`) so the crisp outer focus box-shadow
+    // around rounded posters isn't clipped at the card edges.
+    '.tilt{box-shadow:none!important;contain:layout}' +
     '[class*="shadow-"]{box-shadow:none!important}' +
-    // 12. Ten-foot clarity: desktop hover/focus cues are far too subtle on a TV.
-    //     Bold accent outline for BOTH input modes — D-pad focus and the Magic
-    //     Remote / air-mouse pointer hover — so you can always see where you are.
-    //     Card links (.group) are excluded — outlining BOTH the anchor (which
-    //     includes the title text below the poster) and the .tilt poster inside
-    //     drew a doubled glow bleeding past the card. Cards glow via .tilt only.
-    'a:focus:not(.group),button:focus,select:focus,input:focus,[tabindex]:focus{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
-    'a:hover:not(.group),button:hover{outline:3px solid var(--color-accent-400,#7a8fd8)!important;outline-offset:2px!important}' +
-    '.group:hover .tilt,.group:focus .tilt{outline:3px solid var(--color-accent-400,#7a8fd8);outline-offset:2px}'
+    // 12. Ten-foot clarity on Chromium 68–87 (webOS): CSS `outline` does NOT follow
+    //     `border-radius` before Chromium 94 — it drew harsh square boxes around
+    //     every rounded pill, circular button, and poster. A zero-blur double-ring
+    //     `box-shadow` on the single focused element is cheap AND follows every
+    //     border-radius cleanly.
+    //     Card anchors (.group, group/*) NEVER get a ring themselves (outlining the
+    //     anchor + .tilt drew two boxes: one around the poster and one around the
+    //     title text). Hover rings only show when not in D-pad spatial mode so a
+    //     parked Magic Remote pointer never draws a second cursor.
+    'a:focus,button:focus,select:focus,input:focus,textarea:focus,[tabindex]:focus{outline:none!important}' +
+    'a.group:focus,a.group:hover,a[class*="group/"]:focus,a[class*="group/"]:hover{outline:none!important;box-shadow:none!important}' +
+    'a:focus:not(.group):not([class*="group/"]):not(.own-focus),button:focus:not(.own-focus):not(.os-tile),select:focus,input:focus:not(.search-field),textarea:focus,[tabindex]:focus:not(.own-focus):not(.group):not([class*="group/"]){box-shadow:0 0 0 2px #08090e,0 0 0 5px var(--color-accent-400,#7a8fd8)!important}' +
+    'html:not([data-nav-mode="spatial"]) a:hover:not(.group):not([class*="group/"]):not(.own-focus),html:not([data-nav-mode="spatial"]) button:hover:not(.own-focus):not(.os-tile){box-shadow:0 0 0 2px #08090e,0 0 0 5px var(--color-accent-400,#7a8fd8)!important}' +
+    '.group:focus .tilt,html:not([data-nav-mode="spatial"]) .group:hover .tilt{transform:scale(1.04);box-shadow:0 0 0 2px #08090e,0 0 0 5px var(--color-accent-400,#7a8fd8)!important}' +
+    '.group\\/cast:focus>div,html:not([data-nav-mode="spatial"]) .group\\/cast:hover>div{transform:scale(1.05);box-shadow:0 0 0 2px #08090e,0 0 0 5px var(--color-accent-400,#7a8fd8)!important}'
 
   // 12. lightningcss lowers what it can (logical props, prefixes) and
   //    re-parses everything — our safety net against bad surgery above.

@@ -76,3 +76,15 @@ test('space-y-* no longer overrides a child’s own top or bottom margin', async
   // No unqualified space-y rule is left to beat a child's mb-*.
   assert.doesNotMatch(out, /space-y-4>:not\(:last-child\)\{/)
 })
+
+test('TV focus rings use rounded box-shadow instead of square outline and never double-ring .group cards', async () => {
+  const { downlevelCss } = await load()
+  const out = downlevelCss('@layer base{:where(a:not(.group):not([class*="group/"]),button):focus-visible{outline:2px solid #7589d8}}')
+  // Explicitly kills outline on focused controls (Chromium 68 ignores border-radius on outline).
+  assert.match(out, /a:focus,button:focus,[^{]*\{outline:none!important\}/)
+  // .group card links never get their own ring (only .tilt inside them does).
+  assert.match(out, /a\.group:focus,[^{]*\{box-shadow:none!important;outline:none!important\}/)
+  assert.match(out, /\.group:focus \.tilt,[^{]*\{transform:scale\(1\.04\);box-shadow:0 0 0 2px #08090e,0 0 0 5px var\(--color-accent-400,#7a8fd8\)!important\}/)
+  // Hover rings only apply outside spatial D-pad mode so a parked pointer never draws a second ring.
+  assert.match(out, /html:not\(\[data-nav-mode=spatial\]\) \.group:hover \.tilt/)
+})

@@ -88,22 +88,26 @@ export function invalidateNavCache() {
 }
 
 // Scrolling invalidates the cache once it settles, not on every scroll event: each D-pad
-// press scrolls the page itself (scrollIntoView), which used to throw the cache away before
-// the next press could use it. Cards that mount on scroll render a frame or more later anyway.
-const SCROLL_SETTLE_MS = 120
+// press scrolls the page itself, which used to throw the cache away before the next press
+// could use it. Keep the settle short so virtualized thumbnail grids see newly mounted rows.
+const SCROLL_SETTLE_MS = 40
 let scrollSettle = 0
 function invalidateAfterScroll() {
   window.clearTimeout(scrollSettle)
   scrollSettle = window.setTimeout(invalidateNavCache, SCROLL_SETTLE_MS)
 }
 
-function candidates(): HTMLElement[] {
-  if (__WEBOS__ && cachedEls && performance.now() - cachedAt < 400) {
+let lastCandidatesFromCache = false
+
+function candidates(forceFresh = false): HTMLElement[] {
+  if (!forceFresh && __WEBOS__ && cachedEls && performance.now() - cachedAt < 150) {
+    lastCandidatesFromCache = true
     // A card unmounted since (a row re-rendered): never a target.
     if (cachedEls.every((el) => el.isConnected)) return cachedEls
     cachedEls = cachedEls.filter((el) => el.isConnected)
     return cachedEls
   }
+  lastCandidatesFromCache = false
   const els = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisible)
   if (__WEBOS__) {
     cachedEls = els
@@ -298,9 +302,54 @@ function nearLastFocus(els: HTMLElement[]): HTMLElement | null {
   return best
 }
 
-/** Keep a newly focused element clear of the fixed navbar / pinned panels and
- *  off the very bottom edge, so it and its focus ring are fully on screen. */
-function keepClear(el: HTMLElement) {
+/** Scroll a newly focused element comfortably into view in ONE pass — no
+ *  scrollIntoView + keepClear double-snap. Handles both its horizontal row
+ *  scroller (with ring breathing room) and the vertical window (clearing any
+ *  fixed navbar / pinned hero panel). */
+function scrollIntoComfort(el: HTMLElement) {
+  const behavior = scrollBehavior()
+  // 1. Horizontal scroller (if inside a row / pill strip): nudge only scrollLeft.
+  const scroller = scrollerOf(el)
+  if (scroller && scroller.scrollWidth > scroller.clientWidth + 1) {
+    const sr = scroller.getBoundingClientRect()
+    const er = el.getBoundingClientRect()
+    const padX = 28
+    let dx = 0
+    if (er.left < sr.left + padX) {
+      dx = er.left - (sr.left + padX)
+    } else if (er.right > sr.right - padX) {
+      dx = er.right - (sr.right - padX)
+    }
+    if (Math.abs(dx) > 1) {
+      const targetLeft = Math.max(0, scroller.scrollLeft + dx)
+      if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ left: targetLeft, behavior })
+      else scroller.scrollLeft = targetLeft
+    }
+  }
+
+  // 2. Vertical scroll: if inside an inner vertical scroller (modals, QuickMenu),
+  //    scroll that container; otherwise scroll the window in one single pass.
+  let vScroller: HTMLElement | null = el.parentElement
+  while (vScroller && vScroller !== document.body && vScroller !== document.documentElement) {
+    const oy = getComputedStyle(vScroller).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && vScroller.scrollHeight > vScroller.clientHeight + 1) break
+    vScroller = vScroller.parentElement
+  }
+  if (vScroller && vScroller !== document.body && vScroller !== document.documentElement) {
+    const sr = vScroller.getBoundingClientRect()
+    const er = el.getBoundingClientRect()
+    const padY = 24
+    let dy = 0
+    if (er.top < sr.top + padY) dy = er.top - (sr.top + padY)
+    else if (er.bottom > sr.bottom - padY) dy = er.bottom - (sr.bottom - padY)
+    if (Math.abs(dy) > 1) {
+      const targetTop = Math.max(0, vScroller.scrollTop + dy)
+      if (typeof vScroller.scrollTo === 'function') vScroller.scrollTo({ top: targetTop, behavior })
+      else vScroller.scrollTop = targetTop
+    }
+    return
+  }
+
   if (el.closest('header')) return
   let top = Number(document.documentElement.dataset.reserveTop || 0)
   const header = document.querySelector('header')
@@ -311,11 +360,33 @@ function keepClear(el: HTMLElement) {
   const r = el.getBoundingClientRect()
   const k = screenPerRectPx()
   const viewH = window.innerHeight / k
-  const margin = 24
+  const margin = 28
+  let dy = 0
   if (r.top < top + margin) {
-    window.scrollBy({ top: (r.top - top - margin) * k, behavior: 'auto' })
+    dy = (r.top - top - margin) * k
   } else if (r.bottom > viewH - margin && r.height < viewH - top - 2 * margin) {
-    window.scrollBy({ top: (r.bottom - viewH + margin * 2) * k, behavior: 'auto' })
+    dy = (r.bottom - viewH + margin) * k
+  } else if (r.bottom > viewH) {
+    dy = (r.top - top - margin) * k
+  }
+  if (Math.abs(dy) > 1) {
+    window.scrollBy({ top: dy, behavior })
+  }
+}
+
+/** True when `candidate` actually lies in `dir` relative to `from`. */
+function isInDirection(from: HTMLElement, candidate: HTMLElement, dir: Dir): boolean {
+  const a = rectOf(from)
+  const b = rectOf(candidate)
+  const ax = a.left + a.width / 2
+  const ay = a.top + a.height / 2
+  const bx = b.left + b.width / 2
+  const by = b.top + b.height / 2
+  switch (dir) {
+    case 'right': return bx > ax + 1
+    case 'left': return bx < ax - 1
+    case 'down': return by > ay + 1
+    case 'up': return by < ay - 1
   }
 }
 
@@ -452,18 +523,31 @@ function navigate(e: KeyboardEvent) {
       (primary && els.includes(primary) ? primary : null) ??
       els.find((el) => main?.contains(el)) ??
       els[0]
-  } else if (lastMove && lastMove.to === from && lastMove.dir === OPPOSITE[dir] && els.includes(lastMove.from)) {
+  } else if (
+    lastMove &&
+    lastMove.to === from &&
+    lastMove.dir === OPPOSITE[dir] &&
+    els.includes(lastMove.from) &&
+    isInDirection(from, lastMove.from, dir)
+  ) {
     next = lastMove.from
   } else {
     next = pick(from, dir, els)
+    // In virtualized thumbnail grids, newly mounted rows may not be in the cached
+    // candidate list yet: refresh once before falling back to a blind page scroll.
+    if (!next && lastCandidatesFromCache) {
+      const fresh = candidates(true)
+      next = pick(from, dir, fresh)
+    }
     if (next) next = preferSelectedTab(next, from)
   }
 
   if (!next) {
-    // No focusable target this way. For up/down, nudge-scroll so off-screen rows
-    // (which lazy-load / reveal on scroll) come in and become reachable next press.
+    // No focusable target this way. For up/down, gently nudge-scroll so off-screen
+    // virtualized rows mount and become reachable on the next press without a huge jump.
     if (dir === 'up' || dir === 'down') {
-      window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: scrollBehavior() })
+      window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.38, behavior: scrollBehavior() })
+      invalidateNavCache()
       e.preventDefault()
     }
     return
@@ -471,10 +555,7 @@ function navigate(e: KeyboardEvent) {
 
   e.preventDefault()
   next.focus({ preventScroll: true })
-  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: scrollBehavior() })
-  // A pinned panel (the TV home's focus-driven hero, via data-reserve-top) or
-  // the fixed navbar can cover the top of the screen: keep the focus below it.
-  keepClear(next)
+  scrollIntoComfort(next)
   lastMove = from ? { from, to: next, dir } : null
   rememberFocus(next)
   // Physical depth: CSS leans the newly focused card toward the direction of travel.
@@ -615,12 +696,12 @@ function jump(dir: 'up' | 'down') {
     }
   }
   if (!next) {
-    window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.7, behavior: scrollBehavior() })
+    window.scrollBy({ top: (dir === 'down' ? 1 : -1) * window.innerHeight * 0.55, behavior: scrollBehavior() })
+    invalidateNavCache()
     return
   }
   next.focus({ preventScroll: true })
-  next.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: scrollBehavior() })
-  keepClear(next)
+  scrollIntoComfort(next)
   lastMove = null
   rememberFocus(next)
   document.documentElement.dataset.navDir = dir

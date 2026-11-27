@@ -65,7 +65,7 @@ const AppTile = memo(function AppTile({ app, onOpen, cover, onHide }: { app: Str
 
 function Row({ apps, onOpen, cover, onHide }: { apps: StreamApp[]; onOpen: (app: StreamApp) => void; cover?: boolean; onHide?: (app: StreamApp) => void }) {
   return (
-    <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+    <div className="-mx-2 -mt-2 flex gap-4 overflow-x-auto no-scrollbar px-2 pt-2 pb-3">
       {apps.map((a) => (
         <AppTile key={a.id} app={a} onOpen={onOpen} cover={cover} onHide={onHide} />
       ))}

@@ -234,7 +234,7 @@ export default function GameDetailPage() {
         {screenshots.length > 0 && (
           <section className="mt-8">
             <h2 className="row-title mb-3 text-white">Screenshots</h2>
-            <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 snap-x snap-proximity">
+            <div className="-mx-2 -mt-2 flex gap-3 overflow-x-auto no-scrollbar px-2 pt-2 pb-3 snap-x snap-proximity">
               {screenshots.map((url, idx) => (
                 <img
                   key={`${url}-${idx}`}

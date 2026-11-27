@@ -152,7 +152,7 @@ export function useRevealOnce<T extends HTMLElement>() {
 }
 
 export const ROW_SCROLLER =
-  'flex gap-3 sm:gap-4 overflow-x-auto no-scrollbar px-4 sm:px-6 lg:px-12 pb-2 scroll-smooth snap-x snap-proximity scroll-px-4 sm:scroll-px-6 lg:scroll-px-12 overscroll-x-contain'
+  'flex gap-3 sm:gap-4 overflow-x-auto no-scrollbar -mt-2 px-4 sm:px-6 lg:px-12 pt-2 pb-3 scroll-smooth snap-x snap-proximity scroll-px-4 sm:scroll-px-6 lg:scroll-px-12 overscroll-x-contain'
 
 export default function MediaRow({
   title,

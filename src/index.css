@@ -44,7 +44,7 @@ html {
 /* Zero-specificity (:where) so component classes like .outline-none on media
    cards keep their own inner ring; everything else gets a clear accent outline
    when reached by D-pad/arrow navigation (only shows for keyboard focus). */
-:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+:where(a:not(.group):not([class*="group/"]), button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
 }
@@ -54,7 +54,7 @@ html {
    the same ring for plain :focus so focused cards are always obvious. */
 /* Cards (.group links) are excluded: they glow via their poster ring, and an
    outline around the whole link (poster + title) doubled it up. */
-html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):focus {
+html[data-nav-mode="spatial"] :where(a:not(.group):not([class*="group/"]), button, input, select, textarea, [tabindex]):focus {
   outline: 2px solid var(--color-accent-400);
   outline-offset: 2px;
 }
@@ -62,7 +62,7 @@ html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, texta
 /* Cards ring their art (.tilt) on :focus-visible (MediaCard, the games grid). A game
    controller moves focus from script, and once the page has been tapped or clicked
    Chrome no longer counts that as :focus-visible, so under the D-pad the ring showed
-   for nothing: plain :focus draws it too. The TV sheet outlines .tilt itself. */
+   for nothing: plain :focus draws it too. The TV sheet rings .tilt itself. */
 html[data-nav-mode="spatial"]:not(.tv) .group:focus .tilt {
   box-shadow: 0 0 0 3px var(--color-accent-400), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
 }
@@ -74,12 +74,12 @@ html[data-nav-mode="spatial"]:not(.tv) .group:focus .tilt {
    skips controls with their own ring or shadow. Written with :not() rather than
    relying on layers/zero specificity, so the TV sheet (layers unwrapped, :where()
    expanded by webos/downlevel-css.mjs) behaves the same. */
-:where(a, button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus-visible,
-html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus {
+:where(a:not(.group):not([class*="group/"]), button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group):not([class*="group/"]), button, input, select, textarea, [tabindex]):not([class*="rounded"]):focus {
   border-radius: 8px;
 }
-:where(a, button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus-visible,
-html[data-nav-mode="spatial"] :where(a:not(.group), button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus {
+:where(a:not(.group):not([class*="group/"]), button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus-visible,
+html[data-nav-mode="spatial"] :where(a:not(.group):not([class*="group/"]), button, input, select, textarea, [tabindex]):not([class*="ring"]):not([class*="shadow"]):focus {
   box-shadow: 0 0 0 2px var(--color-ink-950);
 }
 
@@ -1398,28 +1398,37 @@ html.tv .os-btn > * + * { margin-left: 10px; }
 html.tv .os-prog { width: 460px; }
 html.tv .os-kicker > * + * { margin-left: 12px; }
 html.tv .os-tile .cap small > * + * { margin-left: 6px; }
-html.tv .os-rail { padding-bottom: 30px; margin-bottom: 0; }
+html.tv .os-rail { padding: 18px var(--os-pad) 26px; margin-bottom: 0; }
 html.tv .os-rail > * + * { margin-left: 24px; }
 html.tv .os-tile {
-  width: 330px;
-  height: 186px;
-  transition: none;
+  width: 300px;
+  height: 169px;
+  transition: transform 0.14s ease-out;
   box-shadow: none;
   -webkit-box-reflect: none;
-  opacity: 0.8;
+  opacity: 0.78;
   filter: none;
 }
-html.tv .os-tile.on { width: 400px; height: 225px; opacity: 1; box-shadow: none; }
-html.tv .os-tile:focus,
-html.tv .os-tile.on { outline: 4px solid #f5f3ee !important; outline-offset: 4px !important; }
+/* Scale instead of resizing width/height so moving left/right never reflows or jumps the rail;
+   zero-blur box-shadow follows border-radius cleanly on Chromium 68 (unlike outline). */
+html.tv .os-tile.on {
+  z-index: 2;
+  opacity: 1;
+  transform: scale(1.06);
+  outline: none !important;
+  box-shadow: 0 0 0 3px #08090e, 0 0 0 6px #f5f3ee !important;
+}
+html.tv .os-tile:focus {
+  z-index: 2;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #08090e, 0 0 0 6px #f5f3ee !important;
+}
 html.tv .os-tile .art { transition: none; }
 html.tv .os-tile.on .art { transform: none; }
 html.tv .os-tile .art.soft { filter: brightness(0.45) saturate(1.2); }
-html.tv .os-tile .cover { width: 162px; height: 162px; }
-html.tv .os-tile.on .cover { width: 201px; height: 201px; }
+html.tv .os-tile .cover { width: 145px; height: 145px; }
 html.tv .os-tile .cap > * + * { margin-top: 6px; }
-html.tv .os-tile .tgen .tsun { width: 145px; height: 145px; }
-html.tv .os-tile.on .tgen .tsun { width: 176px; height: 176px; }
+html.tv .os-tile .tgen .tsun { width: 132px; height: 132px; }
 html.tv .os-tile .tgen .tfloor { animation: none; }
 html.tv .os-tile .badge { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(8, 9, 14, 0.75); }
 html.tv .os-live > * + * { margin-left: 14px; }
@@ -1444,9 +1453,3 @@ html.tv .os-title.long { font-size: 50px; }
 html.tv .os-actions { margin-top: 24px; }
 html.tv .os-prog-at { margin-top: 20px; }
 html.tv .os-rail-at { margin-top: 28px; padding-top: 14px; }
-html.tv .os-tile { width: 300px; height: 169px; }
-html.tv .os-tile.on { width: 364px; height: 205px; }
-html.tv .os-tile .cover { width: 145px; height: 145px; }
-html.tv .os-tile.on .cover { width: 181px; height: 181px; }
-html.tv .os-tile .tgen .tsun { width: 132px; height: 132px; }
-html.tv .os-tile.on .tgen .tsun { width: 160px; height: 160px; }

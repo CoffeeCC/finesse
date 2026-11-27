@@ -172,7 +172,7 @@ export default function GameStorePage() {
 
           {/* Quick horizontal genre / platform / mode filter strip */}
           {facets.data && (facets.data.platforms.length > 0 || facets.data.modes.length > 0 || facets.data.genres.length > 0) && (
-            <div className="mb-8 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1" role="group" aria-label="Quick filters">
+            <div className="-mx-2 -my-1 mb-8 flex items-center gap-2 overflow-x-auto no-scrollbar px-2 py-1.5" role="group" aria-label="Quick filters">
               <QuickChip active={quickFilter === null} onClick={() => setQuickFilter(null)}>
                 All shelves
               </QuickChip>

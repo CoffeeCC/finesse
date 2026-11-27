@@ -571,7 +571,7 @@ export default function RetroStorePage() {
 
       {/* Horizontal Console Filter Strip */}
       {data && data.consoles.length > 0 && (
-        <div className="mb-6 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1" role="region" aria-label="Filter by console">
+        <div className="-mx-2 -my-1 mb-6 flex items-center gap-2 overflow-x-auto no-scrollbar px-2 py-1.5" role="region" aria-label="Filter by console">
           <button
             type="button"
             onClick={() => setConsole(undefined)}

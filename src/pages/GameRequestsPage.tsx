@@ -90,7 +90,7 @@ export default function GameRequestsPage() {
         <>
           {/* Filter tabs + live speed/count summary */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5" role="tablist" aria-label="Filter requests">
+            <div className="-mx-2 -my-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-1.5" role="tablist" aria-label="Filter requests">
               {tabs.map((t) => {
                 const on = tab === t.id
                 return (

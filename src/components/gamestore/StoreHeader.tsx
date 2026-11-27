@@ -61,7 +61,7 @@ export function StoreHeader({ title = 'Game store', extra }: { title?: string; e
       </div>
 
       {tabs.length > 1 && (
-        <nav className="mt-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5" aria-label="Games navigation">
+        <nav className="-mx-2 mt-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-1.5" aria-label="Games navigation">
           {tabs.map((t) => (
             <Link
               key={t.to}

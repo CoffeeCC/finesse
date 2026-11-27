@@ -283,7 +283,7 @@ function Seasons({ series }: { series: JfItem }) {
 
   return (
     <section>
-      <div className="flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar">
+      <div className="-mx-2 -my-1.5 flex items-center gap-2 mb-4 overflow-x-auto no-scrollbar px-2 py-1.5">
         {seasons.Items.map((s) => (
           <button
             key={s.Id}
@@ -413,7 +413,7 @@ function DetailsTab({ item, cast, showPath }: { item: JfItem; cast: NonNullable<
       {cast.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wider text-ink-400 mb-4">Cast</h3>
-          <div className="flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar pb-2 snap-x snap-proximity">
+          <div className="-mx-2 -mt-2 flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar px-2 pt-2 pb-3 snap-x snap-proximity">
             {cast.map((p) => (
               <Link
                 key={p.Id}
@@ -884,7 +884,7 @@ export default function ItemPage() {
 
       {tabs.length > 0 && (
         <section className="px-4 sm:px-6 lg:px-12 mt-8">
-          <div role="tablist" aria-label="Sections" className="flex gap-6 sm:gap-8 border-b border-white/10 overflow-x-auto no-scrollbar">
+          <div role="tablist" aria-label="Sections" className="-mx-2 flex gap-6 sm:gap-8 border-b border-white/10 overflow-x-auto no-scrollbar px-2 pt-1.5 pb-0.5">
             {tabs.map((t) => (
               <button
                 key={t}

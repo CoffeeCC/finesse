@@ -15,6 +15,10 @@ export default function TvPointer() {
     if (!el) return
     let hideTimer = 0
     let visible = false
+    // Ignore tiny Magic Remote hand-shake / table vibrations after D-pad use so
+    // the pointer (and hover state) doesn't flicker back on while navigating by D-pad.
+    let anchorX: number | null = null
+    let anchorY: number | null = null
 
     const show = () => {
       if (!visible) {
@@ -27,8 +31,20 @@ export default function TvPointer() {
     const hide = () => {
       el.style.opacity = '0'
       visible = false
+      anchorX = null
+      anchorY = null
     }
     const move = (e: MouseEvent) => {
+      if (!visible) {
+        if (anchorX === null || anchorY === null) {
+          anchorX = e.clientX
+          anchorY = e.clientY
+          return
+        }
+        if (Math.hypot(e.clientX - anchorX, e.clientY - anchorY) < 12) return
+        // Deliberate pointer move: exit spatial-nav mode so Magic Remote hover rings work.
+        delete document.documentElement.dataset.navMode
+      }
       // The whole app is zoomed (uiScale, default 1.3 on TV) via `zoom` on <html>.
       // This element lives inside that zoomed layout, so its translate is scaled
       // by the same factor — divide the pointer coords back out or the ring lands
