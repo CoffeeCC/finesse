@@ -47,7 +47,8 @@ export function silentCommand(file: string, s: Sniffed, host: 'linux' | 'windows
 
 /** The command for a run with its windows, to be clicked through. */
 export function shownCommand(file: string, s: Sniffed): string[] {
-  if (s.kind === 'inno') return [file, '/NORESTART', '/SP-', '/DIR=<dir>', '/LOG=<log>']
+  // /NOICONS skips the Start Menu Folder page and avoids Start Menu writes in Wine.
+  if (s.kind === 'inno') return [file, '/NORESTART', '/SP-', '/NOICONS', '/DIR=<dir>', '/LOG=<log>']
   if (s.kind === 'nsis') return [file, '/D=<dir>']
   if (s.kind === 'msi' && !s.format.startsWith('WiX')) return ['msiexec', '/i', file, '/norestart', 'INSTALLDIR=<dir>', 'TARGETDIR=<dir>', '/l*', '<log>']
   return [file]
@@ -74,6 +75,10 @@ const WRONG = /\b(error|failed|failure|cannot|can(?:'|’)t|could(?: not|n(?:'|�
 const RESTART = /\b(restart|reboot)\b.*\b(computer|now|windows|system)\b/i
 /** The licence is a radio ("I accept the agreement") sitting next to Next, which does nothing until it's pressed. */
 const ACCEPT = /^(i agree|i accept|accept|agree)\b/
+/** Windows that genuinely require a human to type credentials, keys, or personal details. */
+const NEEDS_HUMAN_INPUT = /\b(serial|product key|licen[cs]e key|cd[- ]?key|activation|registration|password|passphrase|e-?mail|account|log\s?in|sign in|user\s?name|player name|enter your)\b/i
+/** Standard wizard pages that carry a pre-filled default input or checkbox (language, folder, components, tasks, welcome, finish). */
+const SAFE_WIZARD_INPUT = /\b(destination|install(?:ation)? (?:folder|location|directory)|where should .* be installed|start menu|shortcuts?|setup language|installer language|select (?:the )?language|(?:select|choose) components|which components should be installed|additional tasks|desktop (?:icon|shortcut)|limit installer to|welcome to|information|readme|ready to install|completing|installation complete|has been installed|successfully installed)\b/i
 
 /** A window's words in one line, for a person. */
 export function windowWords(w: WindowInfo): string {
@@ -98,13 +103,13 @@ export function answerWindow(w: WindowInfo, kind?: InstallerKind): WindowAnswer 
   }
   // Accept the licence before Next: Next stays disabled, or refuses, until that choice is made.
   if (accept) return { do: 'click', button: accept.raw }
-  // Something to type or choose. Exceptions where the pre-selected default is already right:
-  //   • install folder page (the folder was already passed on the command line)
-  //   • setup language dialog (Inno Setup / NSIS default to English)
+  // Something to type or choose. Never guess keys/logins/custom text, but standard wizard pages
+  // with pre-filled defaults (language, folder, Start Menu, components, tasks, welcome, finish)
+  // can advance automatically so manual VNC clicks are strictly a fallback.
   if (w.wantsInput) {
-    const folderPage = kind !== undefined && /\b(destination|install(?:ation)? (?:folder|location|directory)|where should .* be installed)\b/i.test(w.text)
-    const languagePage = /\b(setup language|installer language|select (?:the )?language)\b/i.test(`${w.title} ${w.text}`)
-    if (!((folderPage || languagePage) && forward)) return { do: 'ask', about: words }
+    const combined = `${w.title} ${w.text}`
+    const safeDefault = !NEEDS_HUMAN_INPUT.test(combined) && (SAFE_WIZARD_INPUT.test(combined) || (kind !== undefined && forward?.l === 'finish'))
+    if (!(safeDefault && forward)) return { do: 'ask', about: words }
   }
   if (forward) return { do: 'click', button: forward.raw }
   return { do: 'ask', about: words }
